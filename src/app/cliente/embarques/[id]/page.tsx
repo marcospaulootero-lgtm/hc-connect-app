@@ -71,7 +71,7 @@ export default function DetalheCliente() {
 
   return (
     <main className="min-h-screen bg-[#020817] text-white">
-      <Header area="cliente" />
+      <Header />
 
       <div className="max-w-7xl mx-auto p-8">
 
