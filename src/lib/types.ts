@@ -1,0 +1,7 @@
+export type Perfil = { id: string; nome: string; email: string; tipo_usuario: 'admin' | 'cliente'; empresa_id: string | null; ativo: boolean }
+export type Empresa = { id: string; razao_social: string; nome_fantasia: string | null; cnpj: string | null; contato_principal: string | null; email_principal: string; telefone: string | null; ativo: boolean }
+export type Embarque = { id: string; empresa_id: string; awb: string; transportadora: string; servico: string; origem: string; destino: string; peso_real: number | null; peso_taxado: number | null; status_operacional: string; previsao_entrega: string | null; ultima_atualizacao: string; observacao_cliente: string | null; visivel_cliente: boolean; empresas?: Empresa }
+export type TimelineItem = { id: string; embarque_id: string; status: string; descricao: string | null; data_hora: string }
+export type Fatura = { id: string; embarque_id: string; numero_fatura: string; valor: number; moeda: string; vencimento: string | null; data_pagamento: string | null; status_financeiro: string; arquivo_pdf: string | null; visivel_cliente: boolean; embarques?: Embarque }
+export type Documento = { id: string; embarque_id: string; tipo_documento: string; nome_arquivo: string; arquivo_url: string; visivel_cliente: boolean; criado_em: string }
+export type Suporte = { id: string; empresa_id: string; embarque_id: string | null; usuario_id: string | null; assunto: string; mensagem: string; status: string; criado_em: string; respondido_em: string | null; empresas?: Empresa; embarques?: Embarque }
