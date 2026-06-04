@@ -18,11 +18,20 @@ export default function ClientesPage() {
     email_acesso: '',
     senha_acesso: '',
     tipo_acesso: 'cliente',
+    codigo_vinculo: '',
   })
 
   useEffect(() => {
     carregar()
   }, [])
+
+  function gerarCodigo(texto: string) {
+    return texto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+  }
 
   async function carregar() {
     const { data } = await supabase
@@ -44,6 +53,7 @@ export default function ClientesPage() {
       email_acesso: '',
       senha_acesso: '',
       tipo_acesso: 'cliente',
+      codigo_vinculo: '',
     })
 
     setEditandoId(null)
@@ -52,6 +62,19 @@ export default function ClientesPage() {
   function gerarSenha() {
     const senha = `HC${Math.floor(100000 + Math.random() * 900000)}`
     setForm({ ...form, senha_acesso: senha })
+  }
+
+  function preencherCodigoAutomatico() {
+    const base = form.nome_fantasia || form.razao_social
+    if (!base) {
+      alert('Informe razão social ou nome fantasia primeiro')
+      return
+    }
+
+    setForm({
+      ...form,
+      codigo_vinculo: gerarCodigo(base),
+    })
   }
 
   function editarCliente(cliente: any) {
@@ -67,6 +90,7 @@ export default function ClientesPage() {
       email_acesso: cliente.email_acesso || '',
       senha_acesso: '',
       tipo_acesso: cliente.tipo_acesso || 'cliente',
+      codigo_vinculo: cliente.codigo_vinculo || '',
     })
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -75,6 +99,11 @@ export default function ClientesPage() {
   async function salvar() {
     if (!form.razao_social || !form.email_principal) {
       alert('Informe razão social e e-mail principal')
+      return
+    }
+
+    if (!form.codigo_vinculo) {
+      alert('Informe ou gere o código de vínculo')
       return
     }
 
@@ -92,20 +121,29 @@ export default function ClientesPage() {
           telefone: form.telefone,
           email_acesso: form.email_acesso,
           tipo_acesso: form.tipo_acesso,
+          codigo_vinculo: form.codigo_vinculo,
         })
         .eq('id', editandoId)
-
-      setSalvando(false)
 
       if (error) {
         alert('Erro ao atualizar cliente')
         console.log(error)
+        setSalvando(false)
         return
       }
+
+      await supabase
+        .from('perfis')
+        .update({
+          codigo_vinculo: form.codigo_vinculo,
+          tipo_acesso: form.tipo_acesso,
+        })
+        .eq('empresa_id', editandoId)
 
       alert('Cliente atualizado com sucesso')
       limparFormulario()
       carregar()
+      setSalvando(false)
       return
     }
 
@@ -127,6 +165,7 @@ export default function ClientesPage() {
           telefone: form.telefone,
           email_acesso: form.email_acesso,
           tipo_acesso: form.tipo_acesso,
+          codigo_vinculo: form.codigo_vinculo,
         },
       ])
       .select()
@@ -149,27 +188,28 @@ export default function ClientesPage() {
         senha: form.senha_acesso,
         tipo_acesso: form.tipo_acesso,
         empresa_id: empresaCriada.id,
+        codigo_vinculo: form.codigo_vinculo,
         nome: form.contato_principal || form.razao_social,
       }),
     })
 
     const resultado = await resposta.json()
 
-    setSalvando(false)
-
     if (!resposta.ok) {
       alert(`Cliente salvo, mas erro ao criar login: ${resultado.erro}`)
       console.log(resultado)
       carregar()
+      setSalvando(false)
       return
     }
 
     alert(
-      `Cliente e acesso criados com sucesso!\n\nE-mail: ${form.email_acesso}\nSenha: ${form.senha_acesso}`
+      `Cliente e acesso criados com sucesso!\n\nE-mail: ${form.email_acesso}\nSenha: ${form.senha_acesso}\nCódigo vínculo: ${form.codigo_vinculo}`
     )
 
     limparFormulario()
     carregar()
+    setSalvando(false)
   }
 
   async function excluirCliente(cliente: any) {
@@ -198,17 +238,17 @@ export default function ClientesPage() {
     <main className="max-w-7xl mx-auto p-8 text-white">
       <div className="mb-8">
         <h1 className="text-5xl font-black mb-2">
-          Clientes
+          Clientes / Parceiros
         </h1>
 
         <p className="text-slate-400 text-lg">
-          Cadastre, edite e gerencie clientes do portal.
+          Cadastre parceiros, clientes e códigos de vínculo para acesso ao portal.
         </p>
       </div>
 
       <section className="card mb-8">
         <h2 className="text-2xl font-black mb-6">
-          {editandoId ? 'Editar cliente' : 'Cadastrar cliente'}
+          {editandoId ? 'Editar cliente/parceiro' : 'Cadastrar cliente/parceiro'}
         </h2>
 
         <div className="form-grid">
@@ -227,6 +267,21 @@ export default function ClientesPage() {
               setForm({ ...form, nome_fantasia: e.target.value })
             }
           />
+
+          <input
+            placeholder="Código de vínculo. Ex: SKYSEA"
+            value={form.codigo_vinculo}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                codigo_vinculo: gerarCodigo(e.target.value),
+              })
+            }
+          />
+
+          <button type="button" onClick={preencherCodigoAutomatico}>
+            Gerar código
+          </button>
 
           <input
             placeholder="CNPJ"
@@ -284,13 +339,8 @@ export default function ClientesPage() {
               setForm({ ...form, tipo_acesso: e.target.value })
             }
           >
-            <option value="cliente">
-              Cliente
-            </option>
-
-            <option value="admin">
-              Admin
-            </option>
+            <option value="cliente">Cliente / Parceiro</option>
+            <option value="admin">Admin HC</option>
           </select>
 
           {!editandoId && (
@@ -323,7 +373,7 @@ export default function ClientesPage() {
 
       <section className="card">
         <h2 className="text-2xl font-black mb-6">
-          Clientes cadastrados
+          Clientes / Parceiros cadastrados
         </h2>
 
         <div className="overflow-auto">
@@ -332,6 +382,7 @@ export default function ClientesPage() {
               <tr>
                 <th>Razão social</th>
                 <th>Nome fantasia</th>
+                <th>Código vínculo</th>
                 <th>CNPJ</th>
                 <th>Contato</th>
                 <th>E-mail</th>
@@ -346,6 +397,11 @@ export default function ClientesPage() {
                 <tr key={cliente.id}>
                   <td>{cliente.razao_social}</td>
                   <td>{cliente.nome_fantasia}</td>
+                  <td>
+                    <span className="px-3 py-1 rounded-full bg-purple-600 text-white text-sm font-bold">
+                      {cliente.codigo_vinculo || '-'}
+                    </span>
+                  </td>
                   <td>{cliente.cnpj}</td>
                   <td>{cliente.contato_principal}</td>
                   <td>{cliente.email_principal}</td>

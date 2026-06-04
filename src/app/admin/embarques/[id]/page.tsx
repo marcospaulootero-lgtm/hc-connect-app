@@ -11,6 +11,7 @@ export default function DetalheEmbarquePage() {
   const [embarque, setEmbarque] = useState<any>(null)
   const [timeline, setTimeline] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
+  const [atualizandoRastreio, setAtualizandoRastreio] = useState(false)
 
   const [novoStatus, setNovoStatus] = useState('')
   const [novaDescricao, setNovaDescricao] = useState('')
@@ -101,15 +102,69 @@ export default function DetalheEmbarquePage() {
     carregar()
   }
 
+  async function atualizarRastreio() {
+    if (!embarque) return
+
+    setAtualizandoRastreio(true)
+
+    const resposta = await fetch('/api/rastreio', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        awb: embarque.awb,
+        transportadora: embarque.transportadora,
+      }),
+    })
+
+    const dados = await resposta.json()
+
+    if (!resposta.ok) {
+      alert(dados.erro || 'Erro ao atualizar rastreio')
+      setAtualizandoRastreio(false)
+      return
+    }
+
+    await supabase
+      .from('embarques')
+      .update({
+        status_rastreio: dados.status,
+        localizacao_atual: dados.localizacao,
+        previsao_entrega: dados.previsao_entrega,
+        ultima_atualizacao_rastreio: new Date().toISOString(),
+        eventos_rastreio: dados.eventos,
+      })
+      .eq('id', embarque.id)
+
+    await supabase.from('timeline_embarques').insert({
+      embarque_id: embarque.id,
+      status: dados.status,
+      descricao: `${dados.localizacao} - Rastreamento atualizado automaticamente.`,
+    })
+
+    setAtualizandoRastreio(false)
+
+    await carregar()
+
+    alert('Rastreio atualizado com sucesso')
+  }
+
   if (!embarque) {
     return <main className="p-10 text-white">Carregando embarque...</main>
   }
 
   return (
     <main className="max-w-7xl mx-auto p-8 text-white">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold">AWB {embarque.awb}</h1>
-        <p className="text-slate-400 mt-2">Detalhes completos do embarque</p>
+      <div className="mb-8 flex items-start justify-between gap-6">
+        <div>
+          <h1 className="text-4xl font-bold">AWB {embarque.awb}</h1>
+          <p className="text-slate-400 mt-2">Detalhes completos do embarque</p>
+        </div>
+
+        <button onClick={atualizarRastreio} disabled={atualizandoRastreio}>
+          {atualizandoRastreio ? 'Atualizando...' : 'Atualizar rastreio'}
+        </button>
       </div>
 
       <section className="card mb-8">
@@ -117,8 +172,13 @@ export default function DetalheEmbarquePage() {
 
         <div className="form-grid">
           <div>
-            <strong className="text-slate-400">Cliente</strong>
+            <strong className="text-slate-400">Cliente/Parceiro</strong>
             <p>{embarque.empresas?.razao_social}</p>
+          </div>
+
+          <div>
+            <strong className="text-slate-400">Cliente final</strong>
+            <p>{embarque.cliente_final || '-'}</p>
           </div>
 
           <div>
@@ -136,6 +196,36 @@ export default function DetalheEmbarquePage() {
             <div className="mt-2">
               <StatusBadge status={embarque.status_operacional} />
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card mb-8">
+        <h2>Rastreio</h2>
+
+        <div className="form-grid">
+          <div>
+            <strong className="text-slate-400">Status rastreio</strong>
+            <p>{embarque.status_rastreio || 'Ainda não atualizado'}</p>
+          </div>
+
+          <div>
+            <strong className="text-slate-400">Localização atual</strong>
+            <p>{embarque.localizacao_atual || '-'}</p>
+          </div>
+
+          <div>
+            <strong className="text-slate-400">Previsão de entrega</strong>
+            <p>{embarque.previsao_entrega || '-'}</p>
+          </div>
+
+          <div>
+            <strong className="text-slate-400">Última atualização</strong>
+            <p>
+              {embarque.ultima_atualizacao_rastreio
+                ? new Date(embarque.ultima_atualizacao_rastreio).toLocaleString('pt-BR')
+                : '-'}
+            </p>
           </div>
         </div>
       </section>

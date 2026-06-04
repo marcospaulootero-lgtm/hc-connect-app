@@ -21,6 +21,10 @@ export default function AdminNav() {
       link: '/admin/embarques'
     },
     {
+  nome: 'Cotações',
+  link: '/admin/cotacoes'
+},
+    {
       nome: 'Faturas',
       link: '/admin/faturas'
     },
@@ -62,24 +66,32 @@ export default function AdminNav() {
 
         <nav className="p-4 flex flex-col gap-2">
 
-          {menus.map((item) => (
-            <Link
-              key={item.link}
-              href={item.link}
-              className={`
-                px-5 py-4 rounded-2xl transition font-medium
-                ${
-                  pathname === item.link
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-300 hover:bg-[#08142c]'
-                }
-              `}
-            >
-              {item.nome}
-            </Link>
-          ))}
+  {menus.map((item) => {
 
-        </nav>
+    const ativo =
+      item.link === '/admin'
+        ? pathname === '/admin'
+        : pathname.startsWith(item.link)
+
+    return (
+      <Link
+        key={item.link}
+        href={item.link}
+        className={`
+          px-5 py-4 rounded-2xl transition font-medium
+          ${
+            ativo
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40'
+              : 'text-slate-300 hover:bg-[#08142c]'
+          }
+        `}
+      >
+        {item.nome}
+      </Link>
+    )
+  })}
+
+</nav>
 
       </div>
 

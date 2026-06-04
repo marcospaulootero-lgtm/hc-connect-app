@@ -14,6 +14,7 @@ export default function EmbarquesPage() {
 
   const [form, setForm] = useState({
     empresa_id: '',
+    cliente_final: '',
     awb: '',
     transportadora: '',
     servico: '',
@@ -54,7 +55,8 @@ export default function EmbarquesPage() {
 
   async function salvar() {
     if (!form.awb || !form.empresa_id) {
-      return alert('Informe cliente e AWB')
+      alert('Informe quem é o cliente/parceiro e o AWB')
+      return
     }
 
     const { error } = await supabase
@@ -62,6 +64,7 @@ export default function EmbarquesPage() {
       .insert([
         {
           empresa_id: form.empresa_id,
+          cliente_final: form.cliente_final,
           awb: form.awb,
           transportadora: form.transportadora,
           servico: form.servico,
@@ -74,13 +77,16 @@ export default function EmbarquesPage() {
       ])
 
     if (error) {
-      return alert('Erro ao salvar embarque')
+      alert('Erro ao salvar embarque')
+      console.log(error)
+      return
     }
 
     alert('Embarque salvo com sucesso')
 
     setForm({
       empresa_id: '',
+      cliente_final: '',
       awb: '',
       transportadora: '',
       servico: '',
@@ -96,15 +102,14 @@ export default function EmbarquesPage() {
 
   const embarquesFiltrados = useMemo(() => {
     return embarques.filter((item) => {
-
       const texto = `
         ${item.awb}
+        ${item.cliente_final}
         ${item.transportadora}
         ${item.origem}
         ${item.destino}
         ${item.empresas?.razao_social}
-      `
-        .toLowerCase()
+      `.toLowerCase()
 
       const matchBusca = texto.includes(busca.toLowerCase())
 
@@ -116,22 +121,12 @@ export default function EmbarquesPage() {
         !filtroTransportadora ||
         item.transportadora === filtroTransportadora
 
-      return (
-        matchBusca &&
-        matchStatus &&
-        matchTransportadora
-      )
+      return matchBusca && matchStatus && matchTransportadora
     })
-  }, [
-    embarques,
-    busca,
-    filtroStatus,
-    filtroTransportadora,
-  ])
+  }, [embarques, busca, filtroStatus, filtroTransportadora])
 
   return (
     <main className="max-w-7xl mx-auto p-6 text-white">
-
       <div className="mb-10">
         <h1 className="text-4xl font-bold mb-2">
           Embarques
@@ -143,13 +138,11 @@ export default function EmbarquesPage() {
       </div>
 
       <section className="card">
-
         <h2 className="text-2xl font-bold mb-6">
           Cadastrar embarque
         </h2>
 
         <div className="form-grid">
-
           <select
             value={form.empresa_id}
             onChange={(e) =>
@@ -160,7 +153,7 @@ export default function EmbarquesPage() {
             }
           >
             <option value="">
-              Selecionar cliente
+              Pertence a qual cliente/parceiro?
             </option>
 
             {clientes.map((cliente) => (
@@ -172,6 +165,17 @@ export default function EmbarquesPage() {
               </option>
             ))}
           </select>
+
+          <input
+            placeholder="Cliente final"
+            value={form.cliente_final}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                cliente_final: e.target.value,
+              })
+            }
+          />
 
           <input
             placeholder="AWB"
@@ -283,20 +287,14 @@ export default function EmbarquesPage() {
               Atrasado
             </option>
           </select>
-
         </div>
 
-        <button
-          onClick={salvar}
-          className="mt-6"
-        >
+        <button onClick={salvar} className="mt-6">
           Salvar embarque
         </button>
-
       </section>
 
       <section className="card mt-8">
-
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">
             Embarques cadastrados
@@ -304,13 +302,10 @@ export default function EmbarquesPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-
           <input
-            placeholder="Buscar AWB, cliente..."
+            placeholder="Buscar AWB, parceiro ou cliente final..."
             value={busca}
-            onChange={(e) =>
-              setBusca(e.target.value)
-            }
+            onChange={(e) => setBusca(e.target.value)}
           />
 
           <select
@@ -347,9 +342,7 @@ export default function EmbarquesPage() {
           <select
             value={filtroTransportadora}
             onChange={(e) =>
-              setFiltroTransportadora(
-                e.target.value
-              )
+              setFiltroTransportadora(e.target.value)
             }
           >
             <option value="">
@@ -368,16 +361,14 @@ export default function EmbarquesPage() {
               UPS
             </option>
           </select>
-
         </div>
 
         <div className="overflow-auto">
-
           <table className="table">
-
             <thead>
               <tr>
-                <th>Cliente</th>
+                <th>Cliente/Parceiro</th>
+                <th>Cliente final</th>
                 <th>AWB</th>
                 <th>Transportadora</th>
                 <th>Origem</th>
@@ -387,13 +378,14 @@ export default function EmbarquesPage() {
             </thead>
 
             <tbody>
-
               {embarquesFiltrados.map((item) => (
-
                 <tr key={item.id}>
-
                   <td>
                     {item.empresas?.razao_social}
+                  </td>
+
+                  <td>
+                    {item.cliente_final || '-'}
                   </td>
 
                   <td>
@@ -422,19 +414,12 @@ export default function EmbarquesPage() {
                       status={item.status_operacional}
                     />
                   </td>
-
                 </tr>
-
               ))}
-
             </tbody>
-
           </table>
-
         </div>
-
       </section>
-
     </main>
   )
 }
