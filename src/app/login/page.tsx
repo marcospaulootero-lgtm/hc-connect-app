@@ -64,8 +64,8 @@ export default function LoginPage() {
     setMensagem('')
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'http://localhost:3000/redefinir-senha',
-    })
+  redirectTo: 'https://hc-connect-app.vercel.app/redefinir-senha',
+})
 
     if (error) {
       console.log(error)
