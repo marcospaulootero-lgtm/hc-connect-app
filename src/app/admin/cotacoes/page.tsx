@@ -5,11 +5,13 @@ import { supabase } from '@/lib/supabaseClient'
 
 export default function CotacoesAdminPage() {
   const [cotacoes, setCotacoes] = useState<any[]>([])
+  const [usuarios, setUsuarios] = useState<any[]>([])
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
 
   useEffect(() => {
     carregar()
+    carregarUsuarios()
   }, [])
 
   async function carregar() {
@@ -19,6 +21,25 @@ export default function CotacoesAdminPage() {
       .order('criado_em', { ascending: false })
 
     setCotacoes(data || [])
+  }
+
+  async function carregarUsuarios() {
+    const { data } = await supabase
+      .from('perfis')
+      .select('*')
+      .order('nome')
+
+    setUsuarios(data || [])
+  }
+
+  function nomeUsuario(usuarioId: string) {
+    const usuario = usuarios.find((item) => item.id === usuarioId)
+    return usuario?.nome || usuario?.email || '-'
+  }
+
+  function emailUsuario(usuarioId: string) {
+    const usuario = usuarios.find((item) => item.id === usuarioId)
+    return usuario?.email || '-'
   }
 
   async function atualizarStatus(id: string, status: string) {
@@ -38,7 +59,8 @@ export default function CotacoesAdminPage() {
   const cotacoesFiltradas = useMemo(() => {
     return cotacoes.filter((item) => {
       const texto = `
-        ${item.codigo_vinculo}
+        ${nomeUsuario(item.usuario_id)}
+        ${emailUsuario(item.usuario_id)}
         ${item.solicitante_email}
         ${item.cliente_final}
         ${item.tipo_operacao}
@@ -52,13 +74,14 @@ export default function CotacoesAdminPage() {
 
       return matchBusca && matchStatus
     })
-  }, [cotacoes, busca, filtroStatus])
+  }, [cotacoes, usuarios, busca, filtroStatus])
 
   function corStatus(status: string) {
     if (status === 'AGUARDANDO ANÁLISE') return 'bg-yellow-400 text-black'
     if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
     if (status === 'AGUARDANDO TRANSPORTADORA') return 'bg-purple-600 text-white'
     if (status === 'COTAÇÃO DISPONÍVEL') return 'bg-emerald-600 text-white'
+    if (status === 'APROVADA') return 'bg-green-700 text-white'
     if (status === 'AUTORIZADA') return 'bg-green-700 text-white'
     if (status === 'RECUSADA') return 'bg-red-600 text-white'
     if (status === 'CONVERTIDA EM EMBARQUE') return 'bg-slate-700 text-white'
@@ -111,7 +134,7 @@ export default function CotacoesAdminPage() {
       <section className="card mb-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <input
-            placeholder="Buscar por parceiro, cliente final, origem, destino..."
+            placeholder="Buscar por usuário, e-mail, cliente final, origem, destino..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -125,7 +148,7 @@ export default function CotacoesAdminPage() {
             <option value="EM ANÁLISE">Em análise</option>
             <option value="AGUARDANDO TRANSPORTADORA">Aguardando transportadora</option>
             <option value="COTAÇÃO DISPONÍVEL">Cotação disponível</option>
-            <option value="AUTORIZADA">Autorizada</option>
+            <option value="APROVADA">Aprovada</option>
             <option value="RECUSADA">Recusada</option>
             <option value="CONVERTIDA EM EMBARQUE">Convertida em embarque</option>
           </select>
@@ -142,8 +165,8 @@ export default function CotacoesAdminPage() {
             <thead>
               <tr>
                 <th>Data</th>
-                <th>Parceiro</th>
-                <th>Solicitante</th>
+                <th>Usuário</th>
+                <th>E-mail</th>
                 <th>Cliente final</th>
                 <th>Operação</th>
                 <th>Origem</th>
@@ -160,13 +183,12 @@ export default function CotacoesAdminPage() {
                     {new Date(item.criado_em).toLocaleDateString('pt-BR')}
                   </td>
 
+                  <td>{nomeUsuario(item.usuario_id)}</td>
+
                   <td>
-                    <span className="px-3 py-1 rounded-full bg-purple-600 text-white text-sm font-bold">
-                      {item.codigo_vinculo || '-'}
-                    </span>
+                    {item.solicitante_email || emailUsuario(item.usuario_id)}
                   </td>
 
-                  <td>{item.solicitante_email || '-'}</td>
                   <td>{item.cliente_final || '-'}</td>
                   <td>{item.tipo_operacao || '-'}</td>
                   <td>{item.origem || '-'}</td>
