@@ -7,35 +7,18 @@ export default function CadastroPage() {
   const [nome, setNome] = useState('')
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
-  const [codigo, setCodigo] = useState('')
+  const [empresa, setEmpresa] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function cadastrar(e: React.FormEvent) {
     e.preventDefault()
 
-    if (!nome || !email || !senha || !codigo) {
-      alert('Preencha todos os campos')
+    if (!nome || !email || !senha) {
+      alert('Preencha nome, e-mail e senha')
       return
     }
 
     setLoading(true)
-
-    const codigoFormatado = codigo
-      .replace(/[^a-zA-Z0-9]/g, '')
-      .toUpperCase()
-
-    const { data: codigoEncontrado, error: erroCodigo } = await supabase
-      .from('codigos_vinculo')
-      .select('*')
-      .eq('codigo', codigoFormatado)
-      .eq('ativo', true)
-      .single()
-
-    if (erroCodigo || !codigoEncontrado) {
-      alert('Código de vínculo inválido ou inativo')
-      setLoading(false)
-      return
-    }
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -43,8 +26,7 @@ export default function CadastroPage() {
       options: {
         data: {
           nome,
-          codigo_vinculo: codigoFormatado,
-          empresa_nome: codigoEncontrado.empresa_nome,
+          empresa_nome: empresa,
           tipo_acesso: 'cliente',
         },
       },
@@ -64,8 +46,8 @@ export default function CadastroPage() {
         tipo_acesso: 'cliente',
         tipo_usuario: 'cliente',
         empresa_id: null,
-        codigo_vinculo: codigoFormatado,
-        empresa_nome: codigoEncontrado.empresa_nome,
+        empresa_nome: empresa || null,
+        codigo_vinculo: null,
         ativo: true,
       })
 
@@ -79,7 +61,7 @@ export default function CadastroPage() {
 
     setLoading(false)
 
-    alert('Conta criada com sucesso. Agora faça login.')
+    alert('Conta criada com sucesso. Aguarde a HC liberar seu acesso.')
 
     window.location.href = '/login'
   }
@@ -99,7 +81,7 @@ export default function CadastroPage() {
           </h1>
 
           <p className="text-slate-400">
-            Informe seus dados e o código de vínculo fornecido pela HC.
+            Crie sua conta. A HC Consultoria fará a liberação do seu acesso.
           </p>
         </div>
 
@@ -120,17 +102,16 @@ export default function CadastroPage() {
           />
 
           <input
+            placeholder="Empresa"
+            value={empresa}
+            onChange={(e) => setEmpresa(e.target.value)}
+          />
+
+          <input
             type="password"
             placeholder="Senha"
             value={senha}
             onChange={(e) => setSenha(e.target.value)}
-            required
-          />
-
-          <input
-            placeholder="Código de vínculo. Ex: HCSKYSEA"
-            value={codigo}
-            onChange={(e) => setCodigo(e.target.value.toUpperCase())}
             required
           />
 
