@@ -19,36 +19,43 @@ export default function ClientePage() {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return
+    if (!user) {
+      window.location.href = '/login'
+      return
+    }
 
-    const { data: perfil } = await supabase
+    const { data: perfil, error } = await supabase
       .from('perfis')
       .select('*')
-      .eq('email', user.email)
+      .eq('id', user.id)
       .single()
 
+    if (error || !perfil) {
+      window.location.href = '/login'
+      return
+    }
+
+    if (perfil.tipo_acesso === 'admin') {
+      window.location.href = '/admin'
+      return
+    }
+
     setUsuario({
+      id: user.id,
       nome: perfil?.nome || user.email,
       email: user.email,
       tipo: perfil?.tipo_acesso || 'CLIENTE',
-      empresa_id: perfil?.empresa_id,
-      codigo_vinculo: perfil?.codigo_vinculo,
     })
 
-    carregarEmbarques(perfil?.empresa_id)
-    carregarCotacoes(perfil?.codigo_vinculo)
+    carregarEmbarques(user.id)
+    carregarCotacoes(user.id)
   }
 
-  async function carregarEmbarques(empresaId: string) {
+  async function carregarEmbarques(usuarioId: string) {
     const { data, error } = await supabase
       .from('embarques')
-      .select(`
-        *,
-        empresas (
-          razao_social
-        )
-      `)
-      .eq('empresa_id', empresaId)
+      .select('*')
+      .eq('usuario_id', usuarioId)
       .order('criado_em', { ascending: false })
 
     if (error) {
@@ -59,13 +66,11 @@ export default function ClientePage() {
     setEmbarques(data || [])
   }
 
-  async function carregarCotacoes(codigo: string) {
-    if (!codigo) return
-
+  async function carregarCotacoes(usuarioId: string) {
     const { data, error } = await supabase
       .from('cotacoes')
       .select('*')
-      .eq('codigo_vinculo', codigo)
+      .eq('usuario_id', usuarioId)
       .order('criado_em', { ascending: false })
 
     if (error) {
@@ -88,7 +93,7 @@ export default function ClientePage() {
       ${item.origem}
       ${item.destino}
       ${item.status_operacional}
-      ${item.empresas?.razao_social}
+      ${item.cliente_final}
     `.toLowerCase()
 
     return texto.includes(busca.toLowerCase())
@@ -277,7 +282,7 @@ export default function ClientePage() {
                     </p>
 
                     <p className="text-slate-500 mt-2">
-                      {item.empresas?.razao_social}
+                      Cliente final: {item.cliente_final || '-'}
                     </p>
                   </div>
 
