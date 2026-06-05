@@ -24,14 +24,15 @@ export default function CadastroPage() {
       .replace(/[^a-zA-Z0-9]/g, '')
       .toUpperCase()
 
-    const { data: empresa } = await supabase
-      .from('empresas')
+    const { data: codigoEncontrado, error: erroCodigo } = await supabase
+      .from('codigos_vinculo')
       .select('*')
-      .eq('codigo_vinculo', codigoFormatado)
+      .eq('codigo', codigoFormatado)
+      .eq('ativo', true)
       .single()
 
-    if (!empresa) {
-      alert('Código de vínculo inválido')
+    if (erroCodigo || !codigoEncontrado) {
+      alert('Código de vínculo inválido ou inativo')
       setLoading(false)
       return
     }
@@ -43,7 +44,7 @@ export default function CadastroPage() {
         data: {
           nome,
           codigo_vinculo: codigoFormatado,
-          empresa_id: empresa.id,
+          empresa_nome: codigoEncontrado.empresa_nome,
           tipo_acesso: 'cliente',
         },
       },
@@ -56,16 +57,24 @@ export default function CadastroPage() {
     }
 
     if (data.user) {
-      await supabase.from('perfis').insert({
+      const { error: erroPerfil } = await supabase.from('perfis').insert({
         id: data.user.id,
         nome,
         email,
         tipo_acesso: 'cliente',
         tipo_usuario: 'cliente',
-        empresa_id: empresa.id,
+        empresa_id: null,
         codigo_vinculo: codigoFormatado,
+        empresa_nome: codigoEncontrado.empresa_nome,
         ativo: true,
       })
+
+      if (erroPerfil) {
+        alert('Conta criada, mas houve erro ao salvar o perfil.')
+        console.log(erroPerfil)
+        setLoading(false)
+        return
+      }
     }
 
     setLoading(false)
@@ -119,9 +128,9 @@ export default function CadastroPage() {
           />
 
           <input
-            placeholder="Código de vínculo. Ex: SKYSEA"
+            placeholder="Código de vínculo. Ex: HCSKYSEA"
             value={codigo}
-            onChange={(e) => setCodigo(e.target.value)}
+            onChange={(e) => setCodigo(e.target.value.toUpperCase())}
             required
           />
 
