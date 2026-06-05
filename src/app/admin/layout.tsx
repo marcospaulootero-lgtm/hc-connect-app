@@ -81,11 +81,11 @@ export default function AdminLayout({
           </Link>
 
           <Link
-            href="/admin/clientes"
-            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
-          >
-            Clientes
-          </Link>
+  href="/admin/usuarios"
+  className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
+>
+  Usuários
+</Link>
 
           <Link
             href="/admin/embarques"

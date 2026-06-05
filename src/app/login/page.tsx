@@ -129,6 +129,13 @@ export default function LoginPage() {
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
 
+          <a
+            href="/cadastro"
+            className="block w-full text-center bg-blue-900 hover:bg-blue-800 transition rounded-2xl py-4 text-white font-bold"
+          >
+            Criar minha conta
+          </a>
+
           <button
             type="button"
             onClick={recuperarSenha}
