@@ -56,11 +56,10 @@ export default function DetalheCotacaoAdminPage() {
       .upload(nomeArquivo, file)
 
     if (error) {
-      alert('Erro ao enviar PDF')
-      console.log(error)
-      setUploading(false)
-      return
-    }
+  console.log(error)
+  alert(JSON.stringify(error))
+  return
+}
 
     const { data } = supabase.storage
       .from('cotacoes')

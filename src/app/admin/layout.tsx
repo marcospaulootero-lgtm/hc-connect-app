@@ -1,12 +1,67 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabaseClient'
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
+  const [carregando, setCarregando] = useState(true)
+  const [usuario, setUsuario] = useState<any>(null)
+
+  useEffect(() => {
+    verificarAcesso()
+  }, [])
+
+  async function verificarAcesso() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    const { data: perfil } = await supabase
+      .from('perfis')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+
+    if (!perfil || perfil.tipo_acesso !== 'admin') {
+      await supabase.auth.signOut()
+      router.push('/login')
+      return
+    }
+
+    setUsuario({
+      nome: perfil.nome || user.email,
+      email: user.email,
+      tipo: perfil.tipo_acesso,
+    })
+
+    setCarregando(false)
+  }
+
+  async function sair() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  if (carregando) {
+    return (
+      <main className="min-h-screen bg-[#020817] text-white flex items-center justify-center">
+        Verificando acesso...
+      </main>
+    )
+  }
+
   return (
     <div
       style={{
@@ -51,28 +106,17 @@ export default function AdminLayout({
           </div>
 
           <div>
-            <h1
-              style={{
-                fontSize: 18,
-                fontWeight: 'bold',
-              }}
-            >
+            <h1 style={{ fontSize: 18, fontWeight: 'bold' }}>
               HC Connect
             </h1>
 
-            <p
-              style={{
-                color: '#94a3b8',
-                fontSize: 13,
-              }}
-            >
+            <p style={{ color: '#94a3b8', fontSize: 13 }}>
               Portal de embarques
             </p>
           </div>
         </div>
 
         <nav className="flex flex-col gap-3 mt-10">
-
           <Link
             href="/admin"
             className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
@@ -81,11 +125,11 @@ export default function AdminLayout({
           </Link>
 
           <Link
-  href="/admin/usuarios"
-  className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
->
-  Usuários
-</Link>
+            href="/admin/usuarios"
+            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
+          >
+            Usuários
+          </Link>
 
           <Link
             href="/admin/embarques"
@@ -93,12 +137,14 @@ export default function AdminLayout({
           >
             Embarques
           </Link>
-<Link
-  href="/admin/cotacoes"
-  className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
->
-  Cotações
-</Link> 
+
+          <Link
+            href="/admin/cotacoes"
+            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
+          >
+            Cotações
+          </Link>
+
           <Link
             href="/admin/faturas"
             className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
@@ -112,16 +158,10 @@ export default function AdminLayout({
           >
             Suporte
           </Link>
-
         </nav>
       </aside>
 
-      <main
-        style={{
-          flex: 1,
-          padding: 30,
-        }}
-      >
+      <main style={{ flex: 1, padding: 30 }}>
         <div
           style={{
             display: 'flex',
@@ -131,9 +171,21 @@ export default function AdminLayout({
             gap: 18,
           }}
         >
-          <span>Área HC</span>
+          <div className="text-right">
+            <p className="font-bold">
+              {usuario?.nome}
+            </p>
+            <p className="text-slate-400 text-sm">
+              {usuario?.email}
+            </p>
+          </div>
+
+          <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase">
+            ADMIN
+          </span>
 
           <button
+            onClick={sair}
             style={{
               background: '#2563eb',
               border: 'none',
