@@ -84,7 +84,12 @@ export default function ClientePage() {
             <h1 className="text-5xl font-bold mb-2">
               Meus embarques
             </h1>
-
+<a
+  href="/cliente/cotacoes"
+  className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold"
+>
+  Solicitar cotação
+</a>
             <p className="text-slate-400 text-lg">
               Acompanhe seus processos, faturas e documentos.
             </p>

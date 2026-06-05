@@ -8,31 +8,31 @@ export default function AdminNav() {
   const pathname = usePathname()
 
   const menus = [
-    {
-      nome: 'Dashboard',
-      link: '/admin'
-    },
-    {
-      nome: 'Clientes',
-      link: '/admin/clientes'
-    },
-    {
-      nome: 'Embarques',
-      link: '/admin/embarques'
-    },
-    {
-  nome: 'Cotações',
-  link: '/admin/cotacoes'
-},
-    {
-      nome: 'Faturas',
-      link: '/admin/faturas'
-    },
-    {
-      nome: 'Suporte',
-      link: '/admin/suporte'
-    }
-  ]
+  {
+    nome: 'Dashboard',
+    link: '/admin'
+  },
+  {
+    nome: 'Clientes',
+    link: '/admin/clientes'
+  },
+  {
+    nome: 'Embarques',
+    link: '/admin/embarques'
+  },
+  {
+    nome: 'Cotações',
+    link: '/admin/cotacoes'
+  },
+  {
+    nome: 'Faturas',
+    link: '/admin/faturas'
+  },
+  {
+    nome: 'Suporte',
+    link: '/admin/suporte'
+  }
+]
 
   return (
     <aside className="w-[260px] min-h-screen bg-[#020817] border-r border-blue-900 flex flex-col justify-between">

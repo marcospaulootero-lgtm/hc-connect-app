@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabaseClient'
 export default function DetalheCotacaoAdminPage() {
   const params = useParams()
   const [cotacao, setCotacao] = useState<any>(null)
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     carregar()
@@ -36,6 +37,49 @@ export default function DetalheCotacaoAdminPage() {
     carregar()
   }
 
+  async function anexarPdf(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+
+    if (!file || !cotacao) return
+
+    if (file.type !== 'application/pdf') {
+      alert('Envie apenas arquivo PDF')
+      return
+    }
+
+    setUploading(true)
+
+    const nomeArquivo = `${cotacao.id}-${Date.now()}-${file.name}`
+
+    const { error } = await supabase.storage
+      .from('cotacoes')
+      .upload(nomeArquivo, file)
+
+    if (error) {
+      alert('Erro ao enviar PDF')
+      console.log(error)
+      setUploading(false)
+      return
+    }
+
+    const { data } = supabase.storage
+      .from('cotacoes')
+      .getPublicUrl(nomeArquivo)
+
+    await supabase
+      .from('cotacoes')
+      .update({
+        pdf_cotacao_url: data.publicUrl,
+        status: 'COTAÇÃO DISPONÍVEL',
+      })
+      .eq('id', cotacao.id)
+
+    setUploading(false)
+    await carregar()
+
+    alert('PDF anexado e cotação disponibilizada ao cliente')
+  }
+
   if (!cotacao) {
     return <main className="p-10 text-white">Carregando cotação...</main>
   }
@@ -43,10 +87,7 @@ export default function DetalheCotacaoAdminPage() {
   return (
     <main className="max-w-7xl mx-auto p-8 text-white">
       <div className="mb-8">
-        <h1 className="text-5xl font-black mb-2">
-          Cotação
-        </h1>
-
+        <h1 className="text-5xl font-black mb-2">Cotação</h1>
         <p className="text-slate-400 text-lg">
           Detalhes completos da solicitação.
         </p>
@@ -99,7 +140,7 @@ export default function DetalheCotacaoAdminPage() {
 
           <div>
             <strong className="text-slate-400">Peso informado</strong>
-            <p>{cotacao.peso || '-'}</p>
+            <p>{cotacao.peso || '-'} kg</p>
           </div>
 
           <div>
@@ -109,7 +150,9 @@ export default function DetalheCotacaoAdminPage() {
 
           <div>
             <strong className="text-slate-400">Valor da mercadoria</strong>
-            <p>{cotacao.valor_mercadoria || '-'}</p>
+            <p>
+              {cotacao.moeda || ''} {cotacao.valor_mercadoria || '-'}
+            </p>
           </div>
         </div>
       </section>
@@ -162,6 +205,36 @@ export default function DetalheCotacaoAdminPage() {
         )}
       </section>
 
+      <section className="card mb-8">
+        <h2 className="text-2xl font-black mb-6">Resposta da cotação</h2>
+
+        <div className="flex gap-4 flex-wrap items-center">
+          <label className="btn-primary cursor-pointer">
+            {uploading ? 'Enviando PDF...' : 'Anexar PDF da cotação'}
+            <input
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={anexarPdf}
+            />
+          </label>
+
+          {cotacao.pdf_cotacao_url && (
+            <a
+              href={cotacao.pdf_cotacao_url}
+              target="_blank"
+              className="btn-secondary"
+            >
+              Abrir PDF anexado
+            </a>
+          )}
+        </div>
+
+        <p className="text-slate-400 mt-4">
+          Ao anexar o PDF, o status muda automaticamente para COTAÇÃO DISPONÍVEL.
+        </p>
+      </section>
+
       <section className="card">
         <h2 className="text-2xl font-black mb-6">Ações</h2>
 
@@ -175,13 +248,6 @@ export default function DetalheCotacaoAdminPage() {
             className="bg-purple-600 hover:bg-purple-500"
           >
             Aguardando transportadora
-          </button>
-
-          <button
-            onClick={() => atualizarStatus('COTAÇÃO DISPONÍVEL')}
-            className="bg-emerald-600 hover:bg-emerald-500"
-          >
-            Cotação disponível
           </button>
 
           <button

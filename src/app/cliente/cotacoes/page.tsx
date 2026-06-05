@@ -17,14 +17,15 @@ export default function CotacoesClientePage() {
   const [salvando, setSalvando] = useState(false)
 
   const [form, setForm] = useState({
-    cliente_final: '',
-    tipo_operacao: '',
-    origem: '',
-    destino: '',
-    descricao_mercadoria: '',
-    valor_mercadoria: '',
-    observacoes: '',
-  })
+  cliente_final: '',
+  tipo_operacao: '',
+  origem: '',
+  destino: '',
+  descricao_mercadoria: '',
+  moeda: 'USD',
+  valor_mercadoria: '',
+  observacoes: '',
+})
 
   const [volumes, setVolumes] = useState<Volume[]>([
     {
@@ -163,14 +164,15 @@ export default function CotacoesClientePage() {
     alert('Solicitação de cotação enviada com sucesso')
 
     setForm({
-      cliente_final: '',
-      tipo_operacao: '',
-      origem: '',
-      destino: '',
-      descricao_mercadoria: '',
-      valor_mercadoria: '',
-      observacoes: '',
-    })
+  cliente_final: '',
+  tipo_operacao: '',
+  origem: '',
+  destino: '',
+  descricao_mercadoria: '',
+  moeda: 'USD',
+  valor_mercadoria: '',
+  observacoes: '',
+})
 
     setVolumes([
       {
@@ -253,13 +255,25 @@ export default function CotacoesClientePage() {
               }
             />
 
-            <input
-              placeholder="Valor da mercadoria"
-              value={form.valor_mercadoria}
-              onChange={(e) =>
-                setForm({ ...form, valor_mercadoria: e.target.value })
-              }
-            />
+            <select
+  value={form.moeda}
+  onChange={(e) =>
+    setForm({ ...form, moeda: e.target.value })
+  }
+>
+  <option value="USD">USD - Dólar Americano</option>
+  <option value="EUR">EUR - Euro</option>
+  <option value="BRL">BRL - Real Brasileiro</option>
+  <option value="CNY">CNY - Yuan Chinês</option>
+</select>
+
+<input
+  placeholder="Valor da mercadoria"
+  value={form.valor_mercadoria}
+  onChange={(e) =>
+    setForm({ ...form, valor_mercadoria: e.target.value })
+  }
+/>
           </div>
 
           <section className="mt-8">

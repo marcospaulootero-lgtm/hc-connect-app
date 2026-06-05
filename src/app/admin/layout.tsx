@@ -93,7 +93,12 @@ export default function AdminLayout({
           >
             Embarques
           </Link>
-
+<Link
+  href="/admin/cotacoes"
+  className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
+>
+  Cotações
+</Link> 
           <Link
             href="/admin/faturas"
             className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
