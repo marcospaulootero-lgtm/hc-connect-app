@@ -54,7 +54,7 @@ export default function CotacoesClientePage() {
     const { data: perfil, error } = await supabase
       .from('perfis')
       .select('*')
-      .eq('email', user.email)
+      .eq('id', user.id)
       .single()
 
     if (error || !perfil) {
@@ -67,18 +67,27 @@ export default function CotacoesClientePage() {
       return
     }
 
-    setUsuario(perfil)
-    carregarCotacoes(perfil.codigo_vinculo)
+    const usuarioLogado = {
+      ...perfil,
+      id: user.id,
+      email: user.email,
+    }
+
+    setUsuario(usuarioLogado)
+    carregarCotacoes(user.id)
   }
 
-  async function carregarCotacoes(codigo: string) {
-    if (!codigo) return
-
-    const { data } = await supabase
+  async function carregarCotacoes(usuarioId: string) {
+    const { data, error } = await supabase
       .from('cotacoes')
       .select('*')
-      .eq('codigo_vinculo', codigo)
+      .eq('usuario_id', usuarioId)
       .order('criado_em', { ascending: false })
+
+    if (error) {
+      console.log(error)
+      return
+    }
 
     setCotacoes(data || [])
   }
@@ -131,8 +140,8 @@ export default function CotacoesClientePage() {
   }
 
   async function enviarCotacao() {
-    if (!usuario?.codigo_vinculo) {
-      alert('Usuário sem código de vínculo')
+    if (!usuario?.id) {
+      alert('Usuário não identificado')
       return
     }
 
@@ -159,8 +168,7 @@ export default function CotacoesClientePage() {
 
     const { error } = await supabase.from('cotacoes').insert([
       {
-        codigo_vinculo: usuario.codigo_vinculo,
-        empresa_id: usuario.empresa_id,
+        usuario_id: usuario.id,
         solicitante_email: usuario.email,
         cliente_final: form.cliente_final,
         tipo_operacao: form.tipo_operacao,
@@ -208,7 +216,7 @@ export default function CotacoesClientePage() {
       },
     ])
 
-    carregarCotacoes(usuario.codigo_vinculo)
+    carregarCotacoes(usuario.id)
   }
 
   async function atualizarStatusCotacao(id: string, status: string) {
@@ -241,7 +249,7 @@ export default function CotacoesClientePage() {
         : 'Cotação recusada'
     )
 
-    carregarCotacoes(usuario.codigo_vinculo)
+    carregarCotacoes(usuario.id)
   }
 
   return (
