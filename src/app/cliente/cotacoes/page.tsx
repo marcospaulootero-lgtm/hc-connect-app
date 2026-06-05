@@ -17,15 +17,15 @@ export default function CotacoesClientePage() {
   const [salvando, setSalvando] = useState(false)
 
   const [form, setForm] = useState({
-  cliente_final: '',
-  tipo_operacao: '',
-  origem: '',
-  destino: '',
-  descricao_mercadoria: '',
-  moeda: 'USD',
-  valor_mercadoria: '',
-  observacoes: '',
-})
+    cliente_final: '',
+    tipo_operacao: '',
+    origem: '',
+    destino: '',
+    descricao_mercadoria: '',
+    moeda: 'USD',
+    valor_mercadoria: '',
+    observacoes: '',
+  })
 
   const [volumes, setVolumes] = useState<Volume[]>([
     {
@@ -62,6 +62,8 @@ export default function CotacoesClientePage() {
   }
 
   async function carregarCotacoes(codigo: string) {
+    if (!codigo) return
+
     const { data } = await supabase
       .from('cotacoes')
       .select('*')
@@ -107,6 +109,17 @@ export default function CotacoesClientePage() {
     }, 0)
   }
 
+  function corStatus(status: string) {
+    if (status === 'AGUARDANDO ANÁLISE') return 'bg-yellow-400 text-black'
+    if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
+    if (status === 'AGUARDANDO TRANSPORTADORA') return 'bg-purple-600 text-white'
+    if (status === 'COTAÇÃO DISPONÍVEL') return 'bg-emerald-600 text-white'
+    if (status === 'APROVADA') return 'bg-green-700 text-white'
+    if (status === 'RECUSADA') return 'bg-red-600 text-white'
+
+    return 'bg-slate-600 text-white'
+  }
+
   async function enviarCotacao() {
     if (!usuario?.codigo_vinculo) {
       alert('Usuário sem código de vínculo')
@@ -147,6 +160,7 @@ export default function CotacoesClientePage() {
         dimensoes: `${volumes.length} volume(s)`,
         volumes,
         descricao_mercadoria: form.descricao_mercadoria,
+        moeda: form.moeda,
         valor_mercadoria: form.valor_mercadoria,
         observacoes: form.observacoes,
         status: 'AGUARDANDO ANÁLISE',
@@ -164,15 +178,15 @@ export default function CotacoesClientePage() {
     alert('Solicitação de cotação enviada com sucesso')
 
     setForm({
-  cliente_final: '',
-  tipo_operacao: '',
-  origem: '',
-  destino: '',
-  descricao_mercadoria: '',
-  moeda: 'USD',
-  valor_mercadoria: '',
-  observacoes: '',
-})
+      cliente_final: '',
+      tipo_operacao: '',
+      origem: '',
+      destino: '',
+      descricao_mercadoria: '',
+      moeda: 'USD',
+      valor_mercadoria: '',
+      observacoes: '',
+    })
 
     setVolumes([
       {
@@ -187,17 +201,59 @@ export default function CotacoesClientePage() {
     carregarCotacoes(usuario.codigo_vinculo)
   }
 
+  async function atualizarStatusCotacao(id: string, status: string) {
+    const confirmar = confirm(
+      status === 'APROVADA'
+        ? 'Confirmar aprovação desta cotação?'
+        : 'Confirmar recusa desta cotação?'
+    )
+
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        status,
+        autorizada: status === 'APROVADA',
+        data_autorizacao: status === 'APROVADA' ? new Date().toISOString() : null,
+      })
+      .eq('id', id)
+
+    if (error) {
+      alert('Erro ao atualizar cotação')
+      console.log(error)
+      return
+    }
+
+    alert(
+      status === 'APROVADA'
+        ? 'Cotação aprovada com sucesso'
+        : 'Cotação recusada'
+    )
+
+    carregarCotacoes(usuario.codigo_vinculo)
+  }
+
   return (
     <main className="min-h-screen bg-[#020817] text-white p-10">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-10">
-          <h1 className="text-5xl font-black mb-2">
-            Cotações
-          </h1>
+        <div className="mb-10 flex justify-between items-start gap-6">
+          <div>
+            <h1 className="text-5xl font-black mb-2">
+              Cotações
+            </h1>
 
-          <p className="text-slate-400 text-lg">
-            Solicite novas cotações e acompanhe o andamento.
-          </p>
+            <p className="text-slate-400 text-lg">
+              Solicite novas cotações e acompanhe o andamento.
+            </p>
+          </div>
+
+          <a
+            href="/cliente"
+            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold"
+          >
+            Voltar ao portal
+          </a>
         </div>
 
         <section className="card mb-8">
@@ -256,24 +312,24 @@ export default function CotacoesClientePage() {
             />
 
             <select
-  value={form.moeda}
-  onChange={(e) =>
-    setForm({ ...form, moeda: e.target.value })
-  }
->
-  <option value="USD">USD - Dólar Americano</option>
-  <option value="EUR">EUR - Euro</option>
-  <option value="BRL">BRL - Real Brasileiro</option>
-  <option value="CNY">CNY - Yuan Chinês</option>
-</select>
+              value={form.moeda}
+              onChange={(e) =>
+                setForm({ ...form, moeda: e.target.value })
+              }
+            >
+              <option value="USD">USD - Dólar Americano</option>
+              <option value="EUR">EUR - Euro</option>
+              <option value="BRL">BRL - Real Brasileiro</option>
+              <option value="CNY">CNY - Yuan Chinês</option>
+            </select>
 
-<input
-  placeholder="Valor da mercadoria"
-  value={form.valor_mercadoria}
-  onChange={(e) =>
-    setForm({ ...form, valor_mercadoria: e.target.value })
-  }
-/>
+            <input
+              placeholder="Valor da mercadoria"
+              value={form.valor_mercadoria}
+              onChange={(e) =>
+                setForm({ ...form, valor_mercadoria: e.target.value })
+              }
+            />
           </div>
 
           <section className="mt-8">
@@ -399,7 +455,9 @@ export default function CotacoesClientePage() {
                   <th>Origem</th>
                   <th>Destino</th>
                   <th>Peso total</th>
+                  <th>Valor</th>
                   <th>Status</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
 
@@ -409,15 +467,57 @@ export default function CotacoesClientePage() {
                     <td>
                       {new Date(item.criado_em).toLocaleDateString('pt-BR')}
                     </td>
+
                     <td>{item.cliente_final}</td>
                     <td>{item.tipo_operacao}</td>
                     <td>{item.origem}</td>
                     <td>{item.destino}</td>
                     <td>{item.peso} kg</td>
                     <td>
-                      <span className="px-3 py-1 rounded-full bg-yellow-400 text-black text-sm font-bold">
+                      {item.moeda || ''} {item.valor_mercadoria || '-'}
+                    </td>
+
+                    <td>
+                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${corStatus(item.status)}`}>
                         {item.status}
                       </span>
+                    </td>
+
+                    <td>
+                      <div className="flex gap-2 flex-wrap">
+                        {item.pdf_cotacao_url && (
+  <a
+    href={item.pdf_cotacao_url}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold"
+  >
+    Baixar PDF
+  </a>
+)}
+
+                        {item.status === 'COTAÇÃO DISPONÍVEL' && (
+                          <>
+                            <button
+                              onClick={() =>
+                                atualizarStatusCotacao(item.id, 'APROVADA')
+                              }
+                              className="bg-green-600 hover:bg-green-500"
+                            >
+                              Aprovar
+                            </button>
+
+                            <button
+                              onClick={() =>
+                                atualizarStatusCotacao(item.id, 'RECUSADA')
+                              }
+                              className="bg-red-600 hover:bg-red-500"
+                            >
+                              Recusar
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
