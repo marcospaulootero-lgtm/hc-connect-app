@@ -6,14 +6,14 @@ import { supabase } from '@/lib/supabaseClient'
 
 export default function EmbarquesPage() {
   const [embarques, setEmbarques] = useState<any[]>([])
-  const [clientes, setClientes] = useState<any[]>([])
+  const [usuarios, setUsuarios] = useState<any[]>([])
 
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
 
   const [form, setForm] = useState({
-    empresa_id: '',
+    usuario_id: '',
     cliente_final: '',
     awb: '',
     transportadora: '',
@@ -27,43 +27,43 @@ export default function EmbarquesPage() {
 
   useEffect(() => {
     carregar()
-    carregarClientes()
+    carregarUsuarios()
   }, [])
 
   async function carregar() {
     const { data } = await supabase
       .from('embarques')
-      .select(`
-        *,
-        empresas (
-          razao_social
-        )
-      `)
+      .select('*')
       .order('criado_em', { ascending: false })
 
     setEmbarques(data || [])
   }
 
-  async function carregarClientes() {
+  async function carregarUsuarios() {
     const { data } = await supabase
-      .from('empresas')
+      .from('perfis')
       .select('*')
-      .order('razao_social')
+      .eq('tipo_acesso', 'cliente')
+      .order('nome')
 
-    setClientes(data || [])
+    setUsuarios(data || [])
   }
 
   async function salvar() {
-    if (!form.awb || !form.empresa_id) {
-      alert('Informe quem é o cliente/parceiro e o AWB')
+    if (!form.usuario_id || !form.awb) {
+      alert('Informe o usuário responsável e o AWB')
       return
     }
+
+    const usuarioSelecionado = usuarios.find(
+      (usuario) => usuario.id === form.usuario_id
+    )
 
     const { error } = await supabase
       .from('embarques')
       .insert([
         {
-          empresa_id: form.empresa_id,
+          usuario_id: form.usuario_id,
           cliente_final: form.cliente_final,
           awb: form.awb,
           transportadora: form.transportadora,
@@ -73,6 +73,7 @@ export default function EmbarquesPage() {
           peso_real: form.peso_real,
           peso_taxado: form.peso_taxado,
           status_operacional: form.status_operacional,
+          empresa_id: usuarioSelecionado?.empresa_id || null,
         },
       ])
 
@@ -85,7 +86,7 @@ export default function EmbarquesPage() {
     alert('Embarque salvo com sucesso')
 
     setForm({
-      empresa_id: '',
+      usuario_id: '',
       cliente_final: '',
       awb: '',
       transportadora: '',
@@ -100,6 +101,11 @@ export default function EmbarquesPage() {
     carregar()
   }
 
+  function nomeUsuario(usuarioId: string) {
+    const usuario = usuarios.find((item) => item.id === usuarioId)
+    return usuario?.nome || usuario?.email || '-'
+  }
+
   const embarquesFiltrados = useMemo(() => {
     return embarques.filter((item) => {
       const texto = `
@@ -108,7 +114,7 @@ export default function EmbarquesPage() {
         ${item.transportadora}
         ${item.origem}
         ${item.destino}
-        ${item.empresas?.razao_social}
+        ${nomeUsuario(item.usuario_id)}
       `.toLowerCase()
 
       const matchBusca = texto.includes(busca.toLowerCase())
@@ -123,7 +129,7 @@ export default function EmbarquesPage() {
 
       return matchBusca && matchStatus && matchTransportadora
     })
-  }, [embarques, busca, filtroStatus, filtroTransportadora])
+  }, [embarques, usuarios, busca, filtroStatus, filtroTransportadora])
 
   return (
     <main className="max-w-7xl mx-auto p-6 text-white">
@@ -144,24 +150,24 @@ export default function EmbarquesPage() {
 
         <div className="form-grid">
           <select
-            value={form.empresa_id}
+            value={form.usuario_id}
             onChange={(e) =>
               setForm({
                 ...form,
-                empresa_id: e.target.value,
+                usuario_id: e.target.value,
               })
             }
           >
             <option value="">
-              Pertence a qual cliente/parceiro?
+              Selecione o usuário responsável
             </option>
 
-            {clientes.map((cliente) => (
+            {usuarios.map((usuario) => (
               <option
-                key={cliente.id}
-                value={cliente.id}
+                key={usuario.id}
+                value={usuario.id}
               >
-                {cliente.razao_social}
+                {usuario.nome || usuario.email}
               </option>
             ))}
           </select>
@@ -267,25 +273,12 @@ export default function EmbarquesPage() {
               Selecione o status
             </option>
 
-            <option value="Em trânsito">
-              Em trânsito
-            </option>
-
-            <option value="Fiscalização">
-              Fiscalização
-            </option>
-
-            <option value="Liberado">
-              Liberado
-            </option>
-
-            <option value="Entregue">
-              Entregue
-            </option>
-
-            <option value="Atrasado">
-              Atrasado
-            </option>
+            <option value="Em trânsito">Em trânsito</option>
+            <option value="Fiscalização">Fiscalização</option>
+            <option value="Liberado">Liberado</option>
+            <option value="Entregue">Entregue</option>
+            <option value="Atrasado">Atrasado</option>
+            <option value="Aguardando AWB">Aguardando AWB</option>
           </select>
         </div>
 
@@ -295,15 +288,13 @@ export default function EmbarquesPage() {
       </section>
 
       <section className="card mt-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold">
-            Embarques cadastrados
-          </h2>
-        </div>
+        <h2 className="text-2xl font-bold mb-6">
+          Embarques cadastrados
+        </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <input
-            placeholder="Buscar AWB, parceiro ou cliente final..."
+            placeholder="Buscar AWB, usuário, cliente final..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -314,29 +305,13 @@ export default function EmbarquesPage() {
               setFiltroStatus(e.target.value)
             }
           >
-            <option value="">
-              Todos os status
-            </option>
-
-            <option value="Em trânsito">
-              Em trânsito
-            </option>
-
-            <option value="Fiscalização">
-              Fiscalização
-            </option>
-
-            <option value="Liberado">
-              Liberado
-            </option>
-
-            <option value="Entregue">
-              Entregue
-            </option>
-
-            <option value="Atrasado">
-              Atrasado
-            </option>
+            <option value="">Todos os status</option>
+            <option value="Em trânsito">Em trânsito</option>
+            <option value="Fiscalização">Fiscalização</option>
+            <option value="Liberado">Liberado</option>
+            <option value="Entregue">Entregue</option>
+            <option value="Atrasado">Atrasado</option>
+            <option value="Aguardando AWB">Aguardando AWB</option>
           </select>
 
           <select
@@ -345,21 +320,10 @@ export default function EmbarquesPage() {
               setFiltroTransportadora(e.target.value)
             }
           >
-            <option value="">
-              Todas transportadoras
-            </option>
-
-            <option value="DHL">
-              DHL
-            </option>
-
-            <option value="FedEx">
-              FedEx
-            </option>
-
-            <option value="UPS">
-              UPS
-            </option>
+            <option value="">Todas transportadoras</option>
+            <option value="DHL">DHL</option>
+            <option value="FedEx">FedEx</option>
+            <option value="UPS">UPS</option>
           </select>
         </div>
 
@@ -367,7 +331,7 @@ export default function EmbarquesPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Cliente/Parceiro</th>
+                <th>Usuário responsável</th>
                 <th>Cliente final</th>
                 <th>AWB</th>
                 <th>Transportadora</th>
@@ -380,9 +344,7 @@ export default function EmbarquesPage() {
             <tbody>
               {embarquesFiltrados.map((item) => (
                 <tr key={item.id}>
-                  <td>
-                    {item.empresas?.razao_social}
-                  </td>
+                  <td>{nomeUsuario(item.usuario_id)}</td>
 
                   <td>
                     {item.cliente_final || '-'}
@@ -397,17 +359,9 @@ export default function EmbarquesPage() {
                     </a>
                   </td>
 
-                  <td>
-                    {item.transportadora}
-                  </td>
-
-                  <td>
-                    {item.origem}
-                  </td>
-
-                  <td>
-                    {item.destino}
-                  </td>
+                  <td>{item.transportadora}</td>
+                  <td>{item.origem}</td>
+                  <td>{item.destino}</td>
 
                   <td>
                     <StatusBadge
