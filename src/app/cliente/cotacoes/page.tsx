@@ -51,14 +51,24 @@ export default function CotacoesClientePage() {
       return
     }
 
-    const { data: perfil } = await supabase
+    const { data: perfil, error } = await supabase
       .from('perfis')
       .select('*')
       .eq('email', user.email)
       .single()
 
+    if (error || !perfil) {
+      window.location.href = '/login'
+      return
+    }
+
+    if (perfil.tipo_acesso === 'admin') {
+      window.location.href = '/admin'
+      return
+    }
+
     setUsuario(perfil)
-    carregarCotacoes(perfil?.codigo_vinculo)
+    carregarCotacoes(perfil.codigo_vinculo)
   }
 
   async function carregarCotacoes(codigo: string) {
@@ -473,6 +483,7 @@ export default function CotacoesClientePage() {
                     <td>{item.origem}</td>
                     <td>{item.destino}</td>
                     <td>{item.peso} kg</td>
+
                     <td>
                       {item.moeda || ''} {item.valor_mercadoria || '-'}
                     </td>
@@ -486,15 +497,15 @@ export default function CotacoesClientePage() {
                     <td>
                       <div className="flex gap-2 flex-wrap">
                         {item.pdf_cotacao_url && (
-  <a
-    href={item.pdf_cotacao_url}
-    target="_blank"
-    rel="noopener noreferrer"
-    className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold"
-  >
-    Baixar PDF
-  </a>
-)}
+                          <a
+                            href={item.pdf_cotacao_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold"
+                          >
+                            Baixar PDF
+                          </a>
+                        )}
 
                         {item.status === 'COTAÇÃO DISPONÍVEL' && (
                           <>
