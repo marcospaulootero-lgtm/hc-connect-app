@@ -82,10 +82,10 @@ export default function LoginPage() {
 
         <div className="text-center mb-8">
           <img
-            src="/HC-CONSULTORIA.png"
-            alt="HC Consultoria"
-            className="w-32 h-32 object-contain mx-auto mb-4"
-          />
+  src="/HC-CONSULTORIA-TRANSPARENTE.png"
+  alt="HC Consultoria"
+  className="w-48 object-contain mx-auto mb-6"
+/>
 
           <h1 className="text-white text-4xl font-black mb-2">
             HC Connect
