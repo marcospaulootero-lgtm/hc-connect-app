@@ -476,6 +476,7 @@ export default function CotacoesClientePage() {
                   <th>Valor</th>
                   <th>Status</th>
                   <th>Ações</th>
+                  <th>Arquivo</th>
                 </tr>
               </thead>
 
@@ -504,17 +505,6 @@ export default function CotacoesClientePage() {
 
                     <td>
                       <div className="flex gap-2 flex-wrap">
-                        {item.pdf_cotacao_url && (
-                          <a
-                            href={item.pdf_cotacao_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold"
-                          >
-                            Baixar PDF
-                          </a>
-                        )}
-
                         {item.status === 'COTAÇÃO DISPONÍVEL' && (
                           <>
                             <button
@@ -537,6 +527,23 @@ export default function CotacoesClientePage() {
                           </>
                         )}
                       </div>
+                    </td>
+
+                    <td>
+                      {item.pdf_cotacao_url ? (
+                        <a
+                          href={item.pdf_cotacao_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold"
+                        >
+                          📄 PDF Recebido
+                        </a>
+                      ) : (
+                        <span className="text-slate-500">
+                          Nenhum arquivo
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

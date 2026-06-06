@@ -224,6 +224,21 @@ export default function DetalheCotacaoAdminPage() {
               target="_blank"
               className="btn-secondary"
             >
+              {cotacao?.pdf_cotacao_url && (
+  <div className="mt-3 bg-green-900/30 border border-green-500 rounded-xl p-3">
+    <p className="text-green-400 font-bold">
+      PDF anexado
+    </p>
+
+    <a
+      href={cotacao.pdf_cotacao_url}
+      target="_blank"
+      className="text-blue-400 underline"
+    >
+      Visualizar arquivo enviado
+    </a>
+  </div>
+)}
               Abrir PDF anexado
             </a>
           )}
