@@ -81,11 +81,13 @@ export default function LoginPage() {
       <section className="w-full max-w-md bg-[#08142c] border border-blue-900 rounded-3xl p-8">
 
         <div className="text-center mb-8">
-          <img
-  src="/HC-CONSULTORIA-TRANSPARENTE.png"
-  alt="HC Consultoria"
-  className="w-64 object-contain mx-auto mb-4 brightness-150 contrast-125"
-/>
+          <div className="bg-white rounded-2xl p-5 inline-block mb-6 border border-slate-200 shadow-xl">
+  <img
+    src="/HC-CONSULTORIA-TRANSPARENTE.png"
+    alt="HC Consultoria"
+    className="w-44 object-contain"
+  />
+</div>
 
           <h1 className="text-white text-4xl font-black mb-2">
             HC Connect
