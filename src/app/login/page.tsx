@@ -84,7 +84,7 @@ export default function LoginPage() {
           <img
   src="/HC-CONSULTORIA-TRANSPARENTE.png"
   alt="HC Consultoria"
-  className="w-48 object-contain mx-auto mb-6"
+  className="w-64 object-contain mx-auto mb-4 brightness-150 contrast-125"
 />
 
           <h1 className="text-white text-4xl font-black mb-2">
