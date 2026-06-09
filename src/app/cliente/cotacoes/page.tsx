@@ -219,38 +219,41 @@ export default function CotacoesClientePage() {
     carregarCotacoes(usuario.id)
   }
 
-  async function atualizarStatusCotacao(id: string, status: string) {
-    const confirmar = confirm(
-      status === 'APROVADA'
-        ? 'Confirmar aprovação desta cotação?'
-        : 'Confirmar recusa desta cotação?'
-    )
+async function atualizarStatusCotacao(id: string, status: string) {
+  const confirmar = confirm(
+    status === 'APROVADA'
+      ? 'Confirmar aprovação desta cotação?'
+      : 'Confirmar recusa desta cotação?'
+  )
 
-    if (!confirmar) return
+  if (!confirmar) return
 
-    const { error } = await supabase
-      .from('cotacoes')
-      .update({
-        status,
-        autorizada: status === 'APROVADA',
-        data_autorizacao: status === 'APROVADA' ? new Date().toISOString() : null,
-      })
-      .eq('id', id)
+  const { error } = await supabase
+    .from('cotacoes')
+    .update({
+      status,
+      autorizada: status === 'APROVADA',
+      data_autorizacao:
+        status === 'APROVADA'
+          ? new Date().toISOString()
+          : null,
+    })
+    .eq('id', id)
 
-    if (error) {
-      alert('Erro ao atualizar cotação')
-      console.log(error)
-      return
-    }
-
-    alert(
-      status === 'APROVADA'
-        ? 'Cotação aprovada com sucesso'
-        : 'Cotação recusada'
-    )
-
-    carregarCotacoes(usuario.id)
+  if (error) {
+    alert('Erro ao atualizar cotação')
+    console.log(error)
+    return
   }
+
+  alert(
+    status === 'APROVADA'
+      ? 'Cotação aprovada com sucesso'
+      : 'Cotação recusada'
+  )
+
+  carregarCotacoes(usuario.id)
+}
 
   return (
     <main className="min-h-screen bg-[#020817] text-white p-10">
