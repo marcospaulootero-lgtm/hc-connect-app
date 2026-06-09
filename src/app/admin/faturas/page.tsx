@@ -47,16 +47,16 @@ export default function FaturasPage() {
 
   async function carregar() {
     const { data: embarquesData, error: erroEmbarques } = await supabase
-      .from('embarques')
-      .select('id, awb, usuario_id, cliente_final, transportadora, status_operacional')
-      .in('status_operacional', [
-        'Em trânsito',
-        'Fiscalização',
-        'Liberado',
-        'Entregue',
-        'Finalizado',
-      ])
-      .order('criado_em', { ascending: false })
+  .from('embarques')
+  .select('id, awb, usuario_id, cliente_final, transportadora, status_operacional')
+  .in('status_operacional', [
+    'Em trânsito',
+    'Fiscalização',
+    'Liberado',
+    'Entregue',
+    'Finalizado',
+  ])
+  .order('criado_em', { ascending: false })
 
     if (erroEmbarques) {
       console.log(erroEmbarques)
