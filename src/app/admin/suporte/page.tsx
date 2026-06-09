@@ -13,10 +13,16 @@ export default function SuporteAdminPage() {
   const [resposta, setResposta] = useState('')
 
   useEffect(() => {
-    carregarChamados()
-    carregarUsuarios()
-    carregarMensagens()
+    carregarTudo()
   }, [])
+
+  async function carregarTudo() {
+    await Promise.all([
+      carregarChamados(),
+      carregarUsuarios(),
+      carregarMensagens(),
+    ])
+  }
 
   async function carregarChamados() {
     const { data, error } = await supabase
@@ -33,10 +39,15 @@ export default function SuporteAdminPage() {
   }
 
   async function carregarUsuarios() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('perfis')
       .select('*')
       .order('nome')
+
+    if (error) {
+      console.log(error)
+      return
+    }
 
     setUsuarios(data || [])
   }
@@ -55,13 +66,8 @@ export default function SuporteAdminPage() {
     setMensagens(data || [])
   }
 
-  function mensagensDoChamado(chamado: any) {
-    return mensagens.filter((item) => {
-      return (
-        item.usuario_id === chamado.usuario_id &&
-        item.assunto === chamado.assunto
-      )
-    })
+  function mensagensDoChamado(chamadoId: string) {
+    return mensagens.filter((item) => item.chamado_id === chamadoId)
   }
 
   function nomeUsuario(usuarioId: string) {
@@ -90,7 +96,7 @@ export default function SuporteAdminPage() {
       .eq('id', id)
 
     if (error) {
-      alert('Erro ao atualizar status')
+      alert(error.message || 'Erro ao atualizar status')
       console.log(error)
       return
     }
@@ -99,36 +105,80 @@ export default function SuporteAdminPage() {
   }
 
   async function enviarResposta(chamado: any) {
-  if (!resposta.trim()) {
-    alert('Digite uma resposta')
-    return
+    if (!resposta.trim()) {
+      alert('Digite uma resposta')
+      return
+    }
+
+    const respostaFinal = resposta.trim()
+
+    const { error: erroMensagem } = await supabase
+      .from('mensagens_suporte')
+      .insert([
+        {
+          chamado_id: chamado.id,
+          empresa_id: chamado.empresa_id || null,
+          embarque_id: chamado.embarque_id || null,
+          usuario_id: chamado.usuario_id || null,
+          assunto: chamado.assunto || 'Suporte',
+          mensagem: respostaFinal,
+          autor: 'ADMIN',
+          criado_por: 'ADMIN',
+          status: 'RESPONDIDO',
+          respondido_em: new Date().toISOString(),
+        },
+      ])
+
+    if (erroMensagem) {
+      alert(erroMensagem.message || 'Erro ao enviar resposta')
+      console.log(erroMensagem)
+      return
+    }
+
+    const { error: erroChamado } = await supabase
+      .from('suporte')
+      .update({
+        resposta: respostaFinal,
+        status: 'RESPONDIDO',
+      })
+      .eq('id', chamado.id)
+
+    if (erroChamado) {
+      alert(erroChamado.message || 'Resposta enviada, mas houve erro ao atualizar o chamado')
+      console.log(erroChamado)
+      return
+    }
+
+    alert('Resposta enviada ao cliente')
+
+    setResposta('')
+    setRespondendoId(null)
+
+    carregarChamados()
+    carregarMensagens()
   }
 
-  const respostaFinal = resposta.trim()
+  async function excluirChamado(id: string) {
+    const confirmar = confirm('Deseja realmente excluir este chamado?')
 
-  const { error: erroChamado } = await supabase
-    .from('suporte')
-    .update({
-      resposta: respostaFinal,
-      status: 'RESPONDIDO',
-    })
-    .eq('id', chamado.id)
+    if (!confirmar) return
 
-  if (erroChamado) {
-    alert(
-      `${erroChamado.message || 'Erro ao enviar resposta'}\n${erroChamado.details || ''}`
-    )
-    console.log(erroChamado)
-    return
+    const { error } = await supabase
+      .from('suporte')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      alert(error.message || 'Erro ao excluir chamado')
+      console.log(error)
+      return
+    }
+
+    alert('Chamado excluído')
+
+    carregarChamados()
+    carregarMensagens()
   }
-
-  alert('Resposta enviada ao cliente')
-
-  setResposta('')
-  setRespondendoId(null)
-
-  carregarChamados()
-}
 
   const chamadosFiltrados = useMemo(() => {
     return chamados.filter((item) => {
@@ -218,137 +268,161 @@ export default function SuporteAdminPage() {
           <p className="text-slate-400">Nenhum chamado encontrado.</p>
         ) : (
           <div className="space-y-5">
-            {chamadosFiltrados.map((item) => (
-              <div
-                key={item.id}
-                className="border border-blue-900 rounded-3xl p-6 bg-[#071225]"
-              >
-                <div className="flex justify-between gap-4 mb-5">
-                  <div>
-                    <h3 className="text-2xl font-black">
-                      {item.assunto || 'Sem assunto'}
-                    </h3>
+            {chamadosFiltrados.map((item) => {
+              const conversa = mensagensDoChamado(item.id)
 
-                    <p className="text-slate-400 mt-1">
-                      {nomeUsuario(item.usuario_id)} •{' '}
-                      {item.email || emailUsuario(item.usuario_id)}
+              return (
+                <div
+                  key={item.id}
+                  className="border border-blue-900 rounded-3xl p-6 bg-[#071225]"
+                >
+                  <div className="flex justify-between gap-4 mb-5">
+                    <div>
+                      <h3 className="text-2xl font-black">
+                        {item.assunto || 'Sem assunto'}
+                      </h3>
+
+                      <p className="text-slate-400 mt-1">
+                        {nomeUsuario(item.usuario_id)} •{' '}
+                        {item.email || emailUsuario(item.usuario_id)}
+                      </p>
+
+                      <p className="text-slate-500 text-sm mt-1">
+                        {item.criado_em
+                          ? new Date(item.criado_em).toLocaleString('pt-BR')
+                          : '-'}
+                      </p>
+                    </div>
+
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-bold h-fit ${corStatus(
+                        item.status
+                      )}`}
+                    >
+                      {item.status || 'ABERTO'}
+                    </span>
+                  </div>
+
+                  <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
+                    <p className="text-slate-400 font-bold mb-2">
+                      Mensagem inicial do cliente
                     </p>
 
-                    <p className="text-slate-500 text-sm mt-1">
-                      {item.criado_em
-                        ? new Date(item.criado_em).toLocaleString('pt-BR')
-                        : '-'}
+                    <p className="text-slate-300 leading-7">
+                      {item.mensagem || '-'}
                     </p>
                   </div>
 
-                  <span
-                    className={`px-3 py-1 rounded-full text-sm font-bold h-fit ${corStatus(
-                      item.status
-                    )}`}
-                  >
-                    {item.status || 'ABERTO'}
-                  </span>
-                </div>
+                  <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
+                    <p className="text-slate-400 font-bold mb-4">Conversa</p>
 
-                <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
-                  <p className="text-slate-400 font-bold mb-2">
-                    Mensagem inicial do cliente
-                  </p>
+                    {conversa.length === 0 ? (
+                      <p className="text-slate-500">Nenhuma resposta ainda.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {conversa.map((msg) => {
+                          const admin = msg.autor === 'ADMIN'
 
-                  <p className="text-slate-300 leading-7">
-                    {item.mensagem || '-'}
-                  </p>
-                </div>
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`flex ${
+                                admin ? 'justify-end' : 'justify-start'
+                              }`}
+                            >
+                              <div
+                                className={`max-w-[80%] rounded-2xl p-4 ${
+                                  admin
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-slate-800 text-slate-200'
+                                }`}
+                              >
+                                <p className="text-xs opacity-80 mb-1">
+                                  {admin ? 'HC Consultoria' : 'Cliente'}
+                                </p>
 
-                <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
-                  <p className="text-slate-400 font-bold mb-4">Conversa</p>
+                                <p className="leading-7">{msg.mensagem}</p>
 
-                  {mensagensDoChamado(item).length === 0 ? (
-                    <p className="text-slate-500">Nenhuma resposta ainda.</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {mensagensDoChamado(item).map((msg) => (
-                        <div key={msg.id} className="flex justify-end">
-                          <div className="max-w-[80%] rounded-2xl p-4 bg-blue-600 text-white">
-                            <p className="text-xs opacity-80 mb-1">
-                              HC Consultoria
-                            </p>
+                                <p className="text-xs opacity-70 mt-2">
+                                  {msg.criado_em
+                                    ? new Date(msg.criado_em).toLocaleString(
+                                        'pt-BR'
+                                      )
+                                    : '-'}
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
 
-                            <p className="leading-7">{msg.mensagem}</p>
+                  {respondendoId === item.id && (
+                    <div className="mb-5">
+                      <textarea
+                        placeholder="Digite a resposta para o cliente..."
+                        value={resposta}
+                        onChange={(e) => setResposta(e.target.value)}
+                        className="min-h-[140px]"
+                      />
 
-                            <p className="text-xs opacity-70 mt-2">
-                              {msg.criado_em
-                                ? new Date(msg.criado_em).toLocaleString(
-                                    'pt-BR'
-                                  )
-                                : '-'}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
+                      <div className="flex gap-3 mt-3">
+                        <button
+                          onClick={() => enviarResposta(item)}
+                          className="bg-green-600 hover:bg-green-500"
+                        >
+                          Enviar resposta
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setRespondendoId(null)
+                            setResposta('')
+                          }}
+                          className="bg-slate-700 hover:bg-slate-600"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
                     </div>
                   )}
-                </div>
 
-                {respondendoId === item.id && (
-                  <div className="mb-5">
-                    <textarea
-                      placeholder="Digite a resposta para o cliente..."
-                      value={resposta}
-                      onChange={(e) => setResposta(e.target.value)}
-                      className="min-h-[140px]"
-                    />
+                  <div className="flex gap-3 flex-wrap">
+                    <button
+                      onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
+                      className="bg-blue-600 hover:bg-blue-500"
+                    >
+                      Em análise
+                    </button>
 
-                    <div className="flex gap-3 mt-3">
-                      <button
-                        onClick={() => enviarResposta(item)}
-                        className="bg-green-600 hover:bg-green-500"
-                      >
-                        Enviar resposta
-                      </button>
+                    <button
+                      onClick={() => {
+                        setRespondendoId(item.id)
+                        setResposta('')
+                      }}
+                      className="bg-purple-600 hover:bg-purple-500"
+                    >
+                      Responder
+                    </button>
 
-                      <button
-                        onClick={() => {
-                          setRespondendoId(null)
-                          setResposta('')
-                        }}
-                        className="bg-slate-700 hover:bg-slate-600"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => atualizarStatus(item.id, 'RESOLVIDO')}
+                      className="bg-green-600 hover:bg-green-500"
+                    >
+                      Resolver
+                    </button>
+
+                    <button
+                      onClick={() => excluirChamado(item.id)}
+                      className="bg-red-700 hover:bg-red-600"
+                    >
+                      Excluir
+                    </button>
                   </div>
-                )}
-
-                <div className="flex gap-3 flex-wrap">
-                  <button
-                    onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
-                    className="bg-blue-600 hover:bg-blue-500"
-                  >
-                    Em análise
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setRespondendoId(item.id)
-                      setResposta('')
-                    }}
-                    className="bg-purple-600 hover:bg-purple-500"
-                  >
-                    Responder
-                  </button>
-
-                  <button
-                    onClick={() => atualizarStatus(item.id, 'RESOLVIDO')}
-                    className="bg-green-600 hover:bg-green-500"
-                  >
-                    Resolver
-                  </button>
-
-                  
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </section>
