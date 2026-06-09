@@ -60,16 +60,25 @@ export default function EmbarquesPage() {
   }
 
   function linkRastreio(item: any) {
-    const awb = item.awb || ''
+  const awb = item.awb || ''
+  const transportadora = (item.transportadora || '').toUpperCase()
 
-    if (!awb || awb === 'AGUARDANDO AWB') return ''
+  if (!awb || awb === 'AGUARDANDO AWB') return ''
 
-    if ((item.transportadora || '').toUpperCase().includes('DHL')) {
-      return `https://mydhl.express.dhl/br/pt/tracking.html#/results?id=${awb}`
-    }
-
-    return ''
+  if (transportadora.includes('DHL')) {
+    return `https://mydhl.express.dhl/br/pt/tracking.html#/results?id=${awb}`
   }
+
+  if (transportadora.includes('FEDEX')) {
+    return `https://www.fedex.com/fedextrack/?trknbr=${awb}`
+  }
+
+  if (transportadora.includes('UPS')) {
+    return `https://www.ups.com/track?tracknum=${awb}`
+  }
+
+  return ''
+}
 
   async function salvar() {
     if (!form.awb) {
@@ -512,7 +521,7 @@ export default function EmbarquesPage() {
                         rel="noopener noreferrer"
                         className="bg-yellow-500 hover:bg-yellow-400 px-4 py-2 rounded-xl text-black font-bold inline-block"
                       >
-                        DHL
+                        {item.transportadora || 'Rastrear'}
                       </a>
                     ) : (
                       <span className="text-slate-500">-</span>
