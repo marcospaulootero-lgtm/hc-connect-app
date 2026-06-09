@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 export default function SuporteAdminPage() {
   const [chamados, setChamados] = useState<any[]>([])
   const [usuarios, setUsuarios] = useState<any[]>([])
+  const [mensagens, setMensagens] = useState<any[]>([])
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [respondendoId, setRespondendoId] = useState<string | null>(null)
@@ -14,6 +15,7 @@ export default function SuporteAdminPage() {
   useEffect(() => {
     carregarChamados()
     carregarUsuarios()
+    carregarMensagens()
   }, [])
 
   async function carregarChamados() {
@@ -37,6 +39,24 @@ export default function SuporteAdminPage() {
       .order('nome')
 
     setUsuarios(data || [])
+  }
+
+  async function carregarMensagens() {
+    const { data, error } = await supabase
+      .from('mensagens_suporte')
+      .select('*')
+      .order('criado_em', { ascending: true })
+
+    if (error) {
+      console.log(error)
+      return
+    }
+
+    setMensagens(data || [])
+  }
+
+  function mensagensDoChamado(chamadoId: string) {
+    return mensagens.filter((item) => item.chamado_id === chamadoId)
   }
 
   function nomeUsuario(usuarioId: string) {
@@ -73,36 +93,61 @@ export default function SuporteAdminPage() {
     carregarChamados()
   }
 
-  async function enviarResposta(id: string) {
+  async function enviarResposta(chamado: any) {
     if (!resposta.trim()) {
       alert('Digite uma resposta')
       return
     }
 
-    const { error } = await supabase
+    const { error: erroMensagem } = await supabase
+      .from('mensagens_suporte')
+      .insert([
+        {
+          chamado_id: chamado.id,
+          usuario_id: chamado.usuario_id,
+          autor: 'ADMIN',
+          mensagem: resposta,
+        },
+      ])
+
+    if (erroMensagem) {
+      alert('Erro ao enviar resposta')
+      console.log(erroMensagem)
+      return
+    }
+
+    const { error: erroChamado } = await supabase
       .from('suporte')
       .update({
         resposta,
         status: 'RESPONDIDO',
       })
-      .eq('id', id)
+      .eq('id', chamado.id)
 
-    if (error) {
-      alert('Erro ao responder chamado')
-      console.log(error)
+    if (erroChamado) {
+      alert('Resposta enviada, mas houve erro ao atualizar o chamado')
+      console.log(erroChamado)
       return
     }
 
     alert('Resposta enviada ao cliente')
+
     setResposta('')
     setRespondendoId(null)
+
     carregarChamados()
+    carregarMensagens()
   }
 
   async function excluirChamado(id: string) {
     const confirmar = confirm('Deseja realmente excluir este chamado?')
 
     if (!confirmar) return
+
+    await supabase
+      .from('mensagens_suporte')
+      .delete()
+      .eq('chamado_id', id)
 
     const { error } = await supabase
       .from('suporte')
@@ -116,7 +161,9 @@ export default function SuporteAdminPage() {
     }
 
     alert('Chamado excluído')
+
     carregarChamados()
+    carregarMensagens()
   }
 
   const chamadosFiltrados = useMemo(() => {
@@ -138,7 +185,6 @@ export default function SuporteAdminPage() {
   }, [chamados, usuarios, busca, filtroStatus])
 
   const totalAbertos = chamados.filter((c) => c.status === 'ABERTO').length
-  const totalAnalise = chamados.filter((c) => c.status === 'EM ANÁLISE').length
   const totalRespondidos = chamados.filter((c) => c.status === 'RESPONDIDO').length
   const totalResolvidos = chamados.filter((c) => c.status === 'RESOLVIDO').length
 
@@ -245,7 +291,7 @@ export default function SuporteAdminPage() {
 
                 <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
                   <p className="text-slate-400 font-bold mb-2">
-                    Mensagem do cliente
+                    Mensagem inicial do cliente
                   </p>
 
                   <p className="text-slate-300 leading-7">
@@ -253,17 +299,52 @@ export default function SuporteAdminPage() {
                   </p>
                 </div>
 
-                {item.resposta && (
-                  <div className="bg-green-900/20 border border-green-600 rounded-2xl p-5 mb-5">
-                    <p className="text-green-400 font-bold mb-2">
-                      Resposta enviada
-                    </p>
+                <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
+                  <p className="text-slate-400 font-bold mb-4">
+                    Conversa
+                  </p>
 
-                    <p className="text-slate-300 leading-7">
-                      {item.resposta}
+                  {mensagensDoChamado(item.id).length === 0 ? (
+                    <p className="text-slate-500">
+                      Nenhuma resposta ainda.
                     </p>
-                  </div>
-                )}
+                  ) : (
+                    <div className="space-y-4">
+                      {mensagensDoChamado(item.id).map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`flex ${
+                            msg.autor === 'ADMIN'
+                              ? 'justify-end'
+                              : 'justify-start'
+                          }`}
+                        >
+                          <div
+                            className={`max-w-[80%] rounded-2xl p-4 ${
+                              msg.autor === 'ADMIN'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-800 text-slate-200'
+                            }`}
+                          >
+                            <p className="text-xs opacity-80 mb-1">
+                              {msg.autor === 'ADMIN' ? 'HC Consultoria' : 'Cliente'}
+                            </p>
+
+                            <p className="leading-7">
+                              {msg.mensagem}
+                            </p>
+
+                            <p className="text-xs opacity-70 mt-2">
+                              {msg.criado_em
+                                ? new Date(msg.criado_em).toLocaleString('pt-BR')
+                                : '-'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {respondendoId === item.id && (
                   <div className="mb-5">
@@ -276,7 +357,7 @@ export default function SuporteAdminPage() {
 
                     <div className="flex gap-3 mt-3">
                       <button
-                        onClick={() => enviarResposta(item.id)}
+                        onClick={() => enviarResposta(item)}
                         className="bg-green-600 hover:bg-green-500"
                       >
                         Enviar resposta
@@ -306,7 +387,7 @@ export default function SuporteAdminPage() {
                   <button
                     onClick={() => {
                       setRespondendoId(item.id)
-                      setResposta(item.resposta || '')
+                      setResposta('')
                     }}
                     className="bg-purple-600 hover:bg-purple-500"
                   >
