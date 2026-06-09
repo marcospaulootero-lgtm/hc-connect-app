@@ -1,113 +1,336 @@
 'use client'
 
-export default function SuportePage() {
-  const email = 'marcos@hcbhz.com'
-  const telefone = '3136436175'
-  const whatsapp = '553136436175'
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabaseClient'
+
+export default function SuporteAdminPage() {
+  const [chamados, setChamados] = useState<any[]>([])
+  const [usuarios, setUsuarios] = useState<any[]>([])
+  const [busca, setBusca] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState('')
+  const [respondendoId, setRespondendoId] = useState<string | null>(null)
+  const [resposta, setResposta] = useState('')
+
+  useEffect(() => {
+    carregarChamados()
+    carregarUsuarios()
+  }, [])
+
+  async function carregarChamados() {
+    const { data, error } = await supabase
+      .from('suporte')
+      .select('*')
+      .order('criado_em', { ascending: false })
+
+    if (error) {
+      console.log(error)
+      return
+    }
+
+    setChamados(data || [])
+  }
+
+  async function carregarUsuarios() {
+    const { data } = await supabase
+      .from('perfis')
+      .select('*')
+      .order('nome')
+
+    setUsuarios(data || [])
+  }
+
+  function nomeUsuario(usuarioId: string) {
+    const usuario = usuarios.find((item) => item.id === usuarioId)
+    return usuario?.nome || usuario?.email || '-'
+  }
+
+  function emailUsuario(usuarioId: string) {
+    const usuario = usuarios.find((item) => item.id === usuarioId)
+    return usuario?.email || '-'
+  }
+
+  function corStatus(status: string) {
+    if (status === 'ABERTO') return 'bg-yellow-400 text-black'
+    if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
+    if (status === 'RESPONDIDO') return 'bg-purple-600 text-white'
+    if (status === 'RESOLVIDO') return 'bg-green-700 text-white'
+
+    return 'bg-slate-600 text-white'
+  }
+
+  async function atualizarStatus(id: string, status: string) {
+    const { error } = await supabase
+      .from('suporte')
+      .update({ status })
+      .eq('id', id)
+
+    if (error) {
+      alert('Erro ao atualizar status')
+      console.log(error)
+      return
+    }
+
+    carregarChamados()
+  }
+
+  async function enviarResposta(id: string) {
+    if (!resposta.trim()) {
+      alert('Digite uma resposta')
+      return
+    }
+
+    const { error } = await supabase
+      .from('suporte')
+      .update({
+        resposta,
+        status: 'RESPONDIDO',
+      })
+      .eq('id', id)
+
+    if (error) {
+      alert('Erro ao responder chamado')
+      console.log(error)
+      return
+    }
+
+    alert('Resposta enviada ao cliente')
+    setResposta('')
+    setRespondendoId(null)
+    carregarChamados()
+  }
+
+  async function excluirChamado(id: string) {
+    const confirmar = confirm('Deseja realmente excluir este chamado?')
+
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('suporte')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      alert('Erro ao excluir chamado')
+      console.log(error)
+      return
+    }
+
+    alert('Chamado excluído')
+    carregarChamados()
+  }
+
+  const chamadosFiltrados = useMemo(() => {
+    return chamados.filter((item) => {
+      const texto = `
+        ${nomeUsuario(item.usuario_id)}
+        ${emailUsuario(item.usuario_id)}
+        ${item.email}
+        ${item.assunto}
+        ${item.mensagem}
+        ${item.status}
+      `.toLowerCase()
+
+      const matchBusca = texto.includes(busca.toLowerCase())
+      const matchStatus = !filtroStatus || item.status === filtroStatus
+
+      return matchBusca && matchStatus
+    })
+  }, [chamados, usuarios, busca, filtroStatus])
+
+  const totalAbertos = chamados.filter((c) => c.status === 'ABERTO').length
+  const totalAnalise = chamados.filter((c) => c.status === 'EM ANÁLISE').length
+  const totalRespondidos = chamados.filter((c) => c.status === 'RESPONDIDO').length
+  const totalResolvidos = chamados.filter((c) => c.status === 'RESOLVIDO').length
 
   return (
     <main className="max-w-7xl mx-auto p-8 text-white">
       <div className="mb-8">
-        <h1 className="text-5xl font-black mb-2">Suporte</h1>
+        <h1 className="text-5xl font-black mb-2">
+          Suporte
+        </h1>
+
         <p className="text-slate-400 text-lg">
-          Central de atendimento e chamados
+          Central de atendimento e chamados dos clientes.
         </p>
       </div>
 
-      <section className="card mb-8">
-        <div className="flex justify-between gap-8 items-center mb-8">
-          <div>
-            <h2 className="text-3xl font-black mb-2">
-              Como podemos ajudar?
-            </h2>
-            <p className="text-slate-400">
-              Abra um chamado ou entre em contato com nossa equipe.
-            </p>
-          </div>
-
-          <div className="text-7xl">🎧</div>
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="card">
+          <p className="text-slate-400">Total</p>
+          <h2 className="text-5xl font-black mt-4">
+            {chamados.length}
+          </h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-          <div className="border border-blue-900 rounded-2xl p-6 bg-[#071226]">
-            <div className="text-4xl mb-4">🎧</div>
-            <h3 className="text-xl font-bold mb-2">Abrir chamado</h3>
-            <p className="text-slate-400 mb-6">
-              Abra um novo chamado para nossa equipe.
-            </p>
+        <div className="card">
+          <p className="text-slate-400">Abertos</p>
+          <h2 className="text-5xl font-black mt-4 text-yellow-400">
+            {totalAbertos}
+          </h2>
+        </div>
 
-            <a
-              href={`mailto:${email}?subject=Novo chamado - HC Connect`}
-              className="block text-center bg-blue-600 hover:bg-blue-500 transition rounded-2xl font-bold py-4"
-            >
-              Novo chamado
-            </a>
-          </div>
+        <div className="card">
+          <p className="text-slate-400">Respondidos</p>
+          <h2 className="text-5xl font-black mt-4 text-purple-400">
+            {totalRespondidos}
+          </h2>
+        </div>
 
-          <div className="border border-blue-900 rounded-2xl p-6 bg-[#071226]">
-            <div className="text-4xl mb-4">✉️</div>
-            <h3 className="text-xl font-bold mb-2">E-mail</h3>
-            <p className="text-slate-400 mb-6">{email}</p>
+        <div className="card">
+          <p className="text-slate-400">Resolvidos</p>
+          <h2 className="text-5xl font-black mt-4 text-green-400">
+            {totalResolvidos}
+          </h2>
+        </div>
+      </section>
 
-            <a
-              href={`mailto:${email}`}
-              className="block text-center bg-blue-600 hover:bg-blue-500 transition rounded-2xl font-bold py-4"
-            >
-              Enviar e-mail
-            </a>
-          </div>
+      <section className="card mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input
+            placeholder="Buscar por usuário, e-mail, assunto, mensagem..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
 
-          <div className="border border-blue-900 rounded-2xl p-6 bg-[#071226]">
-            <div className="text-4xl mb-4">💬</div>
-            <h3 className="text-xl font-bold mb-2">WhatsApp</h3>
-            <p className="text-slate-400 mb-6">
-              Atendimento rápido via WhatsApp.
-            </p>
-
-            <a
-              href={`https://wa.me/${whatsapp}?text=Olá, preciso de suporte no HC Connect.`}
-              target="_blank"
-              className="block text-center bg-blue-600 hover:bg-blue-500 transition rounded-2xl font-bold py-4"
-            >
-              Conversar
-            </a>
-          </div>
-
-          <div className="border border-blue-900 rounded-2xl p-6 bg-[#071226]">
-            <div className="text-4xl mb-4">📞</div>
-            <h3 className="text-xl font-bold mb-2">Telefone</h3>
-            <p className="text-slate-400 mb-6">{telefone}</p>
-
-            <a
-              href={`tel:+55${telefone}`}
-              className="block text-center bg-blue-600 hover:bg-blue-500 transition rounded-2xl font-bold py-4"
-            >
-              Ligar agora
-            </a>
-          </div>
+          <select
+            value={filtroStatus}
+            onChange={(e) => setFiltroStatus(e.target.value)}
+          >
+            <option value="">Todos os status</option>
+            <option value="ABERTO">Aberto</option>
+            <option value="EM ANÁLISE">Em análise</option>
+            <option value="RESPONDIDO">Respondido</option>
+            <option value="RESOLVIDO">Resolvido</option>
+          </select>
         </div>
       </section>
 
       <section className="card">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h2 className="text-3xl font-black">Meus chamados</h2>
-            <p className="text-slate-400">
-              Acompanhe o status dos seus chamados.
-            </p>
+        <h2 className="text-2xl font-black mb-6">
+          Chamados recebidos
+        </h2>
+
+        {chamadosFiltrados.length === 0 ? (
+          <p className="text-slate-400">
+            Nenhum chamado encontrado.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {chamadosFiltrados.map((item) => (
+              <div
+                key={item.id}
+                className="border border-blue-900 rounded-3xl p-6 bg-[#071225]"
+              >
+                <div className="flex justify-between gap-4 mb-5">
+                  <div>
+                    <h3 className="text-2xl font-black">
+                      {item.assunto || 'Sem assunto'}
+                    </h3>
+
+                    <p className="text-slate-400 mt-1">
+                      {nomeUsuario(item.usuario_id)} • {item.email || emailUsuario(item.usuario_id)}
+                    </p>
+
+                    <p className="text-slate-500 text-sm mt-1">
+                      {item.criado_em
+                        ? new Date(item.criado_em).toLocaleString('pt-BR')
+                        : '-'}
+                    </p>
+                  </div>
+
+                  <span className={`px-3 py-1 rounded-full text-sm font-bold h-fit ${corStatus(item.status)}`}>
+                    {item.status || 'ABERTO'}
+                  </span>
+                </div>
+
+                <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
+                  <p className="text-slate-400 font-bold mb-2">
+                    Mensagem do cliente
+                  </p>
+
+                  <p className="text-slate-300 leading-7">
+                    {item.mensagem || '-'}
+                  </p>
+                </div>
+
+                {item.resposta && (
+                  <div className="bg-green-900/20 border border-green-600 rounded-2xl p-5 mb-5">
+                    <p className="text-green-400 font-bold mb-2">
+                      Resposta enviada
+                    </p>
+
+                    <p className="text-slate-300 leading-7">
+                      {item.resposta}
+                    </p>
+                  </div>
+                )}
+
+                {respondendoId === item.id && (
+                  <div className="mb-5">
+                    <textarea
+                      placeholder="Digite a resposta para o cliente..."
+                      value={resposta}
+                      onChange={(e) => setResposta(e.target.value)}
+                      className="min-h-[140px]"
+                    />
+
+                    <div className="flex gap-3 mt-3">
+                      <button
+                        onClick={() => enviarResposta(item.id)}
+                        className="bg-green-600 hover:bg-green-500"
+                      >
+                        Enviar resposta
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setRespondendoId(null)
+                          setResposta('')
+                        }}
+                        className="bg-slate-700 hover:bg-slate-600"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 flex-wrap">
+                  <button
+                    onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
+                    className="bg-blue-600 hover:bg-blue-500"
+                  >
+                    Em análise
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setRespondendoId(item.id)
+                      setResposta(item.resposta || '')
+                    }}
+                    className="bg-purple-600 hover:bg-purple-500"
+                  >
+                    Responder
+                  </button>
+
+                  <button
+                    onClick={() => atualizarStatus(item.id, 'RESOLVIDO')}
+                    className="bg-green-600 hover:bg-green-500"
+                  >
+                    Resolver
+                  </button>
+
+                  <button
+                    onClick={() => excluirChamado(item.id)}
+                    className="bg-red-700 hover:bg-red-600"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-
-          <select className="max-w-xs">
-            <option>Todos os status</option>
-            <option>Em aberto</option>
-            <option>Em andamento</option>
-            <option>Resolvido</option>
-          </select>
-        </div>
-
-        <p className="text-slate-400">
-          Nenhum chamado aberto.
-        </p>
+        )}
       </section>
     </main>
   )
