@@ -74,10 +74,14 @@ export default function SuporteClientePage() {
     setSalvando(false)
 
     if (error) {
-      alert('Erro ao abrir chamado')
-      console.log(error)
-      return
-    }
+  console.log(error)
+
+  alert(
+    JSON.stringify(error, null, 2)
+  )
+
+  return
+}
 
     alert('Chamado aberto com sucesso')
 
