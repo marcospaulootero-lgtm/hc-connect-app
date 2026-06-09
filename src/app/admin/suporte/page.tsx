@@ -55,8 +55,13 @@ export default function SuporteAdminPage() {
     setMensagens(data || [])
   }
 
-  function mensagensDoChamado(chamadoId: string) {
-    return mensagens.filter((item) => item.chamado_id === chamadoId)
+  function mensagensDoChamado(chamado: any) {
+    return mensagens.filter((item) => {
+      return (
+        item.usuario_id === chamado.usuario_id &&
+        item.assunto === chamado.assunto
+      )
+    })
   }
 
   function nomeUsuario(usuarioId: string) {
@@ -94,56 +99,77 @@ export default function SuporteAdminPage() {
   }
 
   async function enviarResposta(chamado: any) {
-  if (!resposta.trim()) {
-    alert('Digite uma resposta')
-    return
-  }
+    if (!resposta.trim()) {
+      alert('Digite uma resposta')
+      return
+    }
 
-  const respostaFinal = resposta.trim()
+    const respostaFinal = resposta.trim()
 
-  const { error: erroMensagem } = await supabase
-    .from('mensagens_suporte')
-    .insert([
-      {
-        empresa_id: chamado.empresa_id || null,
-        embarque_id: chamado.embarque_id || null,
-        usuario_id: chamado.usuario_id || null,
-        assunto: chamado.assunto || 'Resposta do suporte',
-        mensagem: respostaFinal,
+    const { error: erroMensagem } = await supabase
+      .from('mensagens_suporte')
+      .insert([
+        {
+          empresa_id: chamado.empresa_id || null,
+          embarque_id: chamado.embarque_id || null,
+          usuario_id: chamado.usuario_id || null,
+          assunto: chamado.assunto || 'Resposta do suporte',
+          mensagem: respostaFinal,
+          status: 'RESPONDIDO',
+          respondido_em: new Date().toISOString(),
+        },
+      ])
+
+    if (erroMensagem) {
+      alert('Erro ao enviar resposta')
+      console.log(erroMensagem)
+      return
+    }
+
+    const { error: erroChamado } = await supabase
+      .from('suporte')
+      .update({
+        resposta: respostaFinal,
         status: 'RESPONDIDO',
-        respondido_em: new Date().toISOString(),
-      },
-    ])
+      })
+      .eq('id', chamado.id)
 
-  if (erroMensagem) {
-    alert('Erro ao enviar resposta')
-    console.log(erroMensagem)
-    return
+    if (erroChamado) {
+      alert('Resposta enviada, mas houve erro ao atualizar o chamado')
+      console.log(erroChamado)
+      return
+    }
+
+    alert('Resposta enviada ao cliente')
+
+    setResposta('')
+    setRespondendoId(null)
+
+    carregarChamados()
+    carregarMensagens()
   }
 
-  const { error: erroChamado } = await supabase
-    .from('suporte')
-    .update({
-      resposta: respostaFinal,
-      status: 'RESPONDIDO',
-      respondido_em: new Date().toISOString(),
-    })
-    .eq('id', chamado.id)
+  async function excluirChamado(id: string) {
+    const confirmar = confirm('Deseja realmente excluir este chamado?')
 
-  if (erroChamado) {
-    alert('Resposta enviada, mas houve erro ao atualizar o chamado')
-    console.log(erroChamado)
-    return
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('suporte')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      alert('Erro ao excluir chamado')
+      console.log(error)
+      return
+    }
+
+    alert('Chamado excluído')
+
+    carregarChamados()
+    carregarMensagens()
   }
-
-  alert('Resposta enviada ao cliente')
-
-  setResposta('')
-  setRespondendoId(null)
-
-  carregarChamados()
-  carregarMensagens()
-}
 
   const chamadosFiltrados = useMemo(() => {
     return chamados.filter((item) => {
@@ -170,9 +196,7 @@ export default function SuporteAdminPage() {
   return (
     <main className="max-w-7xl mx-auto p-8 text-white">
       <div className="mb-8">
-        <h1 className="text-5xl font-black mb-2">
-          Suporte
-        </h1>
+        <h1 className="text-5xl font-black mb-2">Suporte</h1>
 
         <p className="text-slate-400 text-lg">
           Central de atendimento e chamados dos clientes.
@@ -182,9 +206,7 @@ export default function SuporteAdminPage() {
       <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="card">
           <p className="text-slate-400">Total</p>
-          <h2 className="text-5xl font-black mt-4">
-            {chamados.length}
-          </h2>
+          <h2 className="text-5xl font-black mt-4">{chamados.length}</h2>
         </div>
 
         <div className="card">
@@ -231,14 +253,10 @@ export default function SuporteAdminPage() {
       </section>
 
       <section className="card">
-        <h2 className="text-2xl font-black mb-6">
-          Chamados recebidos
-        </h2>
+        <h2 className="text-2xl font-black mb-6">Chamados recebidos</h2>
 
         {chamadosFiltrados.length === 0 ? (
-          <p className="text-slate-400">
-            Nenhum chamado encontrado.
-          </p>
+          <p className="text-slate-400">Nenhum chamado encontrado.</p>
         ) : (
           <div className="space-y-5">
             {chamadosFiltrados.map((item) => (
@@ -253,7 +271,8 @@ export default function SuporteAdminPage() {
                     </h3>
 
                     <p className="text-slate-400 mt-1">
-                      {nomeUsuario(item.usuario_id)} • {item.email || emailUsuario(item.usuario_id)}
+                      {nomeUsuario(item.usuario_id)} •{' '}
+                      {item.email || emailUsuario(item.usuario_id)}
                     </p>
 
                     <p className="text-slate-500 text-sm mt-1">
@@ -263,7 +282,11 @@ export default function SuporteAdminPage() {
                     </p>
                   </div>
 
-                  <span className={`px-3 py-1 rounded-full text-sm font-bold h-fit ${corStatus(item.status)}`}>
+                  <span
+                    className={`px-3 py-1 rounded-full text-sm font-bold h-fit ${corStatus(
+                      item.status
+                    )}`}
+                  >
                     {item.status || 'ABERTO'}
                   </span>
                 </div>
@@ -279,43 +302,26 @@ export default function SuporteAdminPage() {
                 </div>
 
                 <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
-                  <p className="text-slate-400 font-bold mb-4">
-                    Conversa
-                  </p>
+                  <p className="text-slate-400 font-bold mb-4">Conversa</p>
 
-                  {mensagensDoChamado(item.id).length === 0 ? (
-                    <p className="text-slate-500">
-                      Nenhuma resposta ainda.
-                    </p>
+                  {mensagensDoChamado(item).length === 0 ? (
+                    <p className="text-slate-500">Nenhuma resposta ainda.</p>
                   ) : (
                     <div className="space-y-4">
-                      {mensagensDoChamado(item.id).map((msg) => (
-                        <div
-                          key={msg.id}
-                          className={`flex ${
-                            msg.autor === 'ADMIN'
-                              ? 'justify-end'
-                              : 'justify-start'
-                          }`}
-                        >
-                          <div
-                            className={`max-w-[80%] rounded-2xl p-4 ${
-                              msg.autor === 'ADMIN'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-800 text-slate-200'
-                            }`}
-                          >
+                      {mensagensDoChamado(item).map((msg) => (
+                        <div key={msg.id} className="flex justify-end">
+                          <div className="max-w-[80%] rounded-2xl p-4 bg-blue-600 text-white">
                             <p className="text-xs opacity-80 mb-1">
-                              {msg.autor === 'ADMIN' ? 'HC Consultoria' : 'Cliente'}
+                              HC Consultoria
                             </p>
 
-                            <p className="leading-7">
-                              {msg.mensagem}
-                            </p>
+                            <p className="leading-7">{msg.mensagem}</p>
 
                             <p className="text-xs opacity-70 mt-2">
                               {msg.criado_em
-                                ? new Date(msg.criado_em).toLocaleString('pt-BR')
+                                ? new Date(msg.criado_em).toLocaleString(
+                                    'pt-BR'
+                                  )
                                 : '-'}
                             </p>
                           </div>
