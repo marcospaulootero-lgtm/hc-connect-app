@@ -50,9 +50,30 @@ export default function CotacoesAdminPage() {
 
     if (error) {
       alert('Erro ao atualizar status')
+      console.log(error)
       return
     }
 
+    carregar()
+  }
+
+  async function excluirCotacao(id: string) {
+    const confirmar = confirm('Deseja realmente excluir esta cotação?')
+
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      alert('Erro ao excluir cotação')
+      console.log(error)
+      return
+    }
+
+    alert('Cotação excluída')
     carregar()
   }
 
@@ -216,14 +237,18 @@ export default function CotacoesAdminPage() {
                       </button>
 
                       <button
-                        onClick={() => atualizarStatus(item.id, 'AGUARDANDO TRANSPORTADORA')}
+                        onClick={() =>
+                          atualizarStatus(item.id, 'AGUARDANDO TRANSPORTADORA')
+                        }
                         className="bg-purple-600 hover:bg-purple-500"
                       >
                         Aguardando
                       </button>
 
                       <button
-                        onClick={() => atualizarStatus(item.id, 'COTAÇÃO DISPONÍVEL')}
+                        onClick={() =>
+                          atualizarStatus(item.id, 'COTAÇÃO DISPONÍVEL')
+                        }
                         className="bg-emerald-600 hover:bg-emerald-500"
                       >
                         Disponível
@@ -234,6 +259,13 @@ export default function CotacoesAdminPage() {
                         className="bg-red-600 hover:bg-red-500"
                       >
                         Recusar
+                      </button>
+
+                      <button
+                        onClick={() => excluirCotacao(item.id)}
+                        className="bg-red-800 hover:bg-red-700"
+                      >
+                        Excluir
                       </button>
                     </div>
                   </td>
