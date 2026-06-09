@@ -99,9 +99,12 @@ export default function ClientePage() {
     return texto.includes(busca.toLowerCase())
   })
 
-  const cotacoesDisponiveis = cotacoes.filter(
-    (c) => c.status === 'COTAÇÃO DISPONÍVEL'
-  ).length
+  const cotacoesComResposta = cotacoes.filter(
+  (c) =>
+    c.status === 'COTAÇÃO DISPONÍVEL' ||
+    c.status === 'APROVADA' ||
+    c.status === 'CONVERTIDA EM EMBARQUE'
+).length
 
   const cotacoesPendentes = cotacoes.filter(
     (c) =>
@@ -127,18 +130,25 @@ export default function ClientePage() {
 
             <div className="flex gap-4 flex-wrap">
               <a
-                href="/cliente/cotacoes"
-                className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
-              >
-                Solicitar cotação
-              </a>
+  href="/cliente/cotacoes"
+  className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
+>
+  Solicitar cotação
+</a>
 
-              <a
-                href="/cliente/cotacoes"
-                className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold inline-block"
-              >
-                Minhas cotações
-              </a>
+<a
+  href="/cliente/cotacoes"
+  className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold inline-block"
+>
+  Minhas cotações
+</a>
+
+<a
+  href="/cliente/suporte"
+  className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
+>
+  Suporte
+</a>
             </div>
           </div>
 
@@ -206,15 +216,15 @@ export default function ClientePage() {
           </div>
 
           <div className="card">
-            <p className="text-slate-400">Cotações disponíveis</p>
+            <p className="text-slate-400">Cotações respondidas</p>
 
             <h2 className="text-5xl font-bold mt-4">
-              {cotacoesDisponiveis}
+              {cotacoesComResposta}
             </h2>
           </div>
         </div>
 
-        {cotacoesDisponiveis > 0 && (
+        {cotacoesComResposta > 0 && (
           <section className="card mb-8 border-green-500">
             <div className="flex justify-between items-center gap-4">
               <div>
