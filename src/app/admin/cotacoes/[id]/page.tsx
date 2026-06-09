@@ -53,27 +53,39 @@ export default function DetalheCotacaoAdminPage() {
 
     const { error } = await supabase.storage
       .from('cotacoes')
-      .upload(nomeArquivo, file)
+      .upload(nomeArquivo, file, {
+        upsert: true,
+        contentType: 'application/pdf',
+      })
 
     if (error) {
-  console.log(error)
-  alert(JSON.stringify(error))
-  return
-}
+      console.log(error)
+      alert(JSON.stringify(error))
+      setUploading(false)
+      return
+    }
 
     const { data } = supabase.storage
       .from('cotacoes')
       .getPublicUrl(nomeArquivo)
 
-    await supabase
+    const { error: erroUpdate } = await supabase
       .from('cotacoes')
       .update({
         pdf_cotacao_url: data.publicUrl,
+        pdf_nome: file.name,
         status: 'COTAÇÃO DISPONÍVEL',
       })
       .eq('id', cotacao.id)
 
     setUploading(false)
+
+    if (erroUpdate) {
+      console.log(erroUpdate)
+      alert('PDF enviado, mas houve erro ao atualizar a cotação.')
+      return
+    }
+
     await carregar()
 
     alert('PDF anexado e cotação disponibilizada ao cliente')
@@ -97,11 +109,6 @@ export default function DetalheCotacaoAdminPage() {
 
         <div className="form-grid">
           <div>
-            <strong className="text-slate-400">Código vínculo</strong>
-            <p>{cotacao.codigo_vinculo || '-'}</p>
-          </div>
-
-          <div>
             <strong className="text-slate-400">Solicitante</strong>
             <p>{cotacao.solicitante_email || '-'}</p>
           </div>
@@ -114,6 +121,11 @@ export default function DetalheCotacaoAdminPage() {
           <div>
             <strong className="text-slate-400">Status</strong>
             <p>{cotacao.status}</p>
+          </div>
+
+          <div>
+            <strong className="text-slate-400">Arquivo</strong>
+            <p>{cotacao.pdf_nome || 'Nenhum PDF anexado'}</p>
           </div>
         </div>
       </section>
@@ -222,27 +234,34 @@ export default function DetalheCotacaoAdminPage() {
             <a
               href={cotacao.pdf_cotacao_url}
               target="_blank"
+              rel="noopener noreferrer"
               className="btn-secondary"
             >
-              {cotacao?.pdf_cotacao_url && (
-  <div className="mt-3 bg-green-900/30 border border-green-500 rounded-xl p-3">
-    <p className="text-green-400 font-bold">
-      PDF anexado
-    </p>
-
-    <a
-      href={cotacao.pdf_cotacao_url}
-      target="_blank"
-      className="text-blue-400 underline"
-    >
-      Visualizar arquivo enviado
-    </a>
-  </div>
-)}
               Abrir PDF anexado
             </a>
           )}
         </div>
+
+        {cotacao.pdf_cotacao_url && (
+          <div className="mt-5 bg-green-900/30 border border-green-500 rounded-xl p-4">
+            <p className="text-green-400 font-bold">
+              PDF anexado com sucesso
+            </p>
+
+            <p className="text-slate-300 mt-2">
+              Arquivo: {cotacao.pdf_nome || 'PDF da cotação'}
+            </p>
+
+            <a
+              href={cotacao.pdf_cotacao_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 underline mt-2 inline-block"
+            >
+              Visualizar arquivo enviado
+            </a>
+          </div>
+        )}
 
         <p className="text-slate-400 mt-4">
           Ao anexar o PDF, o status muda automaticamente para COTAÇÃO DISPONÍVEL.
