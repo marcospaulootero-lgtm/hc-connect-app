@@ -30,6 +30,38 @@ export default function UsuariosPage() {
     setCarregando(false)
   }
 
+  async function alterarStatus(usuario: any) {
+    const novoStatus = usuario.ativo === false ? true : false
+
+    const { error } = await supabase
+      .from('perfis')
+      .update({ ativo: novoStatus })
+      .eq('id', usuario.id)
+
+    if (error) {
+      alert('Erro ao alterar status do usuário')
+      console.log(error)
+      return
+    }
+
+    carregarUsuarios()
+  }
+
+  async function alterarTipoAcesso(usuario: any, novoTipo: string) {
+    const { error } = await supabase
+      .from('perfis')
+      .update({ tipo_acesso: novoTipo })
+      .eq('id', usuario.id)
+
+    if (error) {
+      alert('Erro ao alterar tipo de acesso')
+      console.log(error)
+      return
+    }
+
+    carregarUsuarios()
+  }
+
   async function excluirUsuario(usuario: any) {
     const confirmar = confirm(
       `Tem certeza que deseja remover o acesso de:\n\n${usuario.nome || usuario.email}?`
@@ -136,12 +168,34 @@ export default function UsuariosPage() {
                     </td>
 
                     <td>
-                      <button
-                        onClick={() => excluirUsuario(usuario)}
-                        className="bg-red-600 hover:bg-red-500"
-                      >
-                        Excluir acesso
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => alterarStatus(usuario)}
+                          className={
+                            usuario.ativo === false
+                              ? 'bg-green-600 hover:bg-green-500'
+                              : 'bg-yellow-600 hover:bg-yellow-500'
+                          }
+                        >
+                          {usuario.ativo === false ? 'Ativar' : 'Inativar'}
+                        </button>
+
+                        <select
+                          value={usuario.tipo_acesso || 'cliente'}
+                          onChange={(e) => alterarTipoAcesso(usuario, e.target.value)}
+                          className="bg-slate-900 border border-blue-600 rounded-lg px-3 py-2 text-white font-bold uppercase"
+                        >
+                          <option value="cliente">CLIENTE</option>
+                          <option value="admin">ADMIN</option>
+                        </select>
+
+                        <button
+                          onClick={() => excluirUsuario(usuario)}
+                          className="bg-red-600 hover:bg-red-500"
+                        >
+                          Excluir acesso
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
