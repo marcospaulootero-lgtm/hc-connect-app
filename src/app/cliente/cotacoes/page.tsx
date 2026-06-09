@@ -530,21 +530,27 @@ export default function CotacoesClientePage() {
                     </td>
 
                     <td>
-                      {item.pdf_cotacao_url ? (
-                        <a
-                          href={item.pdf_cotacao_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold"
-                        >
-                          📄 PDF Recebido
-                        </a>
-                      ) : (
-                        <span className="text-slate-500">
-                          Nenhum arquivo
-                        </span>
-                      )}
-                    </td>
+  {item.pdf_cotacao_url ? (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm text-slate-300">
+        📄 {item.pdf_nome || 'PDF da cotação'}
+      </span>
+
+      <a
+        href={item.pdf_cotacao_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold text-center"
+      >
+        Abrir PDF
+      </a>
+    </div>
+  ) : (
+    <span className="text-slate-500">
+      Nenhum arquivo
+    </span>
+  )}
+</td>
                   </tr>
                 ))}
               </tbody>

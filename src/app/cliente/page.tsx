@@ -1,296 +1,301 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import StatusBadge from '@/components/StatusBadge'
 
-export default function DetalheCotacaoAdminPage() {
-  const params = useParams()
-  const [cotacao, setCotacao] = useState<any>(null)
-  const [uploading, setUploading] = useState(false)
+export default function ClientePage() {
+  const [usuario, setUsuario] = useState<any>(null)
+  const [embarques, setEmbarques] = useState<any[]>([])
+  const [cotacoes, setCotacoes] = useState<any[]>([])
+  const [busca, setBusca] = useState('')
 
   useEffect(() => {
-    carregar()
+    carregarUsuario()
   }, [])
 
-  async function carregar() {
-    const { data } = await supabase
-      .from('cotacoes')
+  async function carregarUsuario() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      window.location.href = '/login'
+      return
+    }
+
+    const { data: perfil, error } = await supabase
+      .from('perfis')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', user.id)
       .single()
 
-    setCotacao(data)
-  }
-
-  async function atualizarStatus(status: string) {
-    const { error } = await supabase
-      .from('cotacoes')
-      .update({ status })
-      .eq('id', params.id)
-
-    if (error) {
-      alert('Erro ao atualizar status')
+    if (error || !perfil) {
+      window.location.href = '/login'
       return
     }
 
-    carregar()
-  }
-
-  async function anexarPdf(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-
-    if (!file || !cotacao) return
-
-    if (file.type !== 'application/pdf') {
-      alert('Envie apenas arquivo PDF')
+    if (perfil.tipo_acesso === 'admin') {
+      window.location.href = '/admin'
       return
     }
 
-    setUploading(true)
+    setUsuario({
+      id: user.id,
+      nome: perfil?.nome || user.email,
+      email: user.email,
+      tipo: perfil?.tipo_acesso || 'CLIENTE',
+    })
 
-    const nomeArquivo = `${cotacao.id}-${Date.now()}-${file.name}`
+    carregarEmbarques(user.id)
+    carregarCotacoes(user.id)
+  }
 
-    const { error } = await supabase.storage
-      .from('cotacoes')
-      .upload(nomeArquivo, file, {
-        upsert: true,
-        contentType: 'application/pdf',
-      })
+  async function carregarEmbarques(usuarioId: string) {
+    const { data, error } = await supabase
+      .from('embarques')
+      .select('*')
+      .eq('usuario_id', usuarioId)
+      .order('criado_em', { ascending: false })
 
     if (error) {
       console.log(error)
-      alert(JSON.stringify(error))
-      setUploading(false)
       return
     }
 
-    const { data } = supabase.storage
+    setEmbarques(data || [])
+  }
+
+  async function carregarCotacoes(usuarioId: string) {
+    const { data, error } = await supabase
       .from('cotacoes')
-      .getPublicUrl(nomeArquivo)
+      .select('*')
+      .eq('usuario_id', usuarioId)
+      .order('criado_em', { ascending: false })
 
-    const { error: erroUpdate } = await supabase
-      .from('cotacoes')
-      .update({
-        pdf_cotacao_url: data.publicUrl,
-        pdf_nome: file.name,
-        status: 'COTAÇÃO DISPONÍVEL',
-      })
-      .eq('id', cotacao.id)
-
-    setUploading(false)
-
-    if (erroUpdate) {
-      console.log(erroUpdate)
-      alert('PDF enviado, mas houve erro ao atualizar a cotação.')
+    if (error) {
+      console.log(error)
       return
     }
 
-    await carregar()
-
-    alert('PDF anexado e cotação disponibilizada ao cliente')
+    setCotacoes(data || [])
   }
 
-  if (!cotacao) {
-    return <main className="p-10 text-white">Carregando cotação...</main>
+  async function sair() {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
   }
+
+  const filtrados = embarques.filter((item) => {
+    const texto = `
+      ${item.awb}
+      ${item.transportadora}
+      ${item.origem}
+      ${item.destino}
+      ${item.status_operacional}
+      ${item.cliente_final}
+    `.toLowerCase()
+
+    return texto.includes(busca.toLowerCase())
+  })
+
+  const cotacoesDisponiveis = cotacoes.filter(
+    (c) => c.status === 'COTAÇÃO DISPONÍVEL'
+  ).length
+
+  const cotacoesPendentes = cotacoes.filter(
+    (c) =>
+      c.status === 'AGUARDANDO ANÁLISE' ||
+      c.status === 'EM ANÁLISE' ||
+      c.status === 'AGUARDANDO TRANSPORTADORA'
+  ).length
 
   return (
-    <main className="max-w-7xl mx-auto p-8 text-white">
-      <div className="mb-8">
-        <h1 className="text-5xl font-black mb-2">Cotação</h1>
-        <p className="text-slate-400 text-lg">
-          Detalhes completos da solicitação.
-        </p>
-      </div>
+    <main className="min-h-screen bg-[#020817] text-white p-10">
+      <div className="max-w-7xl mx-auto">
 
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">Resumo</h2>
-
-        <div className="form-grid">
-          <div>
-            <strong className="text-slate-400">Solicitante</strong>
-            <p>{cotacao.solicitante_email || '-'}</p>
-          </div>
+        <div className="flex justify-between items-start mb-10 gap-6">
 
           <div>
-            <strong className="text-slate-400">Cliente final</strong>
-            <p>{cotacao.cliente_final || '-'}</p>
-          </div>
+            <h1 className="text-5xl font-bold mb-2">
+              Meu portal
+            </h1>
 
-          <div>
-            <strong className="text-slate-400">Status</strong>
-            <p>{cotacao.status}</p>
-          </div>
-
-          <div>
-            <strong className="text-slate-400">Arquivo</strong>
-            <p>{cotacao.pdf_nome || 'Nenhum PDF anexado'}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">Dados da cotação</h2>
-
-        <div className="form-grid">
-          <div>
-            <strong className="text-slate-400">Operação</strong>
-            <p>{cotacao.tipo_operacao || '-'}</p>
-          </div>
-
-          <div>
-            <strong className="text-slate-400">Origem</strong>
-            <p>{cotacao.origem || '-'}</p>
-          </div>
-
-          <div>
-            <strong className="text-slate-400">Destino</strong>
-            <p>{cotacao.destino || '-'}</p>
-          </div>
-
-          <div>
-            <strong className="text-slate-400">Peso informado</strong>
-            <p>{cotacao.peso || '-'} kg</p>
-          </div>
-
-          <div>
-            <strong className="text-slate-400">Dimensões gerais</strong>
-            <p>{cotacao.dimensoes || '-'}</p>
-          </div>
-
-          <div>
-            <strong className="text-slate-400">Valor da mercadoria</strong>
-            <p>
-              {cotacao.moeda || ''} {cotacao.valor_mercadoria || '-'}
+            <p className="text-slate-400 text-lg mb-5">
+              Acompanhe seus embarques, cotações, faturas e documentos.
             </p>
+
+            <div className="flex gap-4 flex-wrap">
+              <a
+                href="/cliente/cotacoes"
+                className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
+              >
+                Solicitar cotação
+              </a>
+
+              <a
+                href="/cliente/cotacoes"
+                className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold inline-block"
+              >
+                Minhas cotações
+              </a>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">Mercadoria</h2>
+          {usuario && (
+            <div className="flex items-center gap-4 border border-blue-900 bg-[#071225] rounded-3xl px-5 py-4">
 
-        <p className="text-slate-300 leading-8">
-          {cotacao.descricao_mercadoria || 'Sem descrição informada.'}
-        </p>
+              <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center font-bold text-xl">
+                {usuario.nome?.charAt(0)}
+              </div>
 
-        <h3 className="text-xl font-black mt-8 mb-3">Observações</h3>
+              <div>
+                <p className="font-bold text-lg">
+                  {usuario.nome}
+                </p>
 
-        <p className="text-slate-300 leading-8">
-          {cotacao.observacoes || 'Sem observações.'}
-        </p>
-      </section>
+                <p className="text-slate-400 text-sm">
+                  {usuario.email}
+                </p>
+              </div>
 
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">Volumes</h2>
+              <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase">
+                {usuario.tipo}
+              </span>
 
-        {!cotacao.volumes || cotacao.volumes.length === 0 ? (
-          <p className="text-slate-400">Nenhum volume informado.</p>
-        ) : (
-          <div className="overflow-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Qtd</th>
-                  <th>Comprimento</th>
-                  <th>Largura</th>
-                  <th>Altura</th>
-                  <th>Peso</th>
-                </tr>
-              </thead>
+              <button
+                onClick={sair}
+                className="bg-blue-600 hover:bg-blue-700 transition px-5 py-3 rounded-2xl font-bold"
+              >
+                Sair
+              </button>
 
-              <tbody>
-                {cotacao.volumes.map((volume: any, index: number) => (
-                  <tr key={index}>
-                    <td>{volume.quantidade}</td>
-                    <td>{volume.comprimento_cm} cm</td>
-                    <td>{volume.largura_cm} cm</td>
-                    <td>{volume.altura_cm} cm</td>
-                    <td>{volume.peso_kg} kg</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">Resposta da cotação</h2>
-
-        <div className="flex gap-4 flex-wrap items-center">
-          <label className="btn-primary cursor-pointer">
-            {uploading ? 'Enviando PDF...' : 'Anexar PDF da cotação'}
-            <input
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              onChange={anexarPdf}
-            />
-          </label>
-
-          {cotacao.pdf_cotacao_url && (
-            <a
-              href={cotacao.pdf_cotacao_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-secondary"
-            >
-              Abrir PDF anexado
-            </a>
+            </div>
           )}
+
         </div>
 
-        {cotacao.pdf_cotacao_url && (
-          <div className="mt-5 bg-green-900/30 border border-green-500 rounded-xl p-4">
-            <p className="text-green-400 font-bold">
-              PDF anexado com sucesso
-            </p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="card">
+            <p className="text-slate-400">Embarques</p>
 
-            <p className="text-slate-300 mt-2">
-              Arquivo: {cotacao.pdf_nome || 'PDF da cotação'}
-            </p>
-
-            <a
-              href={cotacao.pdf_cotacao_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 underline mt-2 inline-block"
-            >
-              Visualizar arquivo enviado
-            </a>
+            <h2 className="text-5xl font-bold mt-4">
+              {embarques.length}
+            </h2>
           </div>
+
+          <div className="card">
+            <p className="text-slate-400">Em trânsito</p>
+
+            <h2 className="text-5xl font-bold mt-4">
+              {
+                embarques.filter(
+                  (e) =>
+                    e.status_operacional === 'Em trânsito'
+                ).length
+              }
+            </h2>
+          </div>
+
+          <div className="card">
+            <p className="text-slate-400">Cotações pendentes</p>
+
+            <h2 className="text-5xl font-bold mt-4">
+              {cotacoesPendentes}
+            </h2>
+          </div>
+
+          <div className="card">
+            <p className="text-slate-400">Cotações disponíveis</p>
+
+            <h2 className="text-5xl font-bold mt-4">
+              {cotacoesDisponiveis}
+            </h2>
+          </div>
+        </div>
+
+        {cotacoesDisponiveis > 0 && (
+          <section className="card mb-8 border-green-500">
+            <div className="flex justify-between items-center gap-4">
+              <div>
+                <h2 className="text-2xl font-bold mb-2">
+                  Você tem cotação disponível
+                </h2>
+
+                <p className="text-slate-400">
+                  Acesse suas cotações para baixar o PDF enviado pela HC Consultoria.
+                </p>
+              </div>
+
+              <a
+                href="/cliente/cotacoes"
+                className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl text-white font-bold"
+              >
+                Ver cotações
+              </a>
+            </div>
+          </section>
         )}
 
-        <p className="text-slate-400 mt-4">
-          Ao anexar o PDF, o status muda automaticamente para COTAÇÃO DISPONÍVEL.
-        </p>
-      </section>
+        <section className="card mb-8">
+          <div className="flex justify-between items-center gap-4">
+            <h2 className="text-2xl font-bold">
+              Meus embarques
+            </h2>
 
-      <section className="card">
-        <h2 className="text-2xl font-black mb-6">Ações</h2>
+            <input
+              className="max-w-md"
+              placeholder="Buscar AWB, destino, status..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+          </div>
+        </section>
 
-        <div className="flex gap-4 flex-wrap">
-          <button onClick={() => atualizarStatus('EM ANÁLISE')}>
-            Marcar em análise
-          </button>
+        <section className="grid gap-6">
+          {filtrados.length === 0 ? (
+            <div className="card text-center">
+              <p className="text-slate-400">
+                Nenhum embarque encontrado.
+              </p>
+            </div>
+          ) : (
+            filtrados.map((item) => (
+              <a
+                key={item.id}
+                href={`/cliente/embarques/${item.id}`}
+                className="card hover:border-blue-500 transition block"
+              >
+                <div className="flex justify-between items-start">
 
-          <button
-            onClick={() => atualizarStatus('AGUARDANDO TRANSPORTADORA')}
-            className="bg-purple-600 hover:bg-purple-500"
-          >
-            Aguardando transportadora
-          </button>
+                  <div>
+                    <h2 className="text-3xl font-bold text-blue-400">
+                      AWB {item.awb}
+                    </h2>
 
-          <button
-            onClick={() => atualizarStatus('RECUSADA')}
-            className="bg-red-600 hover:bg-red-500"
-          >
-            Recusar
-          </button>
-        </div>
-      </section>
+                    <p className="text-slate-400 mt-3 text-lg">
+                      {item.origem} → {item.destino}
+                    </p>
+
+                    <p className="text-slate-500 mt-2">
+                      {item.transportadora} • {item.servico}
+                    </p>
+
+                    <p className="text-slate-500 mt-2">
+                      Cliente final: {item.cliente_final || '-'}
+                    </p>
+                  </div>
+
+                  <StatusBadge
+                    status={item.status_operacional}
+                  />
+                </div>
+              </a>
+            ))
+          )}
+        </section>
+
+      </div>
     </main>
   )
 }
