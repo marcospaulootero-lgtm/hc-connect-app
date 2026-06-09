@@ -99,77 +99,36 @@ export default function SuporteAdminPage() {
   }
 
   async function enviarResposta(chamado: any) {
-    if (!resposta.trim()) {
-      alert('Digite uma resposta')
-      return
-    }
-
-    const respostaFinal = resposta.trim()
-
-    const { error: erroMensagem } = await supabase
-      .from('mensagens_suporte')
-      .insert([
-        {
-          empresa_id: chamado.empresa_id || null,
-          embarque_id: chamado.embarque_id || null,
-          usuario_id: chamado.usuario_id || null,
-          assunto: chamado.assunto || 'Resposta do suporte',
-          mensagem: respostaFinal,
-          status: 'RESPONDIDO',
-          respondido_em: new Date().toISOString(),
-        },
-      ])
-
-    if (erroMensagem) {
-      alert('Erro ao enviar resposta')
-      console.log(erroMensagem)
-      return
-    }
-
-    const { error: erroChamado } = await supabase
-      .from('suporte')
-      .update({
-        resposta: respostaFinal,
-        status: 'RESPONDIDO',
-      })
-      .eq('id', chamado.id)
-
-    if (erroChamado) {
-      alert('Resposta enviada, mas houve erro ao atualizar o chamado')
-      console.log(erroChamado)
-      return
-    }
-
-    alert('Resposta enviada ao cliente')
-
-    setResposta('')
-    setRespondendoId(null)
-
-    carregarChamados()
-    carregarMensagens()
+  if (!resposta.trim()) {
+    alert('Digite uma resposta')
+    return
   }
 
-  async function excluirChamado(id: string) {
-    const confirmar = confirm('Deseja realmente excluir este chamado?')
+  const respostaFinal = resposta.trim()
 
-    if (!confirmar) return
+  const { error: erroChamado } = await supabase
+    .from('suporte')
+    .update({
+      resposta: respostaFinal,
+      status: 'RESPONDIDO',
+    })
+    .eq('id', chamado.id)
 
-    const { error } = await supabase
-      .from('suporte')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      alert('Erro ao excluir chamado')
-      console.log(error)
-      return
-    }
-
-    alert('Chamado excluído')
-
-    carregarChamados()
-    carregarMensagens()
+  if (erroChamado) {
+    alert(
+      `${erroChamado.message || 'Erro ao enviar resposta'}\n${erroChamado.details || ''}`
+    )
+    console.log(erroChamado)
+    return
   }
+
+  alert('Resposta enviada ao cliente')
+
+  setResposta('')
+  setRespondendoId(null)
+
+  carregarChamados()
+}
 
   const chamadosFiltrados = useMemo(() => {
     return chamados.filter((item) => {
@@ -386,12 +345,7 @@ export default function SuporteAdminPage() {
                     Resolver
                   </button>
 
-                  <button
-                    onClick={() => excluirChamado(item.id)}
-                    className="bg-red-700 hover:bg-red-600"
-                  >
-                    Excluir
-                  </button>
+                  
                 </div>
               </div>
             ))}
