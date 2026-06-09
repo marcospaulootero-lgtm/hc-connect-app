@@ -254,7 +254,26 @@ async function atualizarStatusCotacao(id: string, status: string) {
 
   carregarCotacoes(usuario.id)
 }
+async function excluirCotacao(id: string) {
+  const confirmar = confirm('Deseja realmente excluir esta cotação do seu histórico?')
 
+  if (!confirmar) return
+
+  const { error } = await supabase
+    .from('cotacoes')
+    .delete()
+    .eq('id', id)
+    .eq('usuario_id', usuario.id)
+
+  if (error) {
+    alert('Erro ao excluir cotação')
+    console.log(error)
+    return
+  }
+
+  alert('Cotação excluída do histórico')
+  carregarCotacoes(usuario.id)
+}
   return (
     <main className="min-h-screen bg-[#020817] text-white p-10">
       <div className="max-w-7xl mx-auto">
@@ -527,6 +546,12 @@ async function atualizarStatusCotacao(id: string, status: string) {
                             >
                               Recusar
                             </button>
+                            <button
+  onClick={() => excluirCotacao(item.id)}
+  className="bg-red-700 hover:bg-red-600"
+>
+  Excluir
+</button>
                           </>
                         )}
                       </div>
