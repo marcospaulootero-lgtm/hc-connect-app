@@ -74,6 +74,14 @@ export default function DetalheCliente() {
       <Header />
 
       <div className="max-w-7xl mx-auto p-8">
+        <div className="mb-6">
+          <a
+            href="/cliente"
+            className="inline-flex items-center bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold"
+          >
+            ← Voltar ao portal
+          </a>
+        </div>
 
         <div className="flex items-start justify-between mb-10">
           <div>
@@ -95,67 +103,47 @@ export default function DetalheCliente() {
           </h2>
 
           <div className="grid md:grid-cols-3 gap-6">
-
             <div>
-              <p className="text-slate-500 text-sm">
-                Cliente
-              </p>
-
+              <p className="text-slate-500 text-sm">Cliente</p>
               <p className="text-xl font-semibold mt-1">
                 {embarque.empresas?.razao_social}
               </p>
             </div>
 
             <div>
-              <p className="text-slate-500 text-sm">
-                Transportadora
-              </p>
-
+              <p className="text-slate-500 text-sm">Transportadora</p>
               <p className="text-xl font-semibold mt-1">
                 {embarque.transportadora}
               </p>
             </div>
 
             <div>
-              <p className="text-slate-500 text-sm">
-                Serviço
-              </p>
-
+              <p className="text-slate-500 text-sm">Serviço</p>
               <p className="text-xl font-semibold mt-1">
                 {embarque.servico}
               </p>
             </div>
 
             <div>
-              <p className="text-slate-500 text-sm">
-                Origem
-              </p>
-
+              <p className="text-slate-500 text-sm">Origem</p>
               <p className="text-xl font-semibold mt-1">
                 {embarque.origem}
               </p>
             </div>
 
             <div>
-              <p className="text-slate-500 text-sm">
-                Destino
-              </p>
-
+              <p className="text-slate-500 text-sm">Destino</p>
               <p className="text-xl font-semibold mt-1">
                 {embarque.destino}
               </p>
             </div>
 
             <div>
-              <p className="text-slate-500 text-sm">
-                Peso taxado
-              </p>
-
+              <p className="text-slate-500 text-sm">Peso taxado</p>
               <p className="text-xl font-semibold mt-1">
                 {embarque.peso_taxado} kg
               </p>
             </div>
-
           </div>
         </section>
 
@@ -165,7 +153,6 @@ export default function DetalheCliente() {
           </h2>
 
           <div className="space-y-4">
-
             {timeline.length === 0 && (
               <p className="text-slate-500">
                 Nenhuma atualização disponível.
@@ -194,7 +181,6 @@ export default function DetalheCliente() {
                 </div>
               </div>
             ))}
-
           </div>
         </section>
 
@@ -204,7 +190,6 @@ export default function DetalheCliente() {
           </h2>
 
           <div className="space-y-4">
-
             {documentos.length === 0 && (
               <p className="text-slate-500">
                 Nenhum documento disponível.
@@ -233,10 +218,8 @@ export default function DetalheCliente() {
                 </span>
               </a>
             ))}
-
           </div>
         </section>
-
       </div>
     </main>
   )
