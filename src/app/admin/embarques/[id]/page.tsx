@@ -13,6 +13,11 @@ export default function DetalheEmbarquePage() {
   const [timeline, setTimeline] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
 
+  const [editandoStatus, setEditandoStatus] = useState(false)
+  const [novoStatus, setNovoStatus] = useState('')
+  const [descricaoStatus, setDescricaoStatus] = useState('')
+  const [salvandoStatus, setSalvandoStatus] = useState(false)
+
   useEffect(() => {
     carregar()
     carregarUsuarios()
@@ -74,6 +79,59 @@ export default function DetalheEmbarquePage() {
     }
 
     return ''
+  }
+
+  async function atualizarStatus(statusManual?: string) {
+    if (!embarque) return
+
+    const statusFinal = statusManual || novoStatus
+
+    if (!statusFinal) {
+      alert('Selecione um status')
+      return
+    }
+
+    setSalvandoStatus(true)
+
+    const dadosAtualizar: any = {
+      status_operacional: statusFinal,
+      ultima_atualizacao: new Date().toISOString(),
+    }
+
+    if (statusFinal === 'Coletado' && !embarque.data_envio) {
+      dadosAtualizar.data_envio = new Date().toISOString().split('T')[0]
+    }
+
+    if (statusFinal === 'Entregue') {
+      dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
+    }
+
+    const { error } = await supabase
+      .from('embarques')
+      .update(dadosAtualizar)
+      .eq('id', embarque.id)
+
+    if (error) {
+      alert('Erro ao atualizar status')
+      console.log(error)
+      setSalvandoStatus(false)
+      return
+    }
+
+    await supabase.from('timeline_embarques').insert({
+      embarque_id: embarque.id,
+      status: statusFinal,
+      descricao:
+        descricaoStatus ||
+        `Status atualizado para ${statusFinal} pela HC Consultoria.`,
+    })
+
+    setNovoStatus('')
+    setDescricaoStatus('')
+    setEditandoStatus(false)
+    setSalvandoStatus(false)
+
+    await carregar()
   }
 
   async function uploadArquivo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -166,7 +224,8 @@ export default function DetalheEmbarquePage() {
   if (!embarque) {
     return <main className="p-10 text-white">Carregando embarque...</main>
   }
-    return (
+
+  return (
     <main className="max-w-7xl mx-auto p-8 text-white">
       <header className="border border-blue-900 rounded-3xl bg-[#071225] p-8 mb-8 shadow-[0_0_35px_rgba(37,99,235,0.12)]">
         <div className="flex flex-col lg:flex-row justify-between gap-8">
@@ -206,9 +265,66 @@ export default function DetalheEmbarquePage() {
                 Rastrear
               </a>
             )}
+
+            <button
+              onClick={() => {
+                setNovoStatus(embarque.status_operacional || '')
+                setEditandoStatus(!editandoStatus)
+              }}
+              className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
+            >
+              Alterar status
+            </button>
+
+            <button
+              onClick={() => atualizarStatus('Entregue')}
+              disabled={salvandoStatus}
+              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
+            >
+              Finalizar
+            </button>
           </div>
         </div>
       </header>
+
+      {editandoStatus && (
+        <section className="card mb-8">
+          <h2 className="text-2xl font-black mb-6">
+            Alterar status do embarque
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <select
+              value={novoStatus}
+              onChange={(e) => setNovoStatus(e.target.value)}
+            >
+              <option value="">Selecione o status</option>
+              <option value="Aguardando coleta">Aguardando coleta</option>
+              <option value="Coletado">Coletado</option>
+              <option value="Em trânsito">Em trânsito</option>
+              <option value="Fiscalização">Fiscalização</option>
+              <option value="Liberado">Liberado</option>
+              <option value="Entregue">Entregue</option>
+              <option value="Atrasado">Atrasado</option>
+              <option value="Aguardando AWB">Aguardando AWB</option>
+            </select>
+
+            <input
+              placeholder="Observação opcional"
+              value={descricaoStatus}
+              onChange={(e) => setDescricaoStatus(e.target.value)}
+            />
+
+            <button
+              onClick={() => atualizarStatus()}
+              disabled={salvandoStatus}
+              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
+            >
+              {salvandoStatus ? 'Salvando...' : 'Salvar status'}
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
         <InfoCard
@@ -328,7 +444,8 @@ export default function DetalheEmbarquePage() {
           </a>
         )}
       </section>
-            <section className="card mb-8">
+
+      <section className="card mb-8">
         <h2 className="text-2xl font-black mb-6">
           Documentos
         </h2>
@@ -368,7 +485,7 @@ export default function DetalheEmbarquePage() {
               Nenhuma atualização encontrada.
             </p>
           ) : (
-            timeline.map((item, index) => (
+            timeline.map((item) => (
               <div
                 key={item.id}
                 className="relative pl-10"
@@ -403,45 +520,26 @@ export default function DetalheEmbarquePage() {
   )
 }
 
-function InfoCard({
-  titulo,
-  valor,
-  icone,
-}: any) {
+function InfoCard({ titulo, valor, icone }: any) {
   return (
     <div className="border border-blue-900 rounded-3xl bg-[#071225] p-5">
       <div className="flex justify-between items-start">
         <div>
-          <p className="text-slate-400 text-sm">
-            {titulo}
-          </p>
-
-          <p className="font-bold mt-3 break-words">
-            {valor || '-'}
-          </p>
+          <p className="text-slate-400 text-sm">{titulo}</p>
+          <p className="font-bold mt-3 break-words">{valor || '-'}</p>
         </div>
 
-        <div className="text-3xl">
-          {icone}
-        </div>
+        <div className="text-3xl">{icone}</div>
       </div>
     </div>
   )
 }
 
-function CampoResumo({
-  titulo,
-  valor,
-}: any) {
+function CampoResumo({ titulo, valor }: any) {
   return (
     <div className="border border-blue-900 rounded-2xl p-4 bg-[#020817]">
-      <p className="text-slate-500 text-sm mb-2">
-        {titulo}
-      </p>
-
-      <p className="font-bold">
-        {valor || '-'}
-      </p>
+      <p className="text-slate-500 text-sm mb-2">{titulo}</p>
+      <p className="font-bold">{valor || '-'}</p>
     </div>
   )
 }
@@ -461,13 +559,8 @@ function Etapa({
           : 'bg-[#071225] border-blue-900'
       }`}
     >
-      <div className="text-3xl mb-3">
-        {ativo ? '✔️' : '⏳'}
-      </div>
-
-      <p className="font-bold">
-        {titulo}
-      </p>
+      <div className="text-3xl mb-3">{ativo ? '✔️' : '⏳'}</div>
+      <p className="font-bold">{titulo}</p>
     </div>
   )
 }
