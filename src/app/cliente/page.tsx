@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
@@ -136,6 +137,16 @@ export default function ClientePage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-start mb-10 gap-6">
           <div>
+            <div className="bg-white inline-block p-5 rounded-2xl shadow-lg mb-6">
+              <Image
+                src="/HC-CONSULTORIA-TRANSPARENTE.png"
+                alt="HC Consultoria"
+                width={260}
+                height={140}
+                priority
+              />
+            </div>
+
             <h1 className="text-5xl font-bold mb-2">
               Meu portal
             </h1>
@@ -208,46 +219,29 @@ export default function ClientePage() {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
           <div className="card">
             <p className="text-slate-400">Embarques</p>
-
-            <h2 className="text-5xl font-bold mt-4">
-              {embarques.length}
-            </h2>
+            <h2 className="text-5xl font-bold mt-4">{embarques.length}</h2>
           </div>
 
           <div className="card">
             <p className="text-slate-400">Em trânsito</p>
-
             <h2 className="text-5xl font-bold mt-4">
-              {
-                embarques.filter(
-                  (e) => e.status_operacional === 'Em trânsito'
-                ).length
-              }
+              {embarques.filter((e) => e.status_operacional === 'Em trânsito').length}
             </h2>
           </div>
 
           <div className="card">
             <p className="text-slate-400">Cotações pendentes</p>
-
-            <h2 className="text-5xl font-bold mt-4">
-              {cotacoesPendentes}
-            </h2>
+            <h2 className="text-5xl font-bold mt-4">{cotacoesPendentes}</h2>
           </div>
 
           <div className="card">
             <p className="text-slate-400">Cotações respondidas</p>
-
-            <h2 className="text-5xl font-bold mt-4">
-              {cotacoesComResposta}
-            </h2>
+            <h2 className="text-5xl font-bold mt-4">{cotacoesComResposta}</h2>
           </div>
 
           <div className="card">
             <p className="text-slate-400">Faturas</p>
-
-            <h2 className="text-5xl font-bold mt-4">
-              {faturas.length}
-            </h2>
+            <h2 className="text-5xl font-bold mt-4">{faturas.length}</h2>
           </div>
         </div>
 
