@@ -49,8 +49,13 @@ export default function DetalheCotacaoAdminPage() {
 
     setUploading(true)
 
-    const nomeArquivo = `${cotacao.id}-${Date.now()}-${file.name}`
+    const nomeLimpo = file.name
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-zA-Z0-9.-]/g, '_')
+  .replace(/_+/g, '_')
 
+const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
     const { error } = await supabase.storage
       .from('cotacoes')
       .upload(nomeArquivo, file, {
