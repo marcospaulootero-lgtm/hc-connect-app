@@ -16,6 +16,36 @@ export default function ClientePage() {
     carregarUsuario()
   }, [])
 
+  useEffect(() => {
+    if (!usuario?.id) return
+
+    const canal = supabase
+      .channel(`bloqueio-usuario-${usuario.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'perfis',
+          filter: `id=eq.${usuario.id}`,
+        },
+        async (payload) => {
+          const novoPerfil: any = payload.new
+
+          if (novoPerfil.ativo === false) {
+            alert('Seu acesso foi removido pela HC Consultoria.')
+            await supabase.auth.signOut()
+            window.location.href = '/login'
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
+  }, [usuario?.id])
+
   async function carregarUsuario() {
     const {
       data: { user },
@@ -33,6 +63,14 @@ export default function ClientePage() {
       .single()
 
     if (error || !perfil) {
+      await supabase.auth.signOut()
+      window.location.href = '/login'
+      return
+    }
+
+    if (perfil.ativo === false) {
+      alert('Seu acesso foi removido pela HC Consultoria.')
+      await supabase.auth.signOut()
       window.location.href = '/login'
       return
     }
