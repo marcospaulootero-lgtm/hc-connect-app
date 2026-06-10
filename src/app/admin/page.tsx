@@ -68,32 +68,10 @@ export default function DashboardPage() {
   }, [embarques])
 
   return (
-    <main className="min-h-screen bg-[#020817] text-white flex">
-      <aside className="w-72 bg-[#050d1f] border-r border-blue-950 p-6 hidden xl:flex flex-col">
-        <div className="mb-10">
-          <h1 className="text-3xl font-black text-white">HC Connect</h1>
-          <p className="text-slate-500 mt-1">Admin Logistics</p>
-        </div>
+    <main className="min-h-screen bg-[#020817] text-white">
+     
 
-        <nav className="space-y-3">
-          <MenuItem href="/admin" ativo label="Dashboard" icon="📊" />
-          <MenuItem href="/admin/embarques" label="Embarques" icon="📦" />
-          <MenuItem href="/admin/cotacoes" label="Cotações" icon="📄" />
-          <MenuItem href="/admin/faturas" label="Faturas" icon="💰" />
-          <MenuItem href="/admin/usuarios" label="Usuários" icon="👥" />
-          <MenuItem href="/admin/suporte" label="Suporte" icon="🎧" />
-        </nav>
-
-        <div className="mt-auto border border-blue-900 rounded-3xl p-5 bg-[#071225]">
-          <p className="text-slate-400 text-sm">Logado como</p>
-          <p className="font-bold mt-1 truncate">{usuarioLogado?.email || 'Admin'}</p>
-          <span className="inline-block mt-3 bg-blue-600 px-3 py-1 rounded-full text-xs font-black">
-            ADMIN
-          </span>
-        </div>
-      </aside>
-
-      <section className="flex-1 p-6 xl:p-10 overflow-auto">
+      <section className="p-6 xl:p-10 overflow-auto">
         <header className="flex flex-col lg:flex-row justify-between gap-6 mb-8">
           <div>
             <p className="text-blue-400 font-bold mb-2">Visão operacional</p>
@@ -331,31 +309,7 @@ export default function DashboardPage() {
   )
 }
 
-function MenuItem({
-  href,
-  label,
-  icon,
-  ativo = false,
-}: {
-  href: string
-  label: string
-  icon: string
-  ativo?: boolean
-}) {
-  return (
-    <a
-      href={href}
-      className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition ${
-        ativo
-          ? 'bg-blue-600 text-white'
-          : 'bg-[#071225] hover:bg-[#0b1833] text-slate-300'
-      }`}
-    >
-      <span>{icon}</span>
-      <span>{label}</span>
-    </a>
-  )
-}
+
 
 function DashboardCard({
   titulo,
