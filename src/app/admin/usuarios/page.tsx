@@ -96,17 +96,7 @@ export default function UsuariosPage() {
         </p>
       </div>
 
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-4">
-          Como funciona
-        </h2>
-
-        <p className="text-slate-300 leading-8">
-          O cliente cria a própria conta na tela de cadastro e informa o código
-          da empresa. Exemplo: quem for da Sky Sea usa o código
-          <strong className="text-blue-400"> HCSKYSEA</strong>.
-        </p>
-      </section>
+      
 
       <section className="card">
         <h2 className="text-2xl font-black mb-6">
