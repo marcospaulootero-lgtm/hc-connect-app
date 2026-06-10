@@ -32,6 +32,7 @@ type Fatura = {
 export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
+  const [salvando, setSalvando] = useState(false)
 
   const [awbId, setAwbId] = useState('')
   const [numeroFatura, setNumeroFatura] = useState('')
@@ -39,7 +40,7 @@ export default function FaturasPage() {
   const [moeda, setMoeda] = useState('USD')
   const [vencimento, setVencimento] = useState('')
   const [status, setStatus] = useState('EM ABERTO')
-  const [pdfUrl, setPdfUrl] = useState('')
+  const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
 
   useEffect(() => {
     carregar()
@@ -47,16 +48,16 @@ export default function FaturasPage() {
 
   async function carregar() {
     const { data: embarquesData, error: erroEmbarques } = await supabase
-  .from('embarques')
-  .select('id, awb, usuario_id, cliente_final, transportadora, status_operacional')
-  .in('status_operacional', [
-    'Em trânsito',
-    'Fiscalização',
-    'Liberado',
-    'Entregue',
-    'Finalizado',
-  ])
-  .order('criado_em', { ascending: false })
+      .from('embarques')
+      .select('id, awb, usuario_id, cliente_final, transportadora, status_operacional')
+      .in('status_operacional', [
+        'Em trânsito',
+        'Fiscalização',
+        'Liberado',
+        'Entregue',
+        'Finalizado',
+      ])
+      .order('criado_em', { ascending: false })
 
     if (erroEmbarques) {
       console.log(erroEmbarques)
@@ -94,7 +95,47 @@ export default function FaturasPage() {
       return
     }
 
+    if (!valor) {
+      alert('Digite o valor da fatura')
+      return
+    }
+
+    if (!arquivoPdf) {
+      alert('Selecione o PDF da fatura')
+      return
+    }
+
+    if (arquivoPdf.type !== 'application/pdf') {
+      alert('O arquivo precisa ser um PDF')
+      return
+    }
+
+    setSalvando(true)
+
     const embarqueSelecionado = embarques.find((item) => item.id === awbId)
+
+    const nomeArquivo = `${awbId}/${Date.now()}-${numeroFatura.replaceAll('/', '-')}.pdf`
+
+    const { error: erroUpload } = await supabase.storage
+      .from('faturas')
+      .upload(nomeArquivo, arquivoPdf, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: 'application/pdf',
+      })
+
+    if (erroUpload) {
+      setSalvando(false)
+      alert(erroUpload.message || 'Erro ao enviar PDF')
+      console.log(erroUpload)
+      return
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('faturas')
+      .getPublicUrl(nomeArquivo)
+
+    const pdfUrl = urlData.publicUrl
 
     const { error } = await supabase
       .from('faturas')
@@ -111,8 +152,10 @@ export default function FaturasPage() {
         },
       ])
 
+    setSalvando(false)
+
     if (error) {
-      alert('Erro ao salvar fatura')
+      alert(error.message || 'Erro ao salvar fatura')
       console.log(error)
       return
     }
@@ -125,7 +168,13 @@ export default function FaturasPage() {
     setMoeda('USD')
     setVencimento('')
     setStatus('EM ABERTO')
-    setPdfUrl('')
+    setArquivoPdf(null)
+
+    const inputArquivo = document.getElementById('pdf_fatura') as HTMLInputElement | null
+
+    if (inputArquivo) {
+      inputArquivo.value = ''
+    }
 
     carregar()
   }
@@ -208,17 +257,19 @@ export default function FaturasPage() {
           </select>
 
           <input
-            type="text"
-            placeholder="Link do PDF da fatura"
-            value={pdfUrl}
-            onChange={(e) => setPdfUrl(e.target.value)}
+            id="pdf_fatura"
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+            className="cursor-pointer"
           />
 
           <button
             onClick={salvarFatura}
-            className="bg-blue-600 hover:bg-blue-500 transition rounded-2xl font-bold"
+            disabled={salvando}
+            className="bg-blue-600 hover:bg-blue-500 transition rounded-2xl font-bold disabled:opacity-60"
           >
-            Salvar fatura
+            {salvando ? 'Salvando...' : 'Salvar fatura'}
           </button>
         </div>
       </section>
