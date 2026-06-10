@@ -8,6 +8,7 @@ export default function ClientePage() {
   const [usuario, setUsuario] = useState<any>(null)
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
+  const [faturas, setFaturas] = useState<any[]>([])
   const [busca, setBusca] = useState('')
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function ClientePage() {
 
     carregarEmbarques(user.id)
     carregarCotacoes(user.id)
+    carregarFaturas(user.id)
   }
 
   async function carregarEmbarques(usuarioId: string) {
@@ -81,6 +83,22 @@ export default function ClientePage() {
     setCotacoes(data || [])
   }
 
+  async function carregarFaturas(usuarioId: string) {
+    const { data, error } = await supabase
+      .from('faturas')
+      .select('*')
+      .eq('usuario_id', usuarioId)
+      .eq('visivel_cliente', true)
+      .order('criado_em', { ascending: false })
+
+    if (error) {
+      console.log(error)
+      return
+    }
+
+    setFaturas(data || [])
+  }
+
   async function sair() {
     await supabase.auth.signOut()
     window.location.href = '/login'
@@ -100,11 +118,11 @@ export default function ClientePage() {
   })
 
   const cotacoesComResposta = cotacoes.filter(
-  (c) =>
-    c.status === 'COTAÇÃO DISPONÍVEL' ||
-    c.status === 'APROVADA' ||
-    c.status === 'CONVERTIDA EM EMBARQUE'
-).length
+    (c) =>
+      c.status === 'COTAÇÃO DISPONÍVEL' ||
+      c.status === 'APROVADA' ||
+      c.status === 'CONVERTIDA EM EMBARQUE'
+  ).length
 
   const cotacoesPendentes = cotacoes.filter(
     (c) =>
@@ -116,9 +134,7 @@ export default function ClientePage() {
   return (
     <main className="min-h-screen bg-[#020817] text-white p-10">
       <div className="max-w-7xl mx-auto">
-
         <div className="flex justify-between items-start mb-10 gap-6">
-
           <div>
             <h1 className="text-5xl font-bold mb-2">
               Meu portal
@@ -130,31 +146,37 @@ export default function ClientePage() {
 
             <div className="flex gap-4 flex-wrap">
               <a
-  href="/cliente/cotacoes"
-  className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
->
-  Solicitar cotação
-</a>
+                href="/cliente/cotacoes"
+                className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
+              >
+                Solicitar cotação
+              </a>
 
-<a
-  href="/cliente/cotacoes"
-  className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold inline-block"
->
-  Minhas cotações
-</a>
+              <a
+                href="/cliente/cotacoes"
+                className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold inline-block"
+              >
+                Minhas cotações
+              </a>
 
-<a
-  href="/cliente/suporte"
-  className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
->
-  Suporte
-</a>
+              <a
+                href="/cliente/faturas"
+                className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
+              >
+                Minhas faturas
+              </a>
+
+              <a
+                href="/cliente/suporte"
+                className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl text-white font-bold inline-block"
+              >
+                Suporte
+              </a>
             </div>
           </div>
 
           {usuario && (
             <div className="flex items-center gap-4 border border-blue-900 bg-[#071225] rounded-3xl px-5 py-4">
-
               <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center font-bold text-xl">
                 {usuario.nome?.charAt(0)}
               </div>
@@ -179,13 +201,11 @@ export default function ClientePage() {
               >
                 Sair
               </button>
-
             </div>
           )}
-
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
           <div className="card">
             <p className="text-slate-400">Embarques</p>
 
@@ -200,8 +220,7 @@ export default function ClientePage() {
             <h2 className="text-5xl font-bold mt-4">
               {
                 embarques.filter(
-                  (e) =>
-                    e.status_operacional === 'Em trânsito'
+                  (e) => e.status_operacional === 'Em trânsito'
                 ).length
               }
             </h2>
@@ -222,7 +241,38 @@ export default function ClientePage() {
               {cotacoesComResposta}
             </h2>
           </div>
+
+          <div className="card">
+            <p className="text-slate-400">Faturas</p>
+
+            <h2 className="text-5xl font-bold mt-4">
+              {faturas.length}
+            </h2>
+          </div>
         </div>
+
+        {faturas.length > 0 && (
+          <section className="card mb-8 border-green-500">
+            <div className="flex justify-between items-center gap-4">
+              <div>
+                <h2 className="text-2xl font-bold mb-2">
+                  Você tem faturas disponíveis
+                </h2>
+
+                <p className="text-slate-400">
+                  Acesse suas faturas para baixar os PDFs vinculados aos seus embarques.
+                </p>
+              </div>
+
+              <a
+                href="/cliente/faturas"
+                className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl text-white font-bold"
+              >
+                Ver faturas
+              </a>
+            </div>
+          </section>
+        )}
 
         {cotacoesComResposta > 0 && (
           <section className="card mb-8 border-green-500">
@@ -277,7 +327,6 @@ export default function ClientePage() {
                 className="card hover:border-blue-500 transition block"
               >
                 <div className="flex justify-between items-start">
-
                   <div>
                     <h2 className="text-3xl font-bold text-blue-400">
                       AWB {item.awb}
@@ -296,15 +345,12 @@ export default function ClientePage() {
                     </p>
                   </div>
 
-                  <StatusBadge
-                    status={item.status_operacional}
-                  />
+                  <StatusBadge status={item.status_operacional} />
                 </div>
               </a>
             ))
           )}
         </section>
-
       </div>
     </main>
   )
