@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
@@ -65,103 +64,20 @@ export default function AdminLayout({
   return (
     <div
       style={{
-        display: 'flex',
         minHeight: '100vh',
         background:
           'linear-gradient(135deg, #020617 0%, #00113a 45%, #000814 100%)',
         color: 'white',
       }}
     >
-      <aside
+      <main
         style={{
-          width: 260,
-          padding: 20,
-          borderRight: '1px solid #1e3a8a',
-          background: 'rgba(0,0,0,0.25)',
-          backdropFilter: 'blur(10px)',
+          width: '100%',
+          maxWidth: '1800px',
+          margin: '0 auto',
+          padding: 30,
         }}
       >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            marginBottom: 40,
-          }}
-        >
-          <div
-            style={{
-              width: 46,
-              height: 46,
-              borderRadius: 14,
-              background: '#2563eb',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 'bold',
-              fontSize: 22,
-            }}
-          >
-            HC
-          </div>
-
-          <div>
-            <h1 style={{ fontSize: 18, fontWeight: 'bold' }}>
-              HC Connect
-            </h1>
-
-            <p style={{ color: '#94a3b8', fontSize: 13 }}>
-              Portal de embarques
-            </p>
-          </div>
-        </div>
-
-        <nav className="flex flex-col gap-3 mt-10">
-          <Link
-            href="/admin"
-            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
-          >
-            Dashboard
-          </Link>
-
-          <Link
-            href="/admin/usuarios"
-            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
-          >
-            Usuários
-          </Link>
-
-          <Link
-            href="/admin/embarques"
-            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
-          >
-            Embarques
-          </Link>
-
-          <Link
-            href="/admin/cotacoes"
-            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
-          >
-            Cotações
-          </Link>
-
-          <Link
-            href="/admin/faturas"
-            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
-          >
-            Faturas
-          </Link>
-
-          <Link
-            href="/admin/suporte"
-            className="px-4 py-3 rounded-xl text-slate-300 hover:bg-blue-600 hover:text-white transition font-medium"
-          >
-            Suporte
-          </Link>
-        </nav>
-      </aside>
-
-      <main style={{ flex: 1, padding: 30 }}>
         <div
           style={{
             display: 'flex',
@@ -172,12 +88,8 @@ export default function AdminLayout({
           }}
         >
           <div className="text-right">
-            <p className="font-bold">
-              {usuario?.nome}
-            </p>
-            <p className="text-slate-400 text-sm">
-              {usuario?.email}
-            </p>
+            <p className="font-bold">{usuario?.nome}</p>
+            <p className="text-slate-400 text-sm">{usuario?.email}</p>
           </div>
 
           <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase">
