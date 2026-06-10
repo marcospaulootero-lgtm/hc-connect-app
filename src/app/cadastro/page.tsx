@@ -81,10 +81,10 @@ export default function CadastroPage() {
       <section className="w-full max-w-md bg-[#08142c] border border-blue-900 rounded-3xl p-8">
         <div className="text-center mb-8">
           <img
-            src="/HC-CONSULTORIA.png"
-            alt="HC Consultoria"
-            className="w-32 h-32 object-contain mx-auto mb-4"
-          />
+  src="/HC-CONSULTORIA-TRANSPARENTE.png"
+  alt="HC Consultoria"
+  className="w-40 mx-auto mb-6 bg-white rounded-2xl p-4"
+/>
 
           <h1 className="text-white text-4xl font-black mb-2">
             Criar conta
