@@ -16,7 +16,10 @@ export default function EmbarquesPage() {
 
   const [form, setForm] = useState({
     usuario_id: '',
-    cliente_final: '',
+    exportador: '',
+    importador: '',
+    referencia_cliente: '',
+    referencia_hc: '',
     awb: '',
     transportadora: 'DHL',
     servico: '',
@@ -24,7 +27,7 @@ export default function EmbarquesPage() {
     destino: '',
     peso_real: '',
     peso_taxado: '',
-    status_operacional: 'Em trânsito',
+    status_operacional: 'Aguardando coleta',
     data_envio: '',
     data_prevista: '',
     observacoes: '',
@@ -60,25 +63,25 @@ export default function EmbarquesPage() {
   }
 
   function linkRastreio(item: any) {
-  const awb = item.awb || ''
-  const transportadora = (item.transportadora || '').toUpperCase()
+    const awb = item.awb || ''
+    const transportadora = (item.transportadora || '').toUpperCase()
 
-  if (!awb || awb === 'AGUARDANDO AWB') return ''
+    if (!awb || awb === 'AGUARDANDO AWB') return ''
 
-  if (transportadora.includes('DHL')) {
-    return `https://mydhl.express.dhl/br/pt/tracking.html#/results?id=${awb}`
+    if (transportadora.includes('DHL')) {
+      return `https://mydhl.express.dhl/br/pt/tracking.html#/results?id=${awb}`
+    }
+
+    if (transportadora.includes('FEDEX')) {
+      return `https://www.fedex.com/fedextrack/?trknbr=${awb}`
+    }
+
+    if (transportadora.includes('UPS')) {
+      return `https://www.ups.com/track?tracknum=${awb}`
+    }
+
+    return ''
   }
-
-  if (transportadora.includes('FEDEX')) {
-    return `https://www.fedex.com/fedextrack/?trknbr=${awb}`
-  }
-
-  if (transportadora.includes('UPS')) {
-    return `https://www.ups.com/track?tracknum=${awb}`
-  }
-
-  return ''
-}
 
   async function salvar() {
     if (!form.awb) {
@@ -90,27 +93,28 @@ export default function EmbarquesPage() {
       (usuario) => usuario.id === form.usuario_id
     )
 
-    const { error } = await supabase
-      .from('embarques')
-      .insert([
-        {
-          usuario_id: form.usuario_id || null,
-          cliente_final: form.cliente_final,
-          awb: form.awb,
-          transportadora: form.transportadora,
-          servico: form.servico,
-          origem: form.origem,
-          destino: form.destino,
-          peso_real: form.peso_real,
-          peso_taxado: form.peso_taxado,
-          status_operacional: 'Aguardando coleta',
-          data_envio: null,
-          data_prevista: form.data_prevista || null,
-          ultima_atualizacao: new Date().toISOString(),
-          observacoes: form.observacoes,
-          empresa_id: usuarioSelecionado?.empresa_id || null,
-        },
-      ])
+    const { error } = await supabase.from('embarques').insert([
+      {
+        usuario_id: form.usuario_id || null,
+        exportador: form.exportador || null,
+        importador: form.importador || null,
+        referencia_cliente: form.referencia_cliente || null,
+        referencia_hc: form.referencia_hc || null,
+        awb: form.awb,
+        transportadora: form.transportadora,
+        servico: form.servico,
+        origem: form.origem,
+        destino: form.destino,
+        peso_real: form.peso_real,
+        peso_taxado: form.peso_taxado,
+        status_operacional: 'Aguardando coleta',
+        data_envio: null,
+        data_prevista: form.data_prevista || null,
+        ultima_atualizacao: new Date().toISOString(),
+        observacoes: form.observacoes,
+        empresa_id: usuarioSelecionado?.empresa_id || null,
+      },
+    ])
 
     if (error) {
       alert('Erro ao salvar embarque')
@@ -122,7 +126,10 @@ export default function EmbarquesPage() {
 
     setForm({
       usuario_id: '',
-      cliente_final: '',
+      exportador: '',
+      importador: '',
+      referencia_cliente: '',
+      referencia_hc: '',
       awb: '',
       transportadora: 'DHL',
       servico: '',
@@ -130,7 +137,7 @@ export default function EmbarquesPage() {
       destino: '',
       peso_real: '',
       peso_taxado: '',
-      status_operacional: 'Em trânsito',
+      status_operacional: 'Aguardando coleta',
       data_envio: '',
       data_prevista: '',
       observacoes: '',
@@ -173,18 +180,11 @@ export default function EmbarquesPage() {
 
   async function excluirEmbarque(id: string) {
     const confirmar = confirm('Deseja realmente excluir este embarque?')
-
     if (!confirmar) return
 
-    await supabase
-      .from('timeline_embarques')
-      .delete()
-      .eq('embarque_id', id)
+    await supabase.from('timeline_embarques').delete().eq('embarque_id', id)
 
-    const { error } = await supabase
-      .from('embarques')
-      .delete()
-      .eq('id', id)
+    const { error } = await supabase.from('embarques').delete().eq('id', id)
 
     if (error) {
       alert('Erro ao excluir embarque')
@@ -200,7 +200,10 @@ export default function EmbarquesPage() {
     return embarques.filter((item) => {
       const texto = `
         ${item.awb}
-        ${item.cliente_final}
+        ${item.exportador}
+        ${item.importador}
+        ${item.referencia_cliente}
+        ${item.referencia_hc}
         ${item.transportadora}
         ${item.origem}
         ${item.destino}
@@ -210,7 +213,8 @@ export default function EmbarquesPage() {
 
       const matchBusca = texto.includes(busca.toLowerCase())
       const matchStatus = !filtroStatus || item.status_operacional === filtroStatus
-      const matchTransportadora = !filtroTransportadora || item.transportadora === filtroTransportadora
+      const matchTransportadora =
+        !filtroTransportadora || item.transportadora === filtroTransportadora
 
       return matchBusca && matchStatus && matchTransportadora
     })
@@ -226,10 +230,7 @@ export default function EmbarquesPage() {
     <main className="max-w-[1600px] mx-auto p-8 text-white">
       <div className="mb-8 flex justify-between items-start gap-6">
         <div>
-          <h1 className="text-5xl font-black mb-2">
-            Embarques
-          </h1>
-
+          <h1 className="text-5xl font-black mb-2">Embarques</h1>
           <p className="text-slate-400 text-lg">
             Acompanhe e gerencie todos os embarques da HC.
           </p>
@@ -257,9 +258,7 @@ export default function EmbarquesPage() {
             📦
           </div>
 
-          <h2 className="text-2xl font-black">
-            Cadastrar novo embarque
-          </h2>
+          <h2 className="text-2xl font-black">Cadastrar novo embarque</h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
@@ -278,11 +277,37 @@ export default function EmbarquesPage() {
             </select>
           </Campo>
 
-          <Campo label="Cliente final">
+          <Campo label="Exportador">
             <input
-              placeholder="Nome do cliente final"
-              value={form.cliente_final}
-              onChange={(e) => setForm({ ...form, cliente_final: e.target.value })}
+              placeholder="Empresa que está enviando"
+              value={form.exportador}
+              onChange={(e) => setForm({ ...form, exportador: e.target.value })}
+            />
+          </Campo>
+
+          <Campo label="Importador">
+            <input
+              placeholder="Empresa que irá receber"
+              value={form.importador}
+              onChange={(e) => setForm({ ...form, importador: e.target.value })}
+            />
+          </Campo>
+
+          <Campo label="Referência cliente">
+            <input
+              placeholder="Opcional"
+              value={form.referencia_cliente}
+              onChange={(e) =>
+                setForm({ ...form, referencia_cliente: e.target.value })
+              }
+            />
+          </Campo>
+
+          <Campo label="Referência HC Consultoria">
+            <input
+              placeholder="Opcional"
+              value={form.referencia_hc}
+              onChange={(e) => setForm({ ...form, referencia_hc: e.target.value })}
             />
           </Campo>
 
@@ -346,8 +371,6 @@ export default function EmbarquesPage() {
             />
           </Campo>
 
-          
-
           <Campo label="Data prevista">
             <input
               type="date"
@@ -355,8 +378,6 @@ export default function EmbarquesPage() {
               onChange={(e) => setForm({ ...form, data_prevista: e.target.value })}
             />
           </Campo>
-
-          
 
           <div className="md:col-span-3">
             <Campo label="Observações">
@@ -380,15 +401,7 @@ export default function EmbarquesPage() {
 
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225] shadow-[0_0_35px_rgba(37,99,235,0.10)]">
         <div className="flex justify-between items-center gap-4 mb-7">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-xl">
-              📦
-            </div>
-
-            <h2 className="text-2xl font-black">
-              Embarques cadastrados
-            </h2>
-          </div>
+          <h2 className="text-2xl font-black">Embarques cadastrados</h2>
 
           <button
             onClick={() => {
@@ -404,21 +417,21 @@ export default function EmbarquesPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <input
-            placeholder="Buscar por AWB, cliente, origem, destino..."
+            placeholder="Buscar por AWB, exportador, importador, referência..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
 
           <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-  <option value="">Todos os status</option>
-  <option value="Aguardando coleta">Aguardando coleta</option>
-  <option value="Em trânsito">Em trânsito</option>
-  <option value="Fiscalização">Fiscalização</option>
-  <option value="Liberado">Liberado</option>
-  <option value="Entregue">Entregue</option>
-  <option value="Atrasado">Atrasado</option>
-  <option value="Aguardando AWB">Aguardando AWB</option>
-</select>
+            <option value="">Todos os status</option>
+            <option value="Aguardando coleta">Aguardando coleta</option>
+            <option value="Em trânsito">Em trânsito</option>
+            <option value="Fiscalização">Fiscalização</option>
+            <option value="Liberado">Liberado</option>
+            <option value="Entregue">Entregue</option>
+            <option value="Atrasado">Atrasado</option>
+            <option value="Aguardando AWB">Aguardando AWB</option>
+          </select>
 
           <select
             value={filtroTransportadora}
@@ -442,7 +455,10 @@ export default function EmbarquesPage() {
               <tr>
                 <th>AWB</th>
                 <th>Cliente responsável</th>
-                <th>Cliente final</th>
+                <th>Exportador</th>
+                <th>Importador</th>
+                <th>Ref. Cliente</th>
+                <th>Ref. HC</th>
                 <th>Transportadora</th>
                 <th>Origem → Destino</th>
                 <th>Status</th>
@@ -467,7 +483,10 @@ export default function EmbarquesPage() {
                   </td>
 
                   <td>{nomeUsuario(item.usuario_id)}</td>
-                  <td>{item.cliente_final || '-'}</td>
+                  <td>{item.exportador || '-'}</td>
+                  <td>{item.importador || '-'}</td>
+                  <td>{item.referencia_cliente || '-'}</td>
+                  <td>{item.referencia_hc || '-'}</td>
                   <td>{item.transportadora || '-'}</td>
 
                   <td>
@@ -587,22 +606,12 @@ function KpiCard({ titulo, valor, detalhe, icone }: any) {
     <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6 shadow-[0_0_30px_rgba(37,99,235,0.08)]">
       <div className="flex justify-between items-start gap-4">
         <div>
-          <p className="text-slate-300 font-bold">
-            {titulo}
-          </p>
-
-          <h2 className="text-5xl font-black mt-4 text-white">
-            {valor}
-          </h2>
-
-          <p className="text-slate-400 mt-2">
-            {detalhe}
-          </p>
+          <p className="text-slate-300 font-bold">{titulo}</p>
+          <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+          <p className="text-slate-400 mt-2">{detalhe}</p>
         </div>
 
-        <div className="text-4xl">
-          {icone}
-        </div>
+        <div className="text-4xl">{icone}</div>
       </div>
     </div>
   )
@@ -611,10 +620,7 @@ function KpiCard({ titulo, valor, detalhe, icone }: any) {
 function Campo({ label, children }: any) {
   return (
     <div>
-      <label className="block text-slate-300 font-bold mb-2">
-        {label}
-      </label>
-
+      <label className="block text-slate-300 font-bold mb-2">{label}</label>
       {children}
     </div>
   )
