@@ -38,32 +38,42 @@ export default function CadastroPage() {
       return
     }
 
-    if (data.user) {
-      const { error: erroPerfil } = await supabase.from('perfis').insert({
-        id: data.user.id,
-        nome,
-        email,
-        tipo_acesso: 'cliente',
-        tipo_usuario: 'cliente',
-        empresa_id: null,
-        empresa_nome: empresa || null,
-        codigo_vinculo: null,
-        ativo: true,
-      })
-
-      if (erroPerfil) {
-        alert('Conta criada, mas houve erro ao salvar o perfil.')
-        console.log(erroPerfil)
-        setLoading(false)
-        return
-      }
+    if (!data.user) {
+      alert('Não foi possível criar o usuário.')
+      setLoading(false)
+      return
     }
+
+    const { error: erroPerfil } = await supabase.from('perfis').upsert({
+      id: data.user.id,
+      nome,
+      email,
+      tipo_acesso: 'cliente',
+      tipo_usuario: 'cliente',
+      empresa_id: null,
+      empresa_nome: empresa || null,
+      codigo_vinculo: null,
+      ativo: true,
+    })
+
+    if (erroPerfil) {
+      alert('Conta criada, mas houve erro ao salvar o perfil.')
+      console.log(erroPerfil)
+      setLoading(false)
+      return
+    }
+
+    const { data: sessao } = await supabase.auth.getSession()
 
     setLoading(false)
 
-    alert('Conta criada com sucesso. Aguarde a HC liberar seu acesso.')
-
-    window.location.href = '/login'
+    if (sessao.session) {
+      alert('Conta criada com sucesso. Você já pode acessar o portal.')
+      window.location.href = '/cliente'
+    } else {
+      alert('Conta criada com sucesso. Faça login para acessar o portal.')
+      window.location.href = '/login'
+    }
   }
 
   return (
@@ -81,7 +91,7 @@ export default function CadastroPage() {
           </h1>
 
           <p className="text-slate-400">
-            Crie sua conta. A HC Consultoria fará a liberação do seu acesso.
+            Crie sua conta para acessar o portal da HC Consultoria.
           </p>
         </div>
 
