@@ -78,22 +78,26 @@ export default function CadastroPage() {
 
   return (
     <main className="min-h-screen bg-[#020817] flex items-center justify-center p-6">
-      <section className="w-full max-w-md bg-[#08142c] border border-blue-900 rounded-3xl p-8">
+      <section className="w-full max-w-md bg-[#08142c] border border-blue-700 rounded-3xl p-10 shadow-[0_0_30px_rgba(37,99,235,0.15)]">
         <div className="text-center mb-8">
-          <img
-    src="/HC-CONSULTORIA-TRANSPARENTE.png"
-    alt="HC Consultoria"
-    className="w-44 object-contain"
-  />
+  <div className="flex justify-center mb-6">
+    <div className="bg-white rounded-2xl p-4">
+      <img
+        src="/HC-CONSULTORIA-TRANSPARENTE.png"
+        alt="HC Consultoria"
+        className="w-52 h-auto object-contain"
+      />
+    </div>
+  </div>
 
-          <h1 className="text-white text-4xl font-black mb-2">
-            Criar conta
-          </h1>
+  <h1 className="text-white text-4xl font-black mb-2">
+    Criar conta
+  </h1>
 
-          <p className="text-slate-400">
-            Crie sua conta para acessar o portal da HC Consultoria.
-          </p>
-        </div>
+  <p className="text-slate-400">
+    Crie sua conta para acessar o portal da HC Consultoria.
+  </p>
+</div>
 
         <form onSubmit={cadastrar} className="space-y-5">
           <input
