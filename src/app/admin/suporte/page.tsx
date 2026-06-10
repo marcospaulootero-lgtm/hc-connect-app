@@ -13,8 +13,41 @@ export default function SuporteAdminPage() {
   const [resposta, setResposta] = useState('')
 
   useEffect(() => {
-    carregarTudo()
-  }, [])
+  carregarTudo()
+
+  const channel = supabase
+    .channel('suporte-admin-realtime')
+
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'suporte',
+      },
+      () => {
+        carregarChamados()
+      }
+    )
+
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'mensagens_suporte',
+      },
+      () => {
+        carregarMensagens()
+      }
+    )
+
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}, [])
 
   async function carregarTudo() {
     await Promise.all([
