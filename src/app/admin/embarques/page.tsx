@@ -84,11 +84,6 @@ export default function EmbarquesPage() {
   }
 
   async function salvar() {
-    if (!form.usuario_id) {
-      alert('Selecione o cliente responsável')
-      return
-    }
-
     if (!form.awb) {
       alert('Informe o AWB')
       return
@@ -103,15 +98,10 @@ export default function EmbarquesPage() {
       (usuario) => usuario.id === form.usuario_id
     )
 
-    if (!usuarioSelecionado?.empresa_id) {
-      alert('Este cliente não possui empresa vinculada no cadastro')
-      return
-    }
-
     const { error } = await supabase.from('embarques').insert([
       {
-        usuario_id: form.usuario_id,
-        empresa_id: usuarioSelecionado.empresa_id,
+        usuario_id: form.usuario_id || null,
+        empresa_id: usuarioSelecionado?.empresa_id || null,
 
         exportador: form.exportador || null,
         importador: form.importador || null,
@@ -127,6 +117,7 @@ export default function EmbarquesPage() {
         peso_real: form.peso_real
           ? Number(form.peso_real.replace(',', '.'))
           : null,
+
         peso_taxado: form.peso_taxado
           ? Number(form.peso_taxado.replace(',', '.'))
           : null,
@@ -179,16 +170,11 @@ export default function EmbarquesPage() {
       (usuario) => usuario.id === usuarioVinculo
     )
 
-    if (!usuarioSelecionado?.empresa_id) {
-      alert('Este cliente não possui empresa vinculada no cadastro')
-      return
-    }
-
     const { error } = await supabase
       .from('embarques')
       .update({
         usuario_id: usuarioVinculo,
-        empresa_id: usuarioSelecionado.empresa_id,
+        empresa_id: usuarioSelecionado?.empresa_id || null,
         ultima_atualizacao: new Date().toISOString(),
       })
       .eq('id', embarqueId)
@@ -249,18 +235,10 @@ export default function EmbarquesPage() {
   }, [embarques, usuarios, busca, filtroStatus, filtroTransportadora])
 
   const totalEmbarques = embarques.length
-  const totalTransito = embarques.filter(
-    (e) => e.status_operacional === 'Em trânsito'
-  ).length
-  const totalFiscalizacao = embarques.filter(
-    (e) => e.status_operacional === 'Fiscalização'
-  ).length
-  const totalLiberados = embarques.filter(
-    (e) => e.status_operacional === 'Liberado'
-  ).length
-  const totalEntregues = embarques.filter(
-    (e) => e.status_operacional === 'Entregue'
-  ).length
+  const totalTransito = embarques.filter((e) => e.status_operacional === 'Em trânsito').length
+  const totalFiscalizacao = embarques.filter((e) => e.status_operacional === 'Fiscalização').length
+  const totalLiberados = embarques.filter((e) => e.status_operacional === 'Liberado').length
+  const totalEntregues = embarques.filter((e) => e.status_operacional === 'Entregue').length
 
   return (
     <main className="max-w-[1600px] mx-auto p-8 text-white">
@@ -302,7 +280,7 @@ export default function EmbarquesPage() {
               value={form.usuario_id}
               onChange={(e) => setForm({ ...form, usuario_id: e.target.value })}
             >
-              <option value="">Selecione o cliente</option>
+              <option value="">Sem cliente vinculado</option>
               {usuarios.map((usuario) => (
                 <option key={usuario.id} value={usuario.id}>
                   {usuario.nome || usuario.email}
