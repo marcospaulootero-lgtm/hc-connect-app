@@ -103,8 +103,8 @@ export default function EmbarquesPage() {
           destino: form.destino,
           peso_real: form.peso_real,
           peso_taxado: form.peso_taxado,
-          status_operacional: form.status_operacional,
-          data_envio: form.data_envio || null,
+          status_operacional: 'Aguardando coleta',
+          data_envio: null,
           data_prevista: form.data_prevista || null,
           ultima_atualizacao: new Date().toISOString(),
           observacoes: form.observacoes,
@@ -346,13 +346,7 @@ export default function EmbarquesPage() {
             />
           </Campo>
 
-          <Campo label="Data de envio">
-            <input
-              type="date"
-              value={form.data_envio}
-              onChange={(e) => setForm({ ...form, data_envio: e.target.value })}
-            />
-          </Campo>
+          
 
           <Campo label="Data prevista">
             <input
@@ -362,19 +356,7 @@ export default function EmbarquesPage() {
             />
           </Campo>
 
-          <Campo label="Status operacional">
-            <select
-              value={form.status_operacional}
-              onChange={(e) => setForm({ ...form, status_operacional: e.target.value })}
-            >
-              <option value="Em trânsito">Em trânsito</option>
-              <option value="Fiscalização">Fiscalização</option>
-              <option value="Liberado">Liberado</option>
-              <option value="Entregue">Entregue</option>
-              <option value="Atrasado">Atrasado</option>
-              <option value="Aguardando AWB">Aguardando AWB</option>
-            </select>
-          </Campo>
+          
 
           <div className="md:col-span-3">
             <Campo label="Observações">
@@ -428,14 +410,15 @@ export default function EmbarquesPage() {
           />
 
           <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-            <option value="">Todos os status</option>
-            <option value="Em trânsito">Em trânsito</option>
-            <option value="Fiscalização">Fiscalização</option>
-            <option value="Liberado">Liberado</option>
-            <option value="Entregue">Entregue</option>
-            <option value="Atrasado">Atrasado</option>
-            <option value="Aguardando AWB">Aguardando AWB</option>
-          </select>
+  <option value="">Todos os status</option>
+  <option value="Aguardando coleta">Aguardando coleta</option>
+  <option value="Em trânsito">Em trânsito</option>
+  <option value="Fiscalização">Fiscalização</option>
+  <option value="Liberado">Liberado</option>
+  <option value="Entregue">Entregue</option>
+  <option value="Atrasado">Atrasado</option>
+  <option value="Aguardando AWB">Aguardando AWB</option>
+</select>
 
           <select
             value={filtroTransportadora}
