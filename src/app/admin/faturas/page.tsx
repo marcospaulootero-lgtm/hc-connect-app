@@ -15,15 +15,15 @@ type Embarque = {
 
 type Fatura = {
   id: string
-  vencimento: string
-  arquivo_pdf: string
+  vencimento: string | null
+  arquivo_pdf: string | null
   criado_em: string
   embarques?: {
     awb: string
-    cliente_final: string
-    transportadora: string
-    status_operacional: string
-  }
+    cliente_final: string | null
+    transportadora: string | null
+    status_operacional: string | null
+  }[] | null
 }
 
 export default function FaturasPage() {
@@ -77,7 +77,7 @@ export default function FaturasPage() {
     }
 
     setEmbarques(embarquesData || [])
-    setFaturas(faturasData || [])
+    setFaturas((faturasData as unknown as Fatura[]) || [])
   }
 
   async function salvarFatura() {
@@ -240,12 +240,12 @@ export default function FaturasPage() {
               {faturas.map((item) => (
                 <tr key={item.id}>
                   <td className="font-bold text-blue-400">
-                    {item.embarques?.awb || '-'}
+                    {item.embarques?.[0]?.awb || '-'}
                   </td>
 
-                  <td>{item.embarques?.cliente_final || '-'}</td>
+                  <td>{item.embarques?.[0]?.cliente_final || '-'}</td>
 
-                  <td>{item.embarques?.transportadora || '-'}</td>
+                  <td>{item.embarques?.[0]?.transportadora || '-'}  </td>
 
                   <td>
                     {item.vencimento
