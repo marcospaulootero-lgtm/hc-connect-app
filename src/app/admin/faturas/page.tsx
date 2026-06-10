@@ -125,11 +125,16 @@ export default function FaturasPage() {
       })
 
     if (erroUpload) {
-      setSalvando(false)
-      alert(erroUpload.message || 'Erro ao enviar PDF')
-      console.log(erroUpload)
-      return
-    }
+  setSalvando(false)
+
+  alert(
+    JSON.stringify(erroUpload, null, 2)
+  )
+
+  console.log(erroUpload)
+
+  return
+}
 
     const { data: urlData } = supabase.storage
       .from('faturas')
@@ -155,10 +160,14 @@ export default function FaturasPage() {
     setSalvando(false)
 
     if (error) {
-      alert(error.message || 'Erro ao salvar fatura')
-      console.log(error)
-      return
-    }
+  alert(
+    JSON.stringify(error, null, 2)
+  )
+
+  console.log(error)
+
+  return
+}
 
     alert('Fatura salva com sucesso e disponibilizada ao cliente')
 
