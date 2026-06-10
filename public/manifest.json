@@ -1,0 +1,22 @@
+{
+  "name": "HC Connect",
+  "short_name": "HC Connect",
+  "description": "Portal de Clientes HC Consultoria",
+  "start_url": "/login",
+  "display": "standalone",
+  "background_color": "#020817",
+  "theme_color": "#020817",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
