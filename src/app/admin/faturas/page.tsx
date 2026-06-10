@@ -15,12 +15,9 @@ type Embarque = {
 
 type Fatura = {
   id: string
-  numero_fatura: string
-  valor: number
-  moeda: string
   vencimento: string
-  status: string
-  pdf_url: string
+  arquivo_pdf: string
+  criado_em: string
   embarques?: {
     awb: string
     cliente_final: string
@@ -35,11 +32,7 @@ export default function FaturasPage() {
   const [salvando, setSalvando] = useState(false)
 
   const [awbId, setAwbId] = useState('')
-  const [numeroFatura, setNumeroFatura] = useState('')
-  const [valor, setValor] = useState('')
-  const [moeda, setMoeda] = useState('USD')
   const [vencimento, setVencimento] = useState('')
-  const [status, setStatus] = useState('EM ABERTO')
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
 
   useEffect(() => {
@@ -66,7 +59,10 @@ export default function FaturasPage() {
     const { data: faturasData, error: erroFaturas } = await supabase
       .from('faturas')
       .select(`
-        *,
+        id,
+        vencimento,
+        arquivo_pdf,
+        criado_em,
         embarques (
           awb,
           cliente_final,
@@ -90,16 +86,6 @@ export default function FaturasPage() {
       return
     }
 
-    if (!numeroFatura) {
-      alert('Digite o número da fatura')
-      return
-    }
-
-    if (!valor) {
-      alert('Digite o valor da fatura')
-      return
-    }
-
     if (!arquivoPdf) {
       alert('Selecione o PDF da fatura')
       return
@@ -114,7 +100,11 @@ export default function FaturasPage() {
 
     const embarqueSelecionado = embarques.find((item) => item.id === awbId)
 
-    const nomeArquivo = `${awbId}/${Date.now()}-${numeroFatura.replaceAll('/', '-')}.pdf`
+    const nomeLimpo = arquivoPdf.name
+      .replaceAll(' ', '-')
+      .replaceAll('/', '-')
+
+    const nomeArquivo = `${awbId}/${Date.now()}-${nomeLimpo}`
 
     const { error: erroUpload } = await supabase.storage
       .from('faturas')
@@ -125,16 +115,11 @@ export default function FaturasPage() {
       })
 
     if (erroUpload) {
-  setSalvando(false)
-
-  alert(
-    JSON.stringify(erroUpload, null, 2)
-  )
-
-  console.log(erroUpload)
-
-  return
-}
+      setSalvando(false)
+      alert(erroUpload.message || 'Erro ao enviar PDF')
+      console.log(erroUpload)
+      return
+    }
 
     const { data: urlData } = supabase.storage
       .from('faturas')
@@ -148,35 +133,24 @@ export default function FaturasPage() {
         {
           embarque_id: awbId,
           usuario_id: embarqueSelecionado?.usuario_id || null,
-          numero_fatura: numeroFatura,
-          valor: Number(valor),
-          moeda,
           vencimento: vencimento || null,
-          status,
-          pdf_url: pdfUrl,
+          arquivo_pdf: pdfUrl,
+          visivel_cliente: true,
         },
       ])
 
     setSalvando(false)
 
     if (error) {
-  alert(
-    JSON.stringify(error, null, 2)
-  )
-
-  console.log(error)
-
-  return
-}
+      alert(error.message || 'Erro ao salvar fatura')
+      console.log(error)
+      return
+    }
 
     alert('Fatura salva com sucesso e disponibilizada ao cliente')
 
     setAwbId('')
-    setNumeroFatura('')
-    setValor('')
-    setMoeda('USD')
     setVencimento('')
-    setStatus('EM ABERTO')
     setArquivoPdf(null)
 
     const inputArquivo = document.getElementById('pdf_fatura') as HTMLInputElement | null
@@ -186,12 +160,6 @@ export default function FaturasPage() {
     }
 
     carregar()
-  }
-
-  function corStatus(statusFatura: string) {
-    if (statusFatura === 'PAGO') return 'bg-green-500 text-black'
-    if (statusFatura === 'VENCIDO') return 'bg-red-500 text-white'
-    return 'bg-yellow-400 text-black'
   }
 
   return (
@@ -228,42 +196,10 @@ export default function FaturasPage() {
           </select>
 
           <input
-            type="text"
-            placeholder="Nº da fatura"
-            value={numeroFatura}
-            onChange={(e) => setNumeroFatura(e.target.value)}
-          />
-
-          <input
-            type="number"
-            placeholder="Valor"
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-          />
-
-          <select
-            value={moeda}
-            onChange={(e) => setMoeda(e.target.value)}
-          >
-            <option>USD</option>
-            <option>BRL</option>
-            <option>EUR</option>
-          </select>
-
-          <input
             type="date"
             value={vencimento}
             onChange={(e) => setVencimento(e.target.value)}
           />
-
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option>EM ABERTO</option>
-            <option>PAGO</option>
-            <option>VENCIDO</option>
-          </select>
 
           <input
             id="pdf_fatura"
@@ -295,10 +231,7 @@ export default function FaturasPage() {
                 <th>AWB</th>
                 <th>Cliente final</th>
                 <th>Transportadora</th>
-                <th>Fatura</th>
-                <th>Valor</th>
                 <th>Vencimento</th>
-                <th>Status</th>
                 <th>PDF</th>
               </tr>
             </thead>
@@ -311,12 +244,8 @@ export default function FaturasPage() {
                   </td>
 
                   <td>{item.embarques?.cliente_final || '-'}</td>
-                  <td>{item.embarques?.transportadora || '-'}</td>
-                  <td>{item.numero_fatura}</td>
 
-                  <td>
-                    {item.moeda} {item.valor}
-                  </td>
+                  <td>{item.embarques?.transportadora || '-'}</td>
 
                   <td>
                     {item.vencimento
@@ -325,15 +254,9 @@ export default function FaturasPage() {
                   </td>
 
                   <td>
-                    <span className={`px-4 py-2 rounded-full text-sm font-bold ${corStatus(item.status)}`}>
-                      {item.status}
-                    </span>
-                  </td>
-
-                  <td>
-                    {item.pdf_url ? (
+                    {item.arquivo_pdf ? (
                       <Link
-                        href={item.pdf_url}
+                        href={item.arquivo_pdf}
                         target="_blank"
                         className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold inline-block"
                       >
