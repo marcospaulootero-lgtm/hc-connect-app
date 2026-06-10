@@ -12,26 +12,6 @@ export default function DetalheEmbarquePage() {
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [timeline, setTimeline] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
-  const [salvando, setSalvando] = useState(false)
-
-  const [form, setForm] = useState<any>({
-    usuario_id: '',
-    cliente_final: '',
-    awb: '',
-    transportadora: '',
-    servico: '',
-    origem: '',
-    destino: '',
-    peso_real: '',
-    peso_taxado: '',
-    status_operacional: '',
-    data_envio: '',
-    data_prevista: '',
-    observacoes: '',
-  })
-
-  const [novoStatus, setNovoStatus] = useState('')
-  const [novaDescricao, setNovaDescricao] = useState('')
 
   useEffect(() => {
     carregar()
@@ -51,22 +31,6 @@ export default function DetalheEmbarquePage() {
     }
 
     setEmbarque(data)
-
-    setForm({
-      usuario_id: data?.usuario_id || '',
-      cliente_final: data?.cliente_final || '',
-      awb: data?.awb || '',
-      transportadora: data?.transportadora || '',
-      servico: data?.servico || '',
-      origem: data?.origem || '',
-      destino: data?.destino || '',
-      peso_real: data?.peso_real || '',
-      peso_taxado: data?.peso_taxado || '',
-      status_operacional: data?.status_operacional || '',
-      data_envio: data?.data_envio || '',
-      data_prevista: data?.data_prevista || '',
-      observacoes: data?.observacoes || '',
-    })
 
     const { data: timelineData } = await supabase
       .from('timeline_embarques')
@@ -93,66 +57,23 @@ export default function DetalheEmbarquePage() {
   }
 
   function linkRastreio() {
-    if (!form.awb || form.awb === 'AGUARDANDO AWB') return ''
+    if (!embarque?.awb || embarque.awb === 'AGUARDANDO AWB') return ''
 
-    if ((form.transportadora || '').toUpperCase().includes('DHL')) {
-      return `https://mydhl.express.dhl/br/pt/tracking.html#/results?id=${form.awb}`
+    const transportadora = (embarque.transportadora || '').toUpperCase()
+
+    if (transportadora.includes('DHL')) {
+      return `https://mydhl.express.dhl/br/pt/tracking.html#/results?id=${embarque.awb}`
+    }
+
+    if (transportadora.includes('FEDEX')) {
+      return `https://www.fedex.com/fedextrack/?trknbr=${embarque.awb}`
+    }
+
+    if (transportadora.includes('UPS')) {
+      return `https://www.ups.com/track?tracknum=${embarque.awb}`
     }
 
     return ''
-  }
-
-  async function salvarAlteracoes() {
-    if (!embarque) return
-
-    if (!form.awb) {
-      alert('Informe o AWB')
-      return
-    }
-
-    setSalvando(true)
-
-    const usuarioSelecionado = usuarios.find(
-      (usuario) => usuario.id === form.usuario_id
-    )
-
-    const { error } = await supabase
-      .from('embarques')
-      .update({
-        usuario_id: form.usuario_id || null,
-        empresa_id: usuarioSelecionado?.empresa_id || null,
-        cliente_final: form.cliente_final,
-        awb: form.awb,
-        transportadora: form.transportadora,
-        servico: form.servico,
-        origem: form.origem,
-        destino: form.destino,
-        peso_real: form.peso_real,
-        peso_taxado: form.peso_taxado,
-        status_operacional: form.status_operacional,
-        data_envio: form.data_envio || null,
-        data_prevista: form.data_prevista || null,
-        observacoes: form.observacoes,
-        ultima_atualizacao: new Date().toISOString(),
-      })
-      .eq('id', embarque.id)
-
-    setSalvando(false)
-
-    if (error) {
-      alert('Erro ao salvar alterações')
-      console.log(error)
-      return
-    }
-
-    await supabase.from('timeline_embarques').insert({
-      embarque_id: embarque.id,
-      status: form.status_operacional,
-      descricao: 'Dados do embarque atualizados pela HC Consultoria.',
-    })
-
-    alert('Embarque atualizado com sucesso')
-    carregar()
   }
 
   async function uploadArquivo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -196,299 +117,177 @@ export default function DetalheEmbarquePage() {
     })
 
     setUploading(false)
-
     await carregar()
 
     alert('Arquivo enviado com sucesso')
   }
 
-  async function adicionarTimeline() {
-    if (!novoStatus || !novaDescricao) {
-      alert('Preencha status e descrição')
-      return
+  function etapaConcluida(etapa: string) {
+    const status = (embarque?.status_operacional || '').toLowerCase()
+
+    if (etapa === 'coleta') {
+      return (
+        status.includes('colet') ||
+        status.includes('trânsito') ||
+        status.includes('fiscal') ||
+        status.includes('liberado') ||
+        status.includes('entregue')
+      )
     }
 
-    const { error } = await supabase.from('timeline_embarques').insert({
-      embarque_id: embarque.id,
-      status: novoStatus,
-      descricao: novaDescricao,
-    })
-
-    if (error) {
-      alert('Erro ao adicionar atualização')
-      console.log(error)
-      return
+    if (etapa === 'transito') {
+      return (
+        status.includes('trânsito') ||
+        status.includes('fiscal') ||
+        status.includes('liberado') ||
+        status.includes('entregue')
+      )
     }
 
-    await supabase
-      .from('embarques')
-      .update({
-        status_operacional: novoStatus,
-        ultima_atualizacao: new Date().toISOString(),
-      })
-      .eq('id', embarque.id)
+    if (etapa === 'fiscalizacao') {
+      return (
+        status.includes('fiscal') ||
+        status.includes('liberado') ||
+        status.includes('entregue')
+      )
+    }
 
-    setNovoStatus('')
-    setNovaDescricao('')
+    if (etapa === 'liberado') {
+      return status.includes('liberado') || status.includes('entregue')
+    }
 
-    carregar()
+    if (etapa === 'entregue') {
+      return status.includes('entregue')
+    }
+
+    return false
   }
 
   if (!embarque) {
     return <main className="p-10 text-white">Carregando embarque...</main>
   }
-
-  return (
+    return (
     <main className="max-w-7xl mx-auto p-8 text-white">
-      <div className="mb-8 flex items-start justify-between gap-6">
-        <div>
-          <h1 className="text-4xl font-bold">
-            AWB {embarque.awb}
-          </h1>
-
-          <p className="text-slate-400 mt-2">
-            Gerenciamento completo do embarque.
-          </p>
-        </div>
-
-        <div className="flex gap-3 flex-wrap">
-          {linkRastreio() && (
-            <a
-              href={linkRastreio()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-yellow-500 hover:bg-yellow-400 px-5 py-3 rounded-xl text-black font-bold"
-            >
-              Rastrear na DHL
-            </a>
-          )}
-
-          <button
-            onClick={salvarAlteracoes}
-            disabled={salvando}
-            className="bg-green-600 hover:bg-green-500"
-          >
-            {salvando ? 'Salvando...' : 'Salvar alterações'}
-          </button>
-        </div>
-      </div>
-
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">
-          Resumo operacional
-        </h2>
-
-        <div className="form-grid">
+      <header className="border border-blue-900 rounded-3xl bg-[#071225] p-8 mb-8 shadow-[0_0_35px_rgba(37,99,235,0.12)]">
+        <div className="flex flex-col lg:flex-row justify-between gap-8">
           <div>
-            <strong className="text-slate-400">Cliente vinculado</strong>
-            <p>{nomeUsuario(form.usuario_id)}</p>
-          </div>
+            <p className="text-blue-400 font-bold mb-2">
+              Detalhe do embarque
+            </p>
 
-          <div>
-            <strong className="text-slate-400">Status</strong>
-            <div className="mt-2">
-              <StatusBadge status={form.status_operacional} />
+            <h1 className="text-5xl font-black mb-3">
+              AWB {embarque.awb || '-'}
+            </h1>
+
+            <div className="flex items-center gap-4 flex-wrap">
+              <StatusBadge status={embarque.status_operacional} />
+
+              <span className="text-slate-400">
+                {embarque.transportadora || '-'} • {embarque.servico || '-'}
+              </span>
             </div>
           </div>
 
-          <div>
-            <strong className="text-slate-400">Última atualização</strong>
-            <p>
-              {embarque.ultima_atualizacao
-                ? new Date(embarque.ultima_atualizacao).toLocaleString('pt-BR')
-                : '-'}
-            </p>
-          </div>
+          <div className="flex gap-3 flex-wrap h-fit">
+            <a
+              href="/admin/embarques"
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
+            >
+              Voltar
+            </a>
 
-          <div>
-            <strong className="text-slate-400">Transportadora</strong>
-            <p>{form.transportadora || '-'}</p>
+            {linkRastreio() && (
+              <a
+                href={linkRastreio()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-yellow-500 hover:bg-yellow-400 px-5 py-3 rounded-xl text-black font-bold"
+              >
+                Rastrear
+              </a>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
+        <InfoCard
+          titulo="Cliente vinculado"
+          valor={nomeUsuario(embarque.usuario_id)}
+          icone="👤"
+        />
+
+        <InfoCard
+          titulo="Última atualização"
+          valor={
+            embarque.ultima_atualizacao
+              ? new Date(embarque.ultima_atualizacao).toLocaleString('pt-BR')
+              : '-'
+          }
+          icone="🕒"
+        />
+
+        <InfoCard
+          titulo="Data de envio"
+          valor={
+            embarque.data_envio
+              ? new Date(embarque.data_envio).toLocaleDateString('pt-BR')
+              : '-'
+          }
+          icone="📤"
+        />
+
+        <InfoCard
+          titulo="Previsão"
+          valor={
+            embarque.data_prevista
+              ? new Date(embarque.data_prevista).toLocaleDateString('pt-BR')
+              : '-'
+          }
+          icone="📅"
+        />
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="card">
+          <h2 className="text-2xl font-black mb-6">
+            Dados comerciais
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <CampoResumo titulo="Exportador" valor={embarque.exportador} />
+            <CampoResumo titulo="Importador" valor={embarque.importador} />
+            <CampoResumo titulo="Referência Cliente" valor={embarque.referencia_cliente} />
+            <CampoResumo titulo="Referência HC Consultoria" valor={embarque.referencia_hc} />
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 className="text-2xl font-black mb-6">
+            Dados logísticos
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <CampoResumo titulo="Origem" valor={embarque.origem} />
+            <CampoResumo titulo="Destino" valor={embarque.destino} />
+            <CampoResumo titulo="Peso real" valor={embarque.peso_real ? `${embarque.peso_real} kg` : '-'} />
+            <CampoResumo titulo="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
           </div>
         </div>
       </section>
 
       <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">
-          Editar embarque
+        <h2 className="text-2xl font-black mb-8">
+          Progresso do embarque
         </h2>
 
-        <div className="form-grid">
-          <select
-            value={form.usuario_id}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                usuario_id: e.target.value,
-              })
-            }
-          >
-            <option value="">
-              Sem cliente vinculado
-            </option>
-
-            {usuarios.map((usuario) => (
-              <option
-                key={usuario.id}
-                value={usuario.id}
-              >
-                {usuario.nome || usuario.email}
-              </option>
-            ))}
-          </select>
-
-          <input
-            placeholder="Cliente final"
-            value={form.cliente_final}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                cliente_final: e.target.value,
-              })
-            }
-          />
-
-          <input
-            placeholder="AWB"
-            value={form.awb}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                awb: e.target.value,
-              })
-            }
-          />
-
-          <select
-            value={form.transportadora}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                transportadora: e.target.value,
-              })
-            }
-          >
-            <option value="">Transportadora</option>
-            <option value="DHL">DHL</option>
-            <option value="FedEx">FedEx</option>
-            <option value="UPS">UPS</option>
-            <option value="Outra">Outra</option>
-          </select>
-
-          <input
-            placeholder="Serviço"
-            value={form.servico}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                servico: e.target.value,
-              })
-            }
-          />
-
-          <input
-            placeholder="Origem"
-            value={form.origem}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                origem: e.target.value,
-              })
-            }
-          />
-
-          <input
-            placeholder="Destino"
-            value={form.destino}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                destino: e.target.value,
-              })
-            }
-          />
-
-          <input
-            placeholder="Peso real"
-            value={form.peso_real}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                peso_real: e.target.value,
-              })
-            }
-          />
-
-          <input
-            placeholder="Peso taxado"
-            value={form.peso_taxado}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                peso_taxado: e.target.value,
-              })
-            }
-          />
-
-          <select
-            value={form.status_operacional}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                status_operacional: e.target.value,
-              })
-            }
-          >
-            <option value="">Status</option>
-            <option value="Em trânsito">Em trânsito</option>
-            <option value="Fiscalização">Fiscalização</option>
-            <option value="Liberado">Liberado</option>
-            <option value="Entregue">Entregue</option>
-            <option value="Atrasado">Atrasado</option>
-            <option value="Aguardando AWB">Aguardando AWB</option>
-          </select>
-
-          <input
-            type="date"
-            value={form.data_envio}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                data_envio: e.target.value,
-              })
-            }
-          />
-
-          <input
-            type="date"
-            value={form.data_prevista}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                data_prevista: e.target.value,
-              })
-            }
-          />
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <Etapa titulo="Coletado" ativo={etapaConcluida('coleta')} />
+          <Etapa titulo="Em trânsito" ativo={etapaConcluida('transito')} />
+          <Etapa titulo="Fiscalização" ativo={etapaConcluida('fiscalizacao')} />
+          <Etapa titulo="Liberado" ativo={etapaConcluida('liberado')} />
+          <Etapa titulo="Entregue" ativo={etapaConcluida('entregue')} />
         </div>
-
-        <textarea
-          placeholder="Observações do embarque"
-          value={form.observacoes}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              observacoes: e.target.value,
-            })
-          }
-          className="mt-5 min-h-[120px]"
-        />
-
-        <button
-          onClick={salvarAlteracoes}
-          disabled={salvando}
-          className="mt-6 bg-green-600 hover:bg-green-500"
-        >
-          {salvando ? 'Salvando...' : 'Salvar alterações'}
-        </button>
       </section>
 
       <section className="card mb-8">
@@ -496,33 +295,25 @@ export default function DetalheEmbarquePage() {
           Rastreio
         </h2>
 
-        <div className="form-grid">
-          <div>
-            <strong className="text-slate-400">AWB</strong>
-            <p>{form.awb || '-'}</p>
-          </div>
+        <div className="rounded-3xl border border-blue-900 bg-[#020817] p-6">
+          <div className="flex flex-col md:flex-row justify-between gap-6 items-start md:items-center">
+            <div>
+              <p className="text-slate-400 mb-1">Origem</p>
+              <h3 className="text-3xl font-black">
+                {embarque.origem || '-'}
+              </h3>
+            </div>
 
-          <div>
-            <strong className="text-slate-400">Transportadora</strong>
-            <p>{form.transportadora || '-'}</p>
-          </div>
+            <div className="text-blue-400 text-4xl">
+              ✈️
+            </div>
 
-          <div>
-            <strong className="text-slate-400">Data envio</strong>
-            <p>
-              {form.data_envio
-                ? new Date(form.data_envio).toLocaleDateString('pt-BR')
-                : '-'}
-            </p>
-          </div>
-
-          <div>
-            <strong className="text-slate-400">Previsão</strong>
-            <p>
-              {form.data_prevista
-                ? new Date(form.data_prevista).toLocaleDateString('pt-BR')
-                : '-'}
-            </p>
+            <div>
+              <p className="text-slate-400 mb-1">Destino</p>
+              <h3 className="text-3xl font-black">
+                {embarque.destino || '-'}
+              </h3>
+            </div>
           </div>
         </div>
 
@@ -533,20 +324,24 @@ export default function DetalheEmbarquePage() {
             rel="noopener noreferrer"
             className="bg-yellow-500 hover:bg-yellow-400 px-5 py-3 rounded-xl text-black font-bold inline-block mt-6"
           >
-            Rastrear na DHL
+            Abrir rastreio da transportadora
           </a>
         )}
       </section>
-
-      <section className="card mb-8">
+            <section className="card mb-8">
         <h2 className="text-2xl font-black mb-6">
           Documentos
         </h2>
 
         <div className="flex items-center gap-4 flex-wrap">
-          <label className="btn-primary cursor-pointer">
+          <label className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold cursor-pointer">
             {uploading ? 'Enviando...' : 'Enviar documento'}
-            <input type="file" className="hidden" onChange={uploadArquivo} />
+
+            <input
+              type="file"
+              className="hidden"
+              onChange={uploadArquivo}
+            />
           </label>
 
           {embarque.documento_url && (
@@ -554,7 +349,7 @@ export default function DetalheEmbarquePage() {
               href={embarque.documento_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="btn-secondary"
+              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
             >
               Abrir documento
             </a>
@@ -563,53 +358,116 @@ export default function DetalheEmbarquePage() {
       </section>
 
       <section className="card">
-        <h2 className="text-2xl font-black mb-6">
-          Timeline operacional
+        <h2 className="text-2xl font-black mb-8">
+          Histórico operacional
         </h2>
 
-        <div className="form-grid mb-6">
-          <input
-            placeholder="Status"
-            value={novoStatus}
-            onChange={(e) => setNovoStatus(e.target.value)}
-          />
-
-          <input
-            placeholder="Descrição operacional"
-            value={novaDescricao}
-            onChange={(e) => setNovaDescricao(e.target.value)}
-          />
-        </div>
-
-        <button className="mb-8" onClick={adicionarTimeline}>
-          Adicionar atualização
-        </button>
-
-        <div className="space-y-4">
+        <div className="space-y-5">
           {timeline.length === 0 ? (
             <p className="text-slate-400">
-              Nenhuma atualização na timeline.
+              Nenhuma atualização encontrada.
             </p>
           ) : (
-            timeline.map((item) => (
+            timeline.map((item, index) => (
               <div
                 key={item.id}
-                className="border border-blue-900 rounded-2xl p-4 bg-[#071225]"
+                className="relative pl-10"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <strong>{item.status}</strong>
+                <div className="absolute left-3 top-0 bottom-0 w-[2px] bg-blue-900" />
 
-                  <span className="text-slate-500 text-sm">
-                    {new Date(item.criado_em).toLocaleString('pt-BR')}
-                  </span>
+                <div className="absolute left-0 top-2 w-6 h-6 rounded-full bg-blue-600 border-4 border-[#071225]" />
+
+                <div className="border border-blue-900 rounded-2xl bg-[#071225] p-5">
+                  <div className="flex flex-col md:flex-row md:justify-between gap-2 mb-3">
+                    <strong className="text-blue-400">
+                      {item.status}
+                    </strong>
+
+                    <span className="text-slate-500 text-sm">
+                      {item.criado_em
+                        ? new Date(item.criado_em).toLocaleString('pt-BR')
+                        : '-'}
+                    </span>
+                  </div>
+
+                  <p className="text-slate-300">
+                    {item.descricao}
+                  </p>
                 </div>
-
-                <p className="text-slate-300">{item.descricao}</p>
               </div>
             ))
           )}
         </div>
       </section>
     </main>
+  )
+}
+
+function InfoCard({
+  titulo,
+  valor,
+  icone,
+}: any) {
+  return (
+    <div className="border border-blue-900 rounded-3xl bg-[#071225] p-5">
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-slate-400 text-sm">
+            {titulo}
+          </p>
+
+          <p className="font-bold mt-3 break-words">
+            {valor || '-'}
+          </p>
+        </div>
+
+        <div className="text-3xl">
+          {icone}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CampoResumo({
+  titulo,
+  valor,
+}: any) {
+  return (
+    <div className="border border-blue-900 rounded-2xl p-4 bg-[#020817]">
+      <p className="text-slate-500 text-sm mb-2">
+        {titulo}
+      </p>
+
+      <p className="font-bold">
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Etapa({
+  titulo,
+  ativo,
+}: {
+  titulo: string
+  ativo: boolean
+}) {
+  return (
+    <div
+      className={`rounded-3xl p-5 border text-center transition ${
+        ativo
+          ? 'bg-green-600 border-green-500'
+          : 'bg-[#071225] border-blue-900'
+      }`}
+    >
+      <div className="text-3xl mb-3">
+        {ativo ? '✔️' : '⏳'}
+      </div>
+
+      <p className="font-bold">
+        {titulo}
+      </p>
+    </div>
   )
 }
