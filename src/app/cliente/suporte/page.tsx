@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function SuporteClientePage() {
@@ -10,8 +10,12 @@ export default function SuporteClientePage() {
   const [salvando, setSalvando] = useState(false)
   const [respondendoId, setRespondendoId] = useState<string | null>(null)
   const [respostaCliente, setRespostaCliente] = useState('')
+  const [busca, setBusca] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState('')
 
   const [form, setForm] = useState({
+    categoria: 'Operacional',
+    prioridade: 'Normal',
     assunto: '',
     mensagem: '',
   })
@@ -19,6 +23,37 @@ export default function SuporteClientePage() {
   useEffect(() => {
     carregarUsuario()
   }, [])
+
+  useEffect(() => {
+    if (!usuario?.id) return
+
+    const channel = supabase
+      .channel(`suporte-cliente-${usuario.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'suporte',
+          filter: `usuario_id=eq.${usuario.id}`,
+        },
+        () => carregarChamados(usuario.id)
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'mensagens_suporte',
+        },
+        carregarMensagens
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [usuario?.id])
 
   async function carregarUsuario() {
     const {
@@ -75,11 +110,13 @@ export default function SuporteClientePage() {
     }
 
     if (!form.assunto || !form.mensagem) {
-      alert('Preencha assunto e mensagem')
+      alert('Preencha assunto e descrição')
       return
     }
 
     setSalvando(true)
+
+    const assuntoFinal = `[${form.categoria}] ${form.assunto}`
 
     const { data, error } = await supabase
       .from('suporte')
@@ -87,9 +124,11 @@ export default function SuporteClientePage() {
         {
           usuario_id: usuario.id,
           email: usuario.email,
-          assunto: form.assunto,
+          assunto: assuntoFinal,
           mensagem: form.mensagem,
           status: 'ABERTO',
+          categoria: form.categoria,
+          prioridade: form.prioridade,
         },
       ])
       .select()
@@ -108,7 +147,7 @@ export default function SuporteClientePage() {
         {
           chamado_id: data.id,
           usuario_id: usuario.id,
-          assunto: form.assunto,
+          assunto: assuntoFinal,
           mensagem: form.mensagem,
           autor: 'CLIENTE',
           criado_por: 'CLIENTE',
@@ -127,6 +166,8 @@ export default function SuporteClientePage() {
     alert('Chamado aberto com sucesso')
 
     setForm({
+      categoria: 'Operacional',
+      prioridade: 'Normal',
       assunto: '',
       mensagem: '',
     })
@@ -165,9 +206,7 @@ export default function SuporteClientePage() {
 
     await supabase
       .from('suporte')
-      .update({
-        status: 'ABERTO',
-      })
+      .update({ status: 'ABERTO' })
       .eq('id', chamado.id)
 
     setRespostaCliente('')
@@ -185,106 +224,240 @@ export default function SuporteClientePage() {
     return 'bg-slate-600 text-white'
   }
 
+  function corPrioridade(prioridade: string) {
+    if (prioridade === 'Alta') return 'bg-red-600 text-white'
+    if (prioridade === 'Normal') return 'bg-blue-600 text-white'
+    return 'bg-slate-700 text-white'
+  }
+
+  function dataHora(data?: string | null) {
+    if (!data) return '-'
+    return new Date(data).toLocaleString('pt-BR')
+  }
+
+  const chamadosFiltrados = useMemo(() => {
+    return chamados.filter((item) => {
+      const texto = `
+        ${item.assunto}
+        ${item.mensagem}
+        ${item.status}
+        ${item.categoria}
+        ${item.prioridade}
+      `.toLowerCase()
+
+      const matchBusca = texto.includes(busca.toLowerCase())
+      const matchStatus = !filtroStatus || item.status === filtroStatus
+
+      return matchBusca && matchStatus
+    })
+  }, [chamados, busca, filtroStatus])
+
+  const totalAbertos = chamados.filter((c) => c.status === 'ABERTO').length
+  const totalAnalise = chamados.filter((c) => c.status === 'EM ANÁLISE').length
+  const totalRespondidos = chamados.filter((c) => c.status === 'RESPONDIDO').length
+  const totalResolvidos = chamados.filter((c) => c.status === 'RESOLVIDO').length
+
   return (
-    <main className="min-h-screen bg-[#020817] text-white p-10">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-10 flex justify-between items-start gap-6">
+    <main className="min-h-screen bg-[#020817] text-white p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
           <div>
+            <p className="text-blue-400 font-bold mb-2">Central de atendimento</p>
+
             <h1 className="text-5xl font-black mb-2">Suporte</h1>
 
             <p className="text-slate-400 text-lg">
-              Abra chamados e acompanhe as respostas da HC Consultoria.
+              Abra chamados, acompanhe respostas e converse com a HC Consultoria.
             </p>
           </div>
 
           <a
             href="/cliente"
-            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold"
+            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold h-fit"
           >
             Voltar ao portal
           </a>
         </div>
 
-        <section className="card mb-8">
-          <h2 className="text-2xl font-black mb-6">Abrir novo chamado</h2>
+        <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+          <Card titulo="Total" valor={chamados.length} detalhe="Chamados abertos" icone="🎫" />
+          <Card titulo="Abertos" valor={totalAbertos} detalhe="Aguardando HC" icone="🔴" />
+          <Card titulo="Em análise" valor={totalAnalise} detalhe="Em atendimento" icone="🔎" />
+          <Card titulo="Respondidos" valor={totalRespondidos} detalhe="Resposta enviada" icone="💬" />
+          <Card titulo="Resolvidos" valor={totalResolvidos} detalhe="Finalizados" icone="✅" />
+        </section>
 
-          <input
-            placeholder="Assunto"
-            value={form.assunto}
-            onChange={(e) => setForm({ ...form, assunto: e.target.value })}
-            className="mb-4"
-          />
+        <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex items-center gap-3 mb-7">
+            <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center text-xl">
+              🎧
+            </div>
+
+            <div>
+              <h2 className="text-2xl font-black">Abrir novo chamado</h2>
+              <p className="text-slate-400 text-sm">
+                Informe o assunto e descreva sua solicitação com detalhes.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-5">
+            <select
+              value={form.categoria}
+              onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+            >
+              <option value="Operacional">Operacional</option>
+              <option value="Embarques">Embarques</option>
+              <option value="Faturas">Faturas</option>
+              <option value="Cotações">Cotações</option>
+              <option value="Financeiro">Financeiro</option>
+              <option value="Comercial">Comercial</option>
+              <option value="Outros">Outros</option>
+            </select>
+
+            <select
+              value={form.prioridade}
+              onChange={(e) => setForm({ ...form, prioridade: e.target.value })}
+            >
+              <option value="Baixa">Baixa</option>
+              <option value="Normal">Normal</option>
+              <option value="Alta">Alta</option>
+            </select>
+
+            <div className="md:col-span-2">
+              <input
+                placeholder="Assunto do chamado"
+                value={form.assunto}
+                onChange={(e) => setForm({ ...form, assunto: e.target.value })}
+              />
+            </div>
+          </div>
 
           <textarea
-            placeholder="Descreva sua solicitação"
+            placeholder="Descreva sua solicitação com detalhes..."
             value={form.mensagem}
             onChange={(e) => setForm({ ...form, mensagem: e.target.value })}
             className="min-h-[160px]"
           />
 
-          <button onClick={abrirChamado} disabled={salvando} className="mt-5">
+          <button
+            onClick={abrirChamado}
+            disabled={salvando}
+            className="mt-5 bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold disabled:opacity-60"
+          >
             {salvando ? 'Enviando...' : 'Abrir chamado'}
           </button>
         </section>
 
-        <section className="card">
-          <h2 className="text-2xl font-black mb-6">Meus chamados</h2>
+        <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <h2 className="text-2xl font-black">Meus chamados</h2>
+              <p className="text-slate-400 text-sm">
+                Acompanhe o andamento e responda a equipe da HC.
+              </p>
+            </div>
 
-          {chamados.length === 0 ? (
-            <p className="text-slate-400">Nenhum chamado aberto.</p>
+            <button
+              onClick={() => {
+                setBusca('')
+                setFiltroStatus('')
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold h-fit"
+            >
+              Limpar filtros
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-7">
+            <input
+              placeholder="Buscar por assunto, mensagem ou status..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+
+            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+              <option value="">Todos os status</option>
+              <option value="ABERTO">Aberto</option>
+              <option value="EM ANÁLISE">Em análise</option>
+              <option value="RESPONDIDO">Respondido</option>
+              <option value="RESOLVIDO">Resolvido</option>
+            </select>
+
+            <div className="border border-blue-900 rounded-2xl bg-[#020817] px-5 py-3 text-slate-300 font-bold flex items-center">
+              {chamadosFiltrados.length} chamado(s)
+            </div>
+          </div>
+
+          {chamadosFiltrados.length === 0 ? (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-8 text-center text-slate-400">
+              Nenhum chamado encontrado.
+            </div>
           ) : (
-            <div className="space-y-4">
-              {chamados.map((item) => {
+            <div className="space-y-5">
+              {chamadosFiltrados.map((item) => {
                 const conversa = mensagensDoChamado(item.id)
 
                 return (
                   <div
                     key={item.id}
-                    className="border border-blue-900 rounded-2xl p-5 bg-[#071225]"
+                    className="border border-blue-900 rounded-3xl p-6 bg-[#020817]"
                   >
-                    <div className="flex justify-between gap-4 mb-3">
+                    <div className="flex flex-col lg:flex-row justify-between gap-5 mb-5">
                       <div>
-                        <h3 className="text-xl font-bold">{item.assunto}</h3>
+                        <div className="flex gap-3 flex-wrap mb-3">
+                          <span className={`px-4 py-2 rounded-xl text-xs font-black ${corStatus(item.status)}`}>
+                            {item.status || 'ABERTO'}
+                          </span>
 
-                        <p className="text-slate-400 text-sm">
-                          {item.criado_em
-                            ? new Date(item.criado_em).toLocaleString('pt-BR')
-                            : '-'}
+                          <span className={`px-4 py-2 rounded-xl text-xs font-black ${corPrioridade(item.prioridade || 'Normal')}`}>
+                            {item.prioridade || 'Normal'}
+                          </span>
+
+                          <span className="bg-slate-800 text-slate-300 px-4 py-2 rounded-xl text-xs font-black">
+                            #{item.id?.slice(0, 8)}
+                          </span>
+                        </div>
+
+                        <h3 className="text-2xl font-black">
+                          {item.assunto || 'Sem assunto'}
+                        </h3>
+
+                        <p className="text-slate-500 text-sm mt-2">
+                          Aberto em {dataHora(item.criado_em)}
                         </p>
                       </div>
-
-                      <span
-                        className={`px-3 py-1 rounded-full text-sm font-bold h-fit ${corStatus(
-                          item.status
-                        )}`}
-                      >
-                        {item.status}
-                      </span>
                     </div>
 
-                    <div className="bg-[#020817] border border-blue-950 rounded-xl p-4 mb-4">
+                    <div className="border border-blue-900 bg-[#071225] rounded-2xl p-5 mb-5">
                       <p className="text-slate-400 font-bold mb-2">
-                        Conversa
+                        Mensagem inicial
                       </p>
 
+                      <p className="text-slate-300 leading-7 whitespace-pre-wrap">
+                        {item.mensagem || '-'}
+                      </p>
+                    </div>
+
+                    <div className="border border-blue-900 bg-[#071225] rounded-2xl p-5 mb-5">
+                      <div className="flex justify-between items-center mb-5">
+                        <p className="text-slate-300 font-black">Conversa</p>
+                        <span className="text-slate-500 text-sm">
+                          {conversa.length} mensagem(ns)
+                        </span>
+                      </div>
+
                       {conversa.length === 0 ? (
-                        <p className="text-slate-500">
-                          Nenhuma mensagem ainda.
-                        </p>
+                        <p className="text-slate-500">Nenhuma mensagem ainda.</p>
                       ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           {conversa.map((msg) => {
                             const cliente = msg.autor === 'CLIENTE'
 
                             return (
-                              <div
-                                key={msg.id}
-                                className={`flex ${
-                                  cliente ? 'justify-end' : 'justify-start'
-                                }`}
-                              >
+                              <div key={msg.id} className={`flex ${cliente ? 'justify-end' : 'justify-start'}`}>
                                 <div
-                                  className={`max-w-[80%] rounded-2xl p-4 ${
+                                  className={`max-w-[85%] rounded-2xl p-4 ${
                                     cliente
                                       ? 'bg-blue-600 text-white'
                                       : 'bg-green-900/40 border border-green-600 text-slate-100'
@@ -294,14 +467,12 @@ export default function SuporteClientePage() {
                                     {cliente ? 'Você' : 'HC Consultoria'}
                                   </p>
 
-                                  <p className="leading-7">{msg.mensagem}</p>
+                                  <p className="leading-7 whitespace-pre-wrap">
+                                    {msg.mensagem}
+                                  </p>
 
                                   <p className="text-xs opacity-70 mt-2">
-                                    {msg.criado_em
-                                      ? new Date(msg.criado_em).toLocaleString(
-                                          'pt-BR'
-                                        )
-                                      : '-'}
+                                    {dataHora(msg.criado_em)}
                                   </p>
                                 </div>
                               </div>
@@ -311,8 +482,8 @@ export default function SuporteClientePage() {
                       )}
                     </div>
 
-                    {respondendoId === item.id && (
-                      <div className="mb-4">
+                    {respondendoId === item.id ? (
+                      <div>
                         <textarea
                           placeholder="Digite sua resposta..."
                           value={respostaCliente}
@@ -323,7 +494,7 @@ export default function SuporteClientePage() {
                         <div className="flex gap-3 mt-3">
                           <button
                             onClick={() => enviarMensagemCliente(item)}
-                            className="bg-green-600 hover:bg-green-500"
+                            className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
                           >
                             Enviar mensagem
                           </button>
@@ -333,23 +504,23 @@ export default function SuporteClientePage() {
                               setRespondendoId(null)
                               setRespostaCliente('')
                             }}
-                            className="bg-slate-700 hover:bg-slate-600"
+                            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
                           >
                             Cancelar
                           </button>
                         </div>
                       </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setRespondendoId(item.id)
+                          setRespostaCliente('')
+                        }}
+                        className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
+                      >
+                        Responder chamado
+                      </button>
                     )}
-
-                    <button
-                      onClick={() => {
-                        setRespondendoId(item.id)
-                        setRespostaCliente('')
-                      }}
-                      className="bg-blue-600 hover:bg-blue-500"
-                    >
-                      Responder chamado
-                    </button>
                   </div>
                 )
               })}
@@ -358,5 +529,21 @@ export default function SuporteClientePage() {
         </section>
       </div>
     </main>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone }: any) {
+  return (
+    <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6">
+      <div className="flex justify-between items-start gap-4">
+        <div>
+          <p className="text-slate-300 font-bold">{titulo}</p>
+          <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+          <p className="text-slate-400 mt-2">{detalhe}</p>
+        </div>
+
+        <div className="text-4xl">{icone}</div>
+      </div>
+    </div>
   )
 }
