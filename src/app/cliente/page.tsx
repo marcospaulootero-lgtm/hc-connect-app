@@ -380,4 +380,4 @@ function Info({ titulo, valor }: any) {
       <p className="font-bold break-words">{valor || '-'}</p>
     </div>
   )
-}
+} 

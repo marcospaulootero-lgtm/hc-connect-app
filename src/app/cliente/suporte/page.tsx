@@ -1,10 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function SuporteClientePage() {
   const [usuario, setUsuario] = useState<any>(null)
+  const searchParams = useSearchParams()
+
+const embarqueId = searchParams.get('embarque_id')
+const awb = searchParams.get('awb')
   const [chamados, setChamados] = useState<any[]>([])
   const [mensagens, setMensagens] = useState<any[]>([])
   const [salvando, setSalvando] = useState(false)
@@ -21,8 +26,19 @@ export default function SuporteClientePage() {
   })
 
   useEffect(() => {
-    carregarUsuario()
-  }, [])
+  carregarUsuario()
+
+  if (awb) {
+    setForm({
+  categoria: 'Embarques',
+  prioridade: 'Normal',
+  assunto: `Suporte referente ao AWB ${awb}`,
+  mensagem: `Olá HC Consultoria,
+
+Preciso de suporte referente ao embarque AWB ${awb}.`,
+})
+  }
+}, [])
 
   useEffect(() => {
     if (!usuario?.id) return
@@ -121,16 +137,15 @@ export default function SuporteClientePage() {
     const { data, error } = await supabase
       .from('suporte')
       .insert([
-        {
-          usuario_id: usuario.id,
-          email: usuario.email,
-          assunto: assuntoFinal,
-          mensagem: form.mensagem,
-          status: 'ABERTO',
-          categoria: form.categoria,
-          prioridade: form.prioridade,
-        },
-      ])
+  {
+    usuario_id: usuario.id,
+    email: usuario.email,
+    embarque_id: embarqueId || null,
+    assunto: form.assunto,
+    mensagem: form.mensagem,
+    status: 'ABERTO',
+  },
+])
       .select()
       .single()
 

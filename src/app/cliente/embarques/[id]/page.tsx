@@ -644,11 +644,11 @@ export default function DetalheCliente() {
 
             <div className="flex gap-3 flex-wrap">
               <a
-                href="/cliente/suporte"
-                className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold"
-              >
-                Abrir chamado
-              </a>
+  href={`/cliente/suporte?embarque_id=${embarque.id}&awb=${embarque.awb}`}
+  className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold"
+>
+  Abrir chamado
+</a>
 
               {link && (
                 <a
