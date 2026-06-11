@@ -15,6 +15,7 @@ export default function CotacoesClientePage() {
   const [usuario, setUsuario] = useState<any>(null)
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [salvando, setSalvando] = useState(false)
+  const [arquivos, setArquivos] = useState<File[]>([])
 
   const [form, setForm] = useState({
     cliente_final: '',
@@ -166,32 +167,69 @@ export default function CotacoesClientePage() {
 
     setSalvando(true)
 
-    const { error } = await supabase.from('cotacoes').insert([
-      {
-        usuario_id: usuario.id,
-        solicitante_email: usuario.email,
-        cliente_final: form.cliente_final,
-        tipo_operacao: form.tipo_operacao,
-        origem: form.origem,
-        destino: form.destino,
-        peso: String(calcularPesoTotal()),
-        dimensoes: `${volumes.length} volume(s)`,
-        volumes,
-        descricao_mercadoria: form.descricao_mercadoria,
-        moeda: form.moeda,
-        valor_mercadoria: form.valor_mercadoria,
-        observacoes: form.observacoes,
-        status: 'AGUARDANDO ANÁLISE',
-      },
-    ])
-
-    setSalvando(false)
+    const { data: cotacaoCriada, error } = await supabase
+      .from('cotacoes')
+      .insert([
+        {
+          usuario_id: usuario.id,
+          solicitante_email: usuario.email,
+          cliente_final: form.cliente_final,
+          tipo_operacao: form.tipo_operacao,
+          origem: form.origem,
+          destino: form.destino,
+          peso: String(calcularPesoTotal()),
+          dimensoes: `${volumes.length} volume(s)`,
+          volumes,
+          descricao_mercadoria: form.descricao_mercadoria,
+          moeda: form.moeda,
+          valor_mercadoria: form.valor_mercadoria,
+          observacoes: form.observacoes,
+          status: 'AGUARDANDO ANÁLISE',
+        },
+      ])
+      .select()
+      .single()
 
     if (error) {
+      setSalvando(false)
       alert('Erro ao enviar cotação')
       console.log(error)
       return
     }
+
+    if (arquivos.length > 0 && cotacaoCriada?.id) {
+      for (const arquivo of arquivos) {
+        const caminho = `${usuario.id}/${cotacaoCriada.id}/${Date.now()}-${arquivo.name}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('cotacoes-documentos')
+          .upload(caminho, arquivo)
+
+        if (uploadError) {
+          console.log(uploadError)
+          alert(`Erro ao enviar o arquivo: ${arquivo.name}`)
+          continue
+        }
+
+        const { data: publicUrl } = supabase.storage
+          .from('cotacoes-documentos')
+          .getPublicUrl(caminho)
+
+        await supabase.from('cotacao_documentos').insert([
+          {
+            cotacao_id: cotacaoCriada.id,
+            usuario_id: usuario.id,
+            nome: arquivo.name,
+            url: publicUrl.publicUrl,
+            caminho,
+            tipo: arquivo.type,
+            tamanho: arquivo.size,
+          },
+        ])
+      }
+    }
+
+    setSalvando(false)
 
     alert('Solicitação de cotação enviada com sucesso')
 
@@ -216,64 +254,68 @@ export default function CotacoesClientePage() {
       },
     ])
 
+    setArquivos([])
+
     carregarCotacoes(usuario.id)
   }
 
-async function atualizarStatusCotacao(id: string, status: string) {
-  const confirmar = confirm(
-    status === 'APROVADA'
-      ? 'Confirmar aprovação desta cotação?'
-      : 'Confirmar recusa desta cotação?'
-  )
+  async function atualizarStatusCotacao(id: string, status: string) {
+    const confirmar = confirm(
+      status === 'APROVADA'
+        ? 'Confirmar aprovação desta cotação?'
+        : 'Confirmar recusa desta cotação?'
+    )
 
-  if (!confirmar) return
+    if (!confirmar) return
 
-  const { error } = await supabase
-    .from('cotacoes')
-    .update({
-      status,
-      autorizada: status === 'APROVADA',
-      data_autorizacao:
-        status === 'APROVADA'
-          ? new Date().toISOString()
-          : null,
-    })
-    .eq('id', id)
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        status,
+        autorizada: status === 'APROVADA',
+        data_autorizacao:
+          status === 'APROVADA'
+            ? new Date().toISOString()
+            : null,
+      })
+      .eq('id', id)
 
-  if (error) {
-    alert('Erro ao atualizar cotação')
-    console.log(error)
-    return
+    if (error) {
+      alert('Erro ao atualizar cotação')
+      console.log(error)
+      return
+    }
+
+    alert(
+      status === 'APROVADA'
+        ? 'Cotação aprovada com sucesso'
+        : 'Cotação recusada'
+    )
+
+    carregarCotacoes(usuario.id)
   }
 
-  alert(
-    status === 'APROVADA'
-      ? 'Cotação aprovada com sucesso'
-      : 'Cotação recusada'
-  )
+  async function excluirCotacao(id: string) {
+    const confirmar = confirm('Deseja realmente excluir esta cotação do seu histórico?')
 
-  carregarCotacoes(usuario.id)
-}
-async function excluirCotacao(id: string) {
-  const confirmar = confirm('Deseja realmente excluir esta cotação do seu histórico?')
+    if (!confirmar) return
 
-  if (!confirmar) return
+    const { error } = await supabase
+      .from('cotacoes')
+      .delete()
+      .eq('id', id)
+      .eq('usuario_id', usuario.id)
 
-  const { error } = await supabase
-    .from('cotacoes')
-    .delete()
-    .eq('id', id)
-    .eq('usuario_id', usuario.id)
+    if (error) {
+      alert('Erro ao excluir cotação')
+      console.log(error)
+      return
+    }
 
-  if (error) {
-    alert('Erro ao excluir cotação')
-    console.log(error)
-    return
+    alert('Cotação excluída do histórico')
+    carregarCotacoes(usuario.id)
   }
 
-  alert('Cotação excluída do histórico')
-  carregarCotacoes(usuario.id)
-}
   return (
     <main className="min-h-screen bg-[#020817] text-white p-10">
       <div className="max-w-7xl mx-auto">
@@ -471,6 +513,39 @@ async function excluirCotacao(id: string) {
             className="mt-5 min-h-[120px]"
           />
 
+          <div className="mt-6 border border-blue-900 rounded-3xl p-5 bg-[#071225]">
+            <h3 className="text-xl font-black mb-2">
+              Documentos da cotação
+            </h3>
+
+            <p className="text-slate-400 mb-4">
+              Anexe invoice, packing list, AWB, PDFs, imagens ou outros documentos necessários.
+            </p>
+
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+              onChange={(e) => {
+                const selecionados = Array.from(e.target.files || [])
+                setArquivos(selecionados)
+              }}
+            />
+
+            {arquivos.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {arquivos.map((arquivo, index) => (
+                  <div
+                    key={index}
+                    className="bg-[#020817] border border-blue-900 rounded-xl px-4 py-3 text-slate-300"
+                  >
+                    📎 {arquivo.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={enviarCotacao}
             disabled={salvando}
@@ -546,39 +621,40 @@ async function excluirCotacao(id: string) {
                             >
                               Recusar
                             </button>
+
                             <button
-  onClick={() => excluirCotacao(item.id)}
-  className="bg-red-700 hover:bg-red-600"
->
-  Excluir
-</button>
+                              onClick={() => excluirCotacao(item.id)}
+                              className="bg-red-700 hover:bg-red-600"
+                            >
+                              Excluir
+                            </button>
                           </>
                         )}
                       </div>
                     </td>
 
                     <td>
-  {item.pdf_cotacao_url ? (
-    <div className="flex flex-col gap-2">
-      <span className="text-sm text-slate-300">
-        📄 {item.pdf_nome || 'PDF da cotação'}
-      </span>
+                      {item.pdf_cotacao_url ? (
+                        <div className="flex flex-col gap-2">
+                          <span className="text-sm text-slate-300">
+                            📄 {item.pdf_nome || 'PDF da cotação'}
+                          </span>
 
-      <a
-        href={item.pdf_cotacao_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold text-center"
-      >
-        Abrir PDF
-      </a>
-    </div>
-  ) : (
-    <span className="text-slate-500">
-      Nenhum arquivo
-    </span>
-  )}
-</td>
+                          <a
+                            href={item.pdf_cotacao_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold text-center"
+                          >
+                            Abrir PDF
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">
+                          Nenhum arquivo
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
