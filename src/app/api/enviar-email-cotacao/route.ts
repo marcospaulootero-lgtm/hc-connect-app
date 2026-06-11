@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     }
 
     const { error } = await resend.emails.send({
-      from: 'HC Consultoria <no-reply@hcbhz.com>',
+      from: 'HC Consultoria - Cotações <cotacoes@hcbhz.com>'
       to: email,
       subject: `Cotação disponível | ${referencia_hc || 'HC Consultoria'}`,
       html: `
