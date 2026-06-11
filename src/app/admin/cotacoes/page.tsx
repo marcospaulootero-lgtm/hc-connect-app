@@ -67,6 +67,7 @@ export default function CotacoesAdminPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          referencia_hc: cotacao.referencia_hc, 
           email: cotacao.solicitante_email,
           cliente: cotacao.cliente_final,
           origem: cotacao.origem,

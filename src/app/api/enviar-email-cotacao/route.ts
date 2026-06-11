@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     const {
       email,
       nome,
-      referencia,
+      referencia_hc,
       valor,
       validade,
       link,
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 
           <p>Uma nova cotação foi disponibilizada para você no portal da HC Consultoria.</p>
 
-          <p><strong>Referência:</strong> ${referencia || '-'}</p>
+          <p><strong>Referência:</strong> ${referencia_hc || '-'}</p>
           <p><strong>Valor:</strong> ${valor || '-'}</p>
           <p><strong>Validade:</strong> ${validade || '-'}</p>
 

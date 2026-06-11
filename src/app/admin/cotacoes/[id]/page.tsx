@@ -8,6 +8,8 @@ export default function DetalheCotacaoAdminPage() {
   const params = useParams()
   const [cotacao, setCotacao] = useState<any>(null)
   const [uploading, setUploading] = useState(false)
+  const [salvandoRef, setSalvandoRef] = useState(false)
+  const [referenciaHC, setReferenciaHC] = useState('')
 
   useEffect(() => {
     carregar()
@@ -21,17 +23,69 @@ export default function DetalheCotacaoAdminPage() {
       .single()
 
     setCotacao(data)
+    setReferenciaHC(data?.referencia_hc || '')
+  }
+
+  async function salvarReferenciaHC() {
+    if (!cotacao) return
+
+    setSalvandoRef(true)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({ referencia_hc: referenciaHC || null })
+      .eq('id', cotacao.id)
+
+    setSalvandoRef(false)
+
+    if (error) {
+      alert('Erro ao salvar Referência HC')
+      console.log(error)
+      return
+    }
+
+    alert('Referência HC salva com sucesso')
+    carregar()
+  }
+
+  async function enviarEmailCotacao(cotacaoAtualizada: any) {
+    if (!cotacaoAtualizada?.solicitante_email) return
+
+    try {
+      await fetch('/api/enviar-email-cotacao', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: cotacaoAtualizada.solicitante_email,
+          nome: cotacaoAtualizada.cliente_final,
+          referencia_hc: cotacaoAtualizada.referencia_hc,
+          valor: cotacaoAtualizada.valor || cotacaoAtualizada.valor_total || '',
+          validade: cotacaoAtualizada.validade || '',
+          link: `${window.location.origin}/cliente/cotacoes`,
+        }),
+      })
+    } catch (err) {
+      console.error(err)
+    }
   }
 
   async function atualizarStatus(status: string) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('cotacoes')
-      .update({ status })
+      .update({ status, referencia_hc: referenciaHC || cotacao?.referencia_hc || null })
       .eq('id', params.id)
+      .select()
+      .single()
 
     if (error) {
       alert('Erro ao atualizar status')
       return
+    }
+
+    if (status === 'COTAÇÃO DISPONÍVEL') {
+      await enviarEmailCotacao(data)
     }
 
     carregar()
@@ -50,12 +104,13 @@ export default function DetalheCotacaoAdminPage() {
     setUploading(true)
 
     const nomeLimpo = file.name
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-zA-Z0-9.-]/g, '_')
-  .replace(/_+/g, '_')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      .replace(/_+/g, '_')
 
-const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
+    const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
+
     const { error } = await supabase.storage
       .from('cotacoes')
       .upload(nomeArquivo, file, {
@@ -74,14 +129,17 @@ const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
       .from('cotacoes')
       .getPublicUrl(nomeArquivo)
 
-    const { error: erroUpdate } = await supabase
+    const { data: cotacaoAtualizada, error: erroUpdate } = await supabase
       .from('cotacoes')
       .update({
         pdf_cotacao_url: data.publicUrl,
         pdf_nome: file.name,
+        referencia_hc: referenciaHC || cotacao.referencia_hc || null,
         status: 'COTAÇÃO DISPONÍVEL',
       })
       .eq('id', cotacao.id)
+      .select()
+      .single()
 
     setUploading(false)
 
@@ -91,9 +149,10 @@ const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
       return
     }
 
+    await enviarEmailCotacao(cotacaoAtualizada)
     await carregar()
 
-    alert('PDF anexado e cotação disponibilizada ao cliente')
+    alert('PDF anexado, cotação disponibilizada e e-mail enviado ao cliente')
   }
 
   if (!cotacao) {
@@ -133,6 +192,37 @@ const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
             <p>{cotacao.pdf_nome || 'Nenhum PDF anexado'}</p>
           </div>
         </div>
+      </section>
+
+      <section className="card mb-8">
+        <h2 className="text-2xl font-black mb-6">Referência HC</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+          <div>
+            <label className="block text-slate-400 font-bold mb-2">
+              Número de referência da cotação
+            </label>
+
+            <input
+              type="text"
+              value={referenciaHC}
+              onChange={(e) => setReferenciaHC(e.target.value)}
+              placeholder="Ex: HC-2026-0001"
+            />
+          </div>
+
+          <button
+            onClick={salvarReferenciaHC}
+            disabled={salvandoRef}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold disabled:opacity-60"
+          >
+            {salvandoRef ? 'Salvando...' : 'Salvar referência'}
+          </button>
+        </div>
+
+        <p className="text-slate-400 mt-4">
+          Essa referência aparecerá no portal do cliente e no e-mail de aviso da cotação.
+        </p>
       </section>
 
       <section className="card mb-8">
@@ -245,6 +335,13 @@ const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
               Abrir PDF anexado
             </a>
           )}
+
+          <button
+            onClick={() => atualizarStatus('COTAÇÃO DISPONÍVEL')}
+            className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold"
+          >
+            Disponibilizar e enviar e-mail
+          </button>
         </div>
 
         {cotacao.pdf_cotacao_url && (
@@ -269,7 +366,7 @@ const nomeArquivo = `${cotacao.id}-${Date.now()}-${nomeLimpo}`
         )}
 
         <p className="text-slate-400 mt-4">
-          Ao anexar o PDF, o status muda automaticamente para COTAÇÃO DISPONÍVEL.
+          Ao anexar o PDF ou disponibilizar a cotação, o status muda para COTAÇÃO DISPONÍVEL e o cliente recebe um e-mail.
         </p>
       </section>
 
