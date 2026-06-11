@@ -212,7 +212,20 @@ export default function ClientePage() {
               </a>
 
               <a href="/cliente/suporte" className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold">
-                Suporte
+                Suporte <a
+  href="/cliente/embarque-direto"
+  className="card hover:border-green-500 transition"
+>
+  <div className="text-3xl mb-3">🚚</div>
+
+  <h3 className="text-xl font-black">
+    Embarque Direto
+  </h3>
+
+  <p className="text-slate-400 mt-2">
+    Envie documentos e instruções diretamente para a operação HC.
+  </p>
+</a>
               </a>
             </div>
           </div>
@@ -253,12 +266,7 @@ export default function ClientePage() {
               href="/cliente/cotacoes"
               className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
             >
-              Nova cotação <a
-  href="/cliente/embarque-direto"
-  className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl text-white font-bold"
->
-  Fechar embarque direto
-</a>
+              Nova cotação 
             </a>
           </div>
 
