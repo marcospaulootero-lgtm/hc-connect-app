@@ -7,15 +7,16 @@ import { supabase } from '@/lib/supabaseClient'
 export default function EmbarquesPage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [usuarios, setUsuarios] = useState<any[]>([])
+  const [vinculos, setVinculos] = useState<any[]>([])
 
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
-  const [usuarioVinculo, setUsuarioVinculo] = useState('')
+  const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
 
   const [form, setForm] = useState({
-    usuario_id: '',
+    usuarios_ids: [] as string[],
     exportador: '',
     importador: '',
     referencia_cliente: '',
@@ -39,12 +40,17 @@ export default function EmbarquesPage() {
   }, [])
 
   async function carregar() {
-    const { data } = await supabase
+    const { data: embarquesData } = await supabase
       .from('embarques')
       .select('*')
       .order('criado_em', { ascending: false })
 
-    setEmbarques(data || [])
+    const { data: vinculosData } = await supabase
+      .from('embarque_clientes')
+      .select('*')
+
+    setEmbarques(embarquesData || [])
+    setVinculos(vinculosData || [])
   }
 
   async function carregarUsuarios() {
@@ -57,9 +63,38 @@ export default function EmbarquesPage() {
     setUsuarios(data || [])
   }
 
-  function nomeUsuario(usuarioId: string) {
-    const usuario = usuarios.find((item) => item.id === usuarioId)
-    return usuario?.nome || usuario?.email || 'Não vinculado'
+  function clientesDoEmbarque(embarqueId: string) {
+    const ids = vinculos
+      .filter((v) => v.embarque_id === embarqueId)
+      .map((v) => v.cliente_id)
+
+    return usuarios.filter((u) => ids.includes(u.id))
+  }
+
+  function nomesClientes(embarqueId: string, usuarioIdAntigo?: string) {
+    const clientes = clientesDoEmbarque(embarqueId)
+
+    if (clientes.length > 0) {
+      return clientes.map((c) => c.nome || c.email).join(', ')
+    }
+
+    const antigo = usuarios.find((u) => u.id === usuarioIdAntigo)
+    return antigo?.nome || antigo?.email || 'Não vinculado'
+  }
+
+  function alterarSelecaoCliente(id: string, marcado: boolean) {
+    setForm((atual) => ({
+      ...atual,
+      usuarios_ids: marcado
+        ? [...atual.usuarios_ids, id]
+        : atual.usuarios_ids.filter((item) => item !== id),
+    }))
+  }
+
+  function alterarSelecaoVinculo(id: string, marcado: boolean) {
+    setUsuariosVinculo((atual) =>
+      marcado ? [...atual, id] : atual.filter((item) => item !== id)
+    )
   }
 
   function linkRastreio(item: any) {
@@ -94,41 +129,39 @@ export default function EmbarquesPage() {
       return
     }
 
-    const usuarioSelecionado = usuarios.find(
-      (usuario) => usuario.id === form.usuario_id
-    )
+    const primeiroClienteId = form.usuarios_ids[0] || null
+    const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
 
-    const { error } = await supabase.from('embarques').insert([
-      {
-        usuario_id: form.usuario_id || null,
-        empresa_id: usuarioSelecionado?.empresa_id || null,
+    const { data, error } = await supabase
+      .from('embarques')
+      .insert([
+        {
+          usuario_id: primeiroClienteId,
+          empresa_id: primeiroCliente?.empresa_id || null,
 
-        exportador: form.exportador || null,
-        importador: form.importador || null,
-        referencia_cliente: form.referencia_cliente || null,
-        referencia_hc: form.referencia_hc || null,
+          exportador: form.exportador || null,
+          importador: form.importador || null,
+          referencia_cliente: form.referencia_cliente || null,
+          referencia_hc: form.referencia_hc || null,
 
-        awb: form.awb,
-        transportadora: form.transportadora,
-        servico: form.servico,
-        origem: form.origem,
-        destino: form.destino,
+          awb: form.awb,
+          transportadora: form.transportadora,
+          servico: form.servico,
+          origem: form.origem,
+          destino: form.destino,
 
-        peso_real: form.peso_real
-          ? Number(form.peso_real.replace(',', '.'))
-          : null,
+          peso_real: form.peso_real ? Number(form.peso_real.replace(',', '.')) : null,
+          peso_taxado: form.peso_taxado ? Number(form.peso_taxado.replace(',', '.')) : null,
 
-        peso_taxado: form.peso_taxado
-          ? Number(form.peso_taxado.replace(',', '.'))
-          : null,
-
-        status_operacional: 'Aguardando coleta',
-        data_envio: null,
-        data_prevista: form.data_prevista || null,
-        ultima_atualizacao: new Date().toISOString(),
-        observacoes: form.observacoes || null,
-      },
-    ])
+          status_operacional: 'Aguardando coleta',
+          data_envio: null,
+          data_prevista: form.data_prevista || null,
+          ultima_atualizacao: new Date().toISOString(),
+          observacoes: form.observacoes || null,
+        },
+      ])
+      .select()
+      .single()
 
     if (error) {
       console.error('Erro Supabase:', error)
@@ -136,10 +169,27 @@ export default function EmbarquesPage() {
       return
     }
 
+    if (form.usuarios_ids.length > 0) {
+      const registros = form.usuarios_ids.map((clienteId) => ({
+        embarque_id: data.id,
+        cliente_id: clienteId,
+      }))
+
+      const { error: erroVinculos } = await supabase
+        .from('embarque_clientes')
+        .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
+
+      if (erroVinculos) {
+        alert(erroVinculos.message)
+        console.error('Erro vínculos:', erroVinculos)
+        return
+      }
+    }
+
     alert('Embarque salvo com sucesso')
 
     setForm({
-      usuario_id: '',
+      usuarios_ids: [],
       exportador: '',
       importador: '',
       referencia_cliente: '',
@@ -160,35 +210,42 @@ export default function EmbarquesPage() {
     carregar()
   }
 
-  async function vincularCliente(embarqueId: string) {
-    if (!usuarioVinculo) {
-      alert('Selecione um cliente')
+  async function vincularClientes(embarqueId: string) {
+    if (usuariosVinculo.length === 0) {
+      alert('Selecione pelo menos um cliente')
       return
     }
 
-    const usuarioSelecionado = usuarios.find(
-      (usuario) => usuario.id === usuarioVinculo
-    )
+    const registros = usuariosVinculo.map((clienteId) => ({
+      embarque_id: embarqueId,
+      cliente_id: clienteId,
+    }))
 
-    const { error } = await supabase
+    const primeiroCliente = usuarios.find((u) => u.id === usuariosVinculo[0])
+
+    const { error: erroVinculos } = await supabase
+      .from('embarque_clientes')
+      .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
+
+    if (erroVinculos) {
+      alert(erroVinculos.message)
+      console.error('Erro Supabase:', erroVinculos)
+      return
+    }
+
+    await supabase
       .from('embarques')
       .update({
-        usuario_id: usuarioVinculo,
-        empresa_id: usuarioSelecionado?.empresa_id || null,
+        usuario_id: usuariosVinculo[0],
+        empresa_id: primeiroCliente?.empresa_id || null,
         ultima_atualizacao: new Date().toISOString(),
       })
       .eq('id', embarqueId)
 
-    if (error) {
-      alert(error.message)
-      console.error('Erro Supabase:', error)
-      return
-    }
-
-    alert('Cliente vinculado ao embarque')
+    alert('Cliente(s) vinculado(s) ao embarque')
 
     setVinculandoId(null)
-    setUsuarioVinculo('')
+    setUsuariosVinculo([])
     carregar()
   }
 
@@ -196,6 +253,7 @@ export default function EmbarquesPage() {
     const confirmar = confirm('Deseja realmente excluir este embarque?')
     if (!confirmar) return
 
+    await supabase.from('embarque_clientes').delete().eq('embarque_id', id)
     await supabase.from('timeline_embarques').delete().eq('embarque_id', id)
 
     const { error } = await supabase.from('embarques').delete().eq('id', id)
@@ -222,7 +280,7 @@ export default function EmbarquesPage() {
         ${item.origem}
         ${item.destino}
         ${item.status_operacional}
-        ${nomeUsuario(item.usuario_id)}
+        ${nomesClientes(item.id, item.usuario_id)}
       `.toLowerCase()
 
       const matchBusca = texto.includes(busca.toLowerCase())
@@ -232,7 +290,7 @@ export default function EmbarquesPage() {
 
       return matchBusca && matchStatus && matchTransportadora
     })
-  }, [embarques, usuarios, busca, filtroStatus, filtroTransportadora])
+  }, [embarques, usuarios, vinculos, busca, filtroStatus, filtroTransportadora])
 
   const totalEmbarques = embarques.length
   const totalTransito = embarques.filter((e) => e.status_operacional === 'Em trânsito').length
@@ -267,28 +325,28 @@ export default function EmbarquesPage() {
       </section>
 
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225] mb-8">
-        <div className="flex items-center gap-3 mb-7">
-          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-xl">
-            📦
+        <h2 className="text-2xl font-black mb-7">Cadastrar novo embarque</h2>
+
+        <div className="mb-6 border border-slate-700 rounded-2xl p-4">
+          <label className="block text-slate-300 font-bold mb-3">
+            Clientes vinculados
+          </label>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            {usuarios.map((usuario) => (
+              <label key={usuario.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.usuarios_ids.includes(usuario.id)}
+                  onChange={(e) => alterarSelecaoCliente(usuario.id, e.target.checked)}
+                />
+                {usuario.nome || usuario.email}
+              </label>
+            ))}
           </div>
-          <h2 className="text-2xl font-black">Cadastrar novo embarque</h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
-          <Campo label="Cliente responsável">
-            <select
-              value={form.usuario_id}
-              onChange={(e) => setForm({ ...form, usuario_id: e.target.value })}
-            >
-              <option value="">Sem cliente vinculado</option>
-              {usuarios.map((usuario) => (
-                <option key={usuario.id} value={usuario.id}>
-                  {usuario.nome || usuario.email}
-                </option>
-              ))}
-            </select>
-          </Campo>
-
           <Campo label="Exportador">
             <input value={form.exportador} onChange={(e) => setForm({ ...form, exportador: e.target.value })} />
           </Campo>
@@ -379,7 +437,7 @@ export default function EmbarquesPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <input
-            placeholder="Buscar por AWB, exportador, importador, referência..."
+            placeholder="Buscar por AWB, cliente, exportador..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -413,7 +471,7 @@ export default function EmbarquesPage() {
             <thead>
               <tr>
                 <th>AWB</th>
-                <th>Cliente responsável</th>
+                <th>Clientes vinculados</th>
                 <th>Exportador</th>
                 <th>Importador</th>
                 <th>Ref. Cliente</th>
@@ -421,9 +479,7 @@ export default function EmbarquesPage() {
                 <th>Transportadora</th>
                 <th>Origem → Destino</th>
                 <th>Status</th>
-                <th>Data envio</th>
                 <th>Previsão</th>
-                <th>Última atualização</th>
                 <th>Rastreio</th>
                 <th>Ações</th>
               </tr>
@@ -438,7 +494,7 @@ export default function EmbarquesPage() {
                     </a>
                   </td>
 
-                  <td>{nomeUsuario(item.usuario_id)}</td>
+                  <td>{nomesClientes(item.id, item.usuario_id)}</td>
                   <td>{item.exportador || '-'}</td>
                   <td>{item.importador || '-'}</td>
                   <td>{item.referencia_cliente || '-'}</td>
@@ -450,9 +506,7 @@ export default function EmbarquesPage() {
                     <StatusBadge status={item.status_operacional} />
                   </td>
 
-                  <td>{item.data_envio ? new Date(item.data_envio).toLocaleDateString('pt-BR') : '-'}</td>
                   <td>{item.data_prevista ? new Date(item.data_prevista).toLocaleDateString('pt-BR') : '-'}</td>
-                  <td>{item.ultima_atualizacao ? new Date(item.ultima_atualizacao).toLocaleString('pt-BR') : '-'}</td>
 
                   <td>
                     {linkRastreio(item) ? (
@@ -480,39 +534,49 @@ export default function EmbarquesPage() {
                       </button>
 
                       {vinculandoId === item.id ? (
-                        <div className="flex gap-2 w-full">
-                          <select value={usuarioVinculo} onChange={(e) => setUsuarioVinculo(e.target.value)}>
-                            <option value="">Selecionar cliente</option>
+                        <div className="border border-slate-700 rounded-xl p-3 w-[320px]">
+                          <div className="grid grid-cols-1 gap-2 max-h-[180px] overflow-auto mb-3">
                             {usuarios.map((usuario) => (
-                              <option key={usuario.id} value={usuario.id}>
+                              <label key={usuario.id} className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={usuariosVinculo.includes(usuario.id)}
+                                  onChange={(e) => alterarSelecaoVinculo(usuario.id, e.target.checked)}
+                                />
                                 {usuario.nome || usuario.email}
-                              </option>
+                              </label>
                             ))}
-                          </select>
+                          </div>
 
-                          <button onClick={() => vincularCliente(item.id)} className="bg-green-600 hover:bg-green-500">
-                            Salvar
-                          </button>
+                          <div className="flex gap-2">
+                            <button onClick={() => vincularClientes(item.id)} className="bg-green-600 hover:bg-green-500">
+                              Salvar
+                            </button>
 
-                          <button
-                            onClick={() => {
-                              setVinculandoId(null)
-                              setUsuarioVinculo('')
-                            }}
-                            className="bg-slate-700 hover:bg-slate-600"
-                          >
-                            Cancelar
-                          </button>
+                            <button
+                              onClick={() => {
+                                setVinculandoId(null)
+                                setUsuariosVinculo([])
+                              }}
+                              className="bg-slate-700 hover:bg-slate-600"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <button
                           onClick={() => {
+                            const idsAtuais = vinculos
+                              .filter((v) => v.embarque_id === item.id)
+                              .map((v) => v.cliente_id)
+
                             setVinculandoId(item.id)
-                            setUsuarioVinculo(item.usuario_id || '')
+                            setUsuariosVinculo(idsAtuais)
                           }}
                           className="bg-slate-700 hover:bg-slate-600"
                         >
-                          Vincular
+                          Vincular clientes
                         </button>
                       )}
                     </div>
