@@ -10,6 +10,8 @@ export default function DetalheCotacaoAdminPage() {
   const [uploading, setUploading] = useState(false)
   const [salvandoRef, setSalvandoRef] = useState(false)
   const [referenciaHC, setReferenciaHC] = useState('')
+  const [emailEnviado, setEmailEnviado] = useState(false)
+  const [enviandoEmail, setEnviandoEmail] = useState(false)
 
   useEffect(() => {
     carregar()
@@ -49,10 +51,15 @@ export default function DetalheCotacaoAdminPage() {
   }
 
   async function enviarEmailCotacao(cotacaoAtualizada: any) {
-    if (!cotacaoAtualizada?.solicitante_email) return
+    if (!cotacaoAtualizada?.solicitante_email) {
+      alert('E-mail do solicitante não encontrado.')
+      return false
+    }
 
     try {
-      await fetch('/api/enviar-email-cotacao', {
+      setEnviandoEmail(true)
+
+      const response = await fetch('/api/enviar-email-cotacao', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -61,20 +68,38 @@ export default function DetalheCotacaoAdminPage() {
           email: cotacaoAtualizada.solicitante_email,
           nome: cotacaoAtualizada.cliente_final,
           referencia_hc: cotacaoAtualizada.referencia_hc,
-          valor: cotacaoAtualizada.valor || cotacaoAtualizada.valor_total || '',
-          validade: cotacaoAtualizada.validade || '',
           link: `${window.location.origin}/cliente/cotacoes`,
         }),
       })
+
+      const resultado = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        console.error(resultado)
+        alert('A cotação foi disponibilizada, mas houve erro ao enviar o e-mail.')
+        return false
+      }
+
+      setEmailEnviado(true)
+      return true
     } catch (err) {
       console.error(err)
+      alert('A cotação foi disponibilizada, mas houve erro ao enviar o e-mail.')
+      return false
+    } finally {
+      setEnviandoEmail(false)
     }
   }
 
   async function atualizarStatus(status: string) {
+    setEmailEnviado(false)
+
     const { data, error } = await supabase
       .from('cotacoes')
-      .update({ status, referencia_hc: referenciaHC || cotacao?.referencia_hc || null })
+      .update({
+        status,
+        referencia_hc: referenciaHC || cotacao?.referencia_hc || null,
+      })
       .eq('id', params.id)
       .select()
       .single()
@@ -101,6 +126,7 @@ export default function DetalheCotacaoAdminPage() {
       return
     }
 
+    setEmailEnviado(false)
     setUploading(true)
 
     const nomeLimpo = file.name
@@ -151,8 +177,6 @@ export default function DetalheCotacaoAdminPage() {
 
     await enviarEmailCotacao(cotacaoAtualizada)
     await carregar()
-
-    alert('PDF anexado, cotação disponibilizada e e-mail enviado ao cliente')
   }
 
   if (!cotacao) {
@@ -338,9 +362,12 @@ export default function DetalheCotacaoAdminPage() {
 
           <button
             onClick={() => atualizarStatus('COTAÇÃO DISPONÍVEL')}
-            className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold"
+            disabled={enviandoEmail}
+            className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
           >
-            Disponibilizar e enviar e-mail
+            {enviandoEmail
+              ? 'Enviando e-mail...'
+              : 'Disponibilizar cotação e notificar cliente'}
           </button>
         </div>
 
@@ -362,6 +389,18 @@ export default function DetalheCotacaoAdminPage() {
             >
               Visualizar arquivo enviado
             </a>
+          </div>
+        )}
+
+        {emailEnviado && (
+          <div className="mt-4 bg-blue-900/30 border border-blue-500 rounded-xl p-4">
+            <p className="text-blue-400 font-bold">
+              E-mail enviado com sucesso
+            </p>
+
+            <p className="text-slate-300 mt-2">
+              O cliente foi notificado sobre a disponibilidade da cotação.
+            </p>
           </div>
         )}
 
