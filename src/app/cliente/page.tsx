@@ -306,21 +306,22 @@ export default function ClientePage() {
         </section>
 
         <section className="card mb-8">
-          <div className="flex justify-between items-center gap-4">
-            <div>
-              <h2 className="text-2xl font-black">Meus embarques</h2>
-              <p className="text-slate-400 mt-1">
-                Consulte status, rastreio, documentos e atualizações operacionais.
-              </p>
-            </div>
+          <div className="mb-6">
+  <h2 className="text-2xl font-black">Meus embarques</h2>
 
-            <input
-              className="max-w-md"
-              placeholder="Buscar AWB, destino, status..."
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
-          </div>
+  <p className="text-slate-400 mt-1 mb-4">
+    Consulte status, rastreio, documentos e atualizações operacionais.
+  </p>
+
+  <input
+    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white"
+    placeholder="🔍 Buscar por AWB, destino, origem, transportadora ou status..."
+    value={busca}
+    onChange={(e) => setBusca(e.target.value)}
+  />
+</div>
+
+
         </section>
 
         <section className="grid gap-6">
