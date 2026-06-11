@@ -1,15 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function SuporteClientePage() {
   const [usuario, setUsuario] = useState<any>(null)
-  const searchParams = useSearchParams()
+  const [embarqueId, setEmbarqueId] = useState<string | null>(null)
+  const [awb, setAwb] = useState<string | null>(null)
 
-const embarqueId = searchParams.get('embarque_id')
-const awb = searchParams.get('awb')
   const [chamados, setChamados] = useState<any[]>([])
   const [mensagens, setMensagens] = useState<any[]>([])
   const [salvando, setSalvando] = useState(false)
@@ -26,19 +24,26 @@ const awb = searchParams.get('awb')
   })
 
   useEffect(() => {
-  carregarUsuario()
+    const params = new URLSearchParams(window.location.search)
+    const awbParam = params.get('awb')
+    const embarqueParam = params.get('embarque_id')
 
-  if (awb) {
-    setForm({
-  categoria: 'Embarques',
-  prioridade: 'Normal',
-  assunto: `Suporte referente ao AWB ${awb}`,
-  mensagem: `Olá HC Consultoria,
+    setAwb(awbParam)
+    setEmbarqueId(embarqueParam)
 
-Preciso de suporte referente ao embarque AWB ${awb}.`,
-})
-  }
-}, [])
+    if (awbParam) {
+      setForm({
+        categoria: 'Embarques',
+        prioridade: 'Normal',
+        assunto: `Suporte referente ao AWB ${awbParam}`,
+        mensagem: `Olá HC Consultoria,
+
+Preciso de suporte referente ao embarque AWB ${awbParam}.`,
+      })
+    }
+
+    carregarUsuario()
+  }, [])
 
   useEffect(() => {
     if (!usuario?.id) return
@@ -132,20 +137,24 @@ Preciso de suporte referente ao embarque AWB ${awb}.`,
 
     setSalvando(true)
 
-    const assuntoFinal = `[${form.categoria}] ${form.assunto}`
+    const assuntoFinal = awb
+      ? `Suporte referente ao AWB ${awb}`
+      : `[${form.categoria}] ${form.assunto}`
 
     const { data, error } = await supabase
       .from('suporte')
       .insert([
-  {
-    usuario_id: usuario.id,
-    email: usuario.email,
-    embarque_id: embarqueId || null,
-    assunto: form.assunto,
-    mensagem: form.mensagem,
-    status: 'ABERTO',
-  },
-])
+        {
+          usuario_id: usuario.id,
+          email: usuario.email,
+          embarque_id: embarqueId || null,
+          assunto: assuntoFinal,
+          mensagem: form.mensagem,
+          status: 'ABERTO',
+          categoria: form.categoria,
+          prioridade: form.prioridade,
+        },
+      ])
       .select()
       .single()
 
@@ -316,6 +325,17 @@ Preciso de suporte referente ao embarque AWB ${awb}.`,
             </div>
           </div>
 
+          {awb && (
+            <div className="border border-purple-500 bg-purple-600/10 rounded-2xl p-4 mb-5">
+              <p className="text-purple-300 font-black">
+                Chamado vinculado ao AWB {awb}
+              </p>
+              <p className="text-slate-400 text-sm mt-1">
+                Este chamado será salvo com vínculo ao embarque selecionado.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-5">
             <select
               value={form.categoria}
@@ -428,6 +448,12 @@ Preciso de suporte referente ao embarque AWB ${awb}.`,
                           <span className={`px-4 py-2 rounded-xl text-xs font-black ${corPrioridade(item.prioridade || 'Normal')}`}>
                             {item.prioridade || 'Normal'}
                           </span>
+
+                          {item.embarque_id && (
+                            <span className="bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-black">
+                              AWB vinculado
+                            </span>
+                          )}
 
                           <span className="bg-slate-800 text-slate-300 px-4 py-2 rounded-xl text-xs font-black">
                             #{item.id?.slice(0, 8)}
