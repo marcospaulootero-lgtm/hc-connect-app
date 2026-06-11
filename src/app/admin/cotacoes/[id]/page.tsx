@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabaseClient'
 export default function DetalheCotacaoAdminPage() {
   const params = useParams()
   const [cotacao, setCotacao] = useState<any>(null)
+  const [documentosCliente, setDocumentosCliente] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
   const [salvandoRef, setSalvandoRef] = useState(false)
   const [referenciaHC, setReferenciaHC] = useState('')
@@ -26,6 +27,20 @@ export default function DetalheCotacaoAdminPage() {
 
     setCotacao(data)
     setReferenciaHC(data?.referencia_hc || '')
+
+    const { data: docs, error: erroDocs } = await supabase
+      .from('cotacao_documentos')
+      .select('*')
+      .eq('cotacao_id', params.id)
+      .order('criado_em', { ascending: false })
+
+    if (erroDocs) {
+      console.log(erroDocs)
+      setDocumentosCliente([])
+      return
+    }
+
+    setDocumentosCliente(docs || [])
   }
 
   async function salvarReferenciaHC() {
@@ -61,9 +76,7 @@ export default function DetalheCotacaoAdminPage() {
 
       const response = await fetch('/api/enviar-email-cotacao', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: cotacaoAtualizada.solicitante_email,
           nome: cotacaoAtualizada.cliente_final,
@@ -118,7 +131,6 @@ export default function DetalheCotacaoAdminPage() {
 
   async function anexarPdf(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-
     if (!file || !cotacao) return
 
     if (file.type !== 'application/pdf') {
@@ -179,6 +191,13 @@ export default function DetalheCotacaoAdminPage() {
     await carregar()
   }
 
+  function formatarTamanho(bytes?: number) {
+    if (!bytes) return '-'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
+
   if (!cotacao) {
     return <main className="p-10 text-white">Carregando cotação...</main>
   }
@@ -212,10 +231,48 @@ export default function DetalheCotacaoAdminPage() {
           </div>
 
           <div>
-            <strong className="text-slate-400">Arquivo</strong>
+            <strong className="text-slate-400">Arquivo resposta HC</strong>
             <p>{cotacao.pdf_nome || 'Nenhum PDF anexado'}</p>
           </div>
         </div>
+      </section>
+
+      <section className="card mb-8">
+        <h2 className="text-2xl font-black mb-6">
+          Documentos enviados pelo cliente
+        </h2>
+
+        {documentosCliente.length === 0 ? (
+          <p className="text-slate-400">
+            Nenhum documento enviado pelo cliente.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {documentosCliente.map((doc) => (
+              <div
+                key={doc.id}
+                className="border border-blue-900 rounded-2xl p-5 bg-[#071225]"
+              >
+                <p className="font-black text-white mb-2">
+                  📎 {doc.nome || 'Documento'}
+                </p>
+
+                <p className="text-slate-400 text-sm mb-4">
+                  {formatarTamanho(doc.tamanho)}
+                </p>
+
+                <a
+                  href={doc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold inline-block"
+                >
+                  Abrir documento
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="card mb-8">
@@ -243,10 +300,6 @@ export default function DetalheCotacaoAdminPage() {
             {salvandoRef ? 'Salvando...' : 'Salvar referência'}
           </button>
         </div>
-
-        <p className="text-slate-400 mt-4">
-          Essa referência aparecerá no portal do cliente e no e-mail de aviso da cotação.
-        </p>
       </section>
 
       <section className="card mb-8">
@@ -371,42 +424,13 @@ export default function DetalheCotacaoAdminPage() {
           </button>
         </div>
 
-        {cotacao.pdf_cotacao_url && (
-          <div className="mt-5 bg-green-900/30 border border-green-500 rounded-xl p-4">
-            <p className="text-green-400 font-bold">
-              PDF anexado com sucesso
-            </p>
-
-            <p className="text-slate-300 mt-2">
-              Arquivo: {cotacao.pdf_nome || 'PDF da cotação'}
-            </p>
-
-            <a
-              href={cotacao.pdf_cotacao_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 underline mt-2 inline-block"
-            >
-              Visualizar arquivo enviado
-            </a>
-          </div>
-        )}
-
         {emailEnviado && (
           <div className="mt-4 bg-blue-900/30 border border-blue-500 rounded-xl p-4">
             <p className="text-blue-400 font-bold">
               E-mail enviado com sucesso
             </p>
-
-            <p className="text-slate-300 mt-2">
-              O cliente foi notificado sobre a disponibilidade da cotação.
-            </p>
           </div>
         )}
-
-        <p className="text-slate-400 mt-4">
-          Ao anexar o PDF ou disponibilizar a cotação, o status muda para COTAÇÃO DISPONÍVEL e o cliente recebe um e-mail.
-        </p>
       </section>
 
       <section className="card">
