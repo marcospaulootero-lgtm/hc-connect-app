@@ -319,9 +319,9 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
 
             <div>
               <h2 className="text-2xl font-black">Abrir novo chamado</h2>
-              <p className="text-slate-400 text-sm">
-                Informe o assunto e descreva sua solicitação com detalhes.
-              </p>
+              <p className="text-red-400 font-bold mb-4">
+  TESTE URL: AWB {awb || 'NÃO VEIO'} / EMBARQUE {embarqueId || 'NÃO VEIO'}
+</p>
             </div>
           </div>
 
