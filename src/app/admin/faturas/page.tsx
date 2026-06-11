@@ -1,16 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import StatusBadge from '@/components/StatusBadge'
 
 type Embarque = {
   id: string
   awb: string
   usuario_id: string
-  cliente_final: string
-  transportadora: string
-  status_operacional: string
+  cliente_final: string | null
+  transportadora: string | null
+  status_operacional: string | null
 }
 
 type Fatura = {
@@ -18,18 +19,15 @@ type Fatura = {
   vencimento: string | null
   arquivo_pdf: string | null
   criado_em: string
-  embarques?: {
-    awb: string
-    cliente_final: string | null
-    transportadora: string | null
-    status_operacional: string | null
-  }[] | null
+  visivel_cliente?: boolean | null
+  embarques?: any
 }
 
 export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
   const [salvando, setSalvando] = useState(false)
+  const [busca, setBusca] = useState('')
 
   const [awbId, setAwbId] = useState('')
   const [vencimento, setVencimento] = useState('')
@@ -40,29 +38,19 @@ export default function FaturasPage() {
   }, [])
 
   async function carregar() {
-    const { data: embarquesData, error: erroEmbarques } = await supabase
+    const { data: embarquesData } = await supabase
       .from('embarques')
       .select('id, awb, usuario_id, cliente_final, transportadora, status_operacional')
-      .in('status_operacional', [
-        'Em trânsito',
-        'Fiscalização',
-        'Liberado',
-        'Entregue',
-        'Finalizado',
-      ])
       .order('criado_em', { ascending: false })
 
-    if (erroEmbarques) {
-      console.log(erroEmbarques)
-    }
-
-    const { data: faturasData, error: erroFaturas } = await supabase
+    const { data: faturasData, error } = await supabase
       .from('faturas')
       .select(`
         id,
         vencimento,
         arquivo_pdf,
         criado_em,
+        visivel_cliente,
         embarques (
           awb,
           cliente_final,
@@ -72,39 +60,26 @@ export default function FaturasPage() {
       `)
       .order('criado_em', { ascending: false })
 
-    if (erroFaturas) {
-      console.log(erroFaturas)
-    }
+    if (error) console.log(error)
 
     setEmbarques(embarquesData || [])
-    setFaturas((faturasData as unknown as Fatura[]) || [])
+    setFaturas((faturasData as Fatura[]) || [])
+  }
+
+  function dadosEmbarque(fatura: Fatura) {
+    if (Array.isArray(fatura.embarques)) return fatura.embarques[0] || {}
+    return fatura.embarques || {}
   }
 
   async function salvarFatura() {
-    if (!awbId) {
-      alert('Selecione um AWB')
-      return
-    }
-
-    if (!arquivoPdf) {
-      alert('Selecione o PDF da fatura')
-      return
-    }
-
-    if (arquivoPdf.type !== 'application/pdf') {
-      alert('O arquivo precisa ser um PDF')
-      return
-    }
+    if (!awbId) return alert('Selecione um AWB')
+    if (!arquivoPdf) return alert('Selecione o PDF da fatura')
+    if (arquivoPdf.type !== 'application/pdf') return alert('O arquivo precisa ser um PDF')
 
     setSalvando(true)
 
     const embarqueSelecionado = embarques.find((item) => item.id === awbId)
-
-    const nomeLimpo = arquivoPdf.name
-      .replaceAll(' ', '-')
-      .replaceAll('/', '-')
-
-    const nomeArquivo = `${awbId}/${Date.now()}-${nomeLimpo}`
+    const nomeArquivo = `${awbId}/${Date.now()}-${arquivoPdf.name.replaceAll(' ', '-')}`
 
     const { error: erroUpload } = await supabase.storage
       .from('faturas')
@@ -116,77 +91,137 @@ export default function FaturasPage() {
 
     if (erroUpload) {
       setSalvando(false)
-      alert(erroUpload.message || 'Erro ao enviar PDF')
-      console.log(erroUpload)
+      alert(erroUpload.message)
       return
     }
 
-    const { data: urlData } = supabase.storage
-      .from('faturas')
-      .getPublicUrl(nomeArquivo)
+    const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
 
-    const pdfUrl = urlData.publicUrl
-
-    const { error } = await supabase
-      .from('faturas')
-      .insert([
-        {
-          embarque_id: awbId,
-          usuario_id: embarqueSelecionado?.usuario_id || null,
-          vencimento: vencimento || null,
-          arquivo_pdf: pdfUrl,
-          visivel_cliente: true,
-        },
-      ])
+    const { error } = await supabase.from('faturas').insert([
+      {
+        embarque_id: awbId,
+        usuario_id: embarqueSelecionado?.usuario_id || null,
+        vencimento: vencimento || null,
+        arquivo_pdf: urlData.publicUrl,
+        visivel_cliente: true,
+      },
+    ])
 
     setSalvando(false)
 
     if (error) {
-      alert(error.message || 'Erro ao salvar fatura')
+      alert(error.message)
       console.log(error)
       return
     }
 
-    alert('Fatura salva com sucesso e disponibilizada ao cliente')
+    alert('Fatura salva com sucesso')
 
     setAwbId('')
     setVencimento('')
     setArquivoPdf(null)
 
     const inputArquivo = document.getElementById('pdf_fatura') as HTMLInputElement | null
+    if (inputArquivo) inputArquivo.value = ''
 
-    if (inputArquivo) {
-      inputArquivo.value = ''
+    carregar()
+  }
+
+  async function alterarVisibilidade(fatura: Fatura) {
+    const { error } = await supabase
+      .from('faturas')
+      .update({ visivel_cliente: !fatura.visivel_cliente })
+      .eq('id', fatura.id)
+
+    if (error) {
+      alert(error.message)
+      return
     }
 
     carregar()
   }
 
-  return (
-    <main className="max-w-7xl mx-auto p-8 text-white">
-      <div className="mb-8">
-        <h1 className="text-5xl font-black mb-2">
-          Faturas
-        </h1>
+  async function excluirFatura(id: string) {
+    const confirmar = confirm('Deseja realmente excluir esta fatura?')
+    if (!confirmar) return
 
-        <p className="text-slate-400 text-lg">
-          Vincule faturas aos embarques e disponibilize para o cliente.
-        </p>
+    const { error } = await supabase.from('faturas').delete().eq('id', id)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    carregar()
+  }
+
+  const faturasFiltradas = useMemo(() => {
+    return faturas.filter((fatura) => {
+      const emb = dadosEmbarque(fatura)
+
+      const texto = `
+        ${emb.awb}
+        ${emb.cliente_final}
+        ${emb.transportadora}
+        ${emb.status_operacional}
+        ${fatura.vencimento}
+      `.toLowerCase()
+
+      return texto.includes(busca.toLowerCase())
+    })
+  }, [faturas, busca])
+
+  const totalVisiveis = faturas.filter((f) => f.visivel_cliente).length
+  const totalOcultas = faturas.filter((f) => !f.visivel_cliente).length
+  const totalPDF = faturas.filter((f) => f.arquivo_pdf).length
+
+  return (
+    <main className="max-w-[1500px] mx-auto p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Financeiro</p>
+
+          <h1 className="text-5xl font-black mb-2">
+            Faturas
+          </h1>
+
+          <p className="text-slate-400 text-lg">
+            Vincule faturas aos embarques e disponibilize os PDFs para o cliente.
+          </p>
+        </div>
+
+        <button
+          onClick={() => window.scrollTo({ top: 250, behavior: 'smooth' })}
+          className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
+        >
+          + Nova fatura
+        </button>
       </div>
 
-      <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">
-          Cadastrar fatura
-        </h2>
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
+        <Card titulo="Total de faturas" valor={faturas.length} detalhe="Cadastradas no sistema" icone="💵" />
+        <Card titulo="Visíveis ao cliente" valor={totalVisiveis} detalhe="Disponíveis no portal" icone="✅" />
+        <Card titulo="Ocultas" valor={totalOcultas} detalhe="Não aparecem ao cliente" icone="🙈" />
+        <Card titulo="PDFs anexados" valor={totalPDF} detalhe="Arquivos disponíveis" icone="📄" />
+      </section>
+
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+        <div className="flex items-center gap-3 mb-7">
+          <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center text-xl">
+            📄
+          </div>
+
+          <div>
+            <h2 className="text-2xl font-black">Cadastrar fatura</h2>
+            <p className="text-slate-400 text-sm">
+              Selecione o embarque, informe o vencimento e anexe o PDF.
+            </p>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-          <select
-            value={awbId}
-            onChange={(e) => setAwbId(e.target.value)}
-          >
-            <option value="">
-              Selecione o AWB
-            </option>
+          <select value={awbId} onChange={(e) => setAwbId(e.target.value)}>
+            <option value="">Selecione o AWB</option>
 
             {embarques.map((item) => (
               <option key={item.id} value={item.id}>
@@ -212,17 +247,29 @@ export default function FaturasPage() {
           <button
             onClick={salvarFatura}
             disabled={salvando}
-            className="bg-blue-600 hover:bg-blue-500 transition rounded-2xl font-bold disabled:opacity-60"
+            className="bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60"
           >
             {salvando ? 'Salvando...' : 'Salvar fatura'}
           </button>
         </div>
       </section>
 
-      <section className="card">
-        <h2 className="text-2xl font-black mb-6">
-          Faturas cadastradas
-        </h2>
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas cadastradas</h2>
+            <p className="text-slate-400 text-sm">
+              Controle os PDFs enviados e a visibilidade no portal do cliente.
+            </p>
+          </div>
+
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por AWB, cliente, transportadora..."
+            className="lg:max-w-md"
+          />
+        </div>
 
         <div className="overflow-auto">
           <table className="table">
@@ -231,53 +278,110 @@ export default function FaturasPage() {
                 <th>AWB</th>
                 <th>Cliente final</th>
                 <th>Transportadora</th>
+                <th>Status embarque</th>
                 <th>Vencimento</th>
+                <th>Disponível ao cliente</th>
                 <th>PDF</th>
+                <th>Ações</th>
               </tr>
             </thead>
 
             <tbody>
-              {faturas.map((item) => (
-                <tr key={item.id}>
-                  <td className="font-bold text-blue-400">
-                    {item.embarques?.[0]?.awb || '-'}
-                  </td>
+              {faturasFiltradas.map((item) => {
+                const emb = dadosEmbarque(item)
 
-                  <td>{item.embarques?.[0]?.cliente_final || '-'}</td>
+                return (
+                  <tr key={item.id}>
+                    <td className="font-black text-blue-400">
+                      {emb.awb || '-'}
+                    </td>
 
-                  <td>{item.embarques?.[0]?.transportadora || '-'}  </td>
+                    <td>{emb.cliente_final || '-'}</td>
 
-                  <td>
-                    {item.vencimento
-                      ? new Date(item.vencimento).toLocaleDateString('pt-BR')
-                      : '-'}
-                  </td>
+                    <td>{emb.transportadora || '-'}</td>
 
-                  <td>
-                    {item.arquivo_pdf ? (
-                      <Link
-                        href={item.arquivo_pdf}
-                        target="_blank"
-                        className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold inline-block"
+                    <td>
+                      <StatusBadge status={emb.status_operacional || '-'} />
+                    </td>
+
+                    <td>
+                      {item.vencimento
+                        ? new Date(item.vencimento).toLocaleDateString('pt-BR')
+                        : '-'}
+                    </td>
+
+                    <td>
+                      <span
+                        className={`px-3 py-2 rounded-xl text-xs font-black ${
+                          item.visivel_cliente
+                            ? 'bg-green-600 text-white'
+                            : 'bg-slate-700 text-slate-300'
+                        }`}
                       >
-                        Abrir PDF
-                      </Link>
-                    ) : (
-                      <span className="text-slate-500">-</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                        {item.visivel_cliente ? 'VISÍVEL' : 'OCULTA'}
+                      </span>
+                    </td>
+
+                    <td>
+                      {item.arquivo_pdf ? (
+                        <Link
+                          href={item.arquivo_pdf}
+                          target="_blank"
+                          className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold inline-block"
+                        >
+                          Abrir PDF
+                        </Link>
+                      ) : (
+                        <span className="text-slate-500">Sem PDF</span>
+                      )}
+                    </td>
+
+                    <td>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={() => alterarVisibilidade(item)}
+                          className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold"
+                        >
+                          {item.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                        </button>
+
+                        <button
+                          onClick={() => excluirFatura(item.id)}
+                          className="bg-red-700 hover:bg-red-600 px-4 py-2 rounded-xl font-bold"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
 
-          {faturas.length === 0 && (
-            <p className="text-slate-400 mt-6">
-              Nenhuma fatura cadastrada.
-            </p>
+          {faturasFiltradas.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhuma fatura encontrada.
+            </div>
           )}
         </div>
       </section>
     </main>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone }: any) {
+  return (
+    <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6">
+      <div className="flex justify-between items-start gap-4">
+        <div>
+          <p className="text-slate-300 font-bold">{titulo}</p>
+          <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+          <p className="text-slate-400 mt-2">{detalhe}</p>
+        </div>
+
+        <div className="text-4xl">{icone}</div>
+      </div>
+    </div>
   )
 }
