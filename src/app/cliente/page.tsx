@@ -52,7 +52,7 @@ export default function ClientePage() {
     })
 
     carregarEmbarques(user.id)
-    carregarCotacoes(user.id)
+    carregarCotacoes(user.id, user.email || '')
     carregarFaturas(user.id)
   }
 
@@ -89,12 +89,17 @@ export default function ClientePage() {
     }
   }
 
-  async function carregarCotacoes(usuarioId: string) {
-    const { data } = await supabase
+  async function carregarCotacoes(usuarioId: string, email: string) {
+    const { data, error } = await supabase
       .from('cotacoes')
       .select('*')
-      .eq('usuario_id', usuarioId)
+      .or(`usuario_id.eq.${usuarioId},solicitante_email.eq.${email}`)
       .order('criado_em', { ascending: false })
+
+    if (error) {
+      console.log(error)
+      return
+    }
 
     setCotacoes(data || [])
   }
@@ -145,6 +150,15 @@ export default function ClientePage() {
     if (s.includes('trânsito')) return 40
     if (s.includes('colet')) return 20
     return 10
+  }
+
+  function corCotacao(status: string) {
+    if (status === 'COTAÇÃO DISPONÍVEL') return 'bg-emerald-600 text-white'
+    if (status === 'APROVADA' || status === 'AUTORIZADA') return 'bg-green-700 text-white'
+    if (status === 'RECUSADA') return 'bg-red-600 text-white'
+    if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
+    if (status === 'AGUARDANDO TRANSPORTADORA') return 'bg-purple-600 text-white'
+    return 'bg-yellow-400 text-black'
   }
 
   const filtrados = embarques.filter((item) => {
@@ -220,11 +234,76 @@ export default function ClientePage() {
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
           <Card titulo="Embarques" valor={embarques.length} />
-          <Card titulo="Em trânsito" valor={embarques.filter((e) => e.status_operacional === 'Em trânsito').length} />
-          <Card titulo="Fiscalização" valor={embarques.filter((e) => e.status_operacional === 'Fiscalização').length} />
+          <Card titulo="Cotações" valor={cotacoes.length} />
+          <Card titulo="Disponíveis" valor={cotacoes.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length} />
           <Card titulo="Entregues" valor={embarques.filter((e) => e.status_operacional === 'Entregue').length} />
           <Card titulo="Faturas" valor={faturas.length} />
         </div>
+
+        <section className="card mb-8">
+          <div className="flex justify-between items-center gap-4 mb-6">
+            <div>
+              <h2 className="text-2xl font-black">Minhas cotações</h2>
+              <p className="text-slate-400 mt-1">
+                Consulte suas solicitações e cotações disponíveis.
+              </p>
+            </div>
+
+            <a
+              href="/cliente/cotacoes"
+              className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
+            >
+              Nova cotação
+            </a>
+          </div>
+
+          {cotacoes.length === 0 ? (
+            <p className="text-slate-400">Nenhuma cotação encontrada.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {cotacoes.slice(0, 4).map((cotacao) => (
+                <div
+                  key={cotacao.id}
+                  className="border border-blue-900 bg-[#020817] rounded-2xl p-5"
+                >
+                  <div className="flex justify-between gap-3 mb-3">
+                    <h3 className="font-black text-lg">
+                      {cotacao.tipo_operacao || 'Cotação'}
+                    </h3>
+
+                    <span className={`px-3 py-1 rounded-xl text-xs font-black ${corCotacao(cotacao.status)}`}>
+                      {cotacao.status || 'AGUARDANDO ANÁLISE'}
+                    </span>
+                  </div>
+
+                  <p className="text-slate-400 text-sm">
+                    Cliente: {cotacao.cliente_final || '-'}
+                  </p>
+
+                  <p className="text-slate-400 text-sm">
+                    Rota: {cotacao.origem || '-'} → {cotacao.destino || '-'}
+                  </p>
+
+                  <p className="text-slate-500 text-xs mt-3">
+                    Criada em:{' '}
+                    {cotacao.criado_em
+                      ? new Date(cotacao.criado_em).toLocaleString('pt-BR')
+                      : '-'}
+                  </p>
+
+                  {cotacao.status === 'COTAÇÃO DISPONÍVEL' && (
+                    <a
+                      href="/cliente/cotacoes"
+                      className="inline-block mt-4 bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold"
+                    >
+                      Ver cotação disponível
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="card mb-8">
           <div className="flex justify-between items-center gap-4">
@@ -380,4 +459,4 @@ function Info({ titulo, valor }: any) {
       <p className="font-bold break-words">{valor || '-'}</p>
     </div>
   )
-} 
+}
