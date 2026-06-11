@@ -13,88 +13,46 @@ export default function SuporteAdminPage() {
   const [resposta, setResposta] = useState('')
 
   useEffect(() => {
-  carregarTudo()
+    carregarTudo()
 
-  const channel = supabase
-    .channel('suporte-admin-realtime')
+    const channel = supabase
+      .channel('suporte-admin-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suporte' }, carregarChamados)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mensagens_suporte' }, carregarMensagens)
+      .subscribe()
 
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'suporte',
-      },
-      () => {
-        carregarChamados()
-      }
-    )
-
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'mensagens_suporte',
-      },
-      () => {
-        carregarMensagens()
-      }
-    )
-
-    .subscribe()
-
-  return () => {
-    supabase.removeChannel(channel)
-  }
-}, [])
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   async function carregarTudo() {
-    await Promise.all([
-      carregarChamados(),
-      carregarUsuarios(),
-      carregarMensagens(),
-    ])
+    await Promise.all([carregarChamados(), carregarUsuarios(), carregarMensagens()])
   }
 
   async function carregarChamados() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('suporte')
       .select('*')
       .order('criado_em', { ascending: false })
-
-    if (error) {
-      console.log(error)
-      return
-    }
 
     setChamados(data || [])
   }
 
   async function carregarUsuarios() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('perfis')
       .select('*')
       .order('nome')
-
-    if (error) {
-      console.log(error)
-      return
-    }
 
     setUsuarios(data || [])
   }
 
   async function carregarMensagens() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('mensagens_suporte')
       .select('*')
       .order('criado_em', { ascending: true })
-
-    if (error) {
-      console.log(error)
-      return
-    }
 
     setMensagens(data || [])
   }
@@ -118,19 +76,14 @@ export default function SuporteAdminPage() {
     if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
     if (status === 'RESPONDIDO') return 'bg-purple-600 text-white'
     if (status === 'RESOLVIDO') return 'bg-green-700 text-white'
-
     return 'bg-slate-600 text-white'
   }
 
   async function atualizarStatus(id: string, status: string) {
-    const { error } = await supabase
-      .from('suporte')
-      .update({ status })
-      .eq('id', id)
+    const { error } = await supabase.from('suporte').update({ status }).eq('id', id)
 
     if (error) {
-      alert(error.message || 'Erro ao atualizar status')
-      console.log(error)
+      alert(error.message)
       return
     }
 
@@ -145,26 +98,23 @@ export default function SuporteAdminPage() {
 
     const respostaFinal = resposta.trim()
 
-    const { error: erroMensagem } = await supabase
-      .from('mensagens_suporte')
-      .insert([
-        {
-          chamado_id: chamado.id,
-          empresa_id: chamado.empresa_id || null,
-          embarque_id: chamado.embarque_id || null,
-          usuario_id: chamado.usuario_id || null,
-          assunto: chamado.assunto || 'Suporte',
-          mensagem: respostaFinal,
-          autor: 'ADMIN',
-          criado_por: 'ADMIN',
-          status: 'RESPONDIDO',
-          respondido_em: new Date().toISOString(),
-        },
-      ])
+    const { error: erroMensagem } = await supabase.from('mensagens_suporte').insert([
+      {
+        chamado_id: chamado.id,
+        empresa_id: chamado.empresa_id || null,
+        embarque_id: chamado.embarque_id || null,
+        usuario_id: chamado.usuario_id || null,
+        assunto: chamado.assunto || 'Suporte',
+        mensagem: respostaFinal,
+        autor: 'ADMIN',
+        criado_por: 'ADMIN',
+        status: 'RESPONDIDO',
+        respondido_em: new Date().toISOString(),
+      },
+    ])
 
     if (erroMensagem) {
-      alert(erroMensagem.message || 'Erro ao enviar resposta')
-      console.log(erroMensagem)
+      alert(erroMensagem.message)
       return
     }
 
@@ -177,37 +127,26 @@ export default function SuporteAdminPage() {
       .eq('id', chamado.id)
 
     if (erroChamado) {
-      alert(erroChamado.message || 'Resposta enviada, mas houve erro ao atualizar o chamado')
-      console.log(erroChamado)
+      alert(erroChamado.message)
       return
     }
 
-    alert('Resposta enviada ao cliente')
-
     setResposta('')
     setRespondendoId(null)
-
     carregarChamados()
     carregarMensagens()
   }
 
   async function excluirChamado(id: string) {
     const confirmar = confirm('Deseja realmente excluir este chamado?')
-
     if (!confirmar) return
 
-    const { error } = await supabase
-      .from('suporte')
-      .delete()
-      .eq('id', id)
+    const { error } = await supabase.from('suporte').delete().eq('id', id)
 
     if (error) {
-      alert(error.message || 'Erro ao excluir chamado')
-      console.log(error)
+      alert(error.message)
       return
     }
-
-    alert('Chamado excluído')
 
     carregarChamados()
     carregarMensagens()
@@ -232,233 +171,223 @@ export default function SuporteAdminPage() {
   }, [chamados, usuarios, busca, filtroStatus])
 
   const totalAbertos = chamados.filter((c) => c.status === 'ABERTO').length
+  const totalAnalise = chamados.filter((c) => c.status === 'EM ANÁLISE').length
   const totalRespondidos = chamados.filter((c) => c.status === 'RESPONDIDO').length
   const totalResolvidos = chamados.filter((c) => c.status === 'RESOLVIDO').length
 
   return (
-    <main className="max-w-7xl mx-auto p-8 text-white">
-      <div className="mb-8">
-        <h1 className="text-5xl font-black mb-2">Suporte</h1>
+    <main className="max-w-[1500px] mx-auto p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Central de atendimento</p>
+          <h1 className="text-5xl font-black mb-2">Suporte</h1>
+          <p className="text-slate-400 text-lg">
+            Gerencie chamados, respostas e solicitações dos clientes em tempo real.
+          </p>
+        </div>
 
-        <p className="text-slate-400 text-lg">
-          Central de atendimento e chamados dos clientes.
-        </p>
+        <button
+          onClick={carregarTudo}
+          className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
+        >
+          Atualizar chamados
+        </button>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="card">
-          <p className="text-slate-400">Total</p>
-          <h2 className="text-5xl font-black mt-4">{chamados.length}</h2>
-        </div>
-
-        <div className="card">
-          <p className="text-slate-400">Abertos</p>
-          <h2 className="text-5xl font-black mt-4 text-yellow-400">
-            {totalAbertos}
-          </h2>
-        </div>
-
-        <div className="card">
-          <p className="text-slate-400">Respondidos</p>
-          <h2 className="text-5xl font-black mt-4 text-purple-400">
-            {totalRespondidos}
-          </h2>
-        </div>
-
-        <div className="card">
-          <p className="text-slate-400">Resolvidos</p>
-          <h2 className="text-5xl font-black mt-4 text-green-400">
-            {totalResolvidos}
-          </h2>
-        </div>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card titulo="Total" valor={chamados.length} detalhe="Chamados recebidos" icone="🎫" />
+        <Card titulo="Abertos" valor={totalAbertos} detalhe="Aguardando atendimento" icone="🔴" />
+        <Card titulo="Em análise" valor={totalAnalise} detalhe="Em atendimento" icone="🔎" />
+        <Card titulo="Respondidos" valor={totalRespondidos} detalhe="Cliente notificado" icone="💬" />
+        <Card titulo="Resolvidos" valor={totalResolvidos} detalhe="Finalizados" icone="✅" />
       </section>
 
-      <section className="card mb-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Filtros de atendimento</h2>
+            <p className="text-slate-400 text-sm">
+              Pesquise por cliente, e-mail, assunto, mensagem ou status.
+            </p>
+          </div>
+
+          <button
+            onClick={() => {
+              setBusca('')
+              setFiltroStatus('')
+            }}
+            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold h-fit"
+          >
+            Limpar filtros
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <input
-            placeholder="Buscar por usuário, e-mail, assunto, mensagem..."
+            placeholder="Buscar chamado..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
 
-          <select
-            value={filtroStatus}
-            onChange={(e) => setFiltroStatus(e.target.value)}
-          >
+          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
             <option value="">Todos os status</option>
             <option value="ABERTO">Aberto</option>
             <option value="EM ANÁLISE">Em análise</option>
             <option value="RESPONDIDO">Respondido</option>
             <option value="RESOLVIDO">Resolvido</option>
           </select>
+
+          <div className="border border-blue-900 rounded-2xl bg-[#020817] px-5 py-3 text-slate-300 font-bold flex items-center">
+            {chamadosFiltrados.length} chamado(s) encontrado(s)
+          </div>
         </div>
       </section>
 
-      <section className="card">
-        <h2 className="text-2xl font-black mb-6">Chamados recebidos</h2>
-
+      <section className="space-y-5">
         {chamadosFiltrados.length === 0 ? (
-          <p className="text-slate-400">Nenhum chamado encontrado.</p>
+          <div className="border border-blue-900 rounded-3xl bg-[#071225] p-8 text-center text-slate-400">
+            Nenhum chamado encontrado.
+          </div>
         ) : (
-          <div className="space-y-5">
-            {chamadosFiltrados.map((item) => {
-              const conversa = mensagensDoChamado(item.id)
+          chamadosFiltrados.map((item) => {
+            const conversa = mensagensDoChamado(item.id)
 
-              return (
-                <div
-                  key={item.id}
-                  className="border border-blue-900 rounded-3xl p-6 bg-[#071225]"
-                >
-                  <div className="flex justify-between gap-4 mb-5">
-                    <div>
-                      <h3 className="text-2xl font-black">
-                        {item.assunto || 'Sem assunto'}
-                      </h3>
+            return (
+              <div key={item.id} className="border border-blue-900 rounded-3xl p-7 bg-[#071225]">
+                <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+                  <div>
+                    <div className="flex gap-3 flex-wrap mb-3">
+                      <span className={`px-4 py-2 rounded-xl text-xs font-black ${corStatus(item.status)}`}>
+                        {item.status || 'ABERTO'}
+                      </span>
 
-                      <p className="text-slate-400 mt-1">
-                        {nomeUsuario(item.usuario_id)} •{' '}
-                        {item.email || emailUsuario(item.usuario_id)}
-                      </p>
-
-                      <p className="text-slate-500 text-sm mt-1">
-                        {item.criado_em
-                          ? new Date(item.criado_em).toLocaleString('pt-BR')
-                          : '-'}
-                      </p>
+                      <span className="px-4 py-2 rounded-xl text-xs font-black bg-slate-800 text-slate-300">
+                        Ticket #{item.id?.slice(0, 8)}
+                      </span>
                     </div>
 
-                    <span
-                      className={`px-3 py-1 rounded-full text-sm font-bold h-fit ${corStatus(
-                        item.status
-                      )}`}
-                    >
-                      {item.status || 'ABERTO'}
-                    </span>
-                  </div>
+                    <h3 className="text-3xl font-black">{item.assunto || 'Sem assunto'}</h3>
 
-                  <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
-                    <p className="text-slate-400 font-bold mb-2">
-                      Mensagem inicial do cliente
+                    <p className="text-slate-400 mt-2">
+                      {nomeUsuario(item.usuario_id)} • {item.email || emailUsuario(item.usuario_id)}
                     </p>
 
-                    <p className="text-slate-300 leading-7">
-                      {item.mensagem || '-'}
+                    <p className="text-slate-500 text-sm mt-1">
+                      Aberto em{' '}
+                      {item.criado_em ? new Date(item.criado_em).toLocaleString('pt-BR') : '-'}
                     </p>
                   </div>
 
-                  <div className="bg-[#020817] border border-blue-950 rounded-2xl p-5 mb-5">
-                    <p className="text-slate-400 font-bold mb-4">Conversa</p>
-
-                    {conversa.length === 0 ? (
-                      <p className="text-slate-500">Nenhuma resposta ainda.</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {conversa.map((msg) => {
-                          const admin = msg.autor === 'ADMIN'
-
-                          return (
-                            <div
-                              key={msg.id}
-                              className={`flex ${
-                                admin ? 'justify-end' : 'justify-start'
-                              }`}
-                            >
-                              <div
-                                className={`max-w-[80%] rounded-2xl p-4 ${
-                                  admin
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-slate-800 text-slate-200'
-                                }`}
-                              >
-                                <p className="text-xs opacity-80 mb-1">
-                                  {admin ? 'HC Consultoria' : 'Cliente'}
-                                </p>
-
-                                <p className="leading-7">{msg.mensagem}</p>
-
-                                <p className="text-xs opacity-70 mt-2">
-                                  {msg.criado_em
-                                    ? new Date(msg.criado_em).toLocaleString(
-                                        'pt-BR'
-                                      )
-                                    : '-'}
-                                </p>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {respondendoId === item.id && (
-                    <div className="mb-5">
-                      <textarea
-                        placeholder="Digite a resposta para o cliente..."
-                        value={resposta}
-                        onChange={(e) => setResposta(e.target.value)}
-                        className="min-h-[140px]"
-                      />
-
-                      <div className="flex gap-3 mt-3">
-                        <button
-                          onClick={() => enviarResposta(item)}
-                          className="bg-green-600 hover:bg-green-500"
-                        >
-                          Enviar resposta
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setRespondendoId(null)
-                            setResposta('')
-                          }}
-                          className="bg-slate-700 hover:bg-slate-600"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex gap-3 flex-wrap">
-                    <button
-                      onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
-                      className="bg-blue-600 hover:bg-blue-500"
-                    >
+                  <div className="flex gap-2 flex-wrap h-fit">
+                    <button onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')} className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl font-bold">
                       Em análise
                     </button>
 
-                    <button
-                      onClick={() => {
-                        setRespondendoId(item.id)
-                        setResposta('')
-                      }}
-                      className="bg-purple-600 hover:bg-purple-500"
-                    >
-                      Responder
-                    </button>
-
-                    <button
-                      onClick={() => atualizarStatus(item.id, 'RESOLVIDO')}
-                      className="bg-green-600 hover:bg-green-500"
-                    >
+                    <button onClick={() => atualizarStatus(item.id, 'RESOLVIDO')} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold">
                       Resolver
                     </button>
 
-                    <button
-                      onClick={() => excluirChamado(item.id)}
-                      className="bg-red-700 hover:bg-red-600"
-                    >
+                    <button onClick={() => excluirChamado(item.id)} className="bg-red-700 hover:bg-red-600 px-4 py-2 rounded-xl font-bold">
                       Excluir
                     </button>
                   </div>
                 </div>
-              )
-            })}
-          </div>
+
+                <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5 mb-5">
+                  <p className="text-slate-400 font-bold mb-2">Mensagem inicial</p>
+                  <p className="text-slate-300 leading-7">{item.mensagem || '-'}</p>
+                </div>
+
+                <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5 mb-5">
+                  <div className="flex justify-between items-center mb-5">
+                    <p className="text-slate-300 font-black">Conversa</p>
+                    <span className="text-slate-500 text-sm">{conversa.length} mensagem(ns)</span>
+                  </div>
+
+                  {conversa.length === 0 ? (
+                    <p className="text-slate-500">Nenhuma resposta ainda.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {conversa.map((msg) => {
+                        const admin = msg.autor === 'ADMIN'
+
+                        return (
+                          <div key={msg.id} className={`flex ${admin ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[85%] rounded-2xl p-4 ${admin ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200'}`}>
+                              <p className="text-xs opacity-80 mb-1">
+                                {admin ? 'HC Consultoria' : 'Cliente'}
+                              </p>
+
+                              <p className="leading-7 whitespace-pre-wrap">{msg.mensagem}</p>
+
+                              <p className="text-xs opacity-70 mt-2">
+                                {msg.criado_em ? new Date(msg.criado_em).toLocaleString('pt-BR') : '-'}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {respondendoId === item.id ? (
+                  <div className="border border-purple-900 bg-[#020817] rounded-2xl p-5">
+                    <textarea
+                      placeholder="Digite a resposta para o cliente..."
+                      value={resposta}
+                      onChange={(e) => setResposta(e.target.value)}
+                      className="min-h-[140px]"
+                    />
+
+                    <div className="flex gap-3 mt-3">
+                      <button onClick={() => enviarResposta(item)} className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold">
+                        Enviar resposta
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setRespondendoId(null)
+                          setResposta('')
+                        }}
+                        className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setRespondendoId(item.id)
+                      setResposta('')
+                    }}
+                    className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold"
+                  >
+                    Responder chamado
+                  </button>
+                )}
+              </div>
+            )
+          })
         )}
       </section>
     </main>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone }: any) {
+  return (
+    <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6">
+      <div className="flex justify-between items-start gap-4">
+        <div>
+          <p className="text-slate-300 font-bold">{titulo}</p>
+          <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+          <p className="text-slate-400 mt-2">{detalhe}</p>
+        </div>
+
+        <div className="text-4xl">{icone}</div>
+      </div>
+    </div>
   )
 }
