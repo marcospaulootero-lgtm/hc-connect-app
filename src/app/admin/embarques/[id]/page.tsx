@@ -181,11 +181,16 @@ export default function DetalheEmbarquePage() {
       })
 
     if (insertError) {
-      alert('Erro ao salvar documento no banco')
-      console.log(insertError)
-      setUploading(false)
-      return
-    }
+  console.log('ERRO DOCUMENTO:', insertError)
+
+  alert(
+    `${insertError.message}\n\n${insertError.details || ''}\n\n${insertError.hint || ''}`
+  )
+
+  setUploading(false)
+  return
+}
+    
 
     await supabase
       .from('embarques')
