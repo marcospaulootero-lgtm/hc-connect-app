@@ -43,19 +43,44 @@ export default function CotacoesAdminPage() {
   }
 
   async function atualizarStatus(id: string, status: string) {
-    const { error } = await supabase
-      .from('cotacoes')
-      .update({ status })
-      .eq('id', id)
+  const cotacao = cotacoes.find((c) => c.id === id)
 
-    if (error) {
-      alert('Erro ao atualizar status')
-      console.log(error)
-      return
-    }
+  const { error } = await supabase
+    .from('cotacoes')
+    .update({ status })
+    .eq('id', id)
 
-    carregar()
+  if (error) {
+    alert('Erro ao atualizar status')
+    console.log(error)
+    return
   }
+
+  if (
+    status === 'COTAÇÃO DISPONÍVEL' &&
+    cotacao?.solicitante_email
+  ) {
+    try {
+      await fetch('/api/enviar-email-cotacao', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: cotacao.solicitante_email,
+          cliente: cotacao.cliente_final,
+          origem: cotacao.origem,
+          destino: cotacao.destino,
+          tipo_operacao: cotacao.tipo_operacao,
+        }),
+      })
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  carregar()
+}
 
   async function excluirCotacao(id: string) {
     const confirmar = confirm('Deseja realmente excluir esta cotação?')
