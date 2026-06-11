@@ -253,7 +253,12 @@ export default function ClientePage() {
               href="/cliente/cotacoes"
               className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
             >
-              Nova cotação
+              Nova cotação <a
+  href="/cliente/embarque-direto"
+  className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl text-white font-bold"
+>
+  Fechar embarque direto
+</a>
             </a>
           </div>
 
