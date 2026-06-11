@@ -11,6 +11,7 @@ export default function DetalheEmbarquePage() {
   const [embarque, setEmbarque] = useState<any>(null)
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [timeline, setTimeline] = useState<any[]>([])
+  const [documentos, setDocumentos] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
 
   const [editandoStatus, setEditandoStatus] = useState(false)
@@ -44,6 +45,18 @@ export default function DetalheEmbarquePage() {
       .order('criado_em', { ascending: false })
 
     setTimeline(timelineData || [])
+
+    const { data: documentosData, error: documentosError } = await supabase
+      .from('documentos_embarques')
+      .select('*')
+      .eq('embarque_id', params.id)
+      .order('criado_em', { ascending: false })
+
+    if (documentosError) {
+      console.log(documentosError)
+    }
+
+    setDocumentos(documentosData || [])
   }
 
   async function carregarUsuarios() {
@@ -141,7 +154,7 @@ export default function DetalheEmbarquePage() {
 
     setUploading(true)
 
-    const nomeArquivo = `${embarque.id}-${Date.now()}-${file.name}`
+    const nomeArquivo = `${embarque.id}/${Date.now()}-${file.name}`
 
     const { error } = await supabase.storage
       .from('documentos')
@@ -156,9 +169,23 @@ export default function DetalheEmbarquePage() {
       return
     }
 
-    const { data } = supabase.storage
-      .from('documentos')
-      .getPublicUrl(nomeArquivo)
+    const { data } = supabase.storage.from('documentos').getPublicUrl(nomeArquivo)
+
+    const { error: insertError } = await supabase
+      .from('documentos_embarques')
+      .insert({
+        embarque_id: embarque.id,
+        nome: file.name,
+        url: data.publicUrl,
+        caminho: nomeArquivo,
+      })
+
+    if (insertError) {
+      alert('Erro ao salvar documento no banco')
+      console.log(insertError)
+      setUploading(false)
+      return
+    }
 
     await supabase
       .from('embarques')
@@ -174,10 +201,39 @@ export default function DetalheEmbarquePage() {
       descricao: `Documento enviado: ${file.name}`,
     })
 
+    e.target.value = ''
     setUploading(false)
     await carregar()
 
     alert('Arquivo enviado com sucesso')
+  }
+
+  async function excluirDocumento(documento: any) {
+    const confirmar = confirm(`Deseja excluir o documento "${documento.nome}"?`)
+    if (!confirmar) return
+
+    if (documento.caminho) {
+      await supabase.storage.from('documentos').remove([documento.caminho])
+    }
+
+    const { error } = await supabase
+      .from('documentos_embarques')
+      .delete()
+      .eq('id', documento.id)
+
+    if (error) {
+      alert('Erro ao excluir documento')
+      console.log(error)
+      return
+    }
+
+    await supabase.from('timeline_embarques').insert({
+      embarque_id: embarque.id,
+      status: 'DOCUMENTO',
+      descricao: `Documento excluído: ${documento.nome}`,
+    })
+
+    await carregar()
   }
 
   function etapaConcluida(etapa: string) {
@@ -230,9 +286,7 @@ export default function DetalheEmbarquePage() {
       <header className="border border-blue-900 rounded-3xl bg-[#071225] p-8 mb-8 shadow-[0_0_35px_rgba(37,99,235,0.12)]">
         <div className="flex flex-col lg:flex-row justify-between gap-8">
           <div>
-            <p className="text-blue-400 font-bold mb-2">
-              Detalhe do embarque
-            </p>
+            <p className="text-blue-400 font-bold mb-2">Detalhe do embarque</p>
 
             <h1 className="text-5xl font-black mb-3">
               AWB {embarque.awb || '-'}
@@ -289,15 +343,10 @@ export default function DetalheEmbarquePage() {
 
       {editandoStatus && (
         <section className="card mb-8">
-          <h2 className="text-2xl font-black mb-6">
-            Alterar status do embarque
-          </h2>
+          <h2 className="text-2xl font-black mb-6">Alterar status do embarque</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <select
-              value={novoStatus}
-              onChange={(e) => setNovoStatus(e.target.value)}
-            >
+            <select value={novoStatus} onChange={(e) => setNovoStatus(e.target.value)}>
               <option value="">Selecione o status</option>
               <option value="Aguardando coleta">Aguardando coleta</option>
               <option value="Coletado">Coletado</option>
@@ -327,11 +376,7 @@ export default function DetalheEmbarquePage() {
       )}
 
       <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-        <InfoCard
-          titulo="Cliente vinculado"
-          valor={nomeUsuario(embarque.usuario_id)}
-          icone="👤"
-        />
+        <InfoCard titulo="Cliente vinculado" valor={nomeUsuario(embarque.usuario_id)} icone="👤" />
 
         <InfoCard
           titulo="Última atualização"
@@ -366,9 +411,7 @@ export default function DetalheEmbarquePage() {
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="card">
-          <h2 className="text-2xl font-black mb-6">
-            Dados comerciais
-          </h2>
+          <h2 className="text-2xl font-black mb-6">Dados comerciais</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <CampoResumo titulo="Exportador" valor={embarque.exportador} />
@@ -379,9 +422,7 @@ export default function DetalheEmbarquePage() {
         </div>
 
         <div className="card">
-          <h2 className="text-2xl font-black mb-6">
-            Dados logísticos
-          </h2>
+          <h2 className="text-2xl font-black mb-6">Dados logísticos</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <CampoResumo titulo="Origem" valor={embarque.origem} />
@@ -393,9 +434,7 @@ export default function DetalheEmbarquePage() {
       </section>
 
       <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-8">
-          Progresso do embarque
-        </h2>
+        <h2 className="text-2xl font-black mb-8">Progresso do embarque</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Etapa titulo="Coletado" ativo={etapaConcluida('coleta')} />
@@ -407,28 +446,20 @@ export default function DetalheEmbarquePage() {
       </section>
 
       <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">
-          Rastreio
-        </h2>
+        <h2 className="text-2xl font-black mb-6">Rastreio</h2>
 
         <div className="rounded-3xl border border-blue-900 bg-[#020817] p-6">
           <div className="flex flex-col md:flex-row justify-between gap-6 items-start md:items-center">
             <div>
               <p className="text-slate-400 mb-1">Origem</p>
-              <h3 className="text-3xl font-black">
-                {embarque.origem || '-'}
-              </h3>
+              <h3 className="text-3xl font-black">{embarque.origem || '-'}</h3>
             </div>
 
-            <div className="text-blue-400 text-4xl">
-              ✈️
-            </div>
+            <div className="text-blue-400 text-4xl">✈️</div>
 
             <div>
               <p className="text-slate-400 mb-1">Destino</p>
-              <h3 className="text-3xl font-black">
-                {embarque.destino || '-'}
-              </h3>
+              <h3 className="text-3xl font-black">{embarque.destino || '-'}</h3>
             </div>
           </div>
         </div>
@@ -446,59 +477,80 @@ export default function DetalheEmbarquePage() {
       </section>
 
       <section className="card mb-8">
-        <h2 className="text-2xl font-black mb-6">
-          Documentos
-        </h2>
+        <div className="flex justify-between items-center gap-4 flex-wrap mb-6">
+          <div>
+            <h2 className="text-2xl font-black">Documentos</h2>
+            <p className="text-slate-400 mt-1">
+              {documentos.length} documento(s) anexado(s)
+            </p>
+          </div>
 
-        <div className="flex items-center gap-4 flex-wrap">
           <label className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold cursor-pointer">
             {uploading ? 'Enviando...' : 'Enviar documento'}
 
-            <input
-              type="file"
-              className="hidden"
-              onChange={uploadArquivo}
-            />
+            <input type="file" className="hidden" onChange={uploadArquivo} disabled={uploading} />
           </label>
-
-          {embarque.documento_url && (
-            <a
-              href={embarque.documento_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
-            >
-              Abrir documento
-            </a>
-          )}
         </div>
+
+        {documentos.length === 0 ? (
+          <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5 text-slate-400">
+            Nenhum documento anexado ainda.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {documentos.map((documento) => (
+              <div
+                key={documento.id}
+                className="border border-blue-900 bg-[#020817] rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+              >
+                <div>
+                  <p className="font-black text-white break-all">📎 {documento.nome}</p>
+                  <p className="text-slate-500 text-sm mt-1">
+                    Enviado em{' '}
+                    {documento.criado_em
+                      ? new Date(documento.criado_em).toLocaleString('pt-BR')
+                      : '-'}
+                  </p>
+                </div>
+
+                <div className="flex gap-2 flex-wrap">
+                  <a
+                    href={documento.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold"
+                  >
+                    Abrir
+                  </a>
+
+                  <button
+                    onClick={() => excluirDocumento(documento)}
+                    className="bg-red-700 hover:bg-red-600 px-4 py-2 rounded-xl font-bold"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="card">
-        <h2 className="text-2xl font-black mb-8">
-          Histórico operacional
-        </h2>
+        <h2 className="text-2xl font-black mb-8">Histórico operacional</h2>
 
         <div className="space-y-5">
           {timeline.length === 0 ? (
-            <p className="text-slate-400">
-              Nenhuma atualização encontrada.
-            </p>
+            <p className="text-slate-400">Nenhuma atualização encontrada.</p>
           ) : (
             timeline.map((item) => (
-              <div
-                key={item.id}
-                className="relative pl-10"
-              >
+              <div key={item.id} className="relative pl-10">
                 <div className="absolute left-3 top-0 bottom-0 w-[2px] bg-blue-900" />
-
                 <div className="absolute left-0 top-2 w-6 h-6 rounded-full bg-blue-600 border-4 border-[#071225]" />
 
                 <div className="border border-blue-900 rounded-2xl bg-[#071225] p-5">
                   <div className="flex flex-col md:flex-row md:justify-between gap-2 mb-3">
-                    <strong className="text-blue-400">
-                      {item.status}
-                    </strong>
+                    <strong className="text-blue-400">{item.status}</strong>
 
                     <span className="text-slate-500 text-sm">
                       {item.criado_em
@@ -507,9 +559,7 @@ export default function DetalheEmbarquePage() {
                     </span>
                   </div>
 
-                  <p className="text-slate-300">
-                    {item.descricao}
-                  </p>
+                  <p className="text-slate-300">{item.descricao}</p>
                 </div>
               </div>
             ))
@@ -544,19 +594,11 @@ function CampoResumo({ titulo, valor }: any) {
   )
 }
 
-function Etapa({
-  titulo,
-  ativo,
-}: {
-  titulo: string
-  ativo: boolean
-}) {
+function Etapa({ titulo, ativo }: { titulo: string; ativo: boolean }) {
   return (
     <div
       className={`rounded-3xl p-5 border text-center transition ${
-        ativo
-          ? 'bg-green-600 border-green-500'
-          : 'bg-[#071225] border-blue-900'
+        ativo ? 'bg-green-600 border-green-500' : 'bg-[#071225] border-blue-900'
       }`}
     >
       <div className="text-3xl mb-3">{ativo ? '✔️' : '⏳'}</div>
