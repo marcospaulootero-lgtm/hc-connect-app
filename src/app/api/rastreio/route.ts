@@ -12,10 +12,7 @@ export async function POST(req: Request) {
     const embarqueId = body.embarque_id
 
     if (!embarqueId) {
-      return NextResponse.json(
-        { error: 'Informe o ID do embarque.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Informe o ID do embarque.' }, { status: 400 })
     }
 
     const { data: embarque, error: erroEmbarque } = await supabase
@@ -25,20 +22,14 @@ export async function POST(req: Request) {
       .single()
 
     if (erroEmbarque || !embarque) {
-      return NextResponse.json(
-        { error: 'Embarque não encontrado.' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Embarque não encontrado.' }, { status: 404 })
     }
 
     const awb = String(embarque.awb || '').trim()
     const transportadora = String(embarque.transportadora || '').toUpperCase()
 
     if (!awb) {
-      return NextResponse.json(
-        { error: 'Este embarque não possui AWB.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Este embarque não possui AWB.' }, { status: 400 })
     }
 
     if (transportadora.includes('DHL')) {
@@ -53,7 +44,7 @@ export async function POST(req: Request) {
       { error: 'Transportadora não suportada para rastreio automático.' },
       { status: 400 }
     )
-    } catch (error: any) {
+  } catch (error: any) {
     console.log('ERRO GERAL RASTREIO:', error)
 
     return NextResponse.json(
@@ -70,15 +61,10 @@ async function rastrearDHL(embarque: any, awb: string) {
   const dhlApiKey = process.env.DHL_API_KEY
 
   if (!dhlApiKey) {
-    return NextResponse.json(
-      { error: 'DHL_API_KEY não configurada na Vercel.' },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: 'DHL_API_KEY não configurada na Vercel.' }, { status: 400 })
   }
 
-  const url = `https://api-eu.dhl.com/track/shipments?trackingNumber=${encodeURIComponent(
-    awb
-  )}`
+  const url = `https://api-eu.dhl.com/track/shipments?trackingNumber=${encodeURIComponent(awb)}`
 
   const response = await fetch(url, {
     method: 'GET',
@@ -112,16 +98,14 @@ async function rastrearDHL(embarque: any, awb: string) {
 
   const eventoAtual = shipment?.events?.[0]
 
-  const status =
-    shipment?.status?.status ||
-    shipment?.status?.description ||
-    eventoAtual?.description ||
-    'Status DHL não informado'
-
   const descricao =
     shipment?.status?.description ||
     eventoAtual?.description ||
+    shipment?.status?.status ||
+    shipment?.status?.statusCode ||
     'Sem descrição'
+
+  const status = descricao
 
   const local =
     shipment?.status?.location?.address?.addressLocality ||
@@ -133,7 +117,7 @@ async function rastrearDHL(embarque: any, awb: string) {
     eventoAtual?.timestamp ||
     new Date().toISOString()
 
-  await salvarRastreio({
+  const statusNormalizado = await salvarRastreio({
     embarque,
     awb,
     transportadora: 'DHL',
@@ -141,14 +125,13 @@ async function rastrearDHL(embarque: any, awb: string) {
     descricao,
     local,
     dataEvento,
-    eventos: shipment?.events || [],
   })
 
   return NextResponse.json({
     sucesso: true,
     transportadora: 'DHL',
     awb,
-    status,
+    status: statusNormalizado,
     descricao,
     local,
     data_evento: dataEvento,
@@ -196,27 +179,24 @@ async function rastrearFedEx(embarque: any, awb: string) {
 
   const accessToken = tokenData.access_token
 
-  const trackResponse = await fetch(
-    'https://apis.fedex.com/track/v1/trackingnumbers',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        includeDetailedScans: true,
-        trackingInfo: [
-          {
-            trackingNumberInfo: {
-              trackingNumber: awb,
-            },
+  const trackResponse = await fetch('https://apis.fedex.com/track/v1/trackingnumbers', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      includeDetailedScans: true,
+      trackingInfo: [
+        {
+          trackingNumberInfo: {
+            trackingNumber: awb,
           },
-        ],
-      }),
-      cache: 'no-store',
-    }
-  )
+        },
+      ],
+    }),
+    cache: 'no-store',
+  })
 
   const data = await trackResponse.json()
 
@@ -230,8 +210,7 @@ async function rastrearFedEx(embarque: any, awb: string) {
     )
   }
 
-  const resultado =
-    data?.output?.completeTrackResults?.[0]?.trackResults?.[0]
+  const resultado = data?.output?.completeTrackResults?.[0]?.trackResults?.[0]
 
   if (!resultado) {
     return NextResponse.json(
@@ -265,7 +244,7 @@ async function rastrearFedEx(embarque: any, awb: string) {
     resultado?.dateAndTimes?.[0]?.dateTime ||
     new Date().toISOString()
 
-  await salvarRastreio({
+  const statusNormalizado = await salvarRastreio({
     embarque,
     awb,
     transportadora: 'FEDEX',
@@ -273,27 +252,29 @@ async function rastrearFedEx(embarque: any, awb: string) {
     descricao,
     local,
     dataEvento,
-    eventos: resultado?.scanEvents || [],
   })
 
   return NextResponse.json({
     sucesso: true,
     transportadora: 'FEDEX',
     awb,
-    status,
+    status: statusNormalizado,
     descricao,
     local,
     data_evento: dataEvento,
   })
 }
+
 function normalizarStatus(status: string) {
-  const s = String(status || '').toLowerCase().trim()
+  const s = String(status || '').toLowerCase()
 
-  if (s === '102') return 'Em trânsito'
-
-  if (s.includes('delivered') || s.includes('entregue')) return 'Entregue'
+  if (s.includes('delivered') || s.includes('entregue')) {
+    return 'Entregue'
+  }
 
   if (
+    s.includes('liberação') ||
+    s.includes('liberacao') ||
     s.includes('clearance') ||
     s.includes('customs') ||
     s.includes('fiscal')
@@ -304,21 +285,19 @@ function normalizarStatus(status: string) {
   if (
     s.includes('transit') ||
     s.includes('trânsito') ||
+    s.includes('transito') ||
     s.includes('processed')
   ) {
     return 'Em trânsito'
   }
 
-  if (
-    s.includes('picked') ||
-    s.includes('pickup') ||
-    s.includes('colet')
-  ) {
+  if (s.includes('picked') || s.includes('pickup') || s.includes('colet')) {
     return 'Coletado'
   }
 
   if (
-    s.includes('available') ||
+    s.includes('available for delivery') ||
+    s.includes('out for delivery') ||
     s.includes('released') ||
     s.includes('liberado')
   ) {
@@ -327,6 +306,7 @@ function normalizarStatus(status: string) {
 
   return 'Em trânsito'
 }
+
 async function salvarRastreio({
   embarque,
   awb,
@@ -335,7 +315,6 @@ async function salvarRastreio({
   descricao,
   local,
   dataEvento,
-  eventos,
 }: any) {
   const statusNormalizado = normalizarStatus(status)
 
@@ -353,31 +332,33 @@ async function salvarRastreio({
   }
 
   const { error: erroUpdate } = await supabase
-  .from('embarques')
-  .update(dadosAtualizar)
-  .eq('id', embarque.id)
+    .from('embarques')
+    .update(dadosAtualizar)
+    .eq('id', embarque.id)
 
-if (erroUpdate) {
-  console.log('ERRO UPDATE EMBARQUE:', erroUpdate)
-  throw new Error(`Erro ao atualizar embarque: ${erroUpdate.message}`)
-}
+  if (erroUpdate) {
+    console.log('ERRO UPDATE EMBARQUE:', erroUpdate)
+    throw new Error(`Erro ao atualizar embarque: ${erroUpdate.message}`)
+  }
 
-const { error: erroInsert } = await supabase
-  .from('rastreios_embarques')
-  .insert({
+  const { error: erroInsert } = await supabase.from('rastreios_embarques').insert({
     embarque_id: embarque.id,
     awb,
-    transportadora: transportadora,
+    transportadora,
     status: statusNormalizado,
     descricao,
     localizacao: local,
     data_evento: dataEvento,
   })
 
-if (erroInsert) {
-  console.log('ERRO INSERT RASTREIO:', erroInsert)
-  throw new Error(
-  `Erro ao salvar rastreio: ${erroInsert.message} | ${erroInsert.details || ''} | ${erroInsert.hint || ''}`
-)
-}
+  if (erroInsert) {
+    console.log('ERRO INSERT RASTREIO:', erroInsert)
+    throw new Error(
+      `Erro ao salvar rastreio: ${erroInsert.message} | ${erroInsert.details || ''} | ${
+        erroInsert.hint || ''
+      }`
+    )
+  }
+
+  return statusNormalizado
 }
