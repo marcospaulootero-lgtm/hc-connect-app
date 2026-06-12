@@ -37,22 +37,30 @@ export default function IntelligencePage() {
     return Number(v || 0)
   }
 
-  function dinheiro(v: number) {
-    return v.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    })
+  function money(v: number) {
+    return `USD ${v.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
   }
 
   const dados = useMemo(() => {
     const receita = faturas.reduce((t, f) => t + num(f.valor_venda), 0)
     const compra = faturas.reduce((t, f) => t + num(f.valor_compra), 0)
-    const profit = faturas.reduce((t, f) => t + num(f.profit || num(f.valor_venda) - num(f.valor_compra)), 0)
+    const profit = faturas.reduce(
+      (t, f) => t + num(f.profit || num(f.valor_venda) - num(f.valor_compra)),
+      0
+    )
+
     const margem = receita > 0 ? (profit / receita) * 100 : 0
-    const ticket = embarques.length > 0 ? receita / embarques.length : 0
+    const ticket = faturas.length > 0 ? receita / faturas.length : 0
+
+    const faturasRecebidas = faturas.filter(
+      (f) => f.recibo_pdf || f.data_pagamento
+    ).length
 
     const faturasVencidas = faturas.filter((f) => {
-      if (!f.vencimento || f.data_pagamento || f.recibo_pdf) return false
+      if (!f.vencimento || f.recibo_pdf || f.data_pagamento) return false
       return new Date(f.vencimento) < new Date()
     }).length
 
@@ -77,6 +85,7 @@ export default function IntelligencePage() {
       profit,
       margem,
       ticket,
+      faturasRecebidas,
       faturasVencidas,
       embarquesSemAwb,
       cotacoesAprovadas,
@@ -84,11 +93,53 @@ export default function IntelligencePage() {
     }
   }, [embarques, cotacoes, faturas, chamados])
 
+  const topClientes = useMemo(() => {
+    const mapa: any = {}
+
+    embarques.forEach((e) => {
+      const nome = e.cliente_final || e.importador || e.exportador || 'Não informado'
+      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
+      mapa[nome].total += 1
+    })
+
+    faturas.forEach((f) => {
+      const emb = embarques.find((e) => e.id === f.embarque_id)
+      const nome = emb?.cliente_final || emb?.importador || emb?.exportador || 'Não informado'
+      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
+      mapa[nome].profit += num(f.profit || num(f.valor_venda) - num(f.valor_compra))
+    })
+
+    return Object.values(mapa)
+      .sort((a: any, b: any) => b.profit - a.profit || b.total - a.total)
+      .slice(0, 5) as any[]
+  }, [embarques, faturas])
+
   const topTransportadoras = useMemo(() => {
     const mapa: any = {}
 
     embarques.forEach((e) => {
       const nome = e.transportadora || 'Não informado'
+      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
+      mapa[nome].total += 1
+    })
+
+    faturas.forEach((f) => {
+      const emb = embarques.find((e) => e.id === f.embarque_id)
+      const nome = emb?.transportadora || 'Não informado'
+      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
+      mapa[nome].profit += num(f.profit || num(f.valor_venda) - num(f.valor_compra))
+    })
+
+    return Object.values(mapa)
+      .sort((a: any, b: any) => b.total - a.total)
+      .slice(0, 5) as any[]
+  }, [embarques, faturas])
+
+  const porServico = useMemo(() => {
+    const mapa: any = {}
+
+    embarques.forEach((e) => {
+      const nome = e.servico || 'Não informado'
       mapa[nome] = (mapa[nome] || 0) + 1
     })
 
@@ -98,12 +149,12 @@ export default function IntelligencePage() {
       .slice(0, 5)
   }, [embarques])
 
-  const topClientes = useMemo(() => {
+  const porPais = useMemo(() => {
     const mapa: any = {}
 
     embarques.forEach((e) => {
-      const nome = e.cliente_final || e.importador || e.exportador || 'Não informado'
-      mapa[nome] = (mapa[nome] || 0) + 1
+      const pais = e.pais_origem || e.origem || 'Não informado'
+      mapa[pais] = (mapa[pais] || 0) + 1
     })
 
     return Object.entries(mapa)
@@ -114,84 +165,182 @@ export default function IntelligencePage() {
 
   if (loading) {
     return (
-      <main className="max-w-[1500px] mx-auto p-8 text-white">
+      <main className="max-w-[1600px] mx-auto p-8 text-white">
         Carregando Intelligence...
       </main>
     )
   }
 
   return (
-    <main className="max-w-[1600px] mx-auto p-8 text-white">
-      <div className="flex justify-between items-start gap-6 mb-8">
-        <div>
-          <p className="text-purple-400 font-bold mb-2">Business Intelligence</p>
-          <h1 className="text-5xl font-black mb-2">Intelligence</h1>
-          <p className="text-slate-400 text-lg">
-            Análise completa de embarques, cotações, financeiro e performance da HC.
-          </p>
+    <main className="max-w-[1700px] mx-auto p-8 text-white">
+      <div className="border border-blue-900 rounded-3xl bg-[#071225] p-5 mb-6 flex flex-col xl:flex-row justify-between gap-5">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-purple-600/20 text-purple-400 flex items-center justify-center text-3xl">
+            📊
+          </div>
+
+          <div>
+            <h1 className="text-4xl font-black">Intelligence</h1>
+            <p className="text-slate-400">
+              Análises completas do negócio em tempo real
+            </p>
+          </div>
         </div>
 
-        <Link
-          href="/admin"
-          className="bg-slate-800 hover:bg-slate-700 px-5 py-3 rounded-xl font-bold"
-        >
-          Voltar
-        </Link>
+        <div className="flex gap-3 flex-wrap">
+          <button className="border border-blue-900 bg-[#020817] px-5 py-3 rounded-xl font-bold">
+            01/06/2026 - 30/06/2026
+          </button>
+
+          <button className="border border-blue-900 bg-[#020817] px-5 py-3 rounded-xl font-bold">
+            ⚙️ Filtros
+          </button>
+
+          <Link
+            href="/admin"
+            className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold"
+          >
+            Voltar
+          </Link>
+        </div>
       </div>
 
       <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-6">
-        <Kpi titulo="Receita total" valor={dinheiro(dados.receita)} detalhe="Valor vendido" icone="💰" cor="purple" />
-        <Kpi titulo="Profit total" valor={dinheiro(dados.profit)} detalhe="Venda - compra" icone="📈" cor="green" />
+        <Kpi titulo="Receita total" valor={money(dados.receita)} detalhe="Valor vendido" icone="💰" cor="purple" />
+        <Kpi titulo="Profit total" valor={money(dados.profit)} detalhe="Venda - compra" icone="📈" cor="green" />
         <Kpi titulo="Margem média" valor={`${dados.margem.toFixed(1)}%`} detalhe="Profit / receita" icone="🎯" cor="blue" />
         <Kpi titulo="Embarques" valor={embarques.length} detalhe="Total cadastrados" icone="🚚" cor="orange" />
-        <Kpi titulo="Ticket médio" valor={dinheiro(dados.ticket)} detalhe="Receita / embarques" icone="🧾" cor="purple" />
+        <Kpi titulo="Ticket médio" valor={money(dados.ticket)} detalhe="Média por fatura" icone="🧾" cor="purple" />
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-6">
-        <div className="xl:col-span-1 card-premium">
+        <Card>
           <h2 className="text-2xl font-black mb-6">Funil comercial</h2>
-
-          <Funil valor={cotacoes.length} label="Cotações criadas" cor="bg-purple-600" />
-          <Funil valor={dados.cotacoesAprovadas} label="Cotações aprovadas" cor="bg-blue-600" />
-          <Funil valor={embarques.length} label="Embarques criados" cor="bg-green-600" />
-          <Funil valor={faturas.length} label="Faturas emitidas" cor="bg-yellow-600" />
-          <Funil valor={faturas.filter((f) => f.recibo_pdf || f.data_pagamento).length} label="Faturas recebidas" cor="bg-orange-600" />
+          <Funil valor={cotacoes.length} label="Cotações criadas" cor="from-purple-600 to-purple-500" largura="100%" />
+          <Funil valor={cotacoes.length} label="Cotações enviadas" cor="from-indigo-600 to-blue-500" largura="88%" />
+          <Funil valor={dados.cotacoesAprovadas} label="Cotações aprovadas" cor="from-blue-600 to-cyan-500" largura="76%" />
+          <Funil valor={embarques.length} label="Embarques criados" cor="from-green-600 to-emerald-500" largura="64%" />
+          <Funil valor={faturas.length} label="Faturas emitidas" cor="from-yellow-600 to-orange-500" largura="52%" />
+          <Funil valor={dados.faturasRecebidas} label="Faturas recebidas" cor="from-orange-600 to-red-500" largura="40%" />
 
           <div className="mt-6 border border-blue-900 rounded-2xl p-4 bg-[#020817]">
-            <p className="text-slate-400 text-sm">Taxa de conversão</p>
+            <p className="text-slate-400 text-sm">Taxa de conversão geral</p>
             <h3 className="text-3xl font-black text-blue-400">
               {cotacoes.length > 0
                 ? `${((embarques.length / cotacoes.length) * 100).toFixed(1)}%`
                 : '0%'}
             </h3>
           </div>
+        </Card>
+
+        <div className="xl:col-span-2">
+          <Card>
+            <div className="flex justify-between mb-6">
+              <h2 className="text-2xl font-black">Profit por cliente</h2>
+              <span className="text-blue-400 text-sm font-bold">Top 5</span>
+            </div>
+
+            <div className="space-y-4">
+              {topClientes.length === 0 ? (
+                <p className="text-slate-500">Nenhum cliente encontrado.</p>
+              ) : (
+                topClientes.map((item, index) => (
+                  <RankingCliente
+                    key={item.nome}
+                    pos={index + 1}
+                    nome={item.nome}
+                    profit={money(item.profit)}
+                    total={`${item.total} embarque(s)`}
+                  />
+                ))
+              )}
+            </div>
+          </Card>
         </div>
 
-        <div className="xl:col-span-2 card-premium">
-          <h2 className="text-2xl font-black mb-6">Top clientes</h2>
-
-          <div className="space-y-4">
-            {topClientes.map((item, index) => (
-              <Ranking key={item.nome} pos={index + 1} nome={item.nome} valor={`${item.total} embarque(s)`} />
-            ))}
-          </div>
-        </div>
-
-        <div className="card-premium">
+        <Card>
           <h2 className="text-2xl font-black mb-6">Alertas inteligentes</h2>
-
           <Alerta texto="Faturas vencidas" valor={dados.faturasVencidas} cor="red" />
           <Alerta texto="Embarques sem AWB" valor={dados.embarquesSemAwb} cor="yellow" />
           <Alerta texto="Cotações sem fechamento" valor={Math.max(cotacoes.length - dados.cotacoesAprovadas, 0)} cor="orange" />
           <Alerta texto="Chamados abertos" valor={dados.chamadosAbertos} cor="red" />
-        </div>
+        </Card>
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-        <div className="card-premium">
-          <h2 className="text-2xl font-black mb-6">Transportadoras</h2>
+        <Card>
+          <h2 className="text-2xl font-black mb-6">Receita x Profit</h2>
 
-          <div className="space-y-4">
+          <div className="h-64 flex items-end gap-5 border-b border-blue-900 pb-4">
+            {['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'].map((mes, i) => (
+              <div key={mes} className="flex-1 flex flex-col items-center gap-2">
+                <div className="flex items-end gap-2 h-48">
+                  <div
+                    className="w-5 rounded-t-lg bg-blue-600"
+                    style={{ height: `${35 + i * 8}%` }}
+                  />
+                  <div
+                    className="w-5 rounded-t-lg bg-purple-600"
+                    style={{ height: `${25 + i * 5}%` }}
+                  />
+                </div>
+                <span className="text-xs text-slate-400">{mes}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 mt-5">
+            <MiniBox label="Receita" valor={money(dados.receita)} />
+            <MiniBox label="Profit" valor={money(dados.profit)} />
+            <MiniBox label="Margem" valor={`${dados.margem.toFixed(1)}%`} />
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-2xl font-black mb-6">Embarques por origem</h2>
+
+          <div className="border border-blue-900 rounded-2xl bg-[#020817] h-48 mb-5 relative overflow-hidden">
+            <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_30%_40%,#2563eb,transparent_25%),radial-gradient(circle_at_70%_50%,#9333ea,transparent_25%),radial-gradient(circle_at_50%_70%,#22c55e,transparent_25%)]" />
+            <div className="absolute left-[20%] top-[45%] w-4 h-4 bg-blue-500 rounded-full shadow-[0_0_25px_#3b82f6]" />
+            <div className="absolute left-[55%] top-[35%] w-4 h-4 bg-green-500 rounded-full shadow-[0_0_25px_#22c55e]" />
+            <div className="absolute left-[75%] top-[55%] w-4 h-4 bg-purple-500 rounded-full shadow-[0_0_25px_#9333ea]" />
+            <div className="absolute bottom-4 left-4 text-slate-400 text-sm">
+              Mapa operacional HC
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {porPais.map((p) => (
+              <LinhaBarra key={p.nome} nome={p.nome} valor={`${p.total} embarque(s)`} />
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-2xl font-black mb-6">Receita por serviço</h2>
+
+          <div className="flex justify-center mb-6">
+            <div className="w-44 h-44 rounded-full bg conic-gradient flex items-center justify-center">
+              <div className="w-28 h-28 rounded-full bg-[#020817] flex flex-col items-center justify-center">
+                <span className="text-slate-400 text-sm">Total</span>
+                <strong className="text-xl">{money(dados.receita)}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {porServico.map((s) => (
+              <LinhaBarra key={s.nome} nome={s.nome} valor={`${s.total} operação(ões)`} />
+            ))}
+          </div>
+        </Card>
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+        <Card>
+          <h2 className="text-2xl font-black mb-6">Profit por transportadora</h2>
+
+          <div className="space-y-5">
             {topTransportadoras.map((item) => (
               <div key={item.nome}>
                 <div className="flex justify-between mb-2">
@@ -199,46 +348,53 @@ export default function IntelligencePage() {
                   <span className="text-blue-400 font-black">{item.total}</span>
                 </div>
 
-                <div className="h-3 rounded-full bg-slate-900 overflow-hidden">
+                <div className="h-4 bg-slate-900 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-purple-600 rounded-full"
-                    style={{ width: `${embarques.length ? (item.total / embarques.length) * 100 : 0}%` }}
+                    style={{
+                      width: `${embarques.length ? (item.total / embarques.length) * 100 : 0}%`,
+                    }}
                   />
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
 
-        <div className="card-premium">
+        <Card>
           <h2 className="text-2xl font-black mb-6">Financeiro - resumo</h2>
+          <Resumo label="A receber hoje" valor={money(0)} cor="green" />
+          <Resumo label="A receber no mês" valor={money(dados.receita)} cor="green" />
+          <Resumo label="A pagar transportadoras" valor={money(dados.compra)} cor="red" />
+          <Resumo label="Profit estimado" valor={money(dados.profit)} cor="blue" />
+          <Resumo label="Fluxo de caixa estimado" valor={money(dados.profit)} cor="purple" />
+        </Card>
 
-          <Resumo label="Receita total" valor={dinheiro(dados.receita)} cor="green" />
-          <Resumo label="Custo transportadoras" valor={dinheiro(dados.compra)} cor="red" />
-          <Resumo label="Profit líquido" valor={dinheiro(dados.profit)} cor="blue" />
-          <Resumo label="Margem média" valor={`${dados.margem.toFixed(1)}%`} cor="purple" />
-        </div>
-
-        <div className="card-premium">
+        <Card>
           <h2 className="text-2xl font-black mb-6">Performance geral</h2>
-
           <Resumo label="Clientes ativos" valor={topClientes.length} cor="blue" />
-          <Resumo label="Cotações" valor={cotacoes.length} cor="purple" />
-          <Resumo label="Embarques" valor={embarques.length} cor="green" />
-          <Resumo label="Faturas" valor={faturas.length} cor="yellow" />
-        </div>
+          <Resumo label="Novos clientes" valor={topClientes.length} cor="green" />
+          <Resumo label="Cotações mês" valor={cotacoes.length} cor="purple" />
+          <Resumo label="Embarques mês" valor={embarques.length} cor="yellow" />
+          <Resumo label="Faturas emitidas" valor={faturas.length} cor="blue" />
+          <Resumo label="Faturas recebidas" valor={dados.faturasRecebidas} cor="green" />
+        </Card>
       </section>
 
       <style jsx>{`
-        .card-premium {
-          border: 1px solid #1e3a8a;
-          background: linear-gradient(180deg, #071225, #020817);
-          border-radius: 24px;
-          padding: 24px;
-          box-shadow: 0 0 30px rgba(37, 99, 235, 0.08);
+        .bg.conic-gradient {
+          background: conic-gradient(#7c3aed 0 45%, #2563eb 45% 70%, #06b6d4 70% 85%, #f97316 85% 100%);
         }
       `}</style>
     </main>
+  )
+}
+
+function Card({ children }: any) {
+  return (
+    <div className="border border-blue-900 rounded-3xl bg-gradient-to-b from-[#071225] to-[#020817] p-6 shadow-[0_0_35px_rgba(37,99,235,0.10)]">
+      {children}
+    </div>
   )
 }
 
@@ -251,7 +407,7 @@ function Kpi({ titulo, valor, detalhe, icone, cor }: any) {
   }
 
   return (
-    <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6">
+    <div className="border border-blue-900 rounded-3xl bg-gradient-to-b from-[#071225] to-[#020817] p-6">
       <div className="flex justify-between gap-4">
         <div>
           <p className="text-slate-400 text-sm font-bold uppercase">{titulo}</p>
@@ -267,24 +423,27 @@ function Kpi({ titulo, valor, detalhe, icone, cor }: any) {
   )
 }
 
-function Funil({ valor, label, cor }: any) {
+function Funil({ valor, label, cor, largura }: any) {
   return (
-    <div className={`mb-3 ${cor} rounded-xl px-5 py-3 flex justify-between font-black`}>
-      <span>{valor}</span>
-      <span>{label}</span>
+    <div className="flex justify-center">
+      <div
+        className={`mb-3 bg-gradient-to-r ${cor} rounded-xl px-5 py-3 flex justify-between font-black`}
+        style={{ width: largura }}
+      >
+        <span>{valor}</span>
+        <span>{label}</span>
+      </div>
     </div>
   )
 }
 
-function Ranking({ pos, nome, valor }: any) {
+function RankingCliente({ pos, nome, profit, total }: any) {
   return (
-    <div className="border border-blue-900 bg-[#020817] rounded-2xl p-4 flex justify-between gap-4">
-      <div className="flex gap-4">
-        <span className="text-slate-500 font-black">{pos}</span>
-        <span className="font-bold">{nome}</span>
-      </div>
-
-      <span className="text-blue-400 font-black">{valor}</span>
+    <div className="border border-blue-900 bg-[#020817] rounded-2xl p-4 grid grid-cols-12 gap-3 items-center">
+      <div className="col-span-1 text-slate-500 font-black">{pos}</div>
+      <div className="col-span-5 font-bold truncate">{nome}</div>
+      <div className="col-span-3 text-slate-400 text-sm">{total}</div>
+      <div className="col-span-3 text-blue-400 font-black text-right">{profit}</div>
     </div>
   )
 }
@@ -316,9 +475,27 @@ function Resumo({ label, valor, cor }: any) {
   }
 
   return (
-    <div className="flex justify-between border-b border-blue-900 py-4">
+    <div className="flex justify-between border-b border-blue-900 py-4 gap-4">
       <span className="text-slate-300">{label}</span>
       <strong className={cores[cor]}>{valor}</strong>
+    </div>
+  )
+}
+
+function MiniBox({ label, valor }: any) {
+  return (
+    <div className="border border-blue-900 rounded-2xl bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs">{label}</p>
+      <strong>{valor}</strong>
+    </div>
+  )
+}
+
+function LinhaBarra({ nome, valor }: any) {
+  return (
+    <div className="flex justify-between gap-3 border-b border-blue-900 pb-2">
+      <span className="font-bold truncate">{nome}</span>
+      <span className="text-blue-400 font-black whitespace-nowrap">{valor}</span>
     </div>
   )
 }
