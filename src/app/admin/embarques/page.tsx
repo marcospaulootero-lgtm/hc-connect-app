@@ -7,16 +7,22 @@ import { supabase } from '@/lib/supabaseClient'
 export default function EmbarquesPage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [usuarios, setUsuarios] = useState<any[]>([])
+  const [admins, setAdmins] = useState<any[]>([])
   const [vinculos, setVinculos] = useState<any[]>([])
 
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
+
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
   const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
 
-  const [form, setForm] = useState({
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<any>(null)
+
+  const formInicial = {
     usuarios_ids: [] as string[],
+    responsavel_id: '',
     exportador: '',
     importador: '',
     referencia_cliente: '',
@@ -32,11 +38,14 @@ export default function EmbarquesPage() {
     data_envio: '',
     data_prevista: '',
     observacoes: '',
-  })
+  }
+
+  const [form, setForm] = useState(formInicial)
 
   useEffect(() => {
     carregar()
     carregarUsuarios()
+    carregarAdmins()
   }, [])
 
   async function carregar() {
@@ -61,6 +70,16 @@ export default function EmbarquesPage() {
       .order('nome')
 
     setUsuarios(data || [])
+  }
+
+  async function carregarAdmins() {
+    const { data } = await supabase
+      .from('perfis')
+      .select('*')
+      .in('tipo_acesso', ['admin', 'administrador'])
+      .order('nome')
+
+    setAdmins(data || [])
   }
 
   function clientesDoEmbarque(embarqueId: string) {
@@ -147,6 +166,11 @@ export default function EmbarquesPage() {
     const primeiroClienteId = form.usuarios_ids[0] || null
     const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
 
+    const responsavel =
+      admins.find((a) => a.id === form.responsavel_id) || perfilAdmin
+
+    const responsavelId = form.responsavel_id || user.id
+
     const { data, error } = await supabase
       .from('embarques')
       .insert([
@@ -157,6 +181,10 @@ export default function EmbarquesPage() {
           criado_por_admin_id: user.id,
           criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
           criado_por_admin_email: perfilAdmin?.email || user.email || null,
+
+          responsavel_id: responsavelId,
+          responsavel_nome: responsavel?.nome || user.email || null,
+          responsavel_email: responsavel?.email || user.email || null,
 
           exportador: form.exportador || null,
           importador: form.importador || null,
@@ -206,26 +234,85 @@ export default function EmbarquesPage() {
     }
 
     alert('Embarque salvo com sucesso')
+    setForm(formInicial)
+    carregar()
+  }
 
-    setForm({
-      usuarios_ids: [],
-      exportador: '',
-      importador: '',
-      referencia_cliente: '',
-      referencia_hc: '',
-      awb: '',
-      transportadora: 'DHL',
-      servico: '',
-      origem: '',
-      destino: '',
-      peso_real: '',
-      peso_taxado: '',
-      status_operacional: 'Aguardando coleta',
-      data_envio: '',
-      data_prevista: '',
-      observacoes: '',
+  function abrirEdicao(item: any) {
+    setEditandoId(item.id)
+    setEditForm({
+      responsavel_id: item.responsavel_id || '',
+      exportador: item.exportador || '',
+      importador: item.importador || '',
+      referencia_cliente: item.referencia_cliente || '',
+      referencia_hc: item.referencia_hc || '',
+      awb: item.awb || '',
+      transportadora: item.transportadora || 'DHL',
+      servico: item.servico || '',
+      origem: item.origem || '',
+      destino: item.destino || '',
+      peso_real: item.peso_real ? String(item.peso_real) : '',
+      peso_taxado: item.peso_taxado ? String(item.peso_taxado) : '',
+      status_operacional: item.status_operacional || 'Aguardando coleta',
+      data_prevista: item.data_prevista || '',
+      observacoes: item.observacoes || '',
+    })
+  }
+
+  async function salvarEdicao(id: string) {
+    if (!editForm) return
+
+    const responsavel = admins.find((a) => a.id === editForm.responsavel_id)
+
+    const dadosAtualizar: any = {
+      responsavel_id: responsavel?.id || null,
+      responsavel_nome: responsavel?.nome || null,
+      responsavel_email: responsavel?.email || null,
+
+      exportador: editForm.exportador || null,
+      importador: editForm.importador || null,
+      referencia_cliente: editForm.referencia_cliente || null,
+      referencia_hc: editForm.referencia_hc || null,
+
+      awb: editForm.awb || null,
+      transportadora: editForm.transportadora || null,
+      servico: editForm.servico || null,
+      origem: editForm.origem || null,
+      destino: editForm.destino || null,
+
+      peso_real: editForm.peso_real ? Number(String(editForm.peso_real).replace(',', '.')) : null,
+      peso_taxado: editForm.peso_taxado ? Number(String(editForm.peso_taxado).replace(',', '.')) : null,
+
+      status_operacional: editForm.status_operacional || null,
+      data_prevista: editForm.data_prevista || null,
+      observacoes: editForm.observacoes || null,
+      ultima_atualizacao: new Date().toISOString(),
+    }
+
+    if (editForm.status_operacional === 'Entregue') {
+      dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
+    }
+
+    const { error } = await supabase
+      .from('embarques')
+      .update(dadosAtualizar)
+      .eq('id', id)
+
+    if (error) {
+      alert(error.message)
+      console.error('Erro edição:', error)
+      return
+    }
+
+    await supabase.from('timeline_embarques').insert({
+      embarque_id: id,
+      status: 'EDIÇÃO',
+      descricao: 'Embarque editado pelo painel administrativo.',
     })
 
+    alert('Embarque atualizado com sucesso')
+    setEditandoId(null)
+    setEditForm(null)
     carregar()
   }
 
@@ -274,6 +361,7 @@ export default function EmbarquesPage() {
 
     await supabase.from('embarque_clientes').delete().eq('embarque_id', id)
     await supabase.from('timeline_embarques').delete().eq('embarque_id', id)
+    await supabase.from('rastreios_embarques').delete().eq('embarque_id', id)
 
     const { error } = await supabase.from('embarques').delete().eq('id', id)
 
@@ -301,6 +389,8 @@ export default function EmbarquesPage() {
         ${item.status_operacional}
         ${item.criado_por_admin_nome}
         ${item.criado_por_admin_email}
+        ${item.responsavel_nome}
+        ${item.responsavel_email}
         ${nomesClientes(item.id, item.usuario_id)}
       `.toLowerCase()
 
@@ -348,23 +438,39 @@ export default function EmbarquesPage() {
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225] mb-8">
         <h2 className="text-2xl font-black mb-7">Cadastrar novo embarque</h2>
 
-        <div className="mb-6 border border-slate-700 rounded-2xl p-4">
-          <label className="block text-slate-300 font-bold mb-3">
-            Clientes vinculados
-          </label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+          <div className="border border-slate-700 rounded-2xl p-4">
+            <label className="block text-slate-300 font-bold mb-3">
+              Clientes vinculados
+            </label>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            {usuarios.map((usuario) => (
-              <label key={usuario.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.usuarios_ids.includes(usuario.id)}
-                  onChange={(e) => alterarSelecaoCliente(usuario.id, e.target.checked)}
-                />
-                {usuario.nome || usuario.email}
-              </label>
-            ))}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[180px] overflow-auto">
+              {usuarios.map((usuario) => (
+                <label key={usuario.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.usuarios_ids.includes(usuario.id)}
+                    onChange={(e) => alterarSelecaoCliente(usuario.id, e.target.checked)}
+                  />
+                  {usuario.nome || usuario.email}
+                </label>
+              ))}
+            </div>
           </div>
+
+          <Campo label="Responsável pelo embarque">
+            <select
+              value={form.responsavel_id}
+              onChange={(e) => setForm({ ...form, responsavel_id: e.target.value })}
+            >
+              <option value="">Quem está criando</option>
+              {admins.map((admin) => (
+                <option key={admin.id} value={admin.id}>
+                  {admin.nome || admin.email}
+                </option>
+              ))}
+            </select>
+          </Campo>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
@@ -450,7 +556,7 @@ export default function EmbarquesPage() {
               setFiltroStatus('')
               setFiltroTransportadora('')
             }}
-            className="bg-slate-700 hover:bg-slate-600"
+            className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
           >
             Limpar filtros
           </button>
@@ -487,127 +593,266 @@ export default function EmbarquesPage() {
           </div>
         </div>
 
-        <div className="overflow-auto">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>AWB</th>
-                <th>Clientes vinculados</th>
-                <th>Responsável</th>
-                <th>Exportador</th>
-                <th>Importador</th>
-                <th>Ref. Cliente</th>
-                <th>Ref. HC</th>
-                <th>Transportadora</th>
-                <th>Origem → Destino</th>
-                <th>Status</th>
-                <th>Previsão</th>
-                <th>Rastreio</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          {embarquesFiltrados.map((item) => (
+            <article
+              key={item.id}
+              className="border border-blue-900 rounded-3xl bg-[#020817] p-6 shadow-[0_0_20px_rgba(37,99,235,0.08)]"
+            >
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
+                <div>
+                  <p className="text-slate-500 text-sm">AWB</p>
+                  <a
+                    href={`/admin/embarques/${item.id}`}
+                    className="text-3xl font-black text-blue-400 underline break-all"
+                  >
+                    {item.awb || '-'}
+                  </a>
 
-            <tbody>
-              {embarquesFiltrados.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <a href={`/admin/embarques/${item.id}`} className="text-blue-400 font-black underline">
-                      {item.awb}
-                    </a>
-                  </td>
-
-                  <td>{nomesClientes(item.id, item.usuario_id)}</td>
-                  <td>{item.criado_por_admin_nome || item.criado_por_admin_email || '-'}</td>
-                  <td>{item.exportador || '-'}</td>
-                  <td>{item.importador || '-'}</td>
-                  <td>{item.referencia_cliente || '-'}</td>
-                  <td>{item.referencia_hc || '-'}</td>
-                  <td>{item.transportadora || '-'}</td>
-                  <td>{item.origem || '-'} → {item.destino || '-'}</td>
-
-                  <td>
+                  <div className="mt-3 flex flex-wrap gap-2 items-center">
                     <StatusBadge status={item.status_operacional} />
-                  </td>
+                    <span className="text-slate-400">
+                      {item.transportadora || '-'} • {item.servico || '-'}
+                    </span>
+                  </div>
+                </div>
 
-                  <td>{item.data_prevista ? new Date(item.data_prevista).toLocaleDateString('pt-BR') : '-'}</td>
+                <div className="text-right">
+                  <p className="text-slate-500 text-sm">Responsável</p>
+                  <p className="font-black">
+                    {item.responsavel_nome ||
+                      item.responsavel_email ||
+                      item.criado_por_admin_nome ||
+                      '-'}
+                  </p>
+                </div>
+              </div>
 
-                  <td>
-                    {linkRastreio(item) ? (
-                      <a
-                        href={linkRastreio(item)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-yellow-500 hover:bg-yellow-400 px-4 py-2 rounded-xl text-black font-bold inline-block"
+              {editandoId === item.id && editForm ? (
+                <div className="border border-blue-900 rounded-2xl p-5 mb-5 bg-[#071225]">
+                  <h3 className="text-xl font-black mb-5">Editar embarque</h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Campo label="Responsável">
+                      <select
+                        value={editForm.responsavel_id}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, responsavel_id: e.target.value })
+                        }
                       >
-                        {item.transportadora || 'Rastrear'}
-                      </a>
-                    ) : (
-                      <span className="text-slate-500">-</span>
-                    )}
-                  </td>
+                        <option value="">Sem responsável</option>
+                        {admins.map((admin) => (
+                          <option key={admin.id} value={admin.id}>
+                            {admin.nome || admin.email}
+                          </option>
+                        ))}
+                      </select>
+                    </Campo>
 
-                  <td>
-                    <div className="flex gap-2 flex-wrap">
-                      <a href={`/admin/embarques/${item.id}`} className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold">
-                        Ver
-                      </a>
+                    <Campo label="AWB">
+                      <input value={editForm.awb} onChange={(e) => setEditForm({ ...editForm, awb: e.target.value })} />
+                    </Campo>
 
-                      <button onClick={() => excluirEmbarque(item.id)} className="bg-red-700 hover:bg-red-600">
-                        Excluir
+                    <Campo label="Status">
+                      <select value={editForm.status_operacional} onChange={(e) => setEditForm({ ...editForm, status_operacional: e.target.value })}>
+                        <option value="Aguardando coleta">Aguardando coleta</option>
+                        <option value="Coletado">Coletado</option>
+                        <option value="Em trânsito">Em trânsito</option>
+                        <option value="Fiscalização">Fiscalização</option>
+                        <option value="Liberado">Liberado</option>
+                        <option value="Entregue">Entregue</option>
+                        <option value="Atrasado">Atrasado</option>
+                        <option value="Aguardando AWB">Aguardando AWB</option>
+                      </select>
+                    </Campo>
+
+                    <Campo label="Transportadora">
+                      <select value={editForm.transportadora} onChange={(e) => setEditForm({ ...editForm, transportadora: e.target.value })}>
+                        <option value="DHL">DHL</option>
+                        <option value="FedEx">FedEx</option>
+                        <option value="UPS">UPS</option>
+                        <option value="Outra">Outra</option>
+                      </select>
+                    </Campo>
+
+                    <Campo label="Serviço">
+                      <input value={editForm.servico} onChange={(e) => setEditForm({ ...editForm, servico: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Data prevista">
+                      <input type="date" value={editForm.data_prevista} onChange={(e) => setEditForm({ ...editForm, data_prevista: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Exportador">
+                      <input value={editForm.exportador} onChange={(e) => setEditForm({ ...editForm, exportador: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Importador">
+                      <input value={editForm.importador} onChange={(e) => setEditForm({ ...editForm, importador: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Referência cliente">
+                      <input value={editForm.referencia_cliente} onChange={(e) => setEditForm({ ...editForm, referencia_cliente: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Referência HC">
+                      <input value={editForm.referencia_hc} onChange={(e) => setEditForm({ ...editForm, referencia_hc: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Origem">
+                      <input value={editForm.origem} onChange={(e) => setEditForm({ ...editForm, origem: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Destino">
+                      <input value={editForm.destino} onChange={(e) => setEditForm({ ...editForm, destino: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Peso real">
+                      <input value={editForm.peso_real} onChange={(e) => setEditForm({ ...editForm, peso_real: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Peso taxado">
+                      <input value={editForm.peso_taxado} onChange={(e) => setEditForm({ ...editForm, peso_taxado: e.target.value })} />
+                    </Campo>
+
+                    <div className="md:col-span-3">
+                      <Campo label="Observações">
+                        <textarea
+                          value={editForm.observacoes}
+                          onChange={(e) => setEditForm({ ...editForm, observacoes: e.target.value })}
+                          className="min-h-[90px]"
+                        />
+                      </Campo>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 mt-5">
+                    <button
+                      onClick={() => salvarEdicao(item.id)}
+                      className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
+                    >
+                      Salvar edição
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setEditandoId(null)
+                        setEditForm(null)
+                      }}
+                      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                <Info label="Clientes" valor={nomesClientes(item.id, item.usuario_id)} />
+                <Info label="Criado por" valor={item.criado_por_admin_nome || item.criado_por_admin_email || '-'} />
+                <Info label="Exportador" valor={item.exportador || '-'} />
+                <Info label="Importador" valor={item.importador || '-'} />
+                <Info label="Ref. Cliente" valor={item.referencia_cliente || '-'} />
+                <Info label="Ref. HC" valor={item.referencia_hc || '-'} />
+                <Info label="Origem → Destino" valor={`${item.origem || '-'} → ${item.destino || '-'}`} />
+                <Info
+                  label="Previsão"
+                  valor={
+                    item.data_prevista
+                      ? new Date(item.data_prevista).toLocaleDateString('pt-BR')
+                      : '-'
+                  }
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <a
+                  href={`/admin/embarques/${item.id}`}
+                  className="bg-blue-600 hover:bg-blue-500 px-4 py-3 rounded-xl text-white font-bold"
+                >
+                  Ver detalhes
+                </a>
+
+                <button
+                  onClick={() => abrirEdicao(item)}
+                  className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold"
+                >
+                  Editar
+                </button>
+
+                {linkRastreio(item) && (
+                  <a
+                    href={linkRastreio(item)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-yellow-500 hover:bg-yellow-400 px-4 py-3 rounded-xl text-black font-bold"
+                  >
+                    Rastrear
+                  </a>
+                )}
+
+                <button
+                  onClick={() => excluirEmbarque(item.id)}
+                  className="bg-red-700 hover:bg-red-600 px-4 py-3 rounded-xl font-bold"
+                >
+                  Excluir
+                </button>
+
+                {vinculandoId === item.id ? (
+                  <div className="border border-slate-700 rounded-xl p-3 w-full mt-3">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 max-h-[180px] overflow-auto mb-3">
+                      {usuarios.map((usuario) => (
+                        <label key={usuario.id} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={usuariosVinculo.includes(usuario.id)}
+                            onChange={(e) => alterarSelecaoVinculo(usuario.id, e.target.checked)}
+                          />
+                          {usuario.nome || usuario.email}
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button onClick={() => vincularClientes(item.id)} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold">
+                        Salvar vínculos
                       </button>
 
-                      {vinculandoId === item.id ? (
-                        <div className="border border-slate-700 rounded-xl p-3 w-[320px]">
-                          <div className="grid grid-cols-1 gap-2 max-h-[180px] overflow-auto mb-3">
-                            {usuarios.map((usuario) => (
-                              <label key={usuario.id} className="flex items-center gap-2 text-sm">
-                                <input
-                                  type="checkbox"
-                                  checked={usuariosVinculo.includes(usuario.id)}
-                                  onChange={(e) => alterarSelecaoVinculo(usuario.id, e.target.checked)}
-                                />
-                                {usuario.nome || usuario.email}
-                              </label>
-                            ))}
-                          </div>
-
-                          <div className="flex gap-2">
-                            <button onClick={() => vincularClientes(item.id)} className="bg-green-600 hover:bg-green-500">
-                              Salvar
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setVinculandoId(null)
-                                setUsuariosVinculo([])
-                              }}
-                              className="bg-slate-700 hover:bg-slate-600"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            const idsAtuais = vinculos
-                              .filter((v) => v.embarque_id === item.id)
-                              .map((v) => v.cliente_id)
-
-                            setVinculandoId(item.id)
-                            setUsuariosVinculo(idsAtuais)
-                          }}
-                          className="bg-slate-700 hover:bg-slate-600"
-                        >
-                          Vincular clientes
-                        </button>
-                      )}
+                      <button
+                        onClick={() => {
+                          setVinculandoId(null)
+                          setUsuariosVinculo([])
+                        }}
+                        className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold"
+                      >
+                        Cancelar
+                      </button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const idsAtuais = vinculos
+                        .filter((v) => v.embarque_id === item.id)
+                        .map((v) => v.cliente_id)
+
+                      setVinculandoId(item.id)
+                      setUsuariosVinculo(idsAtuais)
+                    }}
+                    className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+                  >
+                    Vincular clientes
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 rounded-3xl bg-[#020817] p-8 text-slate-400">
+              Nenhum embarque encontrado.
+            </div>
+          )}
         </div>
       </section>
     </main>
@@ -623,6 +868,7 @@ function KpiCard({ titulo, valor, detalhe, icone }: any) {
           <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
           <p className="text-slate-400 mt-2">{detalhe}</p>
         </div>
+
         <div className="text-4xl">{icone}</div>
       </div>
     </div>
@@ -634,6 +880,15 @@ function Campo({ label, children }: any) {
     <div>
       <label className="block text-slate-300 font-bold mb-2">{label}</label>
       {children}
+    </div>
+  )
+}
+
+function Info({ label, valor }: any) {
+  return (
+    <div className="border border-blue-950 bg-[#071225] rounded-2xl p-4">
+      <p className="text-slate-500 text-sm mb-2">{label}</p>
+      <p className="font-bold break-words">{valor}</p>
     </div>
   )
 }
