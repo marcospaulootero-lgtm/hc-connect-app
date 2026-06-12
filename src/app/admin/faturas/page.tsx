@@ -18,6 +18,10 @@ type Fatura = {
   id: string
   vencimento: string | null
   arquivo_pdf: string | null
+  recibo_pdf: string | null
+  recibo_nome: string | null
+  data_pagamento: string | null
+  valor_pago: number | null
   criado_em: string
   visivel_cliente?: boolean | null
   embarques?: any
@@ -27,6 +31,7 @@ export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
   const [salvando, setSalvando] = useState(false)
+  const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
 
   const [awbId, setAwbId] = useState('')
@@ -49,6 +54,10 @@ export default function FaturasPage() {
         id,
         vencimento,
         arquivo_pdf,
+        recibo_pdf,
+        recibo_nome,
+        data_pagamento,
+        valor_pago,
         criado_em,
         visivel_cliente,
         embarques (
@@ -127,6 +136,72 @@ export default function FaturasPage() {
     carregar()
   }
 
+  async function anexarRecibo(fatura: Fatura, arquivo: File | null) {
+    if (!arquivo) return
+    if (arquivo.type !== 'application/pdf') return alert('O recibo precisa ser um PDF')
+
+    setEnviandoRecibo(fatura.id)
+
+    const nomeArquivo = `recibos/${fatura.id}/${Date.now()}-${arquivo.name.replaceAll(' ', '-')}`
+
+    const { error: erroUpload } = await supabase.storage
+      .from('faturas')
+      .upload(nomeArquivo, arquivo, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: 'application/pdf',
+      })
+
+    if (erroUpload) {
+      setEnviandoRecibo(null)
+      alert(erroUpload.message)
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+
+    const { error } = await supabase
+      .from('faturas')
+      .update({
+        recibo_pdf: urlData.publicUrl,
+        recibo_nome: arquivo.name,
+        data_pagamento: new Date().toISOString().slice(0, 10),
+      })
+      .eq('id', fatura.id)
+
+    setEnviandoRecibo(null)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    alert('Recibo anexado com sucesso')
+    carregar()
+  }
+
+  async function removerRecibo(fatura: Fatura) {
+    const confirmar = confirm('Deseja remover o recibo desta fatura?')
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('faturas')
+      .update({
+        recibo_pdf: null,
+        recibo_nome: null,
+        data_pagamento: null,
+        valor_pago: null,
+      })
+      .eq('id', fatura.id)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    carregar()
+  }
+
   async function alterarVisibilidade(fatura: Fatura) {
     const { error } = await supabase
       .from('faturas')
@@ -174,19 +249,16 @@ export default function FaturasPage() {
   const totalVisiveis = faturas.filter((f) => f.visivel_cliente).length
   const totalOcultas = faturas.filter((f) => !f.visivel_cliente).length
   const totalPDF = faturas.filter((f) => f.arquivo_pdf).length
+  const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
 
   return (
     <main className="max-w-[1500px] mx-auto p-8 text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
         <div>
           <p className="text-blue-400 font-bold mb-2">Financeiro</p>
-
-          <h1 className="text-5xl font-black mb-2">
-            Faturas
-          </h1>
-
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
           <p className="text-slate-400 text-lg">
-            Vincule faturas aos embarques e disponibilize os PDFs para o cliente.
+            Vincule faturas aos embarques, envie PDFs e anexe recibos de pagamento.
           </p>
         </div>
 
@@ -201,8 +273,8 @@ export default function FaturasPage() {
       <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
         <Card titulo="Total de faturas" valor={faturas.length} detalhe="Cadastradas no sistema" icone="💵" />
         <Card titulo="Visíveis ao cliente" valor={totalVisiveis} detalhe="Disponíveis no portal" icone="✅" />
-        <Card titulo="Ocultas" valor={totalOcultas} detalhe="Não aparecem ao cliente" icone="🙈" />
-        <Card titulo="PDFs anexados" valor={totalPDF} detalhe="Arquivos disponíveis" icone="📄" />
+        <Card titulo="PDFs anexados" valor={totalPDF} detalhe="Faturas disponíveis" icone="📄" />
+        <Card titulo="Recibos anexados" valor={totalRecibos} detalhe="Pagamentos recebidos" icone="🧾" />
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
@@ -259,7 +331,7 @@ export default function FaturasPage() {
           <div>
             <h2 className="text-2xl font-black">Faturas cadastradas</h2>
             <p className="text-slate-400 text-sm">
-              Controle os PDFs enviados e a visibilidade no portal do cliente.
+              Controle faturas, recibos e visibilidade no portal do cliente.
             </p>
           </div>
 
@@ -280,8 +352,9 @@ export default function FaturasPage() {
                 <th>Transportadora</th>
                 <th>Status embarque</th>
                 <th>Vencimento</th>
-                <th>Disponível ao cliente</th>
-                <th>PDF</th>
+                <th>Disponível</th>
+                <th>Fatura PDF</th>
+                <th>Recibo</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -292,12 +365,8 @@ export default function FaturasPage() {
 
                 return (
                   <tr key={item.id}>
-                    <td className="font-black text-blue-400">
-                      {emb.awb || '-'}
-                    </td>
-
+                    <td className="font-black text-blue-400">{emb.awb || '-'}</td>
                     <td>{emb.cliente_final || '-'}</td>
-
                     <td>{emb.transportadora || '-'}</td>
 
                     <td>
@@ -329,11 +398,57 @@ export default function FaturasPage() {
                           target="_blank"
                           className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold inline-block"
                         >
-                          Abrir PDF
+                          Abrir fatura
                         </Link>
                       ) : (
                         <span className="text-slate-500">Sem PDF</span>
                       )}
+                    </td>
+
+                    <td>
+                      <div className="flex flex-col gap-2 min-w-[220px]">
+                        {item.recibo_pdf ? (
+                          <>
+                            <Link
+                              href={item.recibo_pdf}
+                              target="_blank"
+                              className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold text-center"
+                            >
+                              Abrir recibo
+                            </Link>
+
+                            <p className="text-xs text-slate-400">
+                              Pago em:{' '}
+                              {item.data_pagamento
+                                ? new Date(item.data_pagamento).toLocaleDateString('pt-BR')
+                                : '-'}
+                            </p>
+
+                            <button
+                              onClick={() => removerRecibo(item)}
+                              className="bg-red-700 hover:bg-red-600 px-4 py-2 rounded-xl font-bold"
+                            >
+                              Remover recibo
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              type="file"
+                              accept="application/pdf"
+                              disabled={enviandoRecibo === item.id}
+                              onChange={(e) => anexarRecibo(item, e.target.files?.[0] || null)}
+                              className="text-sm"
+                            />
+
+                            {enviandoRecibo === item.id && (
+                              <span className="text-blue-400 text-xs font-bold">
+                                Enviando recibo...
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </td>
 
                     <td>
