@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
 
@@ -103,6 +103,8 @@ export default function ClientePage() {
       })
 
       setDocumentosPorEmbarque(agrupado)
+    } else {
+      setDocumentosPorEmbarque({})
     }
   }
 
@@ -205,39 +207,6 @@ export default function ClientePage() {
     return texto.includes(busca.toLowerCase())
   })
 
-  const responsavelPrincipal = useMemo(() => {
-    const mapa: any = {}
-
-    embarques.forEach((e) => {
-      const nome = e.responsavel_nome
-      const email = e.responsavel_email
-
-      if (!nome && !email) return
-
-      const chave = `${nome || ''}|${email || ''}`
-
-      if (!mapa[chave]) {
-        mapa[chave] = {
-          nome: nome || 'Equipe HC',
-          email: email || '',
-          total: 0,
-        }
-      }
-
-      mapa[chave].total += 1
-    })
-
-    const lista: any[] = Object.values(mapa)
-
-    return (
-      lista.sort((a, b) => b.total - a.total)[0] || {
-        nome: 'Equipe HC Consultoria',
-        email: 'marcos@hcbhz.com',
-        total: 0,
-      }
-    )
-  }, [embarques])
-
   const documentosTotal = Object.values(documentosPorEmbarque).reduce(
     (acc: number, lista: any) => acc + Number(lista?.length || 0),
     0
@@ -335,48 +304,7 @@ export default function ClientePage() {
           <Kpi titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" />
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
-          <div className="card">
-            <h2 className="text-2xl font-black mb-5">👤 Responsável HC</h2>
-
-            <div className="border border-blue-900 bg-[#020817] rounded-3xl p-5">
-              <p className="text-slate-400 text-sm mb-1">Responsável principal pelos seus embarques</p>
-
-              <h3 className="text-3xl font-black capitalize mb-2">
-                {responsavelPrincipal.nome}
-              </h3>
-
-              <p className="text-slate-400 mb-5">
-                {responsavelPrincipal.email || 'Equipe HC Consultoria'}
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <a
-                  href={`mailto:${responsavelPrincipal.email || 'marcos@hcbhz.com'}`}
-                  className="bg-blue-600 hover:bg-blue-500 px-4 py-3 rounded-xl font-bold text-center"
-                >
-                  E-mail
-                </a>
-
-                <a
-                  href={`https://wa.me/${whatsResponsavel(responsavelPrincipal.email)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-green-600 hover:bg-green-500 px-4 py-3 rounded-xl font-bold text-center"
-                >
-                  WhatsApp
-                </a>
-
-                <a
-                  href="/cliente/suporte"
-                  className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold text-center"
-                >
-                  Suporte
-                </a>
-              </div>
-            </div>
-          </div>
-
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
           <div className="card">
             <h2 className="text-2xl font-black mb-5">🚨 Alertas importantes</h2>
 
