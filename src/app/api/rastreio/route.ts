@@ -320,12 +320,19 @@ async function salvarRastreio({
     dadosAtualizar.data_envio = new Date().toISOString().split('T')[0]
   }
 
-  await supabase
-    .from('embarques')
-    .update(dadosAtualizar)
-    .eq('id', embarque.id)
+  const { error: erroUpdate } = await supabase
+  .from('embarques')
+  .update(dadosAtualizar)
+  .eq('id', embarque.id)
 
-  await supabase.from('rastreios_embarques').insert({
+if (erroUpdate) {
+  console.log('ERRO UPDATE EMBARQUE:', erroUpdate)
+  throw new Error(`Erro ao atualizar embarque: ${erroUpdate.message}`)
+}
+
+const { error: erroInsert } = await supabase
+  .from('rastreios_embarques')
+  .insert({
     embarque_id: embarque.id,
     awb,
     transportadora,
@@ -335,4 +342,9 @@ async function salvarRastreio({
     data_evento: dataEvento,
     eventos,
   })
+
+if (erroInsert) {
+  console.log('ERRO INSERT RASTREIO:', erroInsert)
+  throw new Error(`Erro ao salvar rastreio: ${erroInsert.message}`)
+}
 }
