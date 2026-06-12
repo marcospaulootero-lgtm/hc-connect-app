@@ -7,7 +7,6 @@ export default function DashboardPage() {
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
-  const [faturas, setFaturas] = useState<any[]>([])
   const [suporte, setSuporte] = useState<any[]>([])
   const [carregando, setCarregando] = useState(false)
 
@@ -18,45 +17,25 @@ export default function DashboardPage() {
   async function buscarDados() {
     setCarregando(true)
 
-    const [perfisRes, embarquesRes, cotacoesRes, faturasRes, suporteRes] =
+    const [perfisRes, embarquesRes, cotacoesRes, suporteRes] =
       await Promise.all([
         supabase.from('perfis').select('*').order('nome'),
         supabase.from('embarques').select('*').order('criado_em', { ascending: false }),
         supabase.from('cotacoes').select('*').order('criado_em', { ascending: false }),
-        supabase.from('faturas').select('*').order('criado_em', { ascending: false }),
         supabase.from('suporte').select('*').order('criado_em', { ascending: false }),
       ])
 
     setUsuarios(perfisRes.data || [])
     setEmbarques(embarquesRes.data || [])
     setCotacoes(cotacoesRes.data || [])
-    setFaturas(faturasRes.data || [])
     setSuporte(suporteRes.data || [])
 
     setCarregando(false)
   }
 
-  function valorFatura(item: any) {
-    return Number(
-      item.valor ||
-        item.valor_total ||
-        item.total ||
-        item.valor_fatura ||
-        item.valor_cobrado ||
-        0
-    )
-  }
-
   function dataBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleDateString('pt-BR')
-  }
-
-  function moeda(valor: number) {
-    return valor.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    })
   }
 
   const hoje = new Date()
@@ -88,30 +67,12 @@ export default function DashboardPage() {
       c.status === 'AGUARDANDO TRANSPORTADORA'
   ).length
 
-  const faturasVisiveis = faturas.filter((f) => f.visivel_cliente === true).length
-
-  const faturasVencidas = faturas.filter((f) => {
-    if (!f.vencimento) return false
-    return new Date(f.vencimento) < hoje
-  })
-
-  const valorTotalFaturas = faturas.reduce((acc, item) => acc + valorFatura(item), 0)
-  const valorVencido = faturasVencidas.reduce((acc, item) => acc + valorFatura(item), 0)
+  const clientesAtivos = usuarios.filter((u) => u.ativo !== false).length
 
   const pesoTotal = embarques.reduce(
     (acc, item) => acc + Number(item.peso_taxado || item.peso_real || 0),
     0
   )
-
-  const clientesAtivos = usuarios.filter((u) => u.ativo !== false).length
-
-  const receitaMes = faturas
-    .filter((f) => {
-      if (!f.criado_em) return false
-      const data = new Date(f.criado_em)
-      return data.getMonth() === mesAtual && data.getFullYear() === anoAtual
-    })
-    .reduce((acc, item) => acc + valorFatura(item), 0)
 
   const ultimosEmbarques = embarques.slice(0, 6)
   const ultimasCotacoes = cotacoes.slice(0, 5)
@@ -129,6 +90,8 @@ export default function DashboardPage() {
       .sort((a, b) => b.total - a.total)
       .slice(0, 5)
   }, [embarques])
+
+  const transportadorasAtivas = embarquesPorTransportadora.length
 
   const rankingClientes = useMemo(() => {
     const mapa: any = {}
@@ -161,7 +124,7 @@ export default function DashboardPage() {
   const atividadesRecentes = useMemo(() => {
     const atividades: any[] = []
 
-    embarques.slice(0, 5).forEach((e) => {
+    embarques.slice(0, 8).forEach((e) => {
       atividades.push({
         titulo: `Embarque ${e.awb || '-'} atualizado`,
         detalhe: `${e.transportadora || '-'} • ${e.status_operacional || '-'}`,
@@ -188,20 +151,11 @@ export default function DashboardPage() {
       })
     })
 
-    faturas.slice(0, 5).forEach((f) => {
-      atividades.push({
-        titulo: 'Fatura cadastrada',
-        detalhe: moeda(valorFatura(f)),
-        data: f.criado_em,
-        icone: '💰',
-      })
-    })
-
     return atividades
       .filter((a) => a.data)
       .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
       .slice(0, 8)
-  }, [embarques, cotacoes, suporte, faturas])
+  }, [embarques, cotacoes, suporte])
 
   const embarquesPorTipo = useMemo(() => {
     const exportacao = embarques.filter((e) =>
@@ -259,24 +213,31 @@ export default function DashboardPage() {
               {carregando ? 'Atualizando...' : '↻ Atualizar dados'}
             </button>
 
-            <a href="/admin/embarques" className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold">
+            <a
+              href="/admin/embarques"
+              className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+            >
               + Novo embarque
             </a>
 
-            <a href="/admin/cotacoes" className="bg-slate-700 hover:bg-slate-600 px-6 py-4 rounded-2xl font-bold">
+            <a
+              href="/admin/cotacoes"
+              className="bg-slate-700 hover:bg-slate-600 px-6 py-4 rounded-2xl font-bold"
+            >
               Ver cotações
             </a>
           </div>
         </header>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-5 mb-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-5 mb-8">
           <KpiCard titulo="Embarques no mês" valor={embarquesMes.length} detalhe="Total no período" icone="📦" cor="blue" />
           <KpiCard titulo="Em trânsito" valor={transito} detalhe="Em andamento" icone="🚚" cor="green" />
           <KpiCard titulo="Em fiscalização" valor={fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" />
           <KpiCard titulo="Liberados" valor={liberados} detalhe="Prontos para seguir" icone="✅" cor="green" />
           <KpiCard titulo="Entregues" valor={entregues} detalhe="Concluídos" icone="📬" cor="blue" />
-          <KpiCard titulo="Receita do mês" valor={moeda(receitaMes)} detalhe="Faturamento" icone="💰" cor="green" />
           <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" />
+          <KpiCard titulo="Peso movimentado" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Total apurado" icone="⚖️" cor="green" />
+          <KpiCard titulo="Transportadoras" valor={transportadorasAtivas} detalhe="Em operação" icone="✈️" cor="blue" />
         </section>
 
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
@@ -326,19 +287,19 @@ export default function DashboardPage() {
 
           <div className="card">
             <div className="flex items-center gap-3 mb-6">
-              <span className="text-3xl">💰</span>
-              <h2 className="text-2xl font-black">Financeiro</h2>
+              <span className="text-3xl">📦</span>
+              <h2 className="text-2xl font-black">Operação HC</h2>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FinanceCard titulo="A receber" valor={moeda(valorTotalFaturas)} cor="blue" />
-              <FinanceCard titulo="Vencidos" valor={moeda(valorVencido)} cor="red" />
-              <FinanceCard titulo="Receita do mês" valor={moeda(receitaMes)} cor="green" />
-              <FinanceCard titulo="Faturas vencidas" valor={String(faturasVencidas.length)} cor="yellow" />
+              <OperationCard titulo="Embarques ativos" valor={String(ativos)} cor="blue" />
+              <OperationCard titulo="Em trânsito" valor={String(transito)} cor="green" />
+              <OperationCard titulo="Fiscalização" valor={String(fiscalizacao)} cor="yellow" />
+              <OperationCard titulo="Entregues" valor={String(entregues)} cor="blue" />
             </div>
 
-            <a href="/admin/faturas" className="block text-blue-400 font-bold mt-6 text-right">
-              Ver relatório financeiro →
+            <a href="/admin/embarques" className="block text-blue-400 font-bold mt-6 text-right">
+              Ver operação completa →
             </a>
           </div>
 
@@ -352,10 +313,10 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-4">
-              <AlertaPremium titulo="Faturas vencidas" valor={faturasVencidas.length} icone="🔴" cor="red" />
               <AlertaPremium titulo="Embarques em fiscalização" valor={fiscalizacao} icone="⚠️" cor="yellow" />
               <AlertaPremium titulo="Chamados aguardando resposta" valor={suporteAbertos} icone="💬" cor="purple" />
               <AlertaPremium titulo="Cotações pendentes" valor={cotacoesPendentes} icone="📄" cor="blue" />
+              <AlertaPremium titulo="Embarques ativos" valor={ativos} icone="📦" cor="green" />
             </div>
           </div>
         </section>
@@ -606,8 +567,8 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <ResumoBox titulo="Embarques ativos" valor={String(ativos)} />
               <ResumoBox titulo="Cotações pendentes" valor={String(cotacoesPendentes)} />
-              <ResumoBox titulo="Faturas disponíveis" valor={String(faturasVisiveis)} />
               <ResumoBox titulo="Chamados suporte" valor={String(suporte.length)} />
+              <ResumoBox titulo="Transportadoras ativas" valor={String(transportadorasAtivas)} />
             </div>
           </div>
         </section>
@@ -661,7 +622,7 @@ function MiniStatus({ titulo, valor, cor }: any) {
   )
 }
 
-function FinanceCard({ titulo, valor, cor }: any) {
+function OperationCard({ titulo, valor, cor }: any) {
   const classe =
     cor === 'red'
       ? 'text-red-400'
@@ -687,6 +648,8 @@ function AlertaPremium({ titulo, valor, icone, cor }: any) {
       ? 'bg-yellow-500 text-black'
       : cor === 'purple'
       ? 'bg-purple-600'
+      : cor === 'green'
+      ? 'bg-green-600'
       : 'bg-blue-600'
 
   return (
