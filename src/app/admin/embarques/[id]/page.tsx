@@ -184,9 +184,9 @@ export default function DetalheEmbarquePage() {
     const data = await response.json()
 
     if (!response.ok) {
-      alert(data.error || 'Erro ao atualizar rastreio.')
-      return
-    }
+  alert(`${data.error || 'Erro ao atualizar rastreio.'}\n\n${data.detalhes || ''}`)
+  return
+}
 
     alert(`Rastreio atualizado: ${data.status}`)
     carregar()

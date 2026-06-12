@@ -287,15 +287,45 @@ async function rastrearFedEx(embarque: any, awb: string) {
   })
 }
 function normalizarStatus(status: string) {
-  const s = String(status || '').toLowerCase()
+  const s = String(status || '').toLowerCase().trim()
+
+  if (s === '102') return 'Em trânsito'
 
   if (s.includes('delivered') || s.includes('entregue')) return 'Entregue'
-  if (s.includes('clearance') || s.includes('fiscal')) return 'Fiscalização'
-  if (s.includes('transit') || s.includes('trânsito')) return 'Em trânsito'
-  if (s.includes('picked') || s.includes('colet')) return 'Coletado'
-  if (s.includes('available') || s.includes('liberado')) return 'Liberado'
 
-  return status || 'Em trânsito'
+  if (
+    s.includes('clearance') ||
+    s.includes('customs') ||
+    s.includes('fiscal')
+  ) {
+    return 'Fiscalização'
+  }
+
+  if (
+    s.includes('transit') ||
+    s.includes('trânsito') ||
+    s.includes('processed')
+  ) {
+    return 'Em trânsito'
+  }
+
+  if (
+    s.includes('picked') ||
+    s.includes('pickup') ||
+    s.includes('colet')
+  ) {
+    return 'Coletado'
+  }
+
+  if (
+    s.includes('available') ||
+    s.includes('released') ||
+    s.includes('liberado')
+  ) {
+    return 'Liberado'
+  }
+
+  return 'Em trânsito'
 }
 async function salvarRastreio({
   embarque,
@@ -346,6 +376,8 @@ const { error: erroInsert } = await supabase
 
 if (erroInsert) {
   console.log('ERRO INSERT RASTREIO:', erroInsert)
-  throw new Error(`Erro ao salvar rastreio: ${erroInsert.message}`)
+  throw new Error(
+  `Erro ao salvar rastreio: ${erroInsert.message} | ${erroInsert.details || ''} | ${erroInsert.hint || ''}`
+)
 }
 }
