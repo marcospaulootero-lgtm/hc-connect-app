@@ -18,19 +18,14 @@ export default function DashboardPage() {
   async function buscarDados() {
     setCarregando(true)
 
-    const [
-      perfisRes,
-      embarquesRes,
-      cotacoesRes,
-      faturasRes,
-      suporteRes,
-    ] = await Promise.all([
-      supabase.from('perfis').select('*').order('nome'),
-      supabase.from('embarques').select('*').order('criado_em', { ascending: false }),
-      supabase.from('cotacoes').select('*').order('criado_em', { ascending: false }),
-      supabase.from('faturas').select('*').order('criado_em', { ascending: false }),
-      supabase.from('suporte').select('*').order('criado_em', { ascending: false }),
-    ])
+    const [perfisRes, embarquesRes, cotacoesRes, faturasRes, suporteRes] =
+      await Promise.all([
+        supabase.from('perfis').select('*').order('nome'),
+        supabase.from('embarques').select('*').order('criado_em', { ascending: false }),
+        supabase.from('cotacoes').select('*').order('criado_em', { ascending: false }),
+        supabase.from('faturas').select('*').order('criado_em', { ascending: false }),
+        supabase.from('suporte').select('*').order('criado_em', { ascending: false }),
+      ])
 
     setUsuarios(perfisRes.data || [])
     setEmbarques(embarquesRes.data || [])
@@ -93,10 +88,6 @@ export default function DashboardPage() {
       c.status === 'AGUARDANDO TRANSPORTADORA'
   ).length
 
-  const cotacoesDisponiveis = cotacoes.filter(
-    (c) => c.status === 'COTAÇÃO DISPONÍVEL'
-  ).length
-
   const faturasVisiveis = faturas.filter((f) => f.visivel_cliente === true).length
 
   const faturasVencidas = faturas.filter((f) => {
@@ -114,6 +105,14 @@ export default function DashboardPage() {
 
   const clientesAtivos = usuarios.filter((u) => u.ativo !== false).length
 
+  const receitaMes = faturas
+    .filter((f) => {
+      if (!f.criado_em) return false
+      const data = new Date(f.criado_em)
+      return data.getMonth() === mesAtual && data.getFullYear() === anoAtual
+    })
+    .reduce((acc, item) => acc + valorFatura(item), 0)
+
   const ultimosEmbarques = embarques.slice(0, 6)
   const ultimasCotacoes = cotacoes.slice(0, 5)
 
@@ -130,6 +129,79 @@ export default function DashboardPage() {
       .sort((a, b) => b.total - a.total)
       .slice(0, 5)
   }, [embarques])
+
+  const rankingClientes = useMemo(() => {
+    const mapa: any = {}
+
+    embarques.forEach((e) => {
+      const cliente =
+        e.importador ||
+        e.exportador ||
+        e.cliente_nome ||
+        e.empresa_nome ||
+        'Não informado'
+
+      if (!mapa[cliente]) {
+        mapa[cliente] = {
+          nome: cliente,
+          total: 0,
+          peso: 0,
+        }
+      }
+
+      mapa[cliente].total += 1
+      mapa[cliente].peso += Number(e.peso_taxado || e.peso_real || 0)
+    })
+
+    return Object.values(mapa)
+      .sort((a: any, b: any) => b.total - a.total)
+      .slice(0, 5)
+  }, [embarques])
+
+  const atividadesRecentes = useMemo(() => {
+    const atividades: any[] = []
+
+    embarques.slice(0, 5).forEach((e) => {
+      atividades.push({
+        titulo: `Embarque ${e.awb || '-'} atualizado`,
+        detalhe: `${e.transportadora || '-'} • ${e.status_operacional || '-'}`,
+        data: e.ultima_atualizacao || e.criado_em,
+        icone: '📦',
+      })
+    })
+
+    cotacoes.slice(0, 5).forEach((c) => {
+      atividades.push({
+        titulo: 'Cotação recebida',
+        detalhe: c.cliente_final || c.solicitante_email || 'Sem identificação',
+        data: c.criado_em,
+        icone: '📄',
+      })
+    })
+
+    suporte.slice(0, 5).forEach((s) => {
+      atividades.push({
+        titulo: s.assunto || 'Chamado de suporte',
+        detalhe: s.email || s.status || 'Cliente não informado',
+        data: s.criado_em,
+        icone: '🎧',
+      })
+    })
+
+    faturas.slice(0, 5).forEach((f) => {
+      atividades.push({
+        titulo: 'Fatura cadastrada',
+        detalhe: moeda(valorFatura(f)),
+        data: f.criado_em,
+        icone: '💰',
+      })
+    })
+
+    return atividades
+      .filter((a) => a.data)
+      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
+      .slice(0, 8)
+  }, [embarques, cotacoes, suporte, faturas])
 
   const embarquesPorTipo = useMemo(() => {
     const exportacao = embarques.filter((e) =>
@@ -173,9 +245,7 @@ export default function DashboardPage() {
         <header className="flex flex-col xl:flex-row justify-between gap-6 mb-8">
           <div>
             <p className="text-blue-400 font-bold mb-2">Visão geral operacional</p>
-
             <h1 className="text-5xl font-black">Dashboard Executivo</h1>
-
             <p className="text-slate-400 mt-3 text-lg">
               Acompanhe em tempo real toda a operação logística da HC Connect.
             </p>
@@ -189,28 +259,24 @@ export default function DashboardPage() {
               {carregando ? 'Atualizando...' : '↻ Atualizar dados'}
             </button>
 
-            <a
-              href="/admin/embarques"
-              className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
-            >
+            <a href="/admin/embarques" className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold">
               + Novo embarque
             </a>
 
-            <a
-              href="/admin/cotacoes"
-              className="bg-slate-700 hover:bg-slate-600 px-6 py-4 rounded-2xl font-bold"
-            >
+            <a href="/admin/cotacoes" className="bg-slate-700 hover:bg-slate-600 px-6 py-4 rounded-2xl font-bold">
               Ver cotações
             </a>
           </div>
         </header>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-5 mb-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-5 mb-8">
           <KpiCard titulo="Embarques no mês" valor={embarquesMes.length} detalhe="Total no período" icone="📦" cor="blue" />
           <KpiCard titulo="Em trânsito" valor={transito} detalhe="Em andamento" icone="🚚" cor="green" />
           <KpiCard titulo="Em fiscalização" valor={fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" />
           <KpiCard titulo="Liberados" valor={liberados} detalhe="Prontos para seguir" icone="✅" cor="green" />
           <KpiCard titulo="Entregues" valor={entregues} detalhe="Concluídos" icone="📬" cor="blue" />
+          <KpiCard titulo="Receita do mês" valor={moeda(receitaMes)} detalhe="Faturamento" icone="💰" cor="green" />
+          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" />
         </section>
 
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
@@ -230,7 +296,6 @@ export default function DashboardPage() {
             <div className="border border-blue-900 rounded-2xl bg-[#020817] p-5">
               <div className="flex justify-between mb-3">
                 <p className="font-black">Último chamado recebido</p>
-
                 <a href="/admin/suporte" className="text-blue-400 font-bold text-sm">
                   Ver todos
                 </a>
@@ -241,16 +306,13 @@ export default function DashboardPage() {
                   <p className="text-blue-400 font-bold">
                     {ultimoChamado.assunto || 'Chamado sem assunto'}
                   </p>
-
                   <p className="text-slate-400 text-sm mt-2">
                     {ultimoChamado.email || 'Cliente não informado'}
                   </p>
-
                   <div className="flex justify-between items-center mt-4">
                     <span className="text-slate-500 text-sm">
                       {dataBR(ultimoChamado.criado_em)}
                     </span>
-
                     <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-bold">
                       {ultimoChamado.status || 'ABERTO'}
                     </span>
@@ -271,7 +333,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FinanceCard titulo="A receber" valor={moeda(valorTotalFaturas)} cor="blue" />
               <FinanceCard titulo="Vencidos" valor={moeda(valorVencido)} cor="red" />
-              <FinanceCard titulo="Faturas visíveis" valor={String(faturasVisiveis)} cor="green" />
+              <FinanceCard titulo="Receita do mês" valor={moeda(receitaMes)} cor="green" />
               <FinanceCard titulo="Faturas vencidas" valor={String(faturasVencidas.length)} cor="yellow" />
             </div>
 
@@ -286,7 +348,6 @@ export default function DashboardPage() {
                 <span className="text-3xl">🚨</span>
                 <h2 className="text-2xl font-black">Alertas Importantes</h2>
               </div>
-
               <span className="text-blue-400 font-bold text-sm">Hoje</span>
             </div>
 
@@ -329,7 +390,6 @@ export default function DashboardPage() {
           <div className="card">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-black">Últimos Embarques</h2>
-
               <a href="/admin/embarques" className="text-blue-400 font-bold">
                 Ver todos
               </a>
@@ -391,7 +451,10 @@ export default function DashboardPage() {
                     <div
                       className="h-full bg-blue-600"
                       style={{
-                        width: `${Math.min((item.total / Math.max(embarques.length, 1)) * 100, 100)}%`,
+                        width: `${Math.min(
+                          (item.total / Math.max(embarques.length, 1)) * 100,
+                          100
+                        )}%`,
                       }}
                     />
                   </div>
@@ -447,9 +510,66 @@ export default function DashboardPage() {
 
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
           <div className="card">
+            <h2 className="text-2xl font-black mb-6">🏆 Ranking de Clientes</h2>
+
+            <div className="space-y-4">
+              {rankingClientes.length === 0 ? (
+                <p className="text-slate-500">Nenhum cliente no ranking ainda.</p>
+              ) : (
+                rankingClientes.map((cliente: any, index: number) => (
+                  <div key={cliente.nome} className="flex justify-between items-center border-b border-blue-950 pb-4">
+                    <div>
+                      <p className="font-black">
+                        {index + 1}º {cliente.nome}
+                      </p>
+                      <p className="text-slate-500 text-sm">
+                        {cliente.peso.toFixed(2)} kg movimentados
+                      </p>
+                    </div>
+
+                    <span className="bg-blue-600 px-4 py-2 rounded-full font-black">
+                      {cliente.total}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <h2 className="text-2xl font-black mb-6">⚡ Últimas Atividades HC</h2>
+
+            <div className="space-y-4">
+              {atividadesRecentes.length === 0 ? (
+                <p className="text-slate-500">Nenhuma atividade recente.</p>
+              ) : (
+                atividadesRecentes.map((atividade, index) => (
+                  <div key={index} className="flex gap-4 border-b border-blue-950 pb-4">
+                    <div className="text-2xl">{atividade.icone}</div>
+
+                    <div className="flex-1">
+                      <p className="font-black">{atividade.titulo}</p>
+                      <p className="text-slate-400 text-sm mt-1">
+                        {atividade.detalhe}
+                      </p>
+                    </div>
+
+                    <span className="text-slate-500 text-sm whitespace-nowrap">
+                      {atividade.data
+                        ? new Date(atividade.data).toLocaleString('pt-BR')
+                        : '-'}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+          <div className="card">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-black">Últimas Cotações</h2>
-
               <a href="/admin/cotacoes" className="text-blue-400 font-bold">
                 Ver todas
               </a>
@@ -513,7 +633,7 @@ function KpiCard({ titulo, valor, detalhe, icone, cor }: any) {
       <div className="flex justify-between items-start">
         <div>
           <p className="text-slate-400 text-sm">{titulo}</p>
-          <h2 className={`text-5xl font-black mt-4 ${corNumero}`}>{valor}</h2>
+          <h2 className={`text-4xl font-black mt-4 ${corNumero}`}>{valor}</h2>
           <p className="text-slate-500 text-sm mt-2">{detalhe}</p>
         </div>
 
@@ -599,7 +719,9 @@ function TipoLinha({ titulo, valor, total }: any) {
     <div>
       <div className="flex justify-between mb-2">
         <span>{titulo}</span>
-        <span className="font-bold">{percentual}% ({valor})</span>
+        <span className="font-bold">
+          {percentual}% ({valor})
+        </span>
       </div>
 
       <div className="h-3 bg-[#020817] rounded-full overflow-hidden">
