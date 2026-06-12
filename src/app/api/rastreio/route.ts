@@ -284,7 +284,17 @@ async function rastrearFedEx(embarque: any, awb: string) {
     data_evento: dataEvento,
   })
 }
+function normalizarStatus(status: string) {
+  const s = String(status || '').toLowerCase()
 
+  if (s.includes('delivered') || s.includes('entregue')) return 'Entregue'
+  if (s.includes('clearance') || s.includes('fiscal')) return 'Fiscalização'
+  if (s.includes('transit') || s.includes('trânsito')) return 'Em trânsito'
+  if (s.includes('picked') || s.includes('colet')) return 'Coletado'
+  if (s.includes('available') || s.includes('liberado')) return 'Liberado'
+
+  return status || 'Em trânsito'
+}
 async function salvarRastreio({
   embarque,
   awb,
@@ -295,19 +305,31 @@ async function salvarRastreio({
   dataEvento,
   eventos,
 }: any) {
+  const statusNormalizado = normalizarStatus(status)
+
+  const dadosAtualizar: any = {
+    status_operacional: statusNormalizado,
+    ultima_atualizacao: new Date().toISOString(),
+  }
+
+  if (statusNormalizado === 'Entregue') {
+    dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
+  }
+
+  if (statusNormalizado === 'Coletado' && !embarque.data_envio) {
+    dadosAtualizar.data_envio = new Date().toISOString().split('T')[0]
+  }
+
   await supabase
     .from('embarques')
-    .update({
-      status_operacional: status,
-      ultima_atualizacao: new Date().toISOString(),
-    })
+    .update(dadosAtualizar)
     .eq('id', embarque.id)
 
   await supabase.from('rastreios_embarques').insert({
     embarque_id: embarque.id,
     awb,
     transportadora,
-    status,
+    status: statusNormalizado,
     descricao,
     localizacao: local,
     data_evento: dataEvento,
