@@ -129,6 +129,21 @@ export default function EmbarquesPage() {
       return
     }
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      alert('Usuário administrador não identificado. Faça login novamente.')
+      return
+    }
+
+    const { data: perfilAdmin } = await supabase
+      .from('perfis')
+      .select('nome, email')
+      .eq('id', user.id)
+      .single()
+
     const primeiroClienteId = form.usuarios_ids[0] || null
     const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
 
@@ -138,6 +153,10 @@ export default function EmbarquesPage() {
         {
           usuario_id: primeiroClienteId,
           empresa_id: primeiroCliente?.empresa_id || null,
+
+          criado_por_admin_id: user.id,
+          criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
+          criado_por_admin_email: perfilAdmin?.email || user.email || null,
 
           exportador: form.exportador || null,
           importador: form.importador || null,
@@ -280,6 +299,8 @@ export default function EmbarquesPage() {
         ${item.origem}
         ${item.destino}
         ${item.status_operacional}
+        ${item.criado_por_admin_nome}
+        ${item.criado_por_admin_email}
         ${nomesClientes(item.id, item.usuario_id)}
       `.toLowerCase()
 
@@ -472,6 +493,7 @@ export default function EmbarquesPage() {
               <tr>
                 <th>AWB</th>
                 <th>Clientes vinculados</th>
+                <th>Responsável</th>
                 <th>Exportador</th>
                 <th>Importador</th>
                 <th>Ref. Cliente</th>
@@ -495,6 +517,7 @@ export default function EmbarquesPage() {
                   </td>
 
                   <td>{nomesClientes(item.id, item.usuario_id)}</td>
+                  <td>{item.criado_por_admin_nome || item.criado_por_admin_email || '-'}</td>
                   <td>{item.exportador || '-'}</td>
                   <td>{item.importador || '-'}</td>
                   <td>{item.referencia_cliente || '-'}</td>
