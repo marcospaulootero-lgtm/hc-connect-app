@@ -335,12 +335,11 @@ const { error: erroInsert } = await supabase
   .insert({
     embarque_id: embarque.id,
     awb,
-    transportadora,
+    transportador: transportadora,
     status: statusNormalizado,
     descricao,
     localizacao: local,
     data_evento: dataEvento,
-    eventos,
   })
 
 if (erroInsert) {
