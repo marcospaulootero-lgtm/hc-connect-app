@@ -11,8 +11,8 @@ export default function DashboardPage() {
   const [carregando, setCarregando] = useState(false)
 
   useEffect(() => {
-    buscarDados()
-  }, [])
+  buscarDados()
+}, [])
 
   async function atualizarTodosRastreios() {
   try {
@@ -42,11 +42,20 @@ export default function DashboardPage() {
     console.error('Erro geral atualização:', err)
   }
 }
-
-async function buscarDados() {
+async function atualizarDadosManual() {
   setCarregando(true)
 
-  await atualizarTodosRastreios()
+  try {
+    await atualizarTodosRastreios()
+    await buscarDados()
+  } catch (error) {
+    console.error(error)
+  }
+
+  setCarregando(false)
+}
+async function buscarDados() {
+  setCarregando(true)
 
   const [perfisRes, embarquesRes, cotacoesRes, suporteRes] =
     await Promise.all([
@@ -242,7 +251,7 @@ async function buscarDados() {
 
           <div className="flex gap-4 flex-wrap h-fit">
             <button
-              onClick={buscarDados}
+              onClick={atualizarDadosManual}
               className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
             >
               {carregando ? 'Atualizando...' : '↻ Atualizar dados'}
