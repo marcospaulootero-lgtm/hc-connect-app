@@ -29,7 +29,6 @@ export default function DashboardPage() {
     setEmbarques(embarquesRes.data || [])
     setCotacoes(cotacoesRes.data || [])
     setSuporte(suporteRes.data || [])
-
     setCarregando(false)
   }
 
@@ -105,11 +104,7 @@ export default function DashboardPage() {
         'Não informado'
 
       if (!mapa[cliente]) {
-        mapa[cliente] = {
-          nome: cliente,
-          total: 0,
-          peso: 0,
-        }
+        mapa[cliente] = { nome: cliente, total: 0, peso: 0 }
       }
 
       mapa[cliente].total += 1
@@ -213,17 +208,11 @@ export default function DashboardPage() {
               {carregando ? 'Atualizando...' : '↻ Atualizar dados'}
             </button>
 
-            <a
-              href="/admin/embarques"
-              className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
-            >
+            <a href="/admin/embarques" className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold">
               + Novo embarque
             </a>
 
-            <a
-              href="/admin/cotacoes"
-              className="bg-slate-700 hover:bg-slate-600 px-6 py-4 rounded-2xl font-bold"
-            >
+            <a href="/admin/cotacoes" className="bg-slate-700 hover:bg-slate-600 px-6 py-4 rounded-2xl font-bold">
               Ver cotações
             </a>
           </div>
@@ -274,9 +263,7 @@ export default function DashboardPage() {
                     <span className="text-slate-500 text-sm">
                       {dataBR(ultimoChamado.criado_em)}
                     </span>
-                    <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-bold">
-                      {ultimoChamado.status || 'ABERTO'}
-                    </span>
+                    <StatusPillDashboard status={ultimoChamado.status || 'ABERTO'} />
                   </div>
                 </>
               ) : (
@@ -376,9 +363,7 @@ export default function DashboardPage() {
                       <td className="py-4">{item.importador || '-'}</td>
                       <td className="py-4">{item.transportadora || '-'}</td>
                       <td className="py-4">
-                        <span className="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold">
-                          {item.status_operacional || '-'}
-                        </span>
+                        <StatusPillDashboard status={item.status_operacional || '-'} />
                       </td>
                     </tr>
                   ))}
@@ -552,9 +537,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
 
-                    <span className="bg-green-700 px-3 py-1 rounded-full text-xs font-bold">
-                      {item.status || '-'}
-                    </span>
+                    <StatusPillDashboard status={item.status || '-'} />
                   </div>
                 ))
               )}
@@ -624,12 +607,12 @@ function MiniStatus({ titulo, valor, cor }: any) {
 
 function OperationCard({ titulo, valor, cor }: any) {
   const classe =
-    cor === 'red'
-      ? 'text-red-400'
-      : cor === 'green'
+    cor === 'green'
       ? 'text-green-400'
       : cor === 'yellow'
       ? 'text-yellow-400'
+      : cor === 'red'
+      ? 'text-red-400'
       : 'text-blue-400'
 
   return (
@@ -637,6 +620,55 @@ function OperationCard({ titulo, valor, cor }: any) {
       <h3 className={`text-2xl font-black ${classe}`}>{valor}</h3>
       <p className="text-slate-400 mt-2">{titulo}</p>
     </div>
+  )
+}
+
+function StatusPillDashboard({ status }: any) {
+  const s = String(status || '').toLowerCase()
+
+  let classe = 'bg-slate-700 text-slate-200 border-slate-500'
+  let icone = '⚪'
+
+  if (s.includes('entregue') || s.includes('delivered')) {
+    classe = 'bg-green-600/20 text-green-300 border-green-500'
+    icone = '✅'
+  } else if (s.includes('trânsito') || s.includes('transito') || s.includes('transit')) {
+    classe = 'bg-blue-600/20 text-blue-300 border-blue-500'
+    icone = '🚚'
+  } else if (s.includes('fiscal') || s.includes('liberação') || s.includes('liberacao') || s.includes('clearance')) {
+    classe = 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
+    icone = '🛃'
+  } else if (s.includes('liberado') || s.includes('released')) {
+    classe = 'bg-emerald-600/20 text-emerald-300 border-emerald-500'
+    icone = '🟢'
+  } else if (s.includes('coletado') || s.includes('coleta') || s.includes('picked')) {
+    classe = 'bg-purple-600/20 text-purple-300 border-purple-500'
+    icone = '📦'
+  } else if (s.includes('atrasado') || s.includes('vencido')) {
+    classe = 'bg-red-600/20 text-red-300 border-red-500'
+    icone = '🔴'
+  } else if (s.includes('aguardando')) {
+    classe = 'bg-orange-500/20 text-orange-300 border-orange-500'
+    icone = '⏳'
+  } else if (s.includes('análise') || s.includes('analise')) {
+    classe = 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
+    icone = '🔎'
+  } else if (s.includes('respondido')) {
+    classe = 'bg-blue-600/20 text-blue-300 border-blue-500'
+    icone = '💬'
+  } else if (s.includes('resolvido')) {
+    classe = 'bg-green-600/20 text-green-300 border-green-500'
+    icone = '✅'
+  } else if (s.includes('aberto')) {
+    classe = 'bg-red-600/20 text-red-300 border-red-500'
+    icone = '🔴'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-black whitespace-nowrap ${classe}`}>
+      <span>{icone}</span>
+      {status || '-'}
+    </span>
   )
 }
 
