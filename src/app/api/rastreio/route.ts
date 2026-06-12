@@ -298,18 +298,18 @@ async function salvarRastreio({
   await supabase
     .from('embarques')
     .update({
-      status_operacao: status,
+      status_operacional: status,
       ultima_atualizacao: new Date().toISOString(),
     })
     .eq('id', embarque.id)
 
-  await supabase.from('rastreios').insert({
+  await supabase.from('rastreios_embarques').insert({
     embarque_id: embarque.id,
     awb,
     transportadora,
     status,
     descricao,
-    local,
+    localizacao: local,
     data_evento: dataEvento,
     eventos,
   })
