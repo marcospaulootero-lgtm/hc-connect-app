@@ -53,7 +53,9 @@ export async function POST(req: Request) {
       { error: 'Transportadora não suportada para rastreio automático.' },
       { status: 400 }
     )
-  } catch (error: any) {
+    } catch (error: any) {
+    console.log('ERRO GERAL RASTREIO:', error)
+
     return NextResponse.json(
       {
         error: 'Erro interno ao atualizar rastreio.',
