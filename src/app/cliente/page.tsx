@@ -199,33 +199,39 @@ export default function ClientePage() {
             </p>
 
             <div className="flex gap-4 flex-wrap">
-              <a href="/cliente/cotacoes" className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold">
+              <a
+                href="/cliente/cotacoes"
+                className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
+              >
                 Solicitar cotação
               </a>
 
-              <a href="/cliente/cotacoes" className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold">
+              <a
+                href="/cliente/cotacoes"
+                className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
+              >
                 Minhas cotações
               </a>
 
-              <a href="/cliente/faturas" className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold">
+              <a
+                href="/cliente/faturas"
+                className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
+              >
                 Minhas faturas
               </a>
 
-              <a href="/cliente/suporte" className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold">
-                Suporte <a
-  href="/cliente/embarque-direto"
-  className="card hover:border-green-500 transition"
->
-  <div className="text-3xl mb-3">🚚</div>
+              <a
+                href="/cliente/suporte"
+                className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold"
+              >
+                Suporte
+              </a>
 
-  <h3 className="text-xl font-black">
-    Embarque Direto
-  </h3>
-
-  <p className="text-slate-400 mt-2">
-    Envie documentos e instruções diretamente para a operação HC.
-  </p>
-</a>
+              <a
+                href="/cliente/embarque-direto"
+                className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold"
+              >
+                🚚 Embarque direto
               </a>
             </div>
           </div>
@@ -266,7 +272,7 @@ export default function ClientePage() {
               href="/cliente/cotacoes"
               className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
             >
-              Nova cotação 
+              Nova cotação
             </a>
           </div>
 
@@ -320,21 +326,19 @@ export default function ClientePage() {
 
         <section className="card mb-8">
           <div className="mb-6">
-  <h2 className="text-2xl font-black">Meus embarques</h2>
+            <h2 className="text-2xl font-black">Meus embarques</h2>
 
-  <p className="text-slate-400 mt-1 mb-4">
-    Consulte status, rastreio, documentos e atualizações operacionais.
-  </p>
+            <p className="text-slate-400 mt-1 mb-4">
+              Consulte status, rastreio, documentos e atualizações operacionais.
+            </p>
 
-  <input
-    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white"
-    placeholder="🔍 Buscar por AWB, destino, origem, transportadora ou status..."
-    value={busca}
-    onChange={(e) => setBusca(e.target.value)}
-  />
-</div>
-
-
+            <input
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white"
+              placeholder="🔍 Buscar por AWB, destino, origem, transportadora ou status..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+          </div>
         </section>
 
         <section className="grid gap-6">
