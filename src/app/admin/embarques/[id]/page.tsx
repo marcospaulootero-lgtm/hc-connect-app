@@ -163,42 +163,39 @@ export default function DetalheEmbarquePage() {
   }
 
   async function atualizarRastreio() {
-    if (!embarque) return
+  if (!embarque?.id) {
+    alert('Embarque não encontrado.')
+    return
+  }
 
-    if (!embarque.awb || embarque.awb === 'AGUARDANDO AWB') {
-      alert('Este embarque ainda não possui AWB válido.')
+  setAtualizandoRastreio(true)
+
+  try {
+    const response = await fetch('/api/rastreio', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        embarque_id: embarque.id,
+      }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      alert(data.error || 'Erro ao atualizar rastreio.')
       return
     }
 
-    setAtualizandoRastreio(true)
-
-    try {
-      const response = await fetch('/api/rastreio', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          embarqueId: embarque.id,
-          awb: embarque.awb,
-          transportadora: embarque.transportadora,
-        }),
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Erro ao atualizar rastreio')
-      }
-
-      await carregar()
-      alert('Rastreio atualizado com sucesso')
-    } catch (err: any) {
-      alert(err.message || 'Erro ao atualizar rastreio')
-    }
-
+    alert(`Rastreio atualizado: ${data.status}`)
+    carregar()
+  } catch (error) {
+    alert('Erro ao atualizar rastreio.')
+  } finally {
     setAtualizandoRastreio(false)
   }
+}
 
   async function uploadArquivo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
