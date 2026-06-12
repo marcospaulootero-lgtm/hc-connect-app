@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function FaturasClientePage() {
-  const [usuario, setUsuario] = useState<any>(null)
   const [faturas, setFaturas] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     carregarUsuario()
@@ -21,18 +21,43 @@ export default function FaturasClientePage() {
       return
     }
 
-    setUsuario(user)
     carregarFaturas(user.id)
   }
 
   async function carregarFaturas(usuarioId: string) {
+    setLoading(true)
+
+    const { data: embarquesData, error: erroEmbarques } = await supabase
+      .from('embarques')
+      .select('id')
+      .eq('usuario_id', usuarioId)
+
+    if (erroEmbarques) {
+      console.log(erroEmbarques)
+      setLoading(false)
+      return
+    }
+
+    const idsEmbarques = (embarquesData || []).map((item) => item.id)
+
+    if (idsEmbarques.length === 0) {
+      setFaturas([])
+      setLoading(false)
+      return
+    }
+
     const { data, error } = await supabase
       .from('faturas')
       .select(`
         id,
+        embarque_id,
         vencimento,
         arquivo_pdf,
+        recibo_pdf,
+        recibo_nome,
+        data_pagamento,
         criado_em,
+        visivel_cliente,
         embarques (
           id,
           awb,
@@ -41,16 +66,18 @@ export default function FaturasClientePage() {
           status_operacional
         )
       `)
-      .eq('usuario_id', usuarioId)
+      .in('embarque_id', idsEmbarques)
       .eq('visivel_cliente', true)
       .order('criado_em', { ascending: false })
 
     if (error) {
       console.log(error)
+      setLoading(false)
       return
     }
 
     setFaturas(data || [])
+    setLoading(false)
   }
 
   return (
@@ -63,7 +90,7 @@ export default function FaturasClientePage() {
             </h1>
 
             <p className="text-slate-400 text-lg">
-              Consulte e baixe as faturas vinculadas aos seus embarques.
+              Consulte e baixe suas faturas e recibos de pagamento.
             </p>
           </div>
 
@@ -76,7 +103,9 @@ export default function FaturasClientePage() {
         </div>
 
         <section className="card">
-          {faturas.length === 0 ? (
+          {loading ? (
+            <p className="text-slate-400">Carregando faturas...</p>
+          ) : faturas.length === 0 ? (
             <p className="text-slate-400">
               Nenhuma fatura disponível.
             </p>
@@ -90,7 +119,7 @@ export default function FaturasClientePage() {
                 return (
                   <div
                     key={fatura.id}
-                    className="border border-blue-900 rounded-2xl p-5 bg-[#071225] flex justify-between items-center gap-6"
+                    className="border border-blue-900 rounded-2xl p-5 bg-[#071225] flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6"
                   >
                     <div>
                       <h2 className="text-2xl font-bold text-blue-400">
@@ -112,21 +141,40 @@ export default function FaturasClientePage() {
                           ? new Date(fatura.vencimento).toLocaleDateString('pt-BR')
                           : '-'}
                       </p>
+
+                      {fatura.data_pagamento && (
+                        <p className="text-green-400 mt-2 font-bold">
+                          Pago em:{' '}
+                          {new Date(fatura.data_pagamento).toLocaleDateString('pt-BR')}
+                        </p>
+                      )}
                     </div>
 
-                    {fatura.arquivo_pdf ? (
-                      <a
-                        href={fatura.arquivo_pdf}
-                        target="_blank"
-                        className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold whitespace-nowrap"
-                      >
-                        Baixar PDF
-                      </a>
-                    ) : (
-                      <span className="text-slate-500">
-                        PDF indisponível
-                      </span>
-                    )}
+                    <div className="flex flex-wrap gap-3">
+                      {fatura.arquivo_pdf ? (
+                        <a
+                          href={fatura.arquivo_pdf}
+                          target="_blank"
+                          className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold whitespace-nowrap"
+                        >
+                          Baixar fatura
+                        </a>
+                      ) : (
+                        <span className="text-slate-500">
+                          Fatura indisponível
+                        </span>
+                      )}
+
+                      {fatura.recibo_pdf && (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl text-white font-bold whitespace-nowrap"
+                        >
+                          Baixar recibo
+                        </a>
+                      )}
+                    </div>
                   </div>
                 )
               })}
