@@ -68,7 +68,19 @@ export default function DetalheCliente() {
       console.log(docsError)
     }
 
-    setDocumentos(docs || [])
+    const documentosSemFatura = (docs || []).filter((doc) => {
+  const nome = (doc.nome || '').toLowerCase()
+  const url = (doc.url || '').toLowerCase()
+
+  return (
+    !nome.includes('fatura') &&
+    !nome.includes('invoice') &&
+    !url.includes('fatura') &&
+    !url.includes('invoice')
+  )
+})
+
+setDocumentos(documentosSemFatura)
 
     const { data: timelineData, error: timelineError } = await supabase
       .from('timeline_embarques')
