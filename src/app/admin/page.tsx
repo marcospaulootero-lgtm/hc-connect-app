@@ -14,24 +14,64 @@ export default function DashboardPage() {
     buscarDados()
   }, [])
 
-  async function buscarDados() {
-    setCarregando(true)
+  async function atualizarTodosRastreios() {
+  try {
+    const { data: embarquesAtivos } = await supabase
+      .from('embarques')
+      .select('id,status_operacional')
+      .neq('status_operacional', 'Entregue')
 
-    const [perfisRes, embarquesRes, cotacoesRes, suporteRes] =
-      await Promise.all([
-        supabase.from('perfis').select('*').order('nome'),
-        supabase.from('embarques').select('*').order('criado_em', { ascending: false }),
-        supabase.from('cotacoes').select('*').order('criado_em', { ascending: false }),
-        supabase.from('suporte').select('*').order('criado_em', { ascending: false }),
-      ])
+    if (!embarquesAtivos?.length) return
 
-    setUsuarios(perfisRes.data || [])
-    setEmbarques(embarquesRes.data || [])
-    setCotacoes(cotacoesRes.data || [])
-    setSuporte(suporteRes.data || [])
-    setCarregando(false)
+    for (const embarque of embarquesAtivos) {
+      try {
+        await fetch('/api/rastreio', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            embarque_id: embarque.id,
+          }),
+        })
+      } catch (err) {
+        console.error('Erro atualizando embarque:', embarque.id, err)
+      }
+    }
+  } catch (err) {
+    console.error('Erro geral atualização:', err)
   }
+}
 
+async function buscarDados() {
+  setCarregando(true)
+
+  await atualizarTodosRastreios()
+
+  const [perfisRes, embarquesRes, cotacoesRes, suporteRes] =
+    await Promise.all([
+      supabase.from('perfis').select('*').order('nome'),
+      supabase
+        .from('embarques')
+        .select('*')
+        .order('criado_em', { ascending: false }),
+      supabase
+        .from('cotacoes')
+        .select('*')
+        .order('criado_em', { ascending: false }),
+      supabase
+        .from('suporte')
+        .select('*')
+        .order('criado_em', { ascending: false }),
+    ])
+
+  setUsuarios(perfisRes.data || [])
+  setEmbarques(embarquesRes.data || [])
+  setCotacoes(cotacoesRes.data || [])
+  setSuporte(suporteRes.data || [])
+
+  setCarregando(false)
+}
   function dataBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleDateString('pt-BR')
