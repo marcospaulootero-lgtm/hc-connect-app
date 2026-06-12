@@ -11,8 +11,10 @@ export default function DetalheEmbarquePage() {
   const [embarque, setEmbarque] = useState<any>(null)
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [timeline, setTimeline] = useState<any[]>([])
+  const [rastreioReal, setRastreioReal] = useState<any[]>([])
   const [documentos, setDocumentos] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
+  const [atualizandoRastreio, setAtualizandoRastreio] = useState(false)
 
   const [editandoStatus, setEditandoStatus] = useState(false)
   const [novoStatus, setNovoStatus] = useState('')
@@ -45,6 +47,14 @@ export default function DetalheEmbarquePage() {
       .order('criado_em', { ascending: false })
 
     setTimeline(timelineData || [])
+
+    const { data: rastreioData } = await supabase
+      .from('rastreios_embarques')
+      .select('*')
+      .eq('embarque_id', params.id)
+      .order('data_evento', { ascending: false })
+
+    setRastreioReal(rastreioData || [])
 
     const { data: documentosData, error: documentosError } = await supabase
       .from('documentos_embarques')
@@ -125,13 +135,13 @@ export default function DetalheEmbarquePage() {
       .eq('id', embarque.id)
 
     if (error) {
-      alert('Erro ao atualizar status')
+      alert(`Erro ao atualizar status: ${error.message}`)
       console.log(error)
       setSalvandoStatus(false)
       return
     }
 
-    await supabase.from('timeline_embarques').insert({
+    const { error: erroTimeline } = await supabase.from('timeline_embarques').insert({
       embarque_id: embarque.id,
       status: statusFinal,
       descricao:
@@ -139,12 +149,55 @@ export default function DetalheEmbarquePage() {
         `Status atualizado para ${statusFinal} pela HC Consultoria.`,
     })
 
+    if (erroTimeline) {
+      alert(`Status atualizado, mas houve erro ao gravar timeline: ${erroTimeline.message}`)
+      console.log(erroTimeline)
+    }
+
     setNovoStatus('')
     setDescricaoStatus('')
     setEditandoStatus(false)
     setSalvandoStatus(false)
 
     await carregar()
+  }
+
+  async function atualizarRastreio() {
+    if (!embarque) return
+
+    if (!embarque.awb || embarque.awb === 'AGUARDANDO AWB') {
+      alert('Este embarque ainda não possui AWB válido.')
+      return
+    }
+
+    setAtualizandoRastreio(true)
+
+    try {
+      const response = await fetch('/api/rastreio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          embarqueId: embarque.id,
+          awb: embarque.awb,
+          transportadora: embarque.transportadora,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Erro ao atualizar rastreio')
+      }
+
+      await carregar()
+      alert('Rastreio atualizado com sucesso')
+    } catch (err: any) {
+      alert(err.message || 'Erro ao atualizar rastreio')
+    }
+
+    setAtualizandoRastreio(false)
   }
 
   async function uploadArquivo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -181,16 +234,15 @@ export default function DetalheEmbarquePage() {
       })
 
     if (insertError) {
-  console.log('ERRO DOCUMENTO:', insertError)
+      console.log('ERRO DOCUMENTO:', insertError)
 
-  alert(
-    `${insertError.message}\n\n${insertError.details || ''}\n\n${insertError.hint || ''}`
-  )
+      alert(
+        `${insertError.message}\n\n${insertError.details || ''}\n\n${insertError.hint || ''}`
+      )
 
-  setUploading(false)
-  return
-}
-    
+      setUploading(false)
+      return
+    }
 
     await supabase
       .from('embarques')
@@ -326,6 +378,14 @@ export default function DetalheEmbarquePage() {
             )}
 
             <button
+              onClick={atualizarRastreio}
+              disabled={atualizandoRastreio}
+              className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+            >
+              {atualizandoRastreio ? 'Atualizando...' : '🔄 Atualizar rastreio'}
+            </button>
+
+            <button
               onClick={() => {
                 setNovoStatus(embarque.status_operacional || '')
                 setEditandoStatus(!editandoStatus)
@@ -338,7 +398,7 @@ export default function DetalheEmbarquePage() {
             <button
               onClick={() => atualizarStatus('Entregue')}
               disabled={salvandoStatus}
-              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
+              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
             >
               Finalizar
             </button>
@@ -372,7 +432,7 @@ export default function DetalheEmbarquePage() {
             <button
               onClick={() => atualizarStatus()}
               disabled={salvandoStatus}
-              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold"
+              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
             >
               {salvandoStatus ? 'Salvando...' : 'Salvar status'}
             </button>
@@ -482,6 +542,65 @@ export default function DetalheEmbarquePage() {
       </section>
 
       <section className="card mb-8">
+        <div className="flex justify-between items-center gap-4 flex-wrap mb-8">
+          <div>
+            <h2 className="text-2xl font-black">🌍 Timeline da transportadora</h2>
+            <p className="text-slate-400 mt-1">
+              Eventos reais importados do rastreio FedEx, DHL ou UPS.
+            </p>
+          </div>
+
+          <span className="bg-purple-600/20 border border-purple-500 text-purple-300 px-4 py-2 rounded-full text-sm font-bold">
+            {rastreioReal.length} evento(s)
+          </span>
+        </div>
+
+        {rastreioReal.length === 0 ? (
+          <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5 text-slate-400">
+            Nenhum evento carregado ainda. Clique em “Atualizar rastreio”.
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {rastreioReal.map((evento, index) => (
+              <div key={evento.id} className="relative pl-10">
+                <div className="absolute left-3 top-0 bottom-0 w-[2px] bg-blue-900" />
+
+                <div
+                  className={`absolute left-0 top-2 w-6 h-6 rounded-full border-4 border-[#071225] ${
+                    index === 0 ? 'bg-green-600' : 'bg-blue-600'
+                  }`}
+                />
+
+                <div className="border border-blue-900 rounded-2xl bg-[#020817] p-5">
+                  <div className="flex flex-col md:flex-row md:justify-between gap-4 mb-3">
+                    <div>
+                      <strong className="text-blue-400 text-lg">
+                        {evento.status || 'Evento'}
+                      </strong>
+
+                      <p className="text-slate-300 mt-2">
+                        {evento.descricao || '-'}
+                      </p>
+
+                      <p className="text-slate-500 text-sm mt-2">
+                        📍 {evento.localizacao || 'Localização não informada'}
+                      </p>
+                    </div>
+
+                    <span className="text-slate-500 text-sm whitespace-nowrap">
+                      {evento.data_evento
+                        ? new Date(evento.data_evento).toLocaleString('pt-BR')
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="card mb-8">
         <div className="flex justify-between items-center gap-4 flex-wrap mb-6">
           <div>
             <h2 className="text-2xl font-black">Documentos</h2>
@@ -542,7 +661,7 @@ export default function DetalheEmbarquePage() {
       </section>
 
       <section className="card">
-        <h2 className="text-2xl font-black mb-8">Histórico operacional</h2>
+        <h2 className="text-2xl font-black mb-8">Histórico operacional HC</h2>
 
         <div className="space-y-5">
           {timeline.length === 0 ? (
