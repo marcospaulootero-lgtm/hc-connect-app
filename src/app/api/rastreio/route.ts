@@ -6,86 +6,50 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   try {
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = req.headers.get('authorization')
+    const body = await req.json()
+    const embarqueId = body.embarque_id
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+    if (!embarqueId) {
+      return NextResponse.json({ error: 'Informe o ID do embarque.' }, { status: 400 })
     }
 
-    const { data: embarques, error } = await supabase
+    const { data: embarque, error: erroEmbarque } = await supabase
       .from('embarques')
       .select('*')
-      .not('awb', 'is', null)
-      .neq('status_operacional', 'Entregue')
-      .order('ultima_atualizacao', { ascending: true })
-      .limit(20)
+      .eq('id', embarqueId)
+      .single()
 
-    if (error) {
-      return NextResponse.json(
-        { error: 'Erro ao buscar embarques.', detalhes: error.message },
-        { status: 500 }
-      )
+    if (erroEmbarque || !embarque) {
+      return NextResponse.json({ error: 'Embarque não encontrado.' }, { status: 404 })
     }
 
-    const resultados: any[] = []
+    const awb = String(embarque.awb || '').trim()
+    const transportadora = String(embarque.transportadora || '').toUpperCase()
 
-    for (const embarque of embarques || []) {
-      try {
-        const awb = String(embarque.awb || '').trim()
-        const transportadora = String(embarque.transportadora || '').toUpperCase()
-
-        if (!awb || awb === 'AGUARDANDO AWB') {
-          resultados.push({
-            id: embarque.id,
-            awb,
-            sucesso: false,
-            erro: 'AWB inválido.',
-          })
-          continue
-        }
-
-        if (transportadora.includes('DHL')) {
-          const resultado = await rastrearDHL(embarque, awb)
-          resultados.push(resultado)
-          continue
-        }
-
-        if (transportadora.includes('FEDEX') || transportadora.includes('FED EX')) {
-          const resultado = await rastrearFedEx(embarque, awb)
-          resultados.push(resultado)
-          continue
-        }
-
-        resultados.push({
-          id: embarque.id,
-          awb,
-          transportadora: embarque.transportadora,
-          sucesso: false,
-          erro: 'Transportadora não suportada.',
-        })
-      } catch (erro: any) {
-        resultados.push({
-          id: embarque.id,
-          awb: embarque.awb,
-          transportadora: embarque.transportadora,
-          sucesso: false,
-          erro: erro?.message || String(erro),
-        })
-      }
+    if (!awb) {
+      return NextResponse.json({ error: 'Este embarque não possui AWB.' }, { status: 400 })
     }
 
-    return NextResponse.json({
-      sucesso: true,
-      total_processado: resultados.length,
-      resultados,
-    })
+    if (transportadora.includes('DHL')) {
+      return await rastrearDHL(embarque, awb)
+    }
+
+    if (transportadora.includes('FEDEX') || transportadora.includes('FED EX')) {
+      return await rastrearFedEx(embarque, awb)
+    }
+
+    return NextResponse.json(
+      { error: 'Transportadora não suportada para rastreio automático.' },
+      { status: 400 }
+    )
   } catch (error: any) {
+    console.log('ERRO GERAL RASTREIO:', error)
+
     return NextResponse.json(
       {
-        error: 'Erro interno no rastreio automático.',
+        error: 'Erro interno ao atualizar rastreio.',
         detalhes: error?.message || String(error),
       },
       { status: 500 }
@@ -97,7 +61,7 @@ async function rastrearDHL(embarque: any, awb: string) {
   const dhlApiKey = process.env.DHL_API_KEY
 
   if (!dhlApiKey) {
-    throw new Error('DHL_API_KEY não configurada.')
+    return NextResponse.json({ error: 'DHL_API_KEY não configurada na Vercel.' }, { status: 400 })
   }
 
   const url = `https://api-eu.dhl.com/track/shipments?trackingNumber=${encodeURIComponent(awb)}`
@@ -114,13 +78,22 @@ async function rastrearDHL(embarque: any, awb: string) {
   const data = await response.json()
 
   if (!response.ok) {
-    throw new Error(`Erro DHL: ${JSON.stringify(data)}`)
+    return NextResponse.json(
+      {
+        error: 'Não foi possível consultar o rastreio DHL.',
+        detalhes: JSON.stringify(data),
+      },
+      { status: response.status }
+    )
   }
 
   const shipment = data?.shipments?.[0]
 
   if (!shipment) {
-    throw new Error('Nenhuma remessa DHL encontrada.')
+    return NextResponse.json(
+      { error: 'Nenhuma remessa DHL encontrada para este AWB.', detalhes: JSON.stringify(data) },
+      { status: 404 }
+    )
   }
 
   const eventoAtual = shipment?.events?.[0]
@@ -152,14 +125,15 @@ async function rastrearDHL(embarque: any, awb: string) {
     dataEvento,
   })
 
-  return {
-    id: embarque.id,
-    awb,
-    transportadora: 'DHL',
+  return NextResponse.json({
     sucesso: true,
+    transportadora: 'DHL',
+    awb,
     status: statusNormalizado,
     descricao,
-  }
+    local,
+    data_evento: dataEvento,
+  })
 }
 
 async function rastrearFedEx(embarque: any, awb: string) {
@@ -167,7 +141,13 @@ async function rastrearFedEx(embarque: any, awb: string) {
   const clientSecret = process.env.FEDEX_CLIENT_SECRET
 
   if (!clientId || !clientSecret) {
-    throw new Error('FedEx não configurada.')
+    return NextResponse.json(
+      {
+        error:
+          'FedEx não configurada. Cadastre FEDEX_CLIENT_ID e FEDEX_CLIENT_SECRET na Vercel.',
+      },
+      { status: 400 }
+    )
   }
 
   const tokenResponse = await fetch('https://apis.fedex.com/oauth/token', {
@@ -186,7 +166,13 @@ async function rastrearFedEx(embarque: any, awb: string) {
   const tokenData = await tokenResponse.json()
 
   if (!tokenResponse.ok) {
-    throw new Error(`Erro ao autenticar FedEx: ${JSON.stringify(tokenData)}`)
+    return NextResponse.json(
+      {
+        error: 'Erro ao autenticar na FedEx.',
+        detalhes: JSON.stringify(tokenData),
+      },
+      { status: tokenResponse.status }
+    )
   }
 
   const accessToken = tokenData.access_token
@@ -213,13 +199,25 @@ async function rastrearFedEx(embarque: any, awb: string) {
   const data = await trackResponse.json()
 
   if (!trackResponse.ok) {
-    throw new Error(`Erro FedEx: ${JSON.stringify(data)}`)
+    return NextResponse.json(
+      {
+        error: 'Não foi possível consultar o rastreio FedEx.',
+        detalhes: JSON.stringify(data),
+      },
+      { status: trackResponse.status }
+    )
   }
 
   const resultado = data?.output?.completeTrackResults?.[0]?.trackResults?.[0]
 
   if (!resultado) {
-    throw new Error('Nenhuma remessa FedEx encontrada.')
+    return NextResponse.json(
+      {
+        error: 'Nenhuma remessa FedEx encontrada para este AWB.',
+        detalhes: JSON.stringify(data),
+      },
+      { status: 404 }
+    )
   }
 
   const ultimoEvento = resultado?.scanEvents?.[0]
@@ -254,14 +252,15 @@ async function rastrearFedEx(embarque: any, awb: string) {
     dataEvento,
   })
 
-  return {
-    id: embarque.id,
-    awb,
-    transportadora: 'FEDEX',
+  return NextResponse.json({
     sucesso: true,
+    transportadora: 'FEDEX',
+    awb,
     status: statusNormalizado,
     descricao,
-  }
+    local,
+    data_evento: dataEvento,
+  })
 }
 
 function normalizarStatus(status: string) {
@@ -274,31 +273,36 @@ function normalizarStatus(status: string) {
     s.includes('liberacao') ||
     s.includes('clearance') ||
     s.includes('customs') ||
-    s.includes('fiscal')
+    s.includes('fiscal') ||
+    s.includes('despachante') ||
+    s.includes('desembaraço') ||
+    s.includes('desembaraco')
   ) {
     return 'Fiscalização'
+  }
+
+  if (
+    s.includes('released') ||
+    s.includes('liberado') ||
+    s.includes('liberada')
+  ) {
+    return 'Liberado'
   }
 
   if (
     s.includes('transit') ||
     s.includes('trânsito') ||
     s.includes('transito') ||
-    s.includes('processed')
+    s.includes('processed') ||
+    s.includes('processado') ||
+    s.includes('chegou') ||
+    s.includes('partiu')
   ) {
     return 'Em trânsito'
   }
 
   if (s.includes('picked') || s.includes('pickup') || s.includes('colet')) {
     return 'Coletado'
-  }
-
-  if (
-    s.includes('available for delivery') ||
-    s.includes('out for delivery') ||
-    s.includes('released') ||
-    s.includes('liberado')
-  ) {
-    return 'Liberado'
   }
 
   return 'Em trânsito'
@@ -337,19 +341,36 @@ async function salvarRastreio({
     throw new Error(`Erro ao atualizar embarque: ${erroUpdate.message}`)
   }
 
-  const { error: erroInsert } = await supabase.from('rastreios_embarques').insert({
-    embarque_id: embarque.id,
-    awb,
-    transportadora,
-    status: statusNormalizado,
-    descricao,
-    localizacao: local,
-    data_evento: dataEvento,
-  })
+  const { data: rastreioExistente } = await supabase
+    .from('rastreios_embarques')
+    .select('id')
+    .eq('embarque_id', embarque.id)
+    .eq('awb', awb)
+    .eq('status', statusNormalizado)
+    .eq('descricao', descricao)
+    .maybeSingle()
 
-  if (erroInsert) {
-    throw new Error(`Erro ao salvar rastreio: ${erroInsert.message}`)
+  if (!rastreioExistente) {
+    const { error: erroInsert } = await supabase.from('rastreios_embarques').insert({
+      embarque_id: embarque.id,
+      awb,
+      transportadora,
+      status: statusNormalizado,
+      descricao,
+      localizacao: local,
+      data_evento: dataEvento,
+    })
+
+    if (erroInsert) {
+      throw new Error(`Erro ao salvar rastreio: ${erroInsert.message}`)
+    }
   }
+
+  await supabase.from('timeline_embarques').insert({
+    embarque_id: embarque.id,
+    status: statusNormalizado,
+    descricao: `Rastreio atualizado: ${descricao}`,
+  })
 
   return statusNormalizado
 }
