@@ -44,11 +44,7 @@ export default function EmbarquesPage() {
     taxa_conversao: '',
     spread_percentual: '3',
 
-    peso_inicial_taxado: '',
-    peso_final_taxado: '',
-    valor_adicional_peso: '',
-    mostrar_divergencia_cliente: false,
-    observacao_divergencia_peso: '',
+    
   }
 
   const [form, setForm] = useState(formInicial)
@@ -211,10 +207,7 @@ export default function EmbarquesPage() {
 
     const responsavelId = form.responsavel_id || user.id
 
-    const divergenciaCalculada = calcularDivergencia(
-      form.peso_inicial_taxado,
-      form.peso_final_taxado
-    )
+    
 
     const { data, error } = await supabase
       .from('embarques')
@@ -250,13 +243,7 @@ export default function EmbarquesPage() {
           taxa_conversao: numero(form.taxa_conversao),
           spread_percentual: numero(form.spread_percentual) || 3,
 
-          peso_inicial_taxado: numero(form.peso_inicial_taxado),
-          peso_final_taxado: numero(form.peso_final_taxado),
-          divergencia_peso: divergenciaCalculada,
-          valor_adicional_peso: numero(form.valor_adicional_peso),
-          mostrar_divergencia_cliente: form.mostrar_divergencia_cliente,
-          observacao_divergencia_peso:
-            form.observacao_divergencia_peso || null,
+        
 
           status_operacional: 'Aguardando coleta',
           data_envio: null,
@@ -690,76 +677,9 @@ export default function EmbarquesPage() {
             />
           </Campo>
 
-          <div className="md:col-span-5 mt-6 border-t border-blue-900 pt-6">
-            <h3 className="text-2xl font-black text-yellow-400">
-              Divergência de Peso
-            </h3>
-            <p className="text-slate-400 text-sm mt-1">
-              Use quando a DHL/FedEx alterar o peso taxado durante o processo.
-            </p>
-          </div>
+          
 
-          <Campo label="Peso inicial taxado">
-            <input
-              value={form.peso_inicial_taxado}
-              onChange={(e) =>
-                setForm({ ...form, peso_inicial_taxado: e.target.value })
-              }
-              placeholder="Ex: 5"
-            />
-          </Campo>
-
-          <Campo label="Peso final taxado">
-            <input
-              value={form.peso_final_taxado}
-              onChange={(e) =>
-                setForm({ ...form, peso_final_taxado: e.target.value })
-              }
-              placeholder="Ex: 6,5"
-            />
-          </Campo>
-
-          <Campo label="Valor adicional">
-            <input
-              value={form.valor_adicional_peso}
-              onChange={(e) =>
-                setForm({ ...form, valor_adicional_peso: e.target.value })
-              }
-              placeholder="Ex: 18,40"
-            />
-          </Campo>
-
-          <div className="flex items-center gap-3 mt-8">
-            <input
-              type="checkbox"
-              checked={form.mostrar_divergencia_cliente}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  mostrar_divergencia_cliente: e.target.checked,
-                })
-              }
-            />
-
-            <span>Mostrar divergência para o cliente</span>
-          </div>
-
-          <div className="md:col-span-5">
-            <Campo label="Observação da divergência">
-              <textarea
-                value={form.observacao_divergencia_peso}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    observacao_divergencia_peso: e.target.value,
-                  })
-                }
-                placeholder="Ex: A transportadora atualizou o peso taxado de 5kg para 6,5kg após conferência operacional."
-                className="min-h-[90px]"
-              />
-            </Campo>
-          </div>
-        </div>
+          
 
         <button
           onClick={salvar}
