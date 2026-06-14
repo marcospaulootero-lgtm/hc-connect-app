@@ -53,6 +53,7 @@ export default function FaturasPage() {
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('TODOS')
+  const [filtroOperacional, setFiltroOperacional] = useState('TODOS')
 
   const [embarqueSelecionado, setEmbarqueSelecionado] = useState<Embarque | null>(null)
   const [vencimento, setVencimento] = useState('')
@@ -158,7 +159,23 @@ export default function FaturasPage() {
       `.toLowerCase()
 
       const passaBusca = texto.includes(busca.toLowerCase())
-      const passaStatus = filtroStatus === 'TODOS' || status === filtroStatus
+      const statusOperacional = String(
+  e.status_operacional || ''
+).toUpperCase()
+
+const passaStatus =
+  filtroStatus === 'TODOS' ||
+  status === filtroStatus
+
+const passaOperacional =
+  filtroOperacional === 'TODOS' ||
+  statusOperacional.includes(filtroOperacional)
+
+return (
+  passaBusca &&
+  passaStatus &&
+  passaOperacional
+)
 
       return passaBusca && passaStatus
     })
@@ -487,22 +504,38 @@ export default function FaturasPage() {
           </div>
 
           <div className="flex flex-col md:flex-row gap-3">
-            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-              <option value="TODOS">Todos os status</option>
-              <option value={STATUS_A_FATURAR}>A faturar</option>
-              <option value={STATUS_FATURA_ENVIADA}>Fatura enviada</option>
-              <option value={STATUS_PAGO}>Pago / recibo pendente</option>
-              <option value={STATUS_RECIBO_ENVIADO}>Recibo enviado</option>
-              <option value={STATUS_FINALIZADO}>Finalizado</option>
-            </select>
+  <select
+    value={filtroOperacional}
+    onChange={(e) => setFiltroOperacional(e.target.value)}
+  >
+    <option value="TODOS">Todos operacionais</option>
+    <option value="AGUARDANDO COLETA">Aguardando coleta</option>
+    <option value="COLETADO">Coletado</option>
+    <option value="EM TRÂNSITO">Em trânsito</option>
+    <option value="FISCALIZAÇÃO">Fiscalização</option>
+    <option value="LIBERADO">Liberado</option>
+    <option value="ENTREGUE">Entregue</option>
+  </select>
 
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por AWB, cliente, transportadora..."
-              className="min-w-[320px]"
-            />
-          </div>
+  <select
+    value={filtroStatus}
+    onChange={(e) => setFiltroStatus(e.target.value)}
+  >
+    <option value="TODOS">Todos financeiros</option>
+    <option value={STATUS_A_FATURAR}>A faturar</option>
+    <option value={STATUS_FATURA_ENVIADA}>Fatura enviada</option>
+    <option value={STATUS_PAGO}>Pago / recibo pendente</option>
+    <option value={STATUS_RECIBO_ENVIADO}>Recibo enviado</option>
+    <option value={STATUS_FINALIZADO}>Finalizado</option>
+  </select>
+
+  <input
+    value={busca}
+    onChange={(e) => setBusca(e.target.value)}
+    placeholder="Buscar por AWB, cliente, transportadora..."
+    className="min-w-[320px]"
+  />
+</div>
         </div>
 
         <div className="overflow-auto">
