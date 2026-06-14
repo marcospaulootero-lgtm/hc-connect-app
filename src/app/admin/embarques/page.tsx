@@ -38,6 +38,17 @@ export default function EmbarquesPage() {
     data_envio: '',
     data_prevista: '',
     observacoes: '',
+
+    valor_cobrado_cliente: '',
+    moeda_cobranca: 'USD',
+    taxa_conversao: '',
+    spread_percentual: '3',
+
+    peso_inicial_taxado: '',
+    peso_final_taxado: '',
+    valor_adicional_peso: '',
+    mostrar_divergencia_cliente: false,
+    observacao_divergencia_peso: '',
   }
 
   const [form, setForm] = useState(formInicial)
@@ -47,6 +58,35 @@ export default function EmbarquesPage() {
     carregarUsuarios()
     carregarAdmins()
   }, [])
+
+  function numero(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return null
+    return Number(String(valor).replace(',', '.'))
+  }
+
+  function moeda(valor: any, moedaBase = 'USD') {
+    if (valor === null || valor === undefined || valor === '') return '-'
+
+    const numeroValor = Number(valor)
+
+    if (moedaBase === 'BRL') {
+      return numeroValor.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      })
+    }
+
+    return `${moedaBase} ${numeroValor.toFixed(2)}`
+  }
+
+  function calcularDivergencia(pesoInicial: any, pesoFinal: any) {
+    const inicial = Number(pesoInicial || 0)
+    const final = Number(pesoFinal || 0)
+
+    if (!inicial || !final) return null
+
+    return final - inicial
+  }
 
   async function carregar() {
     const { data: embarquesData } = await supabase
@@ -171,6 +211,11 @@ export default function EmbarquesPage() {
 
     const responsavelId = form.responsavel_id || user.id
 
+    const divergenciaCalculada = calcularDivergencia(
+      form.peso_inicial_taxado,
+      form.peso_final_taxado
+    )
+
     const { data, error } = await supabase
       .from('embarques')
       .insert([
@@ -197,8 +242,21 @@ export default function EmbarquesPage() {
           origem: form.origem,
           destino: form.destino,
 
-          peso_real: form.peso_real ? Number(form.peso_real.replace(',', '.')) : null,
-          peso_taxado: form.peso_taxado ? Number(form.peso_taxado.replace(',', '.')) : null,
+          peso_real: numero(form.peso_real),
+          peso_taxado: numero(form.peso_taxado),
+
+          valor_cobrado_cliente: numero(form.valor_cobrado_cliente),
+          moeda_cobranca: form.moeda_cobranca || 'USD',
+          taxa_conversao: numero(form.taxa_conversao),
+          spread_percentual: numero(form.spread_percentual) || 3,
+
+          peso_inicial_taxado: numero(form.peso_inicial_taxado),
+          peso_final_taxado: numero(form.peso_final_taxado),
+          divergencia_peso: divergenciaCalculada,
+          valor_adicional_peso: numero(form.valor_adicional_peso),
+          mostrar_divergencia_cliente: form.mostrar_divergencia_cliente,
+          observacao_divergencia_peso:
+            form.observacao_divergencia_peso || null,
 
           status_operacional: 'Aguardando coleta',
           data_envio: null,
@@ -256,6 +314,29 @@ export default function EmbarquesPage() {
       status_operacional: item.status_operacional || 'Aguardando coleta',
       data_prevista: item.data_prevista || '',
       observacoes: item.observacoes || '',
+
+      valor_cobrado_cliente: item.valor_cobrado_cliente
+        ? String(item.valor_cobrado_cliente)
+        : '',
+      moeda_cobranca: item.moeda_cobranca || 'USD',
+      taxa_conversao: item.taxa_conversao ? String(item.taxa_conversao) : '',
+      spread_percentual: item.spread_percentual
+        ? String(item.spread_percentual)
+        : '3',
+
+      peso_inicial_taxado: item.peso_inicial_taxado
+        ? String(item.peso_inicial_taxado)
+        : '',
+      peso_final_taxado: item.peso_final_taxado
+        ? String(item.peso_final_taxado)
+        : '',
+      valor_adicional_peso: item.valor_adicional_peso
+        ? String(item.valor_adicional_peso)
+        : '',
+      mostrar_divergencia_cliente:
+        item.mostrar_divergencia_cliente || false,
+      observacao_divergencia_peso:
+        item.observacao_divergencia_peso || '',
     })
   }
 
@@ -263,6 +344,11 @@ export default function EmbarquesPage() {
     if (!editForm) return
 
     const responsavel = admins.find((a) => a.id === editForm.responsavel_id)
+
+    const divergenciaCalculada = calcularDivergencia(
+      editForm.peso_inicial_taxado,
+      editForm.peso_final_taxado
+    )
 
     const dadosAtualizar: any = {
       responsavel_id: responsavel?.id || null,
@@ -280,8 +366,22 @@ export default function EmbarquesPage() {
       origem: editForm.origem || null,
       destino: editForm.destino || null,
 
-      peso_real: editForm.peso_real ? Number(String(editForm.peso_real).replace(',', '.')) : null,
-      peso_taxado: editForm.peso_taxado ? Number(String(editForm.peso_taxado).replace(',', '.')) : null,
+      peso_real: numero(editForm.peso_real),
+      peso_taxado: numero(editForm.peso_taxado),
+
+      valor_cobrado_cliente: numero(editForm.valor_cobrado_cliente),
+      moeda_cobranca: editForm.moeda_cobranca || 'USD',
+      taxa_conversao: numero(editForm.taxa_conversao),
+      spread_percentual: numero(editForm.spread_percentual) || 3,
+
+      peso_inicial_taxado: numero(editForm.peso_inicial_taxado),
+      peso_final_taxado: numero(editForm.peso_final_taxado),
+      divergencia_peso: divergenciaCalculada,
+      valor_adicional_peso: numero(editForm.valor_adicional_peso),
+      mostrar_divergencia_cliente:
+        editForm.mostrar_divergencia_cliente || false,
+      observacao_divergencia_peso:
+        editForm.observacao_divergencia_peso || null,
 
       status_operacional: editForm.status_operacional || null,
       data_prevista: editForm.data_prevista || null,
@@ -391,6 +491,8 @@ export default function EmbarquesPage() {
         ${item.criado_por_admin_email}
         ${item.responsavel_nome}
         ${item.responsavel_email}
+        ${item.valor_cobrado_cliente}
+        ${item.valor_adicional_peso}
         ${nomesClientes(item.id, item.usuario_id)}
       `.toLowerCase()
 
@@ -536,6 +638,127 @@ export default function EmbarquesPage() {
               />
             </Campo>
           </div>
+
+          <div className="md:col-span-5 mt-6 border-t border-blue-900 pt-6">
+            <h3 className="text-2xl font-black text-green-400">
+              Financeiro do Embarque
+            </h3>
+            <p className="text-slate-400 text-sm mt-1">
+              Esses valores serão usados automaticamente na aba Faturas quando o embarque for entregue.
+            </p>
+          </div>
+
+          <Campo label="Valor cobrado ao cliente">
+            <input
+              value={form.valor_cobrado_cliente}
+              onChange={(e) =>
+                setForm({ ...form, valor_cobrado_cliente: e.target.value })
+              }
+              placeholder="Ex: 182,55"
+            />
+          </Campo>
+
+          <Campo label="Moeda">
+            <select
+              value={form.moeda_cobranca}
+              onChange={(e) =>
+                setForm({ ...form, moeda_cobranca: e.target.value })
+              }
+            >
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+              <option value="BRL">BRL</option>
+            </select>
+          </Campo>
+
+          <Campo label="Taxa de conversão">
+            <input
+              value={form.taxa_conversao}
+              onChange={(e) =>
+                setForm({ ...form, taxa_conversao: e.target.value })
+              }
+              placeholder="Ex: 5,2086"
+            />
+          </Campo>
+
+          <Campo label="Spread (%)">
+            <input
+              value={form.spread_percentual}
+              onChange={(e) =>
+                setForm({ ...form, spread_percentual: e.target.value })
+              }
+            />
+          </Campo>
+
+          <div className="md:col-span-5 mt-6 border-t border-blue-900 pt-6">
+            <h3 className="text-2xl font-black text-yellow-400">
+              Divergência de Peso
+            </h3>
+            <p className="text-slate-400 text-sm mt-1">
+              Use quando a DHL/FedEx alterar o peso taxado durante o processo.
+            </p>
+          </div>
+
+          <Campo label="Peso inicial taxado">
+            <input
+              value={form.peso_inicial_taxado}
+              onChange={(e) =>
+                setForm({ ...form, peso_inicial_taxado: e.target.value })
+              }
+              placeholder="Ex: 5"
+            />
+          </Campo>
+
+          <Campo label="Peso final taxado">
+            <input
+              value={form.peso_final_taxado}
+              onChange={(e) =>
+                setForm({ ...form, peso_final_taxado: e.target.value })
+              }
+              placeholder="Ex: 6,5"
+            />
+          </Campo>
+
+          <Campo label="Valor adicional">
+            <input
+              value={form.valor_adicional_peso}
+              onChange={(e) =>
+                setForm({ ...form, valor_adicional_peso: e.target.value })
+              }
+              placeholder="Ex: 18,40"
+            />
+          </Campo>
+
+          <div className="flex items-center gap-3 mt-8">
+            <input
+              type="checkbox"
+              checked={form.mostrar_divergencia_cliente}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  mostrar_divergencia_cliente: e.target.checked,
+                })
+              }
+            />
+
+            <span>Mostrar divergência para o cliente</span>
+          </div>
+
+          <div className="md:col-span-5">
+            <Campo label="Observação da divergência">
+              <textarea
+                value={form.observacao_divergencia_peso}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    observacao_divergencia_peso: e.target.value,
+                  })
+                }
+                placeholder="Ex: A transportadora atualizou o peso taxado de 5kg para 6,5kg após conferência operacional."
+                className="min-h-[90px]"
+              />
+            </Campo>
+          </div>
         </div>
 
         <button
@@ -614,6 +837,12 @@ export default function EmbarquesPage() {
                     <span className="text-slate-400">
                       {item.transportadora || '-'} • {item.servico || '-'}
                     </span>
+
+                    {item.valor_adicional_peso && (
+                      <span className="bg-yellow-500/20 text-yellow-300 border border-yellow-500 px-3 py-1 rounded-full text-xs font-black">
+                        ⚠️ Divergência de peso
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -715,6 +944,136 @@ export default function EmbarquesPage() {
                       <input value={editForm.peso_taxado} onChange={(e) => setEditForm({ ...editForm, peso_taxado: e.target.value })} />
                     </Campo>
 
+                    <div className="md:col-span-3 border-t border-blue-900 pt-5 mt-3">
+                      <h3 className="text-xl font-black text-green-400 mb-4">
+                        Financeiro do Embarque
+                      </h3>
+                    </div>
+
+                    <Campo label="Valor cobrado ao cliente">
+                      <input
+                        value={editForm.valor_cobrado_cliente}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            valor_cobrado_cliente: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+
+                    <Campo label="Moeda">
+                      <select
+                        value={editForm.moeda_cobranca}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            moeda_cobranca: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="BRL">BRL</option>
+                      </select>
+                    </Campo>
+
+                    <Campo label="Taxa de conversão">
+                      <input
+                        value={editForm.taxa_conversao}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            taxa_conversao: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+
+                    <Campo label="Spread (%)">
+                      <input
+                        value={editForm.spread_percentual}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            spread_percentual: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+
+                    <div className="md:col-span-3 border-t border-blue-900 pt-5 mt-3">
+                      <h3 className="text-xl font-black text-yellow-400 mb-4">
+                        Divergência de Peso
+                      </h3>
+                    </div>
+
+                    <Campo label="Peso inicial taxado">
+                      <input
+                        value={editForm.peso_inicial_taxado}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            peso_inicial_taxado: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+
+                    <Campo label="Peso final taxado">
+                      <input
+                        value={editForm.peso_final_taxado}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            peso_final_taxado: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+
+                    <Campo label="Valor adicional">
+                      <input
+                        value={editForm.valor_adicional_peso}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            valor_adicional_peso: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+
+                    <div className="flex items-center gap-3 mt-8">
+                      <input
+                        type="checkbox"
+                        checked={editForm.mostrar_divergencia_cliente}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            mostrar_divergencia_cliente: e.target.checked,
+                          })
+                        }
+                      />
+
+                      <span>Mostrar divergência para o cliente</span>
+                    </div>
+
+                    <div className="md:col-span-3">
+                      <Campo label="Observação da divergência">
+                        <textarea
+                          value={editForm.observacao_divergencia_peso}
+                          onChange={(e) =>
+                            setEditForm({
+                              ...editForm,
+                              observacao_divergencia_peso: e.target.value,
+                            })
+                          }
+                          className="min-h-[90px]"
+                        />
+                      </Campo>
+                    </div>
+
                     <div className="md:col-span-3">
                       <Campo label="Observações">
                         <textarea
@@ -761,6 +1120,20 @@ export default function EmbarquesPage() {
                     item.data_prevista
                       ? new Date(item.data_prevista).toLocaleDateString('pt-BR')
                       : '-'
+                  }
+                />
+
+                <Info
+                  label="Valor cobrado"
+                  valor={moeda(item.valor_cobrado_cliente, item.moeda_cobranca || 'USD')}
+                />
+
+                <Info
+                  label="Divergência peso"
+                  valor={
+                    item.valor_adicional_peso
+                      ? `${moeda(item.valor_adicional_peso, item.moeda_cobranca || 'USD')} • ${item.peso_inicial_taxado || '-'}kg → ${item.peso_final_taxado || '-'}kg`
+                      : 'Sem divergência'
                   }
                 />
               </div>
