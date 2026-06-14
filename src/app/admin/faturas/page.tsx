@@ -144,9 +144,10 @@ export default function FaturasPage() {
     })
   }, [embarques])
 
-  const embarquesFiltrados = useMemo(() => {
+    const embarquesFiltrados = useMemo(() => {
     return embarquesFinanceiros.filter((e) => {
       const status = statusFinanceiro(e)
+      const statusOperacional = String(e.status_operacional || '').toUpperCase()
 
       const texto = `
         ${e.awb || ''}
@@ -159,27 +160,14 @@ export default function FaturasPage() {
       `.toLowerCase()
 
       const passaBusca = texto.includes(busca.toLowerCase())
-      const statusOperacional = String(
-  e.status_operacional || ''
-).toUpperCase()
+      const passaStatus = filtroStatus === 'TODOS' || status === filtroStatus
+      const passaOperacional =
+        filtroOperacional === 'TODOS' ||
+        statusOperacional.includes(filtroOperacional)
 
-const passaStatus =
-  filtroStatus === 'TODOS' ||
-  status === filtroStatus
-
-const passaOperacional =
-  filtroOperacional === 'TODOS' ||
-  statusOperacional.includes(filtroOperacional)
-
-return (
-  passaBusca &&
-  passaStatus &&
-  passaOperacional
-)
-
-      return passaBusca && passaStatus
+      return passaBusca && passaStatus && passaOperacional
     })
-  }, [embarquesFinanceiros, busca, filtroStatus])
+  }, [embarquesFinanceiros, busca, filtroStatus, filtroOperacional])
 
   const aFaturar = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_A_FATURAR)
   const faturaEnviada = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_FATURA_ENVIADA)
