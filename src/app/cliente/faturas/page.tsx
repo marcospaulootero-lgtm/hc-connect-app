@@ -29,43 +29,35 @@ export default function FaturasClientePage() {
     setLoading(true)
 
     const { data, error } = await supabase
-      .from('faturas')
-      .select(`
-        id,
-        embarque_id,
-        usuario_id,
-        vencimento,
-        arquivo_pdf,
-        recibo_pdf,
-        recibo_nome,
-        data_pagamento,
-        valor_pago,
-        criado_em,
-        visivel_cliente,
-        embarques (
-          id,
-          awb,
-          cliente_final,
-          exportador,
-          importador,
-          transportadora,
-          status_operacional,
-          valor_cobrado_cliente,
-          moeda_cobranca,
-          valor_adicional_peso,
-          peso_inicial_taxado,
-          peso_final_taxado
-        )
-      `)
-      .eq('usuario_id', usuarioId)
-      .eq('visivel_cliente', true)
-      .order('criado_em', { ascending: false })
+  .from('faturas')
+  .select(`
+    id,
+    embarque_id,
+    usuario_id,
+    vencimento,
+    arquivo_pdf,
+    recibo_pdf,
+    recibo_nome,
+    data_pagamento,
+    valor_pago,
+    criado_em,
+    visivel_cliente,
+    embarques (
+      id,
+      awb,
+      cliente_final,
+      exportador,
+      importador,
+      transportadora,
+      status_operacional
+    )
+  `)
+  .eq('usuario_id', usuarioId)
+  .eq('visivel_cliente', true)
 
-    if (error) {
-      console.log(error)
-      setLoading(false)
-      return
-    }
+console.log('FATURAS:', data)
+console.log('ERRO:', error)
+     
 
     setFaturas(data || [])
     setLoading(false)
