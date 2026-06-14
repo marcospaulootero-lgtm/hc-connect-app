@@ -28,59 +28,38 @@ export default function FaturasClientePage() {
   async function carregarFaturas(usuarioId: string) {
     setLoading(true)
 
-    const { data: embarquesDiretos } = await supabase
-      .from('embarques')
-      .select('id')
-      .eq('usuario_id', usuarioId)
-
-    const { data: vinculos } = await supabase
-      .from('embarque_clientes')
-      .select('embarque_id')
-      .eq('cliente_id', usuarioId)
-
-    const idsDiretos = (embarquesDiretos || []).map((item) => item.id)
-    const idsVinculos = (vinculos || []).map((item) => item.embarque_id)
-
-    const idsEmbarques = Array.from(new Set([...idsDiretos, ...idsVinculos]))
-
-    if (idsEmbarques.length === 0) {
-      setFaturas([])
-      setLoading(false)
-      return
-    }
-
     const { data, error } = await supabase
-  .from('faturas')
-  .select(`
-    id,
-    embarque_id,
-    usuario_id,
-    vencimento,
-    arquivo_pdf,
-    recibo_pdf,
-    recibo_nome,
-    data_pagamento,
-    valor_pago,
-    criado_em,
-    visivel_cliente,
-    embarques (
-      id,
-      awb,
-      cliente_final,
-      exportador,
-      importador,
-      transportadora,
-      status_operacional,
-      valor_cobrado_cliente,
-      moeda_cobranca,
-      valor_adicional_peso,
-      peso_inicial_taxado,
-      peso_final_taxado
-    )
-  `)
-  .eq('usuario_id', usuarioId)
-  .eq('visivel_cliente', true)
-  .order('criado_em', { ascending: false })
+      .from('faturas')
+      .select(`
+        id,
+        embarque_id,
+        usuario_id,
+        vencimento,
+        arquivo_pdf,
+        recibo_pdf,
+        recibo_nome,
+        data_pagamento,
+        valor_pago,
+        criado_em,
+        visivel_cliente,
+        embarques (
+          id,
+          awb,
+          cliente_final,
+          exportador,
+          importador,
+          transportadora,
+          status_operacional,
+          valor_cobrado_cliente,
+          moeda_cobranca,
+          valor_adicional_peso,
+          peso_inicial_taxado,
+          peso_final_taxado
+        )
+      `)
+      .eq('usuario_id', usuarioId)
+      .eq('visivel_cliente', true)
+      .order('criado_em', { ascending: false })
 
     if (error) {
       console.log(error)
@@ -104,7 +83,6 @@ export default function FaturasClientePage() {
 
   function moeda(valor?: number | string | null, moedaBase = 'USD') {
     if (valor === null || valor === undefined || valor === '') return '-'
-
     const numero = Number(valor || 0)
 
     if (moedaBase === 'BRL') {
