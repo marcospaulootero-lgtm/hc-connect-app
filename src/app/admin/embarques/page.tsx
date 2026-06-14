@@ -243,7 +243,7 @@ export default function EmbarquesPage() {
           taxa_conversao: numero(form.taxa_conversao),
           spread_percentual: numero(form.spread_percentual) || 3,
 
-        
+          
 
           status_operacional: 'Aguardando coleta',
           data_envio: null,
@@ -668,7 +668,7 @@ export default function EmbarquesPage() {
             />
           </Campo>
 
-          <Campo label="Spread (%)">
+                    <Campo label="Spread (%)">
             <input
               value={form.spread_percentual}
               onChange={(e) =>
@@ -676,10 +676,7 @@ export default function EmbarquesPage() {
               }
             />
           </Campo>
-
-          
-
-          
+        </div>
 
         <button
           onClick={salvar}
