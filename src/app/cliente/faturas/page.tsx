@@ -115,9 +115,9 @@ console.log('ERRO:', error)
         <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
           <div>
             <p className="text-blue-400 font-bold mb-2">Financeiro</p>
-            <h1 className="text-5xl font-black mb-2">Minhas faturas</h1>
+            <h1 className="text-5xl font-black mb-2">Faturamento</h1>
             <p className="text-slate-400 text-lg">
-              Consulte faturas, vencimentos e recibos de pagamento dos seus embarques.
+              Consulte suas faturas, recibos e pagamentos dos embarques.
             </p>
           </div>
 

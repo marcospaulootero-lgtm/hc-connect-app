@@ -265,7 +265,7 @@ export default function ClientePage() {
               </a>
 
               <a href="/cliente/faturas" className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold">
-                Minhas faturas
+                Faturamento
               </a>
 
               <a href="/cliente/suporte" className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold">
