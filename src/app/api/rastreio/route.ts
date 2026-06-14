@@ -96,7 +96,9 @@ async function rastrearDHL(embarque: any, awb: string) {
     )
   }
 
-  const eventoAtual = shipment?.events?.[0]
+  const eventos = Array.isArray(shipment?.events) ? shipment.events : []
+  const eventoAtual = eventos[0]
+  const dataColeta = encontrarDataColetaDHL(eventos)
 
   const descricao =
     shipment?.status?.description ||
@@ -123,6 +125,7 @@ async function rastrearDHL(embarque: any, awb: string) {
     descricao,
     local,
     dataEvento,
+    dataColeta,
   })
 
   return NextResponse.json({
@@ -133,6 +136,7 @@ async function rastrearDHL(embarque: any, awb: string) {
     descricao,
     local,
     data_evento: dataEvento,
+    data_coleta: dataColeta,
   })
 }
 
@@ -220,7 +224,9 @@ async function rastrearFedEx(embarque: any, awb: string) {
     )
   }
 
-  const ultimoEvento = resultado?.scanEvents?.[0]
+  const eventos = Array.isArray(resultado?.scanEvents) ? resultado.scanEvents : []
+  const ultimoEvento = eventos[0]
+  const dataColeta = encontrarDataColetaFedEx(eventos)
 
   const status =
     resultado?.latestStatusDetail?.description ||
@@ -250,6 +256,7 @@ async function rastrearFedEx(embarque: any, awb: string) {
     descricao,
     local,
     dataEvento,
+    dataColeta,
   })
 
   return NextResponse.json({
@@ -260,7 +267,44 @@ async function rastrearFedEx(embarque: any, awb: string) {
     descricao,
     local,
     data_evento: dataEvento,
+    data_coleta: dataColeta,
   })
+}
+
+function encontrarDataColetaDHL(eventos: any[]) {
+  const eventoColeta = eventos.find((evento) => {
+    const texto = String(
+      `${evento?.description || ''} ${evento?.status || ''} ${evento?.statusCode || ''}`
+    ).toLowerCase()
+
+    return (
+      texto.includes('picked') ||
+      texto.includes('pickup') ||
+      texto.includes('colet') ||
+      texto.includes('shipment picked up') ||
+      texto.includes('remessa coletada')
+    )
+  })
+
+  return eventoColeta?.timestamp || null
+}
+
+function encontrarDataColetaFedEx(eventos: any[]) {
+  const eventoColeta = eventos.find((evento) => {
+    const texto = String(
+      `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
+    ).toLowerCase()
+
+    return (
+      texto.includes('picked') ||
+      texto.includes('pickup') ||
+      texto.includes('picked up') ||
+      texto.includes('colet') ||
+      texto.includes('pu')
+    )
+  })
+
+  return eventoColeta?.date || null
 }
 
 function normalizarStatus(status: string) {
@@ -290,6 +334,15 @@ function normalizarStatus(status: string) {
   }
 
   if (
+    s.includes('picked') ||
+    s.includes('pickup') ||
+    s.includes('picked up') ||
+    s.includes('colet')
+  ) {
+    return 'Coletado'
+  }
+
+  if (
     s.includes('transit') ||
     s.includes('trânsito') ||
     s.includes('transito') ||
@@ -299,10 +352,6 @@ function normalizarStatus(status: string) {
     s.includes('partiu')
   ) {
     return 'Em trânsito'
-  }
-
-  if (s.includes('picked') || s.includes('pickup') || s.includes('colet')) {
-    return 'Coletado'
   }
 
   return 'Em trânsito'
@@ -316,6 +365,7 @@ async function salvarRastreio({
   descricao,
   local,
   dataEvento,
+  dataColeta,
 }: any) {
   const statusNormalizado = normalizarStatus(status)
 
@@ -328,8 +378,13 @@ async function salvarRastreio({
     dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
   }
 
-  if (statusNormalizado === 'Coletado' && !embarque.data_envio) {
-    dadosAtualizar.data_envio = new Date().toISOString().split('T')[0]
+  if (dataColeta && !embarque.data_coleta) {
+    dadosAtualizar.data_coleta = dataColeta
+  }
+
+  if ((statusNormalizado === 'Coletado' || dataColeta) && !embarque.data_envio) {
+    const dataBaseEnvio = dataColeta || dataEvento || new Date().toISOString()
+    dadosAtualizar.data_envio = new Date(dataBaseEnvio).toISOString().split('T')[0]
   }
 
   const { error: erroUpdate } = await supabase
