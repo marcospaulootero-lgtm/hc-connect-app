@@ -8,14 +8,27 @@ import StatusBadge from '@/components/StatusBadge'
 type Embarque = {
   id: string
   awb: string
-  usuario_id: string
+  usuario_id: string | null
   cliente_final: string | null
+  exportador?: string | null
+  importador?: string | null
   transportadora: string | null
   status_operacional: string | null
+  status_faturamento?: string | null
+  peso_real?: number | null
+  peso_taxado?: number | null
+  valor_venda?: number | null
+  data_entrega?: string | null
+  data_fatura_enviada?: string | null
+  data_pagamento?: string | null
+  data_recibo_enviado?: string | null
+  criado_em?: string | null
 }
 
 type Fatura = {
   id: string
+  embarque_id: string | null
+  usuario_id: string | null
   vencimento: string | null
   arquivo_pdf: string | null
   recibo_pdf: string | null
@@ -27,15 +40,23 @@ type Fatura = {
   embarques?: any
 }
 
+const STATUS_A_FATURAR = 'A FATURAR'
+const STATUS_FATURA_ENVIADA = 'FATURA ENVIADA'
+const STATUS_PAGO = 'PAGO'
+const STATUS_RECIBO_ENVIADO = 'RECIBO ENVIADO'
+const STATUS_FINALIZADO = 'FINALIZADO'
+
 export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState('TODOS')
 
-  const [awbId, setAwbId] = useState('')
+  const [embarqueSelecionado, setEmbarqueSelecionado] = useState<Embarque | null>(null)
   const [vencimento, setVencimento] = useState('')
+  const [valorVenda, setValorVenda] = useState('')
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
 
   useEffect(() => {
@@ -43,15 +64,19 @@ export default function FaturasPage() {
   }, [])
 
   async function carregar() {
-    const { data: embarquesData } = await supabase
+    const { data: embarquesData, error: erroEmbarques } = await supabase
       .from('embarques')
-      .select('id, awb, usuario_id, cliente_final, transportadora, status_operacional')
+      .select('*')
       .order('criado_em', { ascending: false })
 
-    const { data: faturasData, error } = await supabase
+    if (erroEmbarques) console.log(erroEmbarques)
+
+    const { data: faturasData, error: erroFaturas } = await supabase
       .from('faturas')
       .select(`
         id,
+        embarque_id,
+        usuario_id,
         vencimento,
         arquivo_pdf,
         recibo_pdf,
@@ -63,15 +88,22 @@ export default function FaturasPage() {
         embarques (
           awb,
           cliente_final,
+          exportador,
+          importador,
           transportadora,
-          status_operacional
+          status_operacional,
+          status_faturamento,
+          peso_taxado,
+          peso_real,
+          valor_venda,
+          data_entrega
         )
       `)
       .order('criado_em', { ascending: false })
 
-    if (error) console.log(error)
+    if (erroFaturas) console.log(erroFaturas)
 
-    setEmbarques(embarquesData || [])
+    setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
   }
 
@@ -80,15 +112,89 @@ export default function FaturasPage() {
     return fatura.embarques || {}
   }
 
+  function moeda(valor?: number | string | null) {
+    const numero = Number(valor || 0)
+
+    return numero.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+  }
+
+  function dataBR(data?: string | null) {
+    if (!data) return '-'
+    return new Date(data).toLocaleDateString('pt-BR')
+  }
+
+  function statusFinanceiro(embarque: Embarque) {
+    return embarque.status_faturamento || STATUS_A_FATURAR
+  }
+
+  function faturaDoEmbarque(embarqueId: string) {
+    return faturas.find((f) => f.embarque_id === embarqueId) || null
+  }
+
+  const embarquesFinanceiros = useMemo(() => {
+    return embarques.filter((e) => {
+      const entregue = String(e.status_operacional || '').toLowerCase().includes('entregue')
+      const temStatusFinanceiro = !!e.status_faturamento
+
+      return entregue || temStatusFinanceiro
+    })
+  }, [embarques])
+
+  const embarquesFiltrados = useMemo(() => {
+    return embarquesFinanceiros.filter((e) => {
+      const status = statusFinanceiro(e)
+
+      const texto = `
+        ${e.awb || ''}
+        ${e.cliente_final || ''}
+        ${e.exportador || ''}
+        ${e.importador || ''}
+        ${e.transportadora || ''}
+        ${e.status_operacional || ''}
+        ${status}
+      `.toLowerCase()
+
+      const passaBusca = texto.includes(busca.toLowerCase())
+      const passaStatus = filtroStatus === 'TODOS' || status === filtroStatus
+
+      return passaBusca && passaStatus
+    })
+  }, [embarquesFinanceiros, busca, filtroStatus])
+
+  const aFaturar = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_A_FATURAR)
+  const faturaEnviada = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_FATURA_ENVIADA)
+  const pagos = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_PAGO)
+  const reciboEnviado = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_RECIBO_ENVIADO)
+  const finalizados = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_FINALIZADO)
+
+  const valorAFaturar = aFaturar.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
+  const valorFaturaEnviada = faturaEnviada.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
+  const valorPago = pagos.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
+  const valorRecibo = reciboEnviado.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
+  const valorFinalizado = finalizados.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
+
+  function abrirEnvioFatura(embarque: Embarque) {
+    setEmbarqueSelecionado(embarque)
+    setVencimento('')
+    setValorVenda(embarque.valor_venda ? String(embarque.valor_venda) : '')
+    setArquivoPdf(null)
+
+    setTimeout(() => {
+      document.getElementById('form_envio_fatura')?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }
+
   async function salvarFatura() {
-    if (!awbId) return alert('Selecione um AWB')
-    if (!arquivoPdf) return alert('Selecione o PDF da fatura')
-    if (arquivoPdf.type !== 'application/pdf') return alert('O arquivo precisa ser um PDF')
+    if (!embarqueSelecionado) return alert('Selecione um embarque.')
+    if (!arquivoPdf) return alert('Selecione o PDF da fatura.')
+    if (arquivoPdf.type !== 'application/pdf') return alert('O arquivo precisa ser um PDF.')
 
     setSalvando(true)
 
-    const embarqueSelecionado = embarques.find((item) => item.id === awbId)
-    const nomeArquivo = `${awbId}/${Date.now()}-${arquivoPdf.name.replaceAll(' ', '-')}`
+    const nomeArquivo = `${embarqueSelecionado.id}/${Date.now()}-${arquivoPdf.name.replaceAll(' ', '-')}`
 
     const { error: erroUpload } = await supabase.storage
       .from('faturas')
@@ -106,28 +212,46 @@ export default function FaturasPage() {
 
     const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
 
-    const { error } = await supabase.from('faturas').insert([
+    const { error: erroInsert } = await supabase.from('faturas').insert([
       {
-        embarque_id: awbId,
-        usuario_id: embarqueSelecionado?.usuario_id || null,
+        embarque_id: embarqueSelecionado.id,
+        usuario_id: embarqueSelecionado.usuario_id || null,
         vencimento: vencimento || null,
         arquivo_pdf: urlData.publicUrl,
         visivel_cliente: true,
+        valor_pago: valorVenda ? Number(valorVenda) : null,
       },
     ])
 
-    setSalvando(false)
-
-    if (error) {
-      alert(error.message)
-      console.log(error)
+    if (erroInsert) {
+      setSalvando(false)
+      alert(erroInsert.message)
+      console.log(erroInsert)
       return
     }
 
-    alert('Fatura salva com sucesso')
+    const { error: erroUpdate } = await supabase
+      .from('embarques')
+      .update({
+        status_faturamento: STATUS_FATURA_ENVIADA,
+        valor_venda: valorVenda ? Number(valorVenda) : null,
+        data_fatura_enviada: new Date().toISOString(),
+      })
+      .eq('id', embarqueSelecionado.id)
 
-    setAwbId('')
+    setSalvando(false)
+
+    if (erroUpdate) {
+      alert(erroUpdate.message)
+      console.log(erroUpdate)
+      return
+    }
+
+    alert('Fatura enviada e embarque marcado como FATURA ENVIADA.')
+
+    setEmbarqueSelecionado(null)
     setVencimento('')
+    setValorVenda('')
     setArquivoPdf(null)
 
     const inputArquivo = document.getElementById('pdf_fatura') as HTMLInputElement | null
@@ -136,11 +260,50 @@ export default function FaturasPage() {
     carregar()
   }
 
-  async function anexarRecibo(fatura: Fatura, arquivo: File | null) {
-    if (!arquivo) return
-    if (arquivo.type !== 'application/pdf') return alert('O recibo precisa ser um PDF')
+  async function marcarComoPago(embarque: Embarque) {
+    const confirmar = confirm(`Confirmar pagamento do AWB ${embarque.awb}?`)
+    if (!confirmar) return
 
-    setEnviandoRecibo(fatura.id)
+    const fatura = faturaDoEmbarque(embarque.id)
+
+    if (fatura) {
+      await supabase
+        .from('faturas')
+        .update({
+          data_pagamento: new Date().toISOString().slice(0, 10),
+          valor_pago: embarque.valor_venda || fatura.valor_pago || null,
+        })
+        .eq('id', fatura.id)
+    }
+
+    const { error } = await supabase
+      .from('embarques')
+      .update({
+        status_faturamento: STATUS_PAGO,
+        data_pagamento: new Date().toISOString().slice(0, 10),
+      })
+      .eq('id', embarque.id)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    carregar()
+  }
+
+  async function anexarRecibo(embarque: Embarque, arquivo: File | null) {
+    if (!arquivo) return
+    if (arquivo.type !== 'application/pdf') return alert('O recibo precisa ser um PDF.')
+
+    const fatura = faturaDoEmbarque(embarque.id)
+
+    if (!fatura) {
+      alert('Não encontrei a fatura vinculada a este embarque.')
+      return
+    }
+
+    setEnviandoRecibo(embarque.id)
 
     const nomeArquivo = `recibos/${fatura.id}/${Date.now()}-${arquivo.name.replaceAll(' ', '-')}`
 
@@ -160,7 +323,7 @@ export default function FaturasPage() {
 
     const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
 
-    const { error } = await supabase
+    const { error: erroFatura } = await supabase
       .from('faturas')
       .update({
         recibo_pdf: urlData.publicUrl,
@@ -169,30 +332,41 @@ export default function FaturasPage() {
       })
       .eq('id', fatura.id)
 
+    if (erroFatura) {
+      setEnviandoRecibo(null)
+      alert(erroFatura.message)
+      return
+    }
+
+    const { error: erroEmbarque } = await supabase
+      .from('embarques')
+      .update({
+        status_faturamento: STATUS_RECIBO_ENVIADO,
+        data_recibo_enviado: new Date().toISOString(),
+      })
+      .eq('id', embarque.id)
+
     setEnviandoRecibo(null)
 
-    if (error) {
-      alert(error.message)
+    if (erroEmbarque) {
+      alert(erroEmbarque.message)
       return
     }
 
-    alert('Recibo anexado com sucesso')
+    alert('Recibo anexado e status alterado para RECIBO ENVIADO.')
     carregar()
   }
 
-  async function removerRecibo(fatura: Fatura) {
-    const confirmar = confirm('Deseja remover o recibo desta fatura?')
+  async function finalizarFinanceiro(embarque: Embarque) {
+    const confirmar = confirm(`Finalizar ciclo financeiro do AWB ${embarque.awb}?`)
     if (!confirmar) return
 
     const { error } = await supabase
-      .from('faturas')
+      .from('embarques')
       .update({
-        recibo_pdf: null,
-        recibo_nome: null,
-        data_pagamento: null,
-        valor_pago: null,
+        status_faturamento: STATUS_FINALIZADO,
       })
-      .eq('id', fatura.id)
+      .eq('id', embarque.id)
 
     if (error) {
       alert(error.message)
@@ -202,25 +376,16 @@ export default function FaturasPage() {
     carregar()
   }
 
-  async function alterarVisibilidade(fatura: Fatura) {
-    const { error } = await supabase
-      .from('faturas')
-      .update({ visivel_cliente: !fatura.visivel_cliente })
-      .eq('id', fatura.id)
-
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    carregar()
-  }
-
-  async function excluirFatura(id: string) {
-    const confirmar = confirm('Deseja realmente excluir esta fatura?')
+  async function voltarStatus(embarque: Embarque, status: string) {
+    const confirmar = confirm(`Alterar status financeiro para ${status}?`)
     if (!confirmar) return
 
-    const { error } = await supabase.from('faturas').delete().eq('id', id)
+    const { error } = await supabase
+      .from('embarques')
+      .update({
+        status_faturamento: status,
+      })
+      .eq('id', embarque.id)
 
     if (error) {
       alert(error.message)
@@ -229,118 +394,115 @@ export default function FaturasPage() {
 
     carregar()
   }
-
-  const faturasFiltradas = useMemo(() => {
-    return faturas.filter((fatura) => {
-      const emb = dadosEmbarque(fatura)
-
-      const texto = `
-        ${emb.awb}
-        ${emb.cliente_final}
-        ${emb.transportadora}
-        ${emb.status_operacional}
-        ${fatura.vencimento}
-      `.toLowerCase()
-
-      return texto.includes(busca.toLowerCase())
-    })
-  }, [faturas, busca])
-
-  const totalVisiveis = faturas.filter((f) => f.visivel_cliente).length
-  const totalOcultas = faturas.filter((f) => !f.visivel_cliente).length
-  const totalPDF = faturas.filter((f) => f.arquivo_pdf).length
-  const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
 
   return (
-    <main className="max-w-[1500px] mx-auto p-8 text-white">
+    <main className="max-w-[1600px] mx-auto p-8 text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
         <div>
           <p className="text-blue-400 font-bold mb-2">Financeiro</p>
           <h1 className="text-5xl font-black mb-2">Faturas</h1>
           <p className="text-slate-400 text-lg">
-            Vincule faturas aos embarques, envie PDFs e anexe recibos de pagamento.
+            Gerencie o ciclo completo dos embarques: fatura, pagamento, recibo e finalização.
           </p>
         </div>
 
         <button
-          onClick={() => window.scrollTo({ top: 250, behavior: 'smooth' })}
+          onClick={() => document.getElementById('tabela_financeira')?.scrollIntoView({ behavior: 'smooth' })}
           className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
         >
-          + Nova fatura
+          Ver embarques
         </button>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-        <Card titulo="Total de faturas" valor={faturas.length} detalhe="Cadastradas no sistema" icone="💵" />
-        <Card titulo="Visíveis ao cliente" valor={totalVisiveis} detalhe="Disponíveis no portal" icone="✅" />
-        <Card titulo="PDFs anexados" valor={totalPDF} detalhe="Faturas disponíveis" icone="📄" />
-        <Card titulo="Recibos anexados" valor={totalRecibos} detalhe="Pagamentos recebidos" icone="🧾" />
+      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-5 mb-8">
+        <CardFinanceiro titulo="A faturar" valor={aFaturar.length} detalhe="Pendente de faturamento" total={moeda(valorAFaturar)} icone="🟡" cor="yellow" />
+        <CardFinanceiro titulo="Fatura enviada" valor={faturaEnviada.length} detalhe="Aguardando pagamento" total={moeda(valorFaturaEnviada)} icone="📨" cor="blue" />
+        <CardFinanceiro titulo="Pago / recibo pendente" valor={pagos.length} detalhe="Aguardando recibo" total={moeda(valorPago)} icone="💵" cor="green" />
+        <CardFinanceiro titulo="Recibo enviado" valor={reciboEnviado.length} detalhe="Aguardando finalização" total={moeda(valorRecibo)} icone="🧾" cor="purple" />
+        <CardFinanceiro titulo="Finalizados" valor={finalizados.length} detalhe="Ciclo concluído" total={moeda(valorFinalizado)} icone="✅" cor="green" />
       </section>
 
-      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
-        <div className="flex items-center gap-3 mb-7">
-          <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center text-xl">
-            📄
+      {embarqueSelecionado && (
+        <section id="form_envio_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">Enviar fatura</p>
+              <h2 className="text-2xl font-black">
+                AWB {embarqueSelecionado.awb}
+              </h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setEmbarqueSelecionado(null)}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
           </div>
 
-          <div>
-            <h2 className="text-2xl font-black">Cadastrar fatura</h2>
-            <p className="text-slate-400 text-sm">
-              Selecione o embarque, informe o vencimento e anexe o PDF.
-            </p>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+            <input
+              type="number"
+              step="0.01"
+              value={valorVenda}
+              onChange={(e) => setValorVenda(e.target.value)}
+              placeholder="Valor da venda"
+            />
+
+            <input
+              type="date"
+              value={vencimento}
+              onChange={(e) => setVencimento(e.target.value)}
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60"
+            >
+              {salvando ? 'Salvando...' : 'Salvar e enviar fatura'}
+            </button>
           </div>
-        </div>
+        </section>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-          <select value={awbId} onChange={(e) => setAwbId(e.target.value)}>
-            <option value="">Selecione o AWB</option>
-
-            {embarques.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.awb} - {item.cliente_final || 'Sem cliente final'} - {item.status_operacional}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="date"
-            value={vencimento}
-            onChange={(e) => setVencimento(e.target.value)}
-          />
-
-          <input
-            id="pdf_fatura"
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
-            className="cursor-pointer"
-          />
-
-          <button
-            onClick={salvarFatura}
-            disabled={salvando}
-            className="bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60"
-          >
-            {salvando ? 'Salvando...' : 'Salvar fatura'}
-          </button>
-        </div>
-      </section>
-
-      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+      <section id="tabela_financeira" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
         <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
           <div>
-            <h2 className="text-2xl font-black">Faturas cadastradas</h2>
+            <h2 className="text-2xl font-black">Esteira financeira dos embarques</h2>
             <p className="text-slate-400 text-sm">
-              Controle faturas, recibos e visibilidade no portal do cliente.
+              Embarques entregues aparecem automaticamente para faturamento.
             </p>
           </div>
 
-          <input
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por AWB, cliente, transportadora..."
-            className="lg:max-w-md"
-          />
+          <div className="flex flex-col md:flex-row gap-3">
+            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+              <option value="TODOS">Todos os status</option>
+              <option value={STATUS_A_FATURAR}>A faturar</option>
+              <option value={STATUS_FATURA_ENVIADA}>Fatura enviada</option>
+              <option value={STATUS_PAGO}>Pago / recibo pendente</option>
+              <option value={STATUS_RECIBO_ENVIADO}>Recibo enviado</option>
+              <option value={STATUS_FINALIZADO}>Finalizado</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, transportadora..."
+              className="min-w-[320px]"
+            />
+          </div>
         </div>
 
         <div className="overflow-auto">
@@ -348,124 +510,132 @@ export default function FaturasPage() {
             <thead>
               <tr>
                 <th>AWB</th>
-                <th>Cliente final</th>
+                <th>Cliente</th>
+                <th>Exportador</th>
+                <th>Importador</th>
                 <th>Transportadora</th>
-                <th>Status embarque</th>
-                <th>Vencimento</th>
-                <th>Disponível</th>
-                <th>Fatura PDF</th>
+                <th>Peso</th>
+                <th>Entrega</th>
+                <th>Valor venda</th>
+                <th>Status operacional</th>
+                <th>Status financeiro</th>
+                <th>Fatura</th>
                 <th>Recibo</th>
                 <th>Ações</th>
               </tr>
             </thead>
 
             <tbody>
-              {faturasFiltradas.map((item) => {
-                const emb = dadosEmbarque(item)
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const status = statusFinanceiro(embarque)
 
                 return (
-                  <tr key={item.id}>
-                    <td className="font-black text-blue-400">{emb.awb || '-'}</td>
-                    <td>{emb.cliente_final || '-'}</td>
-                    <td>{emb.transportadora || '-'}</td>
+                  <tr key={embarque.id}>
+                    <td className="font-black text-blue-400">{embarque.awb || '-'}</td>
+                    <td>{embarque.cliente_final || embarque.importador || '-'}</td>
+                    <td>{embarque.exportador || '-'}</td>
+                    <td>{embarque.importador || '-'}</td>
+                    <td>{embarque.transportadora || '-'}</td>
+                    <td>{Number(embarque.peso_taxado || embarque.peso_real || 0).toFixed(2)} kg</td>
+                    <td>{dataBR(embarque.data_entrega || null)}</td>
+                    <td>{embarque.valor_venda ? moeda(embarque.valor_venda) : '-'}</td>
 
                     <td>
-                      <StatusBadge status={emb.status_operacional || '-'} />
+                      <StatusBadge status={embarque.status_operacional || '-'} />
                     </td>
 
                     <td>
-                      {item.vencimento
-                        ? new Date(item.vencimento).toLocaleDateString('pt-BR')
-                        : '-'}
+                      <StatusFinanceiro status={status} />
                     </td>
 
                     <td>
-                      <span
-                        className={`px-3 py-2 rounded-xl text-xs font-black ${
-                          item.visivel_cliente
-                            ? 'bg-green-600 text-white'
-                            : 'bg-slate-700 text-slate-300'
-                        }`}
-                      >
-                        {item.visivel_cliente ? 'VISÍVEL' : 'OCULTA'}
-                      </span>
-                    </td>
-
-                    <td>
-                      {item.arquivo_pdf ? (
+                      {fatura?.arquivo_pdf ? (
                         <Link
-                          href={item.arquivo_pdf}
+                          href={fatura.arquivo_pdf}
                           target="_blank"
                           className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold inline-block"
                         >
-                          Abrir fatura
+                          Abrir
                         </Link>
                       ) : (
-                        <span className="text-slate-500">Sem PDF</span>
+                        <span className="text-slate-500">Sem fatura</span>
                       )}
                     </td>
 
                     <td>
-                      <div className="flex flex-col gap-2 min-w-[220px]">
-                        {item.recibo_pdf ? (
-                          <>
-                            <Link
-                              href={item.recibo_pdf}
-                              target="_blank"
-                              className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold text-center"
-                            >
-                              Abrir recibo
-                            </Link>
+                      {fatura?.recibo_pdf ? (
+                        <Link
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold inline-block"
+                        >
+                          Abrir
+                        </Link>
+                      ) : status === STATUS_PAGO ? (
+                        <div className="min-w-[180px]">
+                          <input
+                            type="file"
+                            accept="application/pdf"
+                            disabled={enviandoRecibo === embarque.id}
+                            onChange={(e) => anexarRecibo(embarque, e.target.files?.[0] || null)}
+                            className="text-sm"
+                          />
 
-                            <p className="text-xs text-slate-400">
-                              Pago em:{' '}
-                              {item.data_pagamento
-                                ? new Date(item.data_pagamento).toLocaleDateString('pt-BR')
-                                : '-'}
+                          {enviandoRecibo === embarque.id && (
+                            <p className="text-blue-400 text-xs font-bold mt-1">
+                              Enviando recibo...
                             </p>
-
-                            <button
-                              onClick={() => removerRecibo(item)}
-                              className="bg-red-700 hover:bg-red-600 px-4 py-2 rounded-xl font-bold"
-                            >
-                              Remover recibo
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <input
-                              type="file"
-                              accept="application/pdf"
-                              disabled={enviandoRecibo === item.id}
-                              onChange={(e) => anexarRecibo(item, e.target.files?.[0] || null)}
-                              className="text-sm"
-                            />
-
-                            {enviandoRecibo === item.id && (
-                              <span className="text-blue-400 text-xs font-bold">
-                                Enviando recibo...
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">Pendente</span>
+                      )}
                     </td>
 
                     <td>
-                      <div className="flex gap-2 flex-wrap">
-                        <button
-                          onClick={() => alterarVisibilidade(item)}
-                          className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold"
-                        >
-                          {item.visivel_cliente ? 'Ocultar' : 'Mostrar'}
-                        </button>
+                      <div className="flex gap-2 flex-wrap min-w-[260px]">
+                        {status === STATUS_A_FATURAR && (
+                          <button
+                            onClick={() => abrirEnvioFatura(embarque)}
+                            className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl font-bold"
+                          >
+                            Enviar fatura
+                          </button>
+                        )}
 
-                        <button
-                          onClick={() => excluirFatura(item.id)}
-                          className="bg-red-700 hover:bg-red-600 px-4 py-2 rounded-xl font-bold"
-                        >
-                          Excluir
-                        </button>
+                        {status === STATUS_FATURA_ENVIADA && (
+                          <button
+                            onClick={() => marcarComoPago(embarque)}
+                            className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold"
+                          >
+                            Marcar pago
+                          </button>
+                        )}
+
+                        {status === STATUS_RECIBO_ENVIADO && (
+                          <button
+                            onClick={() => finalizarFinanceiro(embarque)}
+                            className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-xl font-bold"
+                          >
+                            Finalizar
+                          </button>
+                        )}
+
+                        {status === STATUS_FINALIZADO && (
+                          <span className="bg-green-700 px-4 py-2 rounded-xl font-bold">
+                            Concluído
+                          </span>
+                        )}
+
+                        {status !== STATUS_A_FATURAR && (
+                          <button
+                            onClick={() => voltarStatus(embarque, STATUS_A_FATURAR)}
+                            className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold"
+                          >
+                            Reabrir
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -474,18 +644,39 @@ export default function FaturasPage() {
             </tbody>
           </table>
 
-          {faturasFiltradas.length === 0 && (
+          {embarquesFiltrados.length === 0 && (
             <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
-              Nenhuma fatura encontrada.
+              Nenhum embarque encontrado na esteira financeira.
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+        <h2 className="text-2xl font-black mb-6">Como funciona o ciclo financeiro</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+          <FluxoCard numero="1" titulo="A faturar" texto="Embarque entregue entra automaticamente na lista para faturamento." icone="🟡" />
+          <FluxoCard numero="2" titulo="Fatura enviada" texto="Você envia o PDF da fatura e o cliente visualiza no portal." icone="📨" />
+          <FluxoCard numero="3" titulo="Pago" texto="Quando o cliente paga, marque como pago para liberar o recibo." icone="💵" />
+          <FluxoCard numero="4" titulo="Recibo enviado" texto="Anexe o recibo em PDF para o cliente acessar." icone="🧾" />
+          <FluxoCard numero="5" titulo="Finalizado" texto="Ciclo financeiro concluído para o embarque." icone="✅" />
         </div>
       </section>
     </main>
   )
 }
 
-function Card({ titulo, valor, detalhe, icone }: any) {
+function CardFinanceiro({ titulo, valor, detalhe, total, icone, cor }: any) {
+  const corTexto =
+    cor === 'yellow'
+      ? 'text-yellow-400'
+      : cor === 'green'
+      ? 'text-green-400'
+      : cor === 'purple'
+      ? 'text-purple-400'
+      : 'text-blue-400'
+
   return (
     <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6">
       <div className="flex justify-between items-start gap-4">
@@ -493,10 +684,58 @@ function Card({ titulo, valor, detalhe, icone }: any) {
           <p className="text-slate-300 font-bold">{titulo}</p>
           <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
           <p className="text-slate-400 mt-2">{detalhe}</p>
+          <p className={`font-black mt-4 ${corTexto}`}>{total}</p>
         </div>
 
         <div className="text-4xl">{icone}</div>
       </div>
+    </div>
+  )
+}
+
+function StatusFinanceiro({ status }: any) {
+  const s = String(status || '').toUpperCase()
+
+  let classe = 'bg-slate-700 text-slate-200 border-slate-500'
+  let icone = '⚪'
+
+  if (s === 'A FATURAR') {
+    classe = 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
+    icone = '🟡'
+  } else if (s === 'FATURA ENVIADA') {
+    classe = 'bg-blue-600/20 text-blue-300 border-blue-500'
+    icone = '📨'
+  } else if (s === 'PAGO') {
+    classe = 'bg-green-600/20 text-green-300 border-green-500'
+    icone = '💵'
+  } else if (s === 'RECIBO ENVIADO') {
+    classe = 'bg-purple-600/20 text-purple-300 border-purple-500'
+    icone = '🧾'
+  } else if (s === 'FINALIZADO') {
+    classe = 'bg-emerald-600/20 text-emerald-300 border-emerald-500'
+    icone = '✅'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-black whitespace-nowrap ${classe}`}>
+      <span>{icone}</span>
+      {status || '-'}
+    </span>
+  )
+}
+
+function FluxoCard({ numero, titulo, texto, icone }: any) {
+  return (
+    <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5">
+      <div className="flex items-center gap-3 mb-4">
+        <span className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center font-black">
+          {numero}
+        </span>
+        <span className="text-2xl">{icone}</span>
+      </div>
+
+      <h3 className="font-black mb-2">{titulo}</h3>
+      <p className="text-slate-400 text-sm">{texto}</p>
     </div>
   )
 }
