@@ -21,7 +21,7 @@ export default function AdminEmbarqueDiretoPage() {
     const { data: solicitacoesData, error } = await supabase
       .from('embarque_direto')
       .select('*')
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
 
     if (error) {
       console.log(error)
