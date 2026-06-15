@@ -66,14 +66,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
 
         <nav className="space-y-3">
-  <MenuItem href="/admin" label="Dashboard" icon="📊" />
-  <MenuItem href="/admin/embarques" label="Embarques" icon="📦" />
-  <MenuItem href="/admin/cotacoes" label="Cotações" icon="📄" />
-  <MenuItem href="/admin/faturas" label="Faturas" icon="💰" />
-  <MenuItem href="/admin/intelligence" label="Intelligence" icon="📈" />
-  <MenuItem href="/admin/usuarios" label="Usuários" icon="👥" />
-  <MenuItem href="/admin/suporte" label="Suporte" icon="🎧" />
-</nav>
+          <MenuItem href="/admin" label="Dashboard" icon="📊" />
+          <MenuItem href="/admin/embarques" label="Embarques" icon="📦" />
+          <MenuItem href="/admin/embarque-direto" label="Embarque Direto" icon="🚚" />
+          <MenuItem href="/admin/cotacoes" label="Cotações" icon="📄" />
+          <MenuItem href="/admin/faturas" label="Faturas" icon="💰" />
+          <MenuItem href="/admin/intelligence" label="Intelligence" icon="📈" />
+          <MenuItem href="/admin/usuarios" label="Usuários" icon="👥" />
+          <MenuItem href="/admin/suporte" label="Suporte" icon="🎧" />
+        </nav>
 
         <div className="mt-auto border border-blue-900 rounded-3xl p-5 bg-[#071225]">
           <p className="text-slate-400 text-sm">Logado como</p>
