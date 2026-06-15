@@ -10,6 +10,18 @@ export default function CadastroPage() {
   const [empresa, setEmpresa] = useState('')
   const [loading, setLoading] = useState(false)
 
+  async function enviarEmailCadastro() {
+    try {
+      await fetch('/api/email-cadastro', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, email, empresa }),
+      })
+    } catch (error) {
+      console.log('Erro ao enviar e-mail de cadastro:', error)
+    }
+  }
+
   async function cadastrar(e: React.FormEvent) {
     e.preventDefault()
 
@@ -63,12 +75,14 @@ export default function CadastroPage() {
       return
     }
 
+    await enviarEmailCadastro()
+
     const { data: sessao } = await supabase.auth.getSession()
 
     setLoading(false)
 
     if (sessao.session) {
-      alert('Conta criada com sucesso. Você já pode acessar o portal.')
+      alert('Conta criada com sucesso. Seus embarques serão vinculados pela equipe da HC.')
       window.location.href = '/cliente'
     } else {
       alert('Conta criada com sucesso. Faça login para acessar o portal.')
@@ -80,24 +94,24 @@ export default function CadastroPage() {
     <main className="min-h-screen bg-[#020817] flex items-center justify-center p-6">
       <section className="w-full max-w-md bg-[#08142c] border border-blue-700 rounded-3xl p-10 shadow-[0_0_30px_rgba(37,99,235,0.15)]">
         <div className="text-center mb-8">
-  <div className="flex justify-center mb-6">
-    <div className="bg-white rounded-2xl p-4">
-      <img
-        src="/HC-CONSULTORIA-TRANSPARENTE.png"
-        alt="HC Consultoria"
-        className="w-52 h-auto object-contain"
-      />
-    </div>
-  </div>
+          <div className="flex justify-center mb-6">
+            <div className="bg-white rounded-2xl p-4">
+              <img
+                src="/HC-CONSULTORIA-TRANSPARENTE.png"
+                alt="HC Consultoria"
+                className="w-52 h-auto object-contain"
+              />
+            </div>
+          </div>
 
-  <h1 className="text-white text-4xl font-black mb-2">
-    Criar conta
-  </h1>
+          <h1 className="text-white text-4xl font-black mb-2">
+            Criar conta
+          </h1>
 
-  <p className="text-slate-400">
-    Crie sua conta para acessar o portal da HC Consultoria.
-  </p>
-</div>
+          <p className="text-slate-400">
+            Use um e-mail válido para acesso, recuperação de senha e notificações.
+          </p>
+        </div>
 
         <form onSubmit={cadastrar} className="space-y-5">
           <input
@@ -109,7 +123,7 @@ export default function CadastroPage() {
 
           <input
             type="email"
-            placeholder="E-mail"
+            placeholder="E-mail válido"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
