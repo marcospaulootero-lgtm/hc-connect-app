@@ -153,7 +153,7 @@ export default function IntelligencePage() {
     const mapa: any = {}
 
     embarques.forEach((e) => {
-      const pais = e.pais_origem || e.origem || 'Não informado'
+      const pais = e.pais_origem || e.origem || e.destino || 'Não informado'
       mapa[pais] = (mapa[pais] || 0) + 1
     })
 
@@ -297,19 +297,11 @@ export default function IntelligencePage() {
         </Card>
 
         <Card>
-          <h2 className="text-2xl font-black mb-6">Embarques por origem</h2>
+          <h2 className="text-2xl font-black mb-6">Mapa operacional global</h2>
 
-          <div className="border border-blue-900 rounded-2xl bg-[#020817] h-48 mb-5 relative overflow-hidden">
-            <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_30%_40%,#2563eb,transparent_25%),radial-gradient(circle_at_70%_50%,#9333ea,transparent_25%),radial-gradient(circle_at_50%_70%,#22c55e,transparent_25%)]" />
-            <div className="absolute left-[20%] top-[45%] w-4 h-4 bg-blue-500 rounded-full shadow-[0_0_25px_#3b82f6]" />
-            <div className="absolute left-[55%] top-[35%] w-4 h-4 bg-green-500 rounded-full shadow-[0_0_25px_#22c55e]" />
-            <div className="absolute left-[75%] top-[55%] w-4 h-4 bg-purple-500 rounded-full shadow-[0_0_25px_#9333ea]" />
-            <div className="absolute bottom-4 left-4 text-slate-400 text-sm">
-              Mapa operacional HC
-            </div>
-          </div>
+          <MapaOperacional porPais={porPais} />
 
-          <div className="space-y-3">
+          <div className="space-y-3 mt-5">
             {porPais.map((p) => (
               <LinhaBarra key={p.nome} nome={p.nome} valor={`${p.total} embarque(s)`} />
             ))}
@@ -487,6 +479,97 @@ function MiniBox({ label, valor }: any) {
     <div className="border border-blue-900 rounded-2xl bg-[#020817] p-3">
       <p className="text-slate-500 text-xs">{label}</p>
       <strong>{valor}</strong>
+    </div>
+  )
+}
+
+function MapaOperacional({ porPais }: any) {
+  const pontos: any = {
+    'BELO HORIZONTE': { x: 48, y: 70 },
+    BH: { x: 48, y: 70 },
+    BRASIL: { x: 47, y: 72 },
+    BRAZIL: { x: 47, y: 72 },
+    ALEMANHA: { x: 50, y: 34 },
+    GERMANY: { x: 50, y: 34 },
+    CHINA: { x: 75, y: 46 },
+    ITÁLIA: { x: 51, y: 41 },
+    ITALIA: { x: 51, y: 41 },
+    ITALY: { x: 51, y: 41 },
+    EUA: { x: 23, y: 42 },
+    USA: { x: 23, y: 42 },
+    'ESTADOS UNIDOS': { x: 23, y: 42 },
+    ESTADOS_UNIDOS: { x: 23, y: 42 },
+    PORTUGAL: { x: 45, y: 42 },
+    ESPANHA: { x: 46, y: 43 },
+    SPAIN: { x: 46, y: 43 },
+    FRANÇA: { x: 48, y: 39 },
+    FRANCA: { x: 48, y: 39 },
+    FRANCE: { x: 48, y: 39 },
+    'REINO UNIDO': { x: 47, y: 35 },
+    UK: { x: 47, y: 35 },
+    JAPÃO: { x: 84, y: 44 },
+    JAPAO: { x: 84, y: 44 },
+    JAPAN: { x: 84, y: 44 },
+    ÍNDIA: { x: 68, y: 52 },
+    INDIA: { x: 68, y: 52 },
+    MÉXICO: { x: 25, y: 50 },
+    MEXICO: { x: 25, y: 50 },
+    ARGENTINA: { x: 45, y: 82 },
+    CHILE: { x: 40, y: 80 },
+  }
+
+  const origem = pontos.BRASIL
+
+  const destinos = porPais
+    .map((p: any) => {
+      const nome = String(p.nome || '').toUpperCase().trim()
+      const ponto = pontos[nome] || null
+      return ponto ? { ...ponto, nome: p.nome, total: p.total } : null
+    })
+    .filter(Boolean)
+
+  return (
+    <div className="border border-blue-900 rounded-2xl bg-[#020817] h-64 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(37,99,235,0.22),transparent_45%)]" />
+
+      <svg viewBox="0 0 100 60" className="absolute inset-0 w-full h-full opacity-90">
+        <path d="M15 20 C20 12, 32 10, 39 16 C45 21, 38 28, 30 27 C22 26, 12 29, 15 20Z" fill="#0f2a4d" stroke="#1d4ed8" strokeWidth="0.25" />
+        <path d="M43 16 C50 8, 62 11, 66 20 C70 28, 62 36, 53 33 C45 30, 38 24, 43 16Z" fill="#12365f" stroke="#1d4ed8" strokeWidth="0.25" />
+        <path d="M67 24 C76 18, 89 22, 91 34 C93 45, 82 51, 72 47 C64 44, 60 31, 67 24Z" fill="#12365f" stroke="#1d4ed8" strokeWidth="0.25" />
+        <path d="M42 40 C50 38, 57 45, 55 53 C53 60, 43 59, 39 52 C36 46, 36 42, 42 40Z" fill="#0f2a4d" stroke="#1d4ed8" strokeWidth="0.25" />
+        <path d="M24 42 C32 41, 38 47, 36 55 C34 62, 24 60, 20 53 C16 47, 18 43, 24 42Z" fill="#0f2a4d" stroke="#1d4ed8" strokeWidth="0.25" />
+
+        {destinos.map((d: any) => (
+          <g key={d.nome}>
+            <path
+              d={`M${origem.x} ${origem.y} Q ${(origem.x + d.x) / 2} ${Math.min(origem.y, d.y) - 18}, ${d.x} ${d.y}`}
+              fill="none"
+              stroke="#38bdf8"
+              strokeWidth="0.35"
+              strokeDasharray="1 1"
+              opacity="0.75"
+            />
+            <circle cx={d.x} cy={d.y} r={Math.min(2.8 + Number(d.total || 0) * 0.35, 5)} fill="#a855f7" opacity="0.95" />
+            <circle cx={d.x} cy={d.y} r={Math.min(4 + Number(d.total || 0) * 0.5, 8)} fill="none" stroke="#a855f7" strokeWidth="0.35" opacity="0.6" />
+            <text x={d.x + 2} y={d.y - 1} fill="#cbd5e1" fontSize="2.6" fontWeight="700">
+              {d.total}
+            </text>
+          </g>
+        ))}
+
+        <circle cx={origem.x} cy={origem.y} r="4" fill="#22c55e" />
+        <circle cx={origem.x} cy={origem.y} r="7" fill="none" stroke="#22c55e" strokeWidth="0.4" opacity="0.7" />
+      </svg>
+
+      <div className="absolute bottom-4 left-4">
+        <p className="text-slate-400 text-xs">Mapa operacional HC</p>
+        <p className="text-white font-black">Rotas internacionais dos embarques</p>
+      </div>
+
+      <div className="absolute top-4 right-4 border border-blue-900 bg-[#071225]/90 rounded-xl px-4 py-3">
+        <p className="text-slate-400 text-xs">Origem base</p>
+        <p className="text-green-400 font-black">Brasil</p>
+      </div>
     </div>
   )
 }
