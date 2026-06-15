@@ -47,8 +47,19 @@ export default function EmbarqueDiretoClientePage() {
       return
     }
 
-    if (!form.tipo_operacao || !form.origem || !form.destino || !form.descricao_mercadoria) {
-      alert('Preencha tipo de operação, origem, destino e mercadoria')
+    const tipoOperacao = form.tipo_operacao.trim()
+    const origem = form.origem.trim()
+    const destino = form.destino.trim()
+    const descricaoMercadoria = form.descricao_mercadoria.trim()
+    const instrucoes = form.instrucoes.trim()
+
+    if (!tipoOperacao || !origem || !destino) {
+      alert('Preencha tipo de operação, origem e destino.')
+      return
+    }
+
+    if (!descricaoMercadoria && !instrucoes) {
+      alert('Preencha a descrição da mercadoria ou as instruções para a HC.')
       return
     }
 
@@ -60,16 +71,16 @@ export default function EmbarqueDiretoClientePage() {
         {
           usuario_id: usuario.id,
           solicitante_email: usuario.email,
-          cliente_final: form.cliente_final,
-          tipo_operacao: form.tipo_operacao,
-          origem: form.origem,
-          destino: form.destino,
-          transportadora: form.transportadora,
-          awb: form.awb,
-          peso: form.peso,
-          volumes: form.volumes,
-          descricao_mercadoria: form.descricao_mercadoria,
-          instrucoes: form.instrucoes,
+          cliente_final: form.cliente_final.trim(),
+          tipo_operacao: tipoOperacao,
+          origem,
+          destino,
+          transportadora: form.transportadora.trim(),
+          awb: form.awb.trim(),
+          peso: form.peso.trim(),
+          volumes: form.volumes.trim(),
+          descricao_mercadoria: descricaoMercadoria || instrucoes,
+          instrucoes,
           status: 'AGUARDANDO ANÁLISE',
         },
       ])
@@ -85,7 +96,8 @@ export default function EmbarqueDiretoClientePage() {
 
     if (arquivos.length > 0 && embarqueCriado?.id) {
       for (const arquivo of arquivos) {
-        const caminho = `${usuario.id}/${embarqueCriado.id}/${Date.now()}-${arquivo.name}`
+        const nomeArquivoSeguro = arquivo.name.replaceAll(' ', '-')
+        const caminho = `${usuario.id}/${embarqueCriado.id}/${Date.now()}-${nomeArquivoSeguro}`
 
         const { error: uploadError } = await supabase.storage
           .from('embarque-direto-documentos')
@@ -117,7 +129,7 @@ export default function EmbarqueDiretoClientePage() {
 
     setSalvando(false)
 
-    alert('Solicitação de embarque enviada com sucesso')
+    alert('Solicitação de embarque enviada com sucesso.')
 
     setForm({
       cliente_final: '',
