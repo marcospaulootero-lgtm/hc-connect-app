@@ -186,11 +186,17 @@ export default function FaturasPage() {
   const reciboEnviado = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_RECIBO_ENVIADO)
   const finalizados = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_FINALIZADO)
 
-  const valorAFaturar = aFaturar.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
-  const valorFaturaEnviada = faturaEnviada.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
-  const valorPago = pagos.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
-  const valorRecibo = reciboEnviado.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
-  const valorFinalizado = finalizados.reduce((acc, e) => acc + Number(e.valor_venda || 0), 0)
+  function valorFinanceiro(e: Embarque) {
+  const fatura = faturaDoEmbarque(e.id)
+  if (!fatura?.arquivo_pdf) return 0
+  return Number(e.valor_venda || 0)
+}
+
+const valorAFaturar = aFaturar.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+const valorFaturaEnviada = faturaEnviada.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+const valorPago = pagos.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+const valorRecibo = reciboEnviado.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e), 0)
 
   function abrirEnvioFatura(embarque: Embarque) {
     setEmbarqueSelecionado(embarque)
@@ -635,7 +641,7 @@ export default function FaturasPage() {
                     <td>{embarque.transportadora || '-'}</td>
                     <td>{Number(embarque.peso_taxado || embarque.peso_real || 0).toFixed(2)} kg</td>
                     <td>{dataBR(embarque.data_entrega || null)}</td>
-                    <td>{embarque.valor_venda ? moeda(embarque.valor_venda) : '-'}</td>
+                    <td>{fatura?.arquivo_pdf && embarque.valor_venda ? moeda(embarque.valor_venda) : '-'}</td>
 
                     <td>
                       <StatusBadge status={embarque.status_operacional || '-'} />
