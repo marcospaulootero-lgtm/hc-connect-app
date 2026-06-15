@@ -41,6 +41,36 @@ export default function EmbarqueDiretoClientePage() {
     })
   }
 
+  async function enviarAlertaHC(embarqueId: string) {
+    try {
+      await fetch('/api/email-alerta-hc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo: 'EMBARQUE_DIRETO',
+          titulo: 'Novo embarque direto recebido',
+          mensagem: 'Um cliente enviou uma nova solicitação de embarque direto pelo Portal HC Connect.',
+          dados: {
+            ID: embarqueId,
+            Solicitante: usuario?.email || '-',
+            Cliente: form.cliente_final || '-',
+            Operação: form.tipo_operacao || '-',
+            Origem: form.origem || '-',
+            Destino: form.destino || '-',
+            Transportadora: form.transportadora || '-',
+            AWB: form.awb || '-',
+            Peso: form.peso || '-',
+            Volumes: form.volumes || '-',
+            Mercadoria: form.descricao_mercadoria || form.instrucoes || '-',
+            Documentos: arquivos.length,
+          },
+        }),
+      })
+    } catch (error) {
+      console.log('Erro ao enviar alerta HC:', error)
+    }
+  }
+
   async function enviarEmbarqueDireto() {
     if (!usuario?.id) {
       alert('Usuário não identificado')
@@ -125,6 +155,10 @@ export default function EmbarqueDiretoClientePage() {
           },
         ])
       }
+    }
+
+    if (embarqueCriado?.id) {
+      await enviarAlertaHC(embarqueCriado.id)
     }
 
     setSalvando(false)
