@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/rastreio",
+      "path": "/api/rastreio-automatico",
       "schedule": "*/30 * * * *"
     }
   ]
