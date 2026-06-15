@@ -54,9 +54,9 @@ export default function EmbarqueDiretoClientePage() {
     const instrucoes = form.instrucoes.trim()
 
     if (!tipoOperacao || !origem || !destino) {
-      alert('Preencha tipo de operação, origem e destino.')
-      return
-    }
+  alert('Preencha tipo de operação, origem e destino.')
+  return
+}
 
     if (!descricaoMercadoria && !instrucoes) {
       alert('Preencha a descrição da mercadoria ou as instruções para a HC.')
@@ -79,7 +79,7 @@ export default function EmbarqueDiretoClientePage() {
           awb: form.awb.trim(),
           peso: form.peso.trim(),
           volumes: form.volumes.trim(),
-          descricao_mercadoria: descricaoMercadoria || instrucoes,
+          descricao_mercadoria: descricaoMercadoria,
           instrucoes,
           status: 'AGUARDANDO ANÁLISE',
         },
