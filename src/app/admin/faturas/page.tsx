@@ -51,6 +51,7 @@ export default function FaturasPage() {
   const [faturas, setFaturas] = useState<Fatura[]>([])
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
+  const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('TODOS')
   const [filtroOperacional, setFiltroOperacional] = useState('TODOS')
@@ -135,6 +136,16 @@ export default function FaturasPage() {
     return faturas.find((f) => f.embarque_id === embarqueId) || null
   }
 
+  function extrairCaminhoStorage(url?: string | null) {
+    if (!url) return null
+
+    const marcador = '/storage/v1/object/public/faturas/'
+
+    if (!url.includes(marcador)) return null
+
+    return url.split(marcador)[1] || null
+  }
+
   const embarquesFinanceiros = useMemo(() => {
     return embarques.filter((e) => {
       const entregue = String(e.status_operacional || '').toLowerCase().includes('entregue')
@@ -144,7 +155,7 @@ export default function FaturasPage() {
     })
   }, [embarques])
 
-    const embarquesFiltrados = useMemo(() => {
+  const embarquesFiltrados = useMemo(() => {
     return embarquesFinanceiros.filter((e) => {
       const status = statusFinanceiro(e)
       const statusOperacional = String(e.status_operacional || '').toUpperCase()
@@ -262,6 +273,69 @@ export default function FaturasPage() {
     const inputArquivo = document.getElementById('pdf_fatura') as HTMLInputElement | null
     if (inputArquivo) inputArquivo.value = ''
 
+    carregar()
+  }
+
+  async function removerFatura(embarque: Embarque) {
+    const fatura = faturaDoEmbarque(embarque.id)
+
+    if (!fatura) {
+      alert('Fatura não encontrada.')
+      return
+    }
+
+    const confirmar = confirm(
+      `Deseja realmente remover a fatura do AWB ${embarque.awb}?`
+    )
+
+    if (!confirmar) return
+
+    setRemovendoFatura(embarque.id)
+
+    const caminhoFatura = extrairCaminhoStorage(fatura.arquivo_pdf)
+    const caminhoRecibo = extrairCaminhoStorage(fatura.recibo_pdf)
+
+    const arquivosParaRemover = [caminhoFatura, caminhoRecibo].filter(Boolean) as string[]
+
+    if (arquivosParaRemover.length > 0) {
+      const { error: erroStorage } = await supabase.storage
+        .from('faturas')
+        .remove(arquivosParaRemover)
+
+      if (erroStorage) {
+        console.log(erroStorage)
+      }
+    }
+
+    const { error: erroDelete } = await supabase
+      .from('faturas')
+      .delete()
+      .eq('id', fatura.id)
+
+    if (erroDelete) {
+      setRemovendoFatura(null)
+      alert(erroDelete.message)
+      return
+    }
+
+    const { error: erroUpdate } = await supabase
+      .from('embarques')
+      .update({
+        status_faturamento: STATUS_A_FATURAR,
+        data_fatura_enviada: null,
+        data_pagamento: null,
+        data_recibo_enviado: null,
+      })
+      .eq('id', embarque.id)
+
+    setRemovendoFatura(null)
+
+    if (erroUpdate) {
+      alert(erroUpdate.message)
+      return
+    }
+
+    alert('Fatura removida com sucesso.')
     carregar()
   }
 
@@ -492,38 +566,38 @@ export default function FaturasPage() {
           </div>
 
           <div className="flex flex-col md:flex-row gap-3">
-  <select
-    value={filtroOperacional}
-    onChange={(e) => setFiltroOperacional(e.target.value)}
-  >
-    <option value="TODOS">Todos operacionais</option>
-    <option value="AGUARDANDO COLETA">Aguardando coleta</option>
-    <option value="COLETADO">Coletado</option>
-    <option value="EM TRÂNSITO">Em trânsito</option>
-    <option value="FISCALIZAÇÃO">Fiscalização</option>
-    <option value="LIBERADO">Liberado</option>
-    <option value="ENTREGUE">Entregue</option>
-  </select>
+            <select
+              value={filtroOperacional}
+              onChange={(e) => setFiltroOperacional(e.target.value)}
+            >
+              <option value="TODOS">Todos operacionais</option>
+              <option value="AGUARDANDO COLETA">Aguardando coleta</option>
+              <option value="COLETADO">Coletado</option>
+              <option value="EM TRÂNSITO">Em trânsito</option>
+              <option value="FISCALIZAÇÃO">Fiscalização</option>
+              <option value="LIBERADO">Liberado</option>
+              <option value="ENTREGUE">Entregue</option>
+            </select>
 
-  <select
-    value={filtroStatus}
-    onChange={(e) => setFiltroStatus(e.target.value)}
-  >
-    <option value="TODOS">Todos financeiros</option>
-    <option value={STATUS_A_FATURAR}>A faturar</option>
-    <option value={STATUS_FATURA_ENVIADA}>Fatura enviada</option>
-    <option value={STATUS_PAGO}>Pago / recibo pendente</option>
-    <option value={STATUS_RECIBO_ENVIADO}>Recibo enviado</option>
-    <option value={STATUS_FINALIZADO}>Finalizado</option>
-  </select>
+            <select
+              value={filtroStatus}
+              onChange={(e) => setFiltroStatus(e.target.value)}
+            >
+              <option value="TODOS">Todos financeiros</option>
+              <option value={STATUS_A_FATURAR}>A faturar</option>
+              <option value={STATUS_FATURA_ENVIADA}>Fatura enviada</option>
+              <option value={STATUS_PAGO}>Pago / recibo pendente</option>
+              <option value={STATUS_RECIBO_ENVIADO}>Recibo enviado</option>
+              <option value={STATUS_FINALIZADO}>Finalizado</option>
+            </select>
 
-  <input
-    value={busca}
-    onChange={(e) => setBusca(e.target.value)}
-    placeholder="Buscar por AWB, cliente, transportadora..."
-    className="min-w-[320px]"
-  />
-</div>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, transportadora..."
+              className="min-w-[320px]"
+            />
+          </div>
         </div>
 
         <div className="overflow-auto">
@@ -615,7 +689,7 @@ export default function FaturasPage() {
                     </td>
 
                     <td>
-                      <div className="flex gap-2 flex-wrap min-w-[260px]">
+                      <div className="flex gap-2 flex-wrap min-w-[320px]">
                         {status === STATUS_A_FATURAR && (
                           <button
                             onClick={() => abrirEnvioFatura(embarque)}
@@ -655,6 +729,16 @@ export default function FaturasPage() {
                             className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold"
                           >
                             Reabrir
+                          </button>
+                        )}
+
+                        {fatura?.arquivo_pdf && (
+                          <button
+                            onClick={() => removerFatura(embarque)}
+                            disabled={removendoFatura === embarque.id}
+                            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-xl font-bold disabled:opacity-60"
+                          >
+                            {removendoFatura === embarque.id ? 'Removendo...' : 'Remover fatura'}
                           </button>
                         )}
                       </div>
