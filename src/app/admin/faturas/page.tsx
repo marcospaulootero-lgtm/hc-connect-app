@@ -319,14 +319,15 @@ export default function FaturasPage() {
     }
 
     const { error: erroUpdate } = await supabase
-      .from('embarques')
-      .update({
-        status_faturamento: STATUS_A_FATURAR,
-        data_fatura_enviada: null,
-        data_pagamento: null,
-        data_recibo_enviado: null,
-      })
-      .eq('id', embarque.id)
+  .from('embarques')
+  .update({
+    status_faturamento: STATUS_A_FATURAR,
+    valor_venda: null,
+    data_fatura_enviada: null,
+    data_pagamento: null,
+    data_recibo_enviado: null,
+  })
+  .eq('id', embarque.id)
 
     setRemovendoFatura(null)
 
