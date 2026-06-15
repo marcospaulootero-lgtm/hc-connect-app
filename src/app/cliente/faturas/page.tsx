@@ -26,42 +26,64 @@ export default function FaturasClientePage() {
   }
 
   async function carregarFaturas(usuarioId: string) {
-    setLoading(true)
+  setLoading(true)
 
-    const { data, error } = await supabase
-  .from('faturas')
-  .select(`
-    id,
-    embarque_id,
-    usuario_id,
-    vencimento,
-    arquivo_pdf,
-    recibo_pdf,
-    recibo_nome,
-    data_pagamento,
-    valor_pago,
-    criado_em,
-    visivel_cliente,
-    embarques (
-      id,
-      awb,
-      cliente_final,
-      exportador,
-      importador,
-      transportadora,
-      status_operacional
-    )
-  `)
-  .eq('usuario_id', usuarioId)
-  .eq('visivel_cliente', true)
+  const { data: diretos } = await supabase
+    .from('embarques')
+    .select('id')
+    .eq('usuario_id', usuarioId)
 
-console.log('FATURAS:', data)
-console.log('ERRO:', error)
-     
+  const { data: vinculos } = await supabase
+    .from('embarque_clientes')
+    .select('embarque_id')
+    .eq('cliente_id', usuarioId)
 
-    setFaturas(data || [])
+  const idsDiretos = (diretos || []).map((e) => e.id)
+  const idsVinculados = (vinculos || []).map((v) => v.embarque_id)
+  const ids = Array.from(new Set([...idsDiretos, ...idsVinculados]))
+
+  if (ids.length === 0) {
+    setFaturas([])
     setLoading(false)
+    return
   }
+
+  const { data, error } = await supabase
+    .from('faturas')
+    .select(`
+      id,
+      embarque_id,
+      usuario_id,
+      vencimento,
+      arquivo_pdf,
+      recibo_pdf,
+      recibo_nome,
+      data_pagamento,
+      valor_pago,
+      criado_em,
+      visivel_cliente,
+      embarques (
+        id,
+        awb,
+        cliente_final,
+        exportador,
+        importador,
+        transportadora,
+        status_operacional,
+        valor_venda
+      )
+    `)
+    .in('embarque_id', ids)
+    .eq('visivel_cliente', true)
+    .order('criado_em', { ascending: false })
+
+  if (error) {
+    console.log('ERRO FATURAS:', error)
+  }
+
+  setFaturas(data || [])
+  setLoading(false)
+}
 
   function dadosEmbarque(fatura: any) {
     if (Array.isArray(fatura.embarques)) return fatura.embarques[0] || {}
@@ -191,7 +213,7 @@ console.log('ERRO:', error)
                           <Info label="Importador" valor={embarque?.importador || '-'} />
                           <Info
                             label="Valor cobrado"
-                            valor={moeda(embarque?.valor_cobrado_cliente || fatura.valor_pago, moedaBase)}
+                            valor={moeda(embarque?.valor_venda || fatura.valor_pago, 'BRL')}
                           />
                           <Info
                             label="Pagamento"
