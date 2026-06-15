@@ -119,15 +119,27 @@ export default function ClientePage() {
   }
 
   async function carregarFaturas(usuarioId: string) {
-    const { data } = await supabase
-      .from('faturas')
-      .select('*')
-      .eq('usuario_id', usuarioId)
-      .eq('visivel_cliente', true)
-      .order('criado_em', { ascending: false })
+  const { data: embarquesCliente } = await supabase
+    .from('embarques')
+    .select('id')
+    .eq('usuario_id', usuarioId)
 
-    setFaturas(data || [])
+  const ids = (embarquesCliente || []).map((e) => e.id)
+
+  if (ids.length === 0) {
+    setFaturas([])
+    return
   }
+
+  const { data } = await supabase
+    .from('faturas')
+    .select('*')
+    .in('embarque_id', ids)
+    .eq('visivel_cliente', true)
+    .order('criado_em', { ascending: false })
+
+  setFaturas(data || [])
+}
 
   async function sair() {
     await supabase.auth.signOut()
