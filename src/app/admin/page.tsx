@@ -9,6 +9,7 @@ export default function DashboardPage() {
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [suporte, setSuporte] = useState<any[]>([])
   const [ultimoRastreio, setUltimoRastreio] = useState<any>(null)
+  const [modalErrosRastreio, setModalErrosRastreio] = useState(false)
   const [carregando, setCarregando] = useState(false)
 
   useEffect(() => {
@@ -110,6 +111,10 @@ export default function DashboardPage() {
 
     return proxima.toLocaleString('pt-BR')
   }
+
+  const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
+    ? ultimoRastreio.detalhes
+    : []
 
   const hoje = new Date()
   const mesAtual = hoje.getMonth()
@@ -394,6 +399,15 @@ export default function DashboardPage() {
               <AutoBox titulo="Erros" valor={ultimoRastreio?.total_erro || 0} cor="red" />
             </div>
 
+            {Number(ultimoRastreio?.total_erro || 0) > 0 && (
+              <button
+                onClick={() => setModalErrosRastreio(true)}
+                className="w-full mt-4 bg-red-600/20 hover:bg-red-600/30 border border-red-500 text-red-300 px-4 py-3 rounded-2xl font-black text-sm"
+              >
+                🔍 Ver erros ({ultimoRastreio?.total_erro || 0})
+              </button>
+            )}
+
             <p className="text-slate-500 text-xs mt-4">
               Atualização automática configurada para rodar a cada 30 minutos.
             </p>
@@ -669,6 +683,75 @@ export default function DashboardPage() {
           HC Connect © 2026 • Dashboard Executivo Operacional
         </footer>
       </section>
+
+      {modalErrosRastreio && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-[#071225] border border-red-500 rounded-3xl w-full max-w-3xl p-6 shadow-2xl">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  🔍 Erros do Rastreio Automático
+                </h2>
+                <p className="text-slate-400 text-sm mt-2">
+                  Última execução: {dataHoraBR(ultimoRastreio?.criado_em)}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setModalErrosRastreio(false)}
+                className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl font-black"
+              >
+                ✕
+              </button>
+            </div>
+
+            {errosRastreio.length > 0 ? (
+              <div className="space-y-4 max-h-[60vh] overflow-auto">
+                {errosRastreio.map((erro: any, index: number) => (
+                  <div
+                    key={index}
+                    className="border border-red-900 bg-red-950/20 rounded-2xl p-4"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div>
+                        <p className="text-slate-500 text-xs font-bold">AWB</p>
+                        <h3 className="text-xl font-black text-blue-400">
+                          {erro.awb || '-'}
+                        </h3>
+                      </div>
+
+                      <div>
+                        <p className="text-slate-500 text-xs font-bold">
+                          Transportadora
+                        </p>
+                        <p className="font-black text-white">
+                          {erro.transportadora || '-'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <p className="text-slate-500 text-xs font-bold">Motivo</p>
+                      <p className="text-red-300 font-bold mt-1">
+                        {erro.erro || 'Erro não informado.'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center">
+                <p className="text-slate-400">
+                  Existem erros contabilizados, mas este log ainda não possui detalhes salvos.
+                </p>
+                <p className="text-slate-500 text-sm mt-2">
+                  Rode novamente o rastreio automático para gravar os detalhes dos AWBs.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   )
 }
