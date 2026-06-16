@@ -41,6 +41,7 @@ export async function GET(req: Request) {
           resultados.push({
             id: embarque.id,
             awb,
+            transportadora: embarque.transportadora || '-',
             sucesso: false,
             erro: 'AWB inválido.',
           })
@@ -62,38 +63,61 @@ export async function GET(req: Request) {
         resultados.push({
           id: embarque.id,
           awb,
-          transportadora: embarque.transportadora,
+          transportadora: embarque.transportadora || '-',
           sucesso: false,
           erro: 'Transportadora não suportada.',
         })
       } catch (erro: any) {
         resultados.push({
           id: embarque.id,
-          awb: embarque.awb,
-          transportadora: embarque.transportadora,
+          awb: embarque.awb || '-',
+          transportadora: embarque.transportadora || '-',
           sucesso: false,
-          erro: erro?.message || String(erro),
+          erro: limparMensagemErro(erro?.message || String(erro)),
         })
       }
     }
-const totalSucesso = resultados.filter(
-  (r) => r.sucesso === true
-).length
 
-const totalErro = resultados.filter(
-  (r) => r.sucesso === false
-).length
+    const totalSucesso = resultados.filter((r) => r.sucesso === true).length
+    const totalErro = resultados.filter((r) => r.sucesso === false).length
 
-await supabase
-  .from('logs_rastreio')
-  .insert({
-    total_processado: resultados.length,
-    total_sucesso: totalSucesso,
-    total_erro: totalErro,
-  })
+    const errosDetalhados = resultados
+      .filter((r) => r.sucesso === false)
+      .map((r) => ({
+        id: r.id || null,
+        awb: r.awb || '-',
+        transportadora: r.transportadora || '-',
+        erro: limparMensagemErro(r.erro || 'Erro não informado.'),
+      }))
+
+    const { error: erroLog } = await supabase.from('logs_rastreio').insert({
+      total_processado: resultados.length,
+      total_sucesso: totalSucesso,
+      total_erro: totalErro,
+      erros: errosDetalhados,
+    })
+
+    if (erroLog) {
+      return NextResponse.json(
+        {
+          error: 'Rastreio executado, mas houve erro ao salvar log.',
+          detalhes: erroLog.message,
+          total_processado: resultados.length,
+          total_sucesso: totalSucesso,
+          total_erro: totalErro,
+          erros: errosDetalhados,
+          resultados,
+        },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json({
       sucesso: true,
       total_processado: resultados.length,
+      total_sucesso: totalSucesso,
+      total_erro: totalErro,
+      erros: errosDetalhados,
       resultados,
     })
   } catch (error: any) {
@@ -128,7 +152,7 @@ async function rastrearDHL(embarque: any, awb: string) {
   const data = await response.json()
 
   if (!response.ok) {
-    throw new Error(`Erro DHL: ${JSON.stringify(data)}`)
+    throw new Error(`Erro DHL: ${extrairErroApi(data)}`)
   }
 
   const shipment = data?.shipments?.[0]
@@ -200,7 +224,7 @@ async function rastrearFedEx(embarque: any, awb: string) {
   const tokenData = await tokenResponse.json()
 
   if (!tokenResponse.ok) {
-    throw new Error(`Erro ao autenticar FedEx: ${JSON.stringify(tokenData)}`)
+    throw new Error(`Erro ao autenticar FedEx: ${extrairErroApi(tokenData)}`)
   }
 
   const accessToken = tokenData.access_token
@@ -227,7 +251,7 @@ async function rastrearFedEx(embarque: any, awb: string) {
   const data = await trackResponse.json()
 
   if (!trackResponse.ok) {
-    throw new Error(`Erro FedEx: ${JSON.stringify(data)}`)
+    throw new Error(`Erro FedEx: ${extrairErroApi(data)}`)
   }
 
   const resultado = data?.output?.completeTrackResults?.[0]?.trackResults?.[0]
@@ -294,12 +318,12 @@ function normalizarStatus(status: string) {
   }
 
   if (
-    s.includes('transit') ||
-    s.includes('trânsito') ||
-    s.includes('transito') ||
-    s.includes('processed')
+    s.includes('available for delivery') ||
+    s.includes('out for delivery') ||
+    s.includes('released') ||
+    s.includes('liberado')
   ) {
-    return 'Em trânsito'
+    return 'Liberado'
   }
 
   if (s.includes('picked') || s.includes('pickup') || s.includes('colet')) {
@@ -307,12 +331,14 @@ function normalizarStatus(status: string) {
   }
 
   if (
-    s.includes('available for delivery') ||
-    s.includes('out for delivery') ||
-    s.includes('released') ||
-    s.includes('liberado')
+    s.includes('transit') ||
+    s.includes('trânsito') ||
+    s.includes('transito') ||
+    s.includes('processed') ||
+    s.includes('depart') ||
+    s.includes('movement')
   ) {
-    return 'Liberado'
+    return 'Em trânsito'
   }
 
   return 'Em trânsito'
@@ -366,4 +392,33 @@ async function salvarRastreio({
   }
 
   return statusNormalizado
+}
+
+function extrairErroApi(data: any) {
+  return (
+    data?.detail ||
+    data?.title ||
+    data?.message ||
+    data?.errors?.[0]?.message ||
+    data?.errors?.[0]?.code ||
+    JSON.stringify(data)
+  )
+}
+
+function limparMensagemErro(mensagem: string) {
+  const texto = String(mensagem || '').trim()
+
+  if (texto.includes('Too Many Requests')) {
+    return 'Limite de consultas atingido na transportadora. Tente novamente mais tarde.'
+  }
+
+  if (texto.includes('429')) {
+    return 'Limite de consultas atingido na transportadora. Tente novamente mais tarde.'
+  }
+
+  if (texto.length > 220) {
+    return `${texto.slice(0, 220)}...`
+  }
+
+  return texto || 'Erro não informado.'
 }
