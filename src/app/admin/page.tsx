@@ -11,10 +11,15 @@ export default function DashboardPage() {
   const [ultimoRastreio, setUltimoRastreio] = useState<any>(null)
   const [modalErrosRastreio, setModalErrosRastreio] = useState(false)
   const [carregando, setCarregando] = useState(false)
+  const [agora, setAgora] = useState(new Date())
 
   useEffect(() => {
-    buscarDados()
-  }, [])
+  const timer = setInterval(() => {
+    setAgora(new Date())
+  }, 1000)
+
+  return () => clearInterval(timer)
+}, [])
 
   async function atualizarTodosRastreios() {
     try {
@@ -282,6 +287,9 @@ export default function DashboardPage() {
         <header className="flex flex-col xl:flex-row justify-between gap-6 mb-8">
           <div>
             <p className="text-blue-400 font-bold mb-2">Visão geral operacional</p>
+            <p className="text-slate-400 text-sm mb-2">
+  🕒 {agora.toLocaleString('pt-BR')}
+</p>
             <h1 className="text-5xl font-black">Dashboard Executivo</h1>
             <p className="text-slate-400 mt-3 text-lg">
               Acompanhe em tempo real toda a operação logística da HC Connect.
