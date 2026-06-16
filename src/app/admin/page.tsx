@@ -99,9 +99,12 @@ export default function DashboardPage() {
   }
 
   function dataHoraBR(data?: string | null) {
-    if (!data) return '-'
-    return new Date(data).toLocaleString('pt-BR')
-  }
+  if (!data) return '-'
+
+  return new Date(data).toLocaleString('pt-BR', {
+    timeZone: 'UTC',
+  })
+}
 
   function proximaAtualizacao(data?: string | null) {
     if (!data) return '-'
