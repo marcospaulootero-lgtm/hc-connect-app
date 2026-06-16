@@ -76,7 +76,21 @@ export async function GET(req: Request) {
         })
       }
     }
+const totalSucesso = resultados.filter(
+  (r) => r.sucesso === true
+).length
 
+const totalErro = resultados.filter(
+  (r) => r.sucesso === false
+).length
+
+await supabase
+  .from('logs_rastreio')
+  .insert({
+    total_processado: resultados.length,
+    total_sucesso: totalSucesso,
+    total_erro: totalErro,
+  })
     return NextResponse.json({
       sucesso: true,
       total_processado: resultados.length,
