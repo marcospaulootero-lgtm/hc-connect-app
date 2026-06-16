@@ -184,12 +184,25 @@ export default function DetalheEmbarquePage() {
     const data = await response.json()
 
     if (!response.ok) {
-  alert(`${data.error || 'Erro ao atualizar rastreio.'}\n\n${data.detalhes || ''}`)
-  return
-}
+      const detalhes = String(data.detalhes || '')
+
+      if (
+        detalhes.includes('Too Many Requests') ||
+        detalhes.includes('429')
+      ) {
+        alert(
+          'A DHL bloqueou temporariamente novas consultas por excesso de requisições.\n\nTente novamente em alguns minutos.'
+        )
+        return
+      }
+
+      alert(data.error || 'Erro ao atualizar rastreio.')
+      return
+    }
 
     alert(`Rastreio atualizado: ${data.status}`)
-    carregar()
+
+    await carregar()
   } catch (error) {
     alert('Erro ao atualizar rastreio.')
   } finally {

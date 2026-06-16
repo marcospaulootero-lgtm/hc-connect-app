@@ -17,11 +17,14 @@ export async function GET(req: Request) {
 
     const { data: embarques, error } = await supabase
       .from('embarques')
-      .select('*')
-      .not('awb', 'is', null)
-      .neq('status_operacional', 'Entregue')
-      .order('ultima_atualizacao', { ascending: true })
-      .limit(20)
+.select('*')
+.not('awb', 'is', null)
+.not('awb', 'eq', 'AGUARDANDO AWB')
+.not('status_operacional', 'eq', 'Entregue')
+.not('status_operacional', 'eq', 'Finalizado')
+.not('status_operacional', 'eq', 'Cancelado')
+.order('ultima_atualizacao', { ascending: true })
+.limit(10)
 
     if (error) {
       return NextResponse.json(
