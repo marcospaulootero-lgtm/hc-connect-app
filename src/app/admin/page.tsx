@@ -77,11 +77,11 @@ export default function DashboardPage() {
           .select('*')
           .order('criado_em', { ascending: false }),
         supabase
-          .from('logs_rastreio')
-          .select('*')
-          .order('criado_em', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+  .from('logs_rastreio')
+  .select('id, criado_em, total_processado, total_sucesso, total_erro, detalhes')
+  .order('criado_em', { ascending: false })
+  .limit(1)
+  .maybeSingle(),
       ])
 
     setUsuarios(perfisRes.data || [])
