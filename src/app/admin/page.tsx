@@ -107,13 +107,15 @@ export default function DashboardPage() {
 }
 
   function proximaAtualizacao(data?: string | null) {
-    if (!data) return '-'
+  if (!data) return '-'
 
-    const proxima = new Date(data)
-    proxima.setMinutes(proxima.getMinutes() + 30)
+  const proxima = new Date(data)
+  proxima.setMinutes(proxima.getMinutes() + 30)
 
-    return proxima.toLocaleString('pt-BR')
-  }
+  return proxima.toLocaleString('pt-BR', {
+    timeZone: 'UTC',
+  })
+}
 
   const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
     ? ultimoRastreio.detalhes
