@@ -23,6 +23,12 @@ export default function DashboardPage() {
 
 useEffect(() => {
   buscarDados()
+
+  const intervaloDashboard = setInterval(() => {
+    buscarDados()
+  }, 60000)
+
+  return () => clearInterval(intervaloDashboard)
 }, [])
 
   async function atualizarTodosRastreios() {
