@@ -174,114 +174,124 @@ export default function EmbarquesPage() {
   }
 
   async function salvar() {
-    if (!form.awb) {
-      alert('Informe o AWB')
-      return
-    }
-
-    if (!form.servico || !form.origem || !form.destino) {
-      alert('Preencha serviço, origem e destino')
-      return
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      alert('Usuário administrador não identificado. Faça login novamente.')
-      return
-    }
-
-    const { data: perfilAdmin } = await supabase
-      .from('perfis')
-      .select('nome, email')
-      .eq('id', user.id)
-      .single()
-
-    const primeiroClienteId = form.usuarios_ids[0] || null
-    const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
-
-    const responsavel =
-      admins.find((a) => a.id === form.responsavel_id) || perfilAdmin
-
-    const responsavelId = form.responsavel_id || user.id
-
-    
-
-    const { data, error } = await supabase
-      .from('embarques')
-      .insert([
-        {
-          usuario_id: primeiroClienteId,
-          empresa_id: primeiroCliente?.empresa_id || null,
-
-          criado_por_admin_id: user.id,
-          criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
-          criado_por_admin_email: perfilAdmin?.email || user.email || null,
-
-          responsavel_id: responsavelId,
-          responsavel_nome: responsavel?.nome || user.email || null,
-          responsavel_email: responsavel?.email || user.email || null,
-
-          exportador: form.exportador || null,
-          importador: form.importador || null,
-          referencia_cliente: form.referencia_cliente || null,
-          referencia_hc: form.referencia_hc || null,
-
-          awb: form.awb,
-          transportadora: form.transportadora,
-          servico: form.servico,
-          origem: form.origem,
-          destino: form.destino,
-
-          peso_real: numero(form.peso_real),
-          peso_taxado: numero(form.peso_taxado),
-
-          valor_cobrado_cliente: numero(form.valor_cobrado_cliente),
-          moeda_cobranca: form.moeda_cobranca || 'USD',
-          taxa_conversao: numero(form.taxa_conversao),
-          spread_percentual: numero(form.spread_percentual) || 3,
-
-          
-
-          status_operacional: 'Aguardando coleta',
-          data_envio: null,
-          data_prevista: form.data_prevista || null,
-          ultima_atualizacao: new Date().toISOString(),
-          observacoes: form.observacoes || null,
-        },
-      ])
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Erro Supabase:', error)
-      alert(error.message)
-      return
-    }
-
-    if (form.usuarios_ids.length > 0) {
-      const registros = form.usuarios_ids.map((clienteId) => ({
-        embarque_id: data.id,
-        cliente_id: clienteId,
-      }))
-
-      const { error: erroVinculos } = await supabase
-        .from('embarque_clientes')
-        .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
-
-      if (erroVinculos) {
-        alert(erroVinculos.message)
-        console.error('Erro vínculos:', erroVinculos)
-        return
-      }
-    }
-
-    alert('Embarque salvo com sucesso')
-    setForm(formInicial)
-    carregar()
+  if (!form.awb) {
+    alert('Informe o AWB')
+    return
   }
+
+  if (!form.servico || !form.origem || !form.destino) {
+    alert('Preencha serviço, origem e destino')
+    return
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    alert('Usuário administrador não identificado. Faça login novamente.')
+    return
+  }
+
+  const { data: perfilAdmin } = await supabase
+    .from('perfis')
+    .select('nome, email')
+    .eq('id', user.id)
+    .single()
+
+  const primeiroClienteId = form.usuarios_ids[0] || null
+  const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
+
+  const responsavel =
+    admins.find((a) => a.id === form.responsavel_id) || perfilAdmin
+
+  const responsavelId = form.responsavel_id || user.id
+
+  const { data, error } = await supabase
+    .from('embarques')
+    .insert([
+      {
+        usuario_id: primeiroClienteId,
+        empresa_id: primeiroCliente?.empresa_id || null,
+
+        criado_por_admin_id: user.id,
+        criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
+        criado_por_admin_email: perfilAdmin?.email || user.email || null,
+
+        responsavel_id: responsavelId,
+        responsavel_nome: responsavel?.nome || user.email || null,
+        responsavel_email: responsavel?.email || user.email || null,
+
+        exportador: form.exportador || null,
+        importador: form.importador || null,
+        referencia_cliente: form.referencia_cliente || null,
+        referencia_hc: form.referencia_hc || null,
+
+        awb: form.awb,
+        transportadora: form.transportadora,
+        servico: form.servico,
+        origem: form.origem,
+        destino: form.destino,
+
+        peso_real: numero(form.peso_real),
+        peso_taxado: numero(form.peso_taxado),
+
+        valor_cobrado_cliente: numero(form.valor_cobrado_cliente),
+        moeda_cobranca: form.moeda_cobranca || 'USD',
+        taxa_conversao: numero(form.taxa_conversao),
+        spread_percentual: numero(form.spread_percentual) || 3,
+
+        status_operacional: 'Aguardando coleta',
+        data_envio: null,
+        data_prevista: form.data_prevista || null,
+        ultima_atualizacao: new Date().toISOString(),
+        observacoes: form.observacoes || null,
+      },
+    ])
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Erro Supabase:', error)
+    alert(error.message)
+    return
+  }
+
+  if (form.usuarios_ids.length > 0) {
+    const registros = form.usuarios_ids.map((clienteId) => ({
+      embarque_id: data.id,
+      cliente_id: clienteId,
+    }))
+
+    const { error: erroVinculos } = await supabase
+      .from('embarque_clientes')
+      .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
+
+    if (erroVinculos) {
+      alert(erroVinculos.message)
+      console.error('Erro vínculos:', erroVinculos)
+      return
+    }
+  }
+
+  try {
+    await fetch('/api/rastreio', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        embarque_id: data.id,
+      }),
+    })
+  } catch (erro) {
+    console.error('Erro ao atualizar rastreio inicial:', erro)
+  }
+
+  alert('Embarque salvo com sucesso')
+  setForm(formInicial)
+  carregar()
+}
 
   function abrirEdicao(item: any) {
     setEditandoId(item.id)

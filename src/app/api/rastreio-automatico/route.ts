@@ -16,15 +16,14 @@ export async function GET(req: Request) {
     }
 
     const { data: embarques, error } = await supabase
-      .from('embarques')
-.select('*')
-.not('awb', 'is', null)
-.not('awb', 'eq', 'AGUARDANDO AWB')
-.not('status_operacional', 'eq', 'Entregue')
-.not('status_operacional', 'eq', 'Finalizado')
-.not('status_operacional', 'eq', 'Cancelado')
-.order('ultima_atualizacao', { ascending: true })
-.limit(10)
+  .from('embarques')
+  .select('*')
+  .not('awb', 'is', null)
+  .not('awb', 'eq', 'AGUARDANDO AWB')
+  .not('status_operacional', 'eq', 'Entregue')
+  .not('status_operacional', 'eq', 'Finalizado')
+  .not('status_operacional', 'eq', 'Cancelado')
+  .order('ultima_atualizacao', { ascending: true })
 
     if (error) {
       return NextResponse.json(
@@ -97,7 +96,7 @@ export async function GET(req: Request) {
       total_processado: resultados.length,
       total_sucesso: totalSucesso,
       total_erro: totalErro,
-      erros: errosDetalhados,
+      detalhes: errosDetalhados,
     })
 
     if (erroLog) {
