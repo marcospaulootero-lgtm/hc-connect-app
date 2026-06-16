@@ -8,82 +8,107 @@ export default function DashboardPage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [suporte, setSuporte] = useState<any[]>([])
+  const [ultimoRastreio, setUltimoRastreio] = useState<any>(null)
   const [carregando, setCarregando] = useState(false)
 
   useEffect(() => {
-  buscarDados()
-}, [])
+    buscarDados()
+  }, [])
 
   async function atualizarTodosRastreios() {
-  try {
-    const { data: embarquesAtivos } = await supabase
-      .from('embarques')
-      .select('id,status_operacional')
-      .neq('status_operacional', 'Entregue')
-
-    if (!embarquesAtivos?.length) return
-
-    for (const embarque of embarquesAtivos) {
-      try {
-        await fetch('/api/rastreio', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            embarque_id: embarque.id,
-          }),
-        })
-      } catch (err) {
-        console.error('Erro atualizando embarque:', embarque.id, err)
-      }
-    }
-  } catch (err) {
-    console.error('Erro geral atualização:', err)
-  }
-}
-async function atualizarDadosManual() {
-  setCarregando(true)
-
-  try {
-    await atualizarTodosRastreios()
-    await buscarDados()
-  } catch (error) {
-    console.error(error)
-  }
-
-  setCarregando(false)
-}
-async function buscarDados() {
-  setCarregando(true)
-
-  const [perfisRes, embarquesRes, cotacoesRes, suporteRes] =
-    await Promise.all([
-      supabase.from('perfis').select('*').order('nome'),
-      supabase
+    try {
+      const { data: embarquesAtivos } = await supabase
         .from('embarques')
-        .select('*')
-        .order('criado_em', { ascending: false }),
-      supabase
-        .from('cotacoes')
-        .select('*')
-        .order('criado_em', { ascending: false }),
-      supabase
-        .from('suporte')
-        .select('*')
-        .order('criado_em', { ascending: false }),
-    ])
+        .select('id,status_operacional')
+        .neq('status_operacional', 'Entregue')
 
-  setUsuarios(perfisRes.data || [])
-  setEmbarques(embarquesRes.data || [])
-  setCotacoes(cotacoesRes.data || [])
-  setSuporte(suporteRes.data || [])
+      if (!embarquesAtivos?.length) return
 
-  setCarregando(false)
-}
+      for (const embarque of embarquesAtivos) {
+        try {
+          await fetch('/api/rastreio', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              embarque_id: embarque.id,
+            }),
+          })
+        } catch (err) {
+          console.error('Erro atualizando embarque:', embarque.id, err)
+        }
+      }
+    } catch (err) {
+      console.error('Erro geral atualização:', err)
+    }
+  }
+
+  async function atualizarDadosManual() {
+    setCarregando(true)
+
+    try {
+      await atualizarTodosRastreios()
+      await buscarDados()
+    } catch (error) {
+      console.error(error)
+    }
+
+    setCarregando(false)
+  }
+
+  async function buscarDados() {
+    setCarregando(true)
+
+    const [perfisRes, embarquesRes, cotacoesRes, suporteRes, logRastreioRes] =
+      await Promise.all([
+        supabase.from('perfis').select('*').order('nome'),
+        supabase
+          .from('embarques')
+          .select('*')
+          .order('criado_em', { ascending: false }),
+        supabase
+          .from('cotacoes')
+          .select('*')
+          .order('criado_em', { ascending: false }),
+        supabase
+          .from('suporte')
+          .select('*')
+          .order('criado_em', { ascending: false }),
+        supabase
+          .from('logs_rastreio')
+          .select('*')
+          .order('criado_em', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+
+    setUsuarios(perfisRes.data || [])
+    setEmbarques(embarquesRes.data || [])
+    setCotacoes(cotacoesRes.data || [])
+    setSuporte(suporteRes.data || [])
+    setUltimoRastreio(logRastreioRes.data || null)
+
+    setCarregando(false)
+  }
+
   function dataBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleDateString('pt-BR')
+  }
+
+  function dataHoraBR(data?: string | null) {
+    if (!data) return '-'
+    return new Date(data).toLocaleString('pt-BR')
+  }
+
+  function proximaAtualizacao(data?: string | null) {
+    if (!data) return '-'
+
+    const proxima = new Date(data)
+    proxima.setMinutes(proxima.getMinutes() + 30)
+
+    return proxima.toLocaleString('pt-BR')
   }
 
   const hoje = new Date()
@@ -91,12 +116,12 @@ async function buscarDados() {
   const anoAtual = hoje.getFullYear()
 
   const embarquesMes = embarques.filter((e) => {
-  const dataBase = e.data_coleta || e.criado_em
-  if (!dataBase) return false
+    const dataBase = e.data_coleta || e.criado_em
+    if (!dataBase) return false
 
-  const data = new Date(dataBase)
-  return data.getMonth() === mesAtual && data.getFullYear() === anoAtual
-})
+    const data = new Date(dataBase)
+    return data.getMonth() === mesAtual && data.getFullYear() === anoAtual
+  })
 
   const ativos = embarques.filter((e) => e.status_operacional !== 'Entregue').length
   const transito = embarques.filter((e) => e.status_operacional === 'Em trânsito').length
@@ -223,12 +248,12 @@ async function buscarDados() {
       data.setDate(data.getDate() - (29 - index))
 
       const total = embarques.filter((e) => {
-  const dataBase = e.data_coleta || e.criado_em
-  if (!dataBase) return false
+        const dataBase = e.data_coleta || e.criado_em
+        if (!dataBase) return false
 
-  const criado = new Date(dataBase)
-  return criado.toDateString() === data.toDateString()
-}).length
+        const criado = new Date(dataBase)
+        return criado.toDateString() === data.toDateString()
+      }).length
 
       return {
         dia: data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
@@ -282,7 +307,7 @@ async function buscarDados() {
           <KpiCard titulo="Transportadoras" valor={transportadorasAtivas} detalhe="Em operação" icone="✈️" cor="blue" />
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+        <section className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-8">
           <div className="card">
             <div className="flex items-center gap-3 mb-6">
               <span className="text-3xl">🎧</span>
@@ -341,6 +366,37 @@ async function buscarDados() {
             <a href="/admin/embarques" className="block text-blue-400 font-bold mt-6 text-right">
               Ver operação completa →
             </a>
+          </div>
+
+          <div className="card">
+            <div className="flex items-center gap-3 mb-6">
+              <span className="text-3xl">📡</span>
+              <h2 className="text-2xl font-black">Rastreio Automático</h2>
+            </div>
+
+            <div className="border border-blue-900 rounded-2xl bg-[#020817] p-5 mb-4">
+              <p className="text-slate-500 text-sm">Última execução</p>
+              <h3 className="text-lg font-black text-blue-400 mt-1">
+                {dataHoraBR(ultimoRastreio?.criado_em)}
+              </h3>
+            </div>
+
+            <div className="border border-blue-900 rounded-2xl bg-[#020817] p-5 mb-4">
+              <p className="text-slate-500 text-sm">Próxima execução estimada</p>
+              <h3 className="text-lg font-black text-green-400 mt-1">
+                {proximaAtualizacao(ultimoRastreio?.criado_em)}
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <AutoBox titulo="Processados" valor={ultimoRastreio?.total_processado || 0} cor="blue" />
+              <AutoBox titulo="Sucessos" valor={ultimoRastreio?.total_sucesso || 0} cor="green" />
+              <AutoBox titulo="Erros" valor={ultimoRastreio?.total_erro || 0} cor="red" />
+            </div>
+
+            <p className="text-slate-500 text-xs mt-4">
+              Atualização automática configurada para rodar a cada 30 minutos.
+            </p>
           </div>
 
           <div className="card">
@@ -672,6 +728,22 @@ function OperationCard({ titulo, valor, cor }: any) {
     <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5">
       <h3 className={`text-2xl font-black ${classe}`}>{valor}</h3>
       <p className="text-slate-400 mt-2">{titulo}</p>
+    </div>
+  )
+}
+
+function AutoBox({ titulo, valor, cor }: any) {
+  const classe =
+    cor === 'green'
+      ? 'text-green-400'
+      : cor === 'red'
+      ? 'text-red-400'
+      : 'text-blue-400'
+
+  return (
+    <div className="border border-blue-900 bg-[#020817] rounded-2xl p-4 text-center">
+      <h3 className={`text-2xl font-black ${classe}`}>{valor}</h3>
+      <p className="text-slate-500 text-xs mt-1">{titulo}</p>
     </div>
   )
 }
