@@ -70,7 +70,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <MenuItem href="/admin/embarques" label="Embarques" icon="📦" />
           <MenuItem href="/admin/embarque-direto" label="Embarque Direto" icon="🚚" />
           <MenuItem href="/admin/cotacoes" label="Cotações" icon="📄" />
-          <MenuItem href="/admin/faturas" label="Faturas" icon="💰" />
+          <MenuItem href="/admin/faturas" label="Faturas" icon="🧾" />
+          <MenuItem href="/admin/financeiro" label="Financeiro" icon="💰" />
           <MenuItem href="/admin/intelligence" label="Intelligence" icon="📈" />
           <MenuItem href="/admin/usuarios" label="Usuários" icon="👥" />
           <MenuItem href="/admin/suporte" label="Suporte" icon="🎧" />
@@ -90,9 +91,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      <main className="flex-1 xl:ml-72 p-8">
-        {children}
-      </main>
+      <main className="flex-1 xl:ml-72 p-8">{children}</main>
     </div>
   )
 }
