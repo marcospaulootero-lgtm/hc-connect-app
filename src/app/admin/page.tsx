@@ -21,6 +21,10 @@ export default function DashboardPage() {
   return () => clearInterval(timer)
 }, [])
 
+useEffect(() => {
+  buscarDados()
+}, [])
+
   async function atualizarTodosRastreios() {
     try {
       const { data: embarquesAtivos } = await supabase
