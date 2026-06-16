@@ -35,6 +35,20 @@ export async function GET(req: Request) {
     const resultados: any[] = []
 
     for (const embarque of embarques || []) {
+      if (
+  embarque.proxima_tentativa_rastreio &&
+  new Date(embarque.proxima_tentativa_rastreio) > new Date()
+) {
+  resultados.push({
+    id: embarque.id,
+    awb: embarque.awb,
+    transportadora: embarque.transportadora,
+    sucesso: false,
+    erro: `AWB temporariamente bloqueado até ${embarque.proxima_tentativa_rastreio}`,
+  })
+
+  continue
+}
       try {
         const awb = String(embarque.awb || '').trim()
         const transportadora = String(embarque.transportadora || '').toUpperCase()
@@ -70,14 +84,32 @@ export async function GET(req: Request) {
           erro: 'Transportadora não suportada.',
         })
       } catch (erro: any) {
-        resultados.push({
-          id: embarque.id,
-          awb: embarque.awb || '-',
-          transportadora: embarque.transportadora || '-',
-          sucesso: false,
-          erro: limparMensagemErro(erro?.message || String(erro)),
-        })
-      }
+  const mensagemErro = erro?.message || String(erro)
+
+  if (
+    mensagemErro.includes('429') ||
+    mensagemErro.includes('Too Many Requests')
+  ) {
+    const proximaTentativa = new Date(
+      Date.now() + 3 * 60 * 60 * 1000
+    ).toISOString()
+
+    await supabase
+      .from('embarques')
+      .update({
+        proxima_tentativa_rastreio: proximaTentativa,
+      })
+      .eq('id', embarque.id)
+  }
+
+  resultados.push({
+    id: embarque.id,
+    awb: embarque.awb || '-',
+    transportadora: embarque.transportadora || '-',
+    sucesso: false,
+    erro: limparMensagemErro(mensagemErro),
+  })
+}
     }
 
     const totalSucesso = resultados.filter((r) => r.sucesso === true).length
@@ -358,9 +390,10 @@ async function salvarRastreio({
   const statusNormalizado = normalizarStatus(status)
 
   const dadosAtualizar: any = {
-    status_operacional: statusNormalizado,
-    ultima_atualizacao: new Date().toISOString(),
-  }
+  status_operacional: statusNormalizado,
+  ultima_atualizacao: new Date().toISOString(),
+  proxima_tentativa_rastreio: null,
+}
 
   if (statusNormalizado === 'Entregue') {
     dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
