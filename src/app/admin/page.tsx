@@ -117,7 +117,7 @@ useEffect(() => {
   if (!data) return '-'
 
   return new Date(data).toLocaleString('pt-BR', {
-    timeZone: 'UTC',
+    timeZone: 'America/Sao_Paulo',
   })
 }
 
@@ -125,10 +125,10 @@ useEffect(() => {
   if (!data) return '-'
 
   const proxima = new Date(data)
-  proxima.setMinutes(proxima.getMinutes() + 30)
+  proxima.setHours(proxima.getHours() + 1)
 
   return proxima.toLocaleString('pt-BR', {
-    timeZone: 'UTC',
+    timeZone: 'America/Sao_Paulo',
   })
 }
 
