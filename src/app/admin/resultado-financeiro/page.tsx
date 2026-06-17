@@ -19,9 +19,9 @@ export default function ResultadoFinanceiroPage() {
     setLoading(true)
 
     const { data, error } = await supabase
-  .from('financeiro_embarques')
-  .select('*')
-  .order('cliente', { ascending: true })
+      .from('financeiro_embarques')
+      .select('*')
+      .order('cliente', { ascending: true })
 
     if (error) {
       alert('Erro ao carregar resultado financeiro: ' + error.message)
@@ -30,13 +30,11 @@ export default function ResultadoFinanceiroPage() {
     }
 
     setDados(
-  (data || []).sort((a, b) =>
-    String(a.cliente || '').localeCompare(
-      String(b.cliente || ''),
-      'pt-BR'
+      (data || []).sort((a, b) =>
+        String(a.cliente || '').localeCompare(String(b.cliente || ''), 'pt-BR')
+      )
     )
-  )
-)
+
     setLoading(false)
   }
 
@@ -47,19 +45,20 @@ export default function ResultadoFinanceiroPage() {
     })
   }
 
-  function getData(item: any) {
-  return item.recebimento || null
-}
+  function getDataProfit(item: any) {
+    return item.recebimento || null
+  }
 
   function getAno(item: any) {
-    const data = getData(item)
-    if (!data) return 'SEM DATA'
+    const data = getDataProfit(item)
+    if (!data) return 'SEM RECEBIMENTO'
     return String(data).slice(0, 4)
   }
 
   function getMes(item: any) {
-    const data = getData(item)
-    if (!data) return 'SEM DATA'
+    const data = getDataProfit(item)
+    if (!data) return 'SEM RECEBIMENTO'
+
     const m = String(data).slice(5, 7)
 
     const nomes: any = {
@@ -77,16 +76,16 @@ export default function ResultadoFinanceiroPage() {
       '12': 'Dezembro',
     }
 
-    return nomes[m] || 'SEM DATA'
+    return nomes[m] || 'SEM RECEBIMENTO'
+  }
+
+  function temRecebimento(item: any) {
+    return !!item.recebimento
   }
 
   function temCustoReal(item: any) {
-  return (
-    item.valor_compra !== null &&
-    item.valor_compra !== undefined &&
-    Number(item.valor_compra) > 0
-  )
-}
+    return Number(item.valor_compra || 0) > 0
+  }
 
   function custos(item: any) {
     return (
@@ -107,9 +106,13 @@ export default function ResultadoFinanceiroPage() {
     )
   }
 
-  const anos = useMemo(() => {
-    return ['TODOS', ...Array.from(new Set(dados.map(getAno))).filter(Boolean)]
+  const dadosRecebidos = useMemo(() => {
+    return dados.filter(temRecebimento)
   }, [dados])
+
+  const anos = useMemo(() => {
+    return ['TODOS', ...Array.from(new Set(dadosRecebidos.map(getAno))).filter(Boolean)]
+  }, [dadosRecebidos])
 
   const meses = [
     'TODOS',
@@ -125,19 +128,28 @@ export default function ResultadoFinanceiroPage() {
     'Outubro',
     'Novembro',
     'Dezembro',
-    'SEM DATA',
   ]
 
   const clientes = useMemo(() => {
-    return ['TODOS', ...Array.from(new Set(dados.map((d) => d.cliente || 'SEM CLIENTE')))]
-  }, [dados])
+    return [
+      'TODOS',
+      ...Array.from(new Set(dadosRecebidos.map((d) => d.cliente || 'SEM CLIENTE'))).sort(
+        (a, b) => String(a).localeCompare(String(b), 'pt-BR')
+      ),
+    ]
+  }, [dadosRecebidos])
 
   const transportadoras = useMemo(() => {
-    return ['TODOS', ...Array.from(new Set(dados.map((d) => d.transportadora || 'SEM TRANSPORTADORA')))]
-  }, [dados])
+    return [
+      'TODOS',
+      ...Array.from(
+        new Set(dadosRecebidos.map((d) => d.transportadora || 'SEM TRANSPORTADORA'))
+      ).sort((a, b) => String(a).localeCompare(String(b), 'pt-BR')),
+    ]
+  }, [dadosRecebidos])
 
   const filtrados = useMemo(() => {
-    return dados.filter((item) => {
+    return dadosRecebidos.filter((item) => {
       const passaAno = ano === 'TODOS' || getAno(item) === ano
       const passaMes = mes === 'TODOS' || getMes(item) === mes
       const passaCliente = cliente === 'TODOS' || (item.cliente || 'SEM CLIENTE') === cliente
@@ -147,7 +159,7 @@ export default function ResultadoFinanceiroPage() {
 
       return passaAno && passaMes && passaCliente && passaTransportadora
     })
-  }, [dados, ano, mes, cliente, transportadora])
+  }, [dadosRecebidos, ano, mes, cliente, transportadora])
 
   const filtradosComCusto = useMemo(() => {
     return filtrados.filter(temCustoReal)
@@ -243,7 +255,7 @@ export default function ResultadoFinanceiroPage() {
           <p className="text-blue-400 font-bold mb-2">Resultado Financeiro</p>
           <h1 className="text-5xl font-black mb-2">Análise de Profit HC Real</h1>
           <p className="text-slate-400 text-lg">
-            O profit real considera apenas processos com valor de compra informado.
+            O mês do profit é considerado pela data de recebimento.
           </p>
         </div>
 
@@ -263,23 +275,23 @@ export default function ResultadoFinanceiroPage() {
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
-        <Card titulo="Faturamento Total" valor={moeda(totais.faturamentoTotal)} detalhe="Todos os processos filtrados" />
-        <Card titulo="Faturamento Real" valor={moeda(totais.faturamentoReal)} detalhe="Somente com custo informado" />
+        <Card titulo="Faturamento Total" valor={moeda(totais.faturamentoTotal)} detalhe="Recebidos no mês filtrado" />
+        <Card titulo="Faturamento Real" valor={moeda(totais.faturamentoReal)} detalhe="Recebidos com custo informado" />
         <Card titulo="Custos Reais" valor={moeda(totais.custos)} detalhe="Compra + DTA + terceiros" />
         <Card titulo="Profit HC Real" valor={moeda(totais.profit)} detalhe="Resultado líquido real" destaque />
         <Card titulo="Margem Real" valor={`${totais.margemReal.toFixed(2)}%`} detalhe="Sobre faturamento real" />
-        <Card titulo="Sem Custo" valor={String(totais.semCusto)} detalhe="Aguardando valor de compra" alerta />
+        <Card titulo="Sem Custo" valor={String(totais.semCusto)} detalhe="Recebidos sem valor de compra" alerta />
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
         <Card titulo="Processos com custo" valor={String(totais.comCusto)} detalhe="Entram no Profit HC Real" destaque />
-        <Card titulo="Total de processos" valor={String(totais.processos)} detalhe="Quantidade filtrada geral" />
+        <Card titulo="Total de processos" valor={String(totais.processos)} detalhe="Recebidos no filtro selecionado" />
       </section>
 
       {totais.semCusto > 0 && (
         <section className="border border-yellow-500 bg-yellow-500/10 rounded-3xl p-5 mb-8">
           <p className="text-yellow-300 font-bold">
-            ⚠ Existem {totais.semCusto} processos sem valor de compra. Eles não entram no Profit HC Real nem nos rankings.
+            ⚠ Existem {totais.semCusto} processos recebidos sem valor de compra. Eles não entram no Profit HC Real nem nos rankings.
           </p>
         </section>
       )}
@@ -292,7 +304,7 @@ export default function ResultadoFinanceiroPage() {
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
-        <h2 className="text-2xl font-black mb-5">Resultado real por mês</h2>
+        <h2 className="text-2xl font-black mb-5">Resultado real por mês de recebimento</h2>
 
         <div className="overflow-x-auto">
           <table className="table min-w-[900px]">
@@ -327,7 +339,7 @@ export default function ResultadoFinanceiroPage() {
           </table>
 
           {porMes.length === 0 && (
-            <p className="text-slate-400 text-center py-8">Nenhum processo com custo informado.</p>
+            <p className="text-slate-400 text-center py-8">Nenhum processo recebido com custo informado.</p>
           )}
         </div>
       </section>
@@ -390,7 +402,7 @@ export default function ResultadoFinanceiroPage() {
           </table>
 
           {filtrados.length === 0 && (
-            <p className="text-slate-400 text-center py-8">Nenhum processo encontrado.</p>
+            <p className="text-slate-400 text-center py-8">Nenhum processo recebido encontrado.</p>
           )}
         </div>
       </section>
@@ -475,7 +487,7 @@ function Ranking({ titulo, dados, moeda }: any) {
 
         {dados.length === 0 && (
           <p className="text-slate-400 text-center py-6">
-            Nenhum processo com custo informado.
+            Nenhum processo recebido com custo informado.
           </p>
         )}
       </div>
