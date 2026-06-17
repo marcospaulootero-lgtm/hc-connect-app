@@ -356,6 +356,85 @@ export default function ResultadoFinanceiroPage() {
     }
   }, [resumoAtual, resumoAnoAnterior])
 
+  const resumoMesAnterior: any = useMemo(() => {
+    const anoSelecionado = ano !== 'TODOS' ? Number(ano) : null
+    const mesSelecionado = mes !== 'TODOS' ? MESES.indexOf(mes) + 1 : null
+
+    if (!anoSelecionado || !mesSelecionado) return null
+
+    const mesAnterior = mesSelecionado === 1 ? 12 : mesSelecionado - 1
+    const anoAnterior = mesSelecionado === 1 ? anoSelecionado - 1 : anoSelecionado
+
+    return historicoMensal.find(
+      (item: any) => Number(item.ano) === anoAnterior && item.mesNumero === mesAnterior
+    )
+  }, [historicoMensal, ano, mes])
+
+  const comparativoMesAnterior = useMemo(() => {
+    if (!resumoAtual || !resumoMesAnterior) {
+      return {
+        diferenca: 0,
+        percentual: 0,
+        temComparativo: false,
+      }
+    }
+
+    const diferenca = Number(resumoAtual.profit || 0) - Number(resumoMesAnterior.profit || 0)
+    const percentual =
+      Number(resumoMesAnterior.profit || 0) > 0
+        ? (diferenca / Number(resumoMesAnterior.profit || 0)) * 100
+        : 0
+
+    return {
+      diferenca,
+      percentual,
+      temComparativo: true,
+    }
+  }, [resumoAtual, resumoMesAnterior])
+
+  const selecionouMesAno = ano !== 'TODOS' && mes !== 'TODOS'
+  const anoSelecionadoNumero = ano !== 'TODOS' ? Number(ano) : new Date().getFullYear()
+  const mesSelecionadoNumero = mes !== 'TODOS' ? MESES.indexOf(mes) + 1 : new Date().getMonth() + 1
+
+  const diasDoMesSelecionado = new Date(anoSelecionadoNumero, mesSelecionadoNumero, 0).getDate()
+  const hoje = new Date()
+  const ehMesAtual =
+    selecionouMesAno &&
+    anoSelecionadoNumero === hoje.getFullYear() &&
+    mesSelecionadoNumero === hoje.getMonth() + 1
+
+  const diaBaseProjecao = ehMesAtual ? hoje.getDate() : diasDoMesSelecionado
+  const projecaoFechamento =
+    diaBaseProjecao > 0 ? (totais.profit / diaBaseProjecao) * diasDoMesSelecionado : totais.profit
+  const faltaProjetada = Math.max(numero(metaMes) - projecaoFechamento, 0)
+  const sobraProjetada = Math.max(projecaoFechamento - numero(metaMes), 0)
+
+  const dependenciaTop5Clientes = useMemo(() => {
+    const top5 = rankingClientes
+      .slice(0, 5)
+      .reduce((acc: number, item: any) => acc + Number(item.profit || 0), 0)
+
+    return totais.profit > 0 ? (top5 / totais.profit) * 100 : 0
+  }, [rankingClientes, totais.profit])
+
+  const statusMeta = useMemo(() => {
+    const meta = numero(metaMes)
+    if (meta <= 0) return { texto: 'Sem meta', classe: 'text-slate-300', borda: 'border-blue-900' }
+
+    const percentual = (totais.profit / meta) * 100
+
+    if (percentual >= 100) {
+      return { texto: 'Meta batida', classe: 'text-green-400', borda: 'border-green-500' }
+    }
+
+    if (percentual >= 70) {
+      return { texto: 'Atenção', classe: 'text-yellow-300', borda: 'border-yellow-500' }
+    }
+
+    return { texto: 'Risco alto', classe: 'text-red-400', borda: 'border-red-500' }
+  }, [totais.profit, metaMes])
+
+
   const metaValor = numero(metaMes)
   const progressoMeta = metaValor > 0 ? Math.min((totais.profit / metaValor) * 100, 100) : 0
   const faltaMeta = Math.max(metaValor - totais.profit, 0)
@@ -369,10 +448,24 @@ export default function ResultadoFinanceiroPage() {
       lista.push(`Faltam ${moeda(faltaMeta)} para atingir a meta do período.`)
     }
 
+    if (metaValor > 0 && projecaoFechamento < metaValor) {
+      lista.push(`Pela projeção atual, ainda faltarão ${moeda(faltaProjetada)} para bater a meta.`)
+    }
+
     if (comparativoAnoAnterior.temComparativo && comparativoAnoAnterior.percentual < 0) {
       lista.push(
         `Profit ${Math.abs(comparativoAnoAnterior.percentual).toFixed(1)}% abaixo do mesmo mês do ano anterior.`
       )
+    }
+
+    if (comparativoMesAnterior.temComparativo && comparativoMesAnterior.percentual < 0) {
+      lista.push(
+        `Profit ${Math.abs(comparativoMesAnterior.percentual).toFixed(1)}% abaixo do mês anterior.`
+      )
+    }
+
+    if (dependenciaTop5Clientes >= 70) {
+      lista.push(`Top 5 clientes representam ${dependenciaTop5Clientes.toFixed(1)}% do profit. Alta dependência da carteira.`)
     }
 
     if (totais.semCusto > 0) {
@@ -388,14 +481,23 @@ export default function ResultadoFinanceiroPage() {
     }
 
     return lista
-  }, [totais, comparativoAnoAnterior, metaValor, faltaMeta])
+  }, [
+    totais,
+    comparativoAnoAnterior,
+    comparativoMesAnterior,
+    metaValor,
+    faltaMeta,
+    projecaoFechamento,
+    faltaProjetada,
+    dependenciaTop5Clientes,
+  ])
 
   return (
     <main className="max-w-[1800px] mx-auto text-white pb-12">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-5">
         <div>
-          <p className="text-blue-400 font-bold mb-2">Resultado Financeiro Premium</p>
-          <h1 className="text-5xl font-black mb-2">Painel Executivo HC</h1>
+          <p className="text-blue-400 font-bold mb-2">Resultado Financeiro Executive</p>
+          <h1 className="text-5xl font-black mb-2">Painel CEO HC</h1>
           <p className="text-slate-400 text-lg">
             Análise visual por recebimento, comparação histórica, meta e evolução do Profit HC.
           </p>
@@ -472,6 +574,41 @@ export default function ResultadoFinanceiroPage() {
         </div>
       </section>
 
+      <section className="grid grid-cols-1 xl:grid-cols-4 gap-5 mb-8">
+        <PainelCEO
+          profit={moeda(totais.profit)}
+          meta={moeda(metaValor)}
+          falta={moeda(faltaMeta)}
+          projecao={moeda(projecaoFechamento)}
+          status={statusMeta}
+          percentualMeta={progressoMeta}
+          comparativoAno={comparativoAnoAnterior}
+          comparativoMes={comparativoMesAnterior}
+        />
+
+        <KPIExecutivo
+          titulo="Projeção de fechamento"
+          valor={moeda(projecaoFechamento)}
+          detalhe={ehMesAtual ? `Baseada em ${diaBaseProjecao} dias do mês atual` : 'Período fechado ou histórico'}
+          destaque={projecaoFechamento >= metaValor}
+        />
+
+        <KPIExecutivo
+          titulo="Dependência Top 5"
+          valor={`${dependenciaTop5Clientes.toFixed(1)}%`}
+          detalhe="Participação dos 5 maiores clientes no profit"
+          alerta={dependenciaTop5Clientes >= 70}
+        />
+
+        <KPIExecutivo
+          titulo="Risco da meta"
+          valor={statusMeta.texto}
+          detalhe={projecaoFechamento >= metaValor ? `Sobra projetada: ${moeda(sobraProjetada)}` : `Falta projetada: ${moeda(faltaProjetada)}`}
+          alerta={statusMeta.texto === 'Risco alto'}
+          destaque={statusMeta.texto === 'Meta batida'}
+        />
+      </section>
+
       <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
         <Card titulo="Faturamento Total" valor={moeda(totais.faturamentoTotal)} detalhe="Recebidos no período" />
         <Card titulo="Faturamento Real" valor={moeda(totais.faturamentoReal)} detalhe="Recebidos com custo" />
@@ -535,11 +672,15 @@ export default function ResultadoFinanceiroPage() {
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
-        <h2 className="text-2xl font-black mb-5">Resumo do período</h2>
+        <h2 className="text-2xl font-black mb-5">Painel CEO</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <ResumoLinha titulo="Melhor cliente" valor={melhorCliente?.nome || '-'} detalhe={melhorCliente ? moeda(melhorCliente.profit) : '-'} />
           <ResumoLinha titulo="Melhor transportadora" valor={melhorTransportadora?.nome || '-'} detalhe={melhorTransportadora ? moeda(melhorTransportadora.profit) : '-'} />
+          <ResumoLinha titulo="Top 5 clientes" valor={`${dependenciaTop5Clientes.toFixed(1)}%`} detalhe="Dependência do profit" />
+          <ResumoLinha titulo="Mês anterior" valor={comparativoMesAnterior.temComparativo ? `${comparativoMesAnterior.percentual >= 0 ? '+' : ''}${comparativoMesAnterior.percentual.toFixed(1)}%` : '-'} detalhe={comparativoMesAnterior.temComparativo ? moeda(comparativoMesAnterior.diferenca) : 'Sem comparativo'} />
+          <ResumoLinha titulo="Ano anterior" valor={comparativoAnoAnterior.temComparativo ? `${comparativoAnoAnterior.percentual >= 0 ? '+' : ''}${comparativoAnoAnterior.percentual.toFixed(1)}%` : '-'} detalhe={comparativoAnoAnterior.temComparativo ? moeda(comparativoAnoAnterior.diferenca) : 'Sem comparativo'} />
+          <ResumoLinha titulo="Projeção da meta" valor={projecaoFechamento >= metaValor ? 'Acima da meta' : 'Abaixo da meta'} detalhe={projecaoFechamento >= metaValor ? `Sobra ${moeda(sobraProjetada)}` : `Falta ${moeda(faltaProjetada)}`} />
         </div>
       </section>
 
@@ -609,6 +750,78 @@ export default function ResultadoFinanceiroPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+function PainelCEO({
+  profit,
+  meta,
+  falta,
+  projecao,
+  status,
+  percentualMeta,
+  comparativoAno,
+  comparativoMes,
+}: any) {
+  return (
+    <section className={`xl:col-span-2 border rounded-3xl bg-[#071225] p-7 ${status.borda}`}>
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
+        <div>
+          <p className="text-blue-300 font-bold mb-2">Resumo executivo</p>
+          <h2 className="text-4xl font-black">{profit}</h2>
+          <p className="text-slate-400 mt-2">Profit HC Real no período selecionado</p>
+        </div>
+
+        <div className="text-left md:text-right">
+          <p className="text-slate-400 font-bold">Status</p>
+          <h3 className={`text-3xl font-black mt-1 ${status.classe}`}>{status.texto}</h3>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+        <MiniIndicador titulo="Meta" valor={meta} />
+        <MiniIndicador titulo="Falta hoje" valor={falta} />
+        <MiniIndicador titulo="Projeção" valor={projecao} />
+      </div>
+
+      <BarraProgresso percentual={percentualMeta} />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+        <div className="rounded-2xl bg-black/20 border border-white/10 p-4">
+          <p className="text-slate-400 font-bold text-sm">Vs mês anterior</p>
+          <p className={`text-2xl font-black mt-2 ${comparativoMes?.diferenca >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {comparativoMes?.temComparativo
+              ? `${comparativoMes.percentual >= 0 ? '+' : ''}${comparativoMes.percentual.toFixed(1)}%`
+              : '-'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-black/20 border border-white/10 p-4">
+          <p className="text-slate-400 font-bold text-sm">Vs ano anterior</p>
+          <p className={`text-2xl font-black mt-2 ${comparativoAno?.diferenca >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {comparativoAno?.temComparativo
+              ? `${comparativoAno.percentual >= 0 ? '+' : ''}${comparativoAno.percentual.toFixed(1)}%`
+              : '-'}
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function KPIExecutivo({ titulo, valor, detalhe, destaque = false, alerta = false }: any) {
+  return (
+    <div
+      className={`border rounded-3xl p-6 bg-[#071225] ${
+        destaque ? 'border-green-500' : alerta ? 'border-red-500' : 'border-blue-900'
+      }`}
+    >
+      <p className="text-slate-400 font-bold">{titulo}</p>
+      <h2 className={`text-3xl font-black mt-3 ${destaque ? 'text-green-400' : alerta ? 'text-red-400' : 'text-white'}`}>
+        {valor}
+      </h2>
+      <p className="text-slate-500 text-sm mt-2">{detalhe}</p>
+    </div>
   )
 }
 
