@@ -48,7 +48,7 @@ export default function ResultadoFinanceiroPage() {
   }
 
   function getData(item: any) {
-  return item.vencimento_cobranca || item.criado_em || null
+  return item.recebimento || null
 }
 
   function getAno(item: any) {
