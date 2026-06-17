@@ -1,0 +1,413 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabaseClient'
+
+export default function ResultadoFinanceiroPage() {
+  const [dados, setDados] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [ano, setAno] = useState('TODOS')
+  const [mes, setMes] = useState('TODOS')
+  const [cliente, setCliente] = useState('TODOS')
+  const [transportadora, setTransportadora] = useState('TODOS')
+
+  useEffect(() => {
+    carregar()
+  }, [])
+
+  async function carregar() {
+    setLoading(true)
+
+    const { data, error } = await supabase
+      .from('financeiro_embarques')
+      .select('*')
+      .order('vencimento_cobranca', { ascending: false })
+
+    if (error) {
+      alert('Erro ao carregar resultado financeiro: ' + error.message)
+      setLoading(false)
+      return
+    }
+
+    setDados(data || [])
+    setLoading(false)
+  }
+
+  function moeda(valor: any) {
+    return Number(valor || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+  }
+
+  function getData(item: any) {
+    return item.recebimento || item.vencimento_cobranca || item.criado_em || null
+  }
+
+  function getAno(item: any) {
+    const data = getData(item)
+    if (!data) return 'SEM DATA'
+    return String(data).slice(0, 4)
+  }
+
+  function getMes(item: any) {
+    const data = getData(item)
+    if (!data) return 'SEM DATA'
+    const m = String(data).slice(5, 7)
+
+    const nomes: any = {
+      '01': 'Janeiro',
+      '02': 'Fevereiro',
+      '03': 'Março',
+      '04': 'Abril',
+      '05': 'Maio',
+      '06': 'Junho',
+      '07': 'Julho',
+      '08': 'Agosto',
+      '09': 'Setembro',
+      '10': 'Outubro',
+      '11': 'Novembro',
+      '12': 'Dezembro',
+    }
+
+    return nomes[m] || 'SEM DATA'
+  }
+
+  function profit(item: any) {
+    return (
+      Number(item.valor_cobranca || 0) -
+      Number(item.doc_dta || 0) -
+      Number(item.debito_terceiro || 0) -
+      Number(item.valor_compra || 0)
+    )
+  }
+
+  function custos(item: any) {
+    return (
+      Number(item.doc_dta || 0) +
+      Number(item.debito_terceiro || 0) +
+      Number(item.valor_compra || 0)
+    )
+  }
+
+  const anos = useMemo(() => {
+    return ['TODOS', ...Array.from(new Set(dados.map(getAno))).filter(Boolean)]
+  }, [dados])
+
+  const meses = [
+    'TODOS',
+    'Janeiro',
+    'Fevereiro',
+    'Março',
+    'Abril',
+    'Maio',
+    'Junho',
+    'Julho',
+    'Agosto',
+    'Setembro',
+    'Outubro',
+    'Novembro',
+    'Dezembro',
+    'SEM DATA',
+  ]
+
+  const clientes = useMemo(() => {
+    return ['TODOS', ...Array.from(new Set(dados.map((d) => d.cliente || 'SEM CLIENTE')))]
+  }, [dados])
+
+  const transportadoras = useMemo(() => {
+    return ['TODOS', ...Array.from(new Set(dados.map((d) => d.transportadora || 'SEM TRANSPORTADORA')))]
+  }, [dados])
+
+  const filtrados = useMemo(() => {
+    return dados.filter((item) => {
+      const passaAno = ano === 'TODOS' || getAno(item) === ano
+      const passaMes = mes === 'TODOS' || getMes(item) === mes
+      const passaCliente = cliente === 'TODOS' || (item.cliente || 'SEM CLIENTE') === cliente
+      const passaTransportadora =
+        transportadora === 'TODOS' ||
+        (item.transportadora || 'SEM TRANSPORTADORA') === transportadora
+
+      return passaAno && passaMes && passaCliente && passaTransportadora
+    })
+  }, [dados, ano, mes, cliente, transportadora])
+
+  const totais = useMemo(() => {
+    const faturamento = filtrados.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
+    const totalCustos = filtrados.reduce((acc, item) => acc + custos(item), 0)
+    const totalProfit = faturamento - totalCustos
+    const margem = faturamento > 0 ? (totalProfit / faturamento) * 100 : 0
+
+    return {
+      faturamento,
+      custos: totalCustos,
+      profit: totalProfit,
+      margem,
+      processos: filtrados.length,
+    }
+  }, [filtrados])
+
+  function ranking(campo: string) {
+    const mapa: any = {}
+
+    filtrados.forEach((item) => {
+      const chave = item[campo] || `SEM ${campo.toUpperCase()}`
+      if (!mapa[chave]) {
+        mapa[chave] = {
+          nome: chave,
+          processos: 0,
+          faturamento: 0,
+          custos: 0,
+          profit: 0,
+        }
+      }
+
+      mapa[chave].processos += 1
+      mapa[chave].faturamento += Number(item.valor_cobranca || 0)
+      mapa[chave].custos += custos(item)
+      mapa[chave].profit += profit(item)
+    })
+
+    return Object.values(mapa)
+      .sort((a: any, b: any) => b.profit - a.profit)
+      .slice(0, 10)
+  }
+
+  const rankingClientes = ranking('cliente')
+  const rankingTransportadoras = ranking('transportadora')
+  const rankingDespachantes = ranking('despachante')
+  const rankingServicos = ranking('servico')
+
+  const porMes = useMemo(() => {
+    const mapa: any = {}
+
+    filtrados.forEach((item) => {
+      const chave = `${getAno(item)} - ${getMes(item)}`
+
+      if (!mapa[chave]) {
+        mapa[chave] = {
+          mes: chave,
+          faturamento: 0,
+          custos: 0,
+          profit: 0,
+          processos: 0,
+        }
+      }
+
+      mapa[chave].faturamento += Number(item.valor_cobranca || 0)
+      mapa[chave].custos += custos(item)
+      mapa[chave].profit += profit(item)
+      mapa[chave].processos += 1
+    })
+
+    return Object.values(mapa)
+  }, [filtrados])
+
+  return (
+    <main className="max-w-[1800px] mx-auto text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-5">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Resultado Financeiro</p>
+          <h1 className="text-5xl font-black mb-2">Análise de Profit HC</h1>
+          <p className="text-slate-400 text-lg">
+            Visão mensal por cliente, transportadora, despachante, serviço e processo.
+          </p>
+        </div>
+
+        <button
+          onClick={carregar}
+          className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
+        >
+          {loading ? 'Atualizando...' : 'Atualizar dados'}
+        </button>
+      </div>
+
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <Select label="Ano" value={ano} onChange={setAno} options={anos} />
+        <Select label="Mês" value={mes} onChange={setMes} options={meses} />
+        <Select label="Cliente" value={cliente} onChange={setCliente} options={clientes} />
+        <Select label="Transportadora" value={transportadora} onChange={setTransportadora} options={transportadoras} />
+      </section>
+
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card titulo="Faturamento" valor={moeda(totais.faturamento)} detalhe="Valor faturado ao cliente" />
+        <Card titulo="Custos" valor={moeda(totais.custos)} detalhe="Compra + DTA + terceiros" />
+        <Card titulo="Profit HC" valor={moeda(totais.profit)} detalhe="Resultado líquido da HC" destaque />
+        <Card titulo="Margem" valor={`${totais.margem.toFixed(2)}%`} detalhe="Profit sobre faturamento" />
+        <Card titulo="Processos" valor={String(totais.processos)} detalhe="Quantidade filtrada" />
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+        <Ranking titulo="Top clientes por Profit HC" dados={rankingClientes} moeda={moeda} />
+        <Ranking titulo="Top transportadoras por Profit HC" dados={rankingTransportadoras} moeda={moeda} />
+        <Ranking titulo="Top despachantes por Profit HC" dados={rankingDespachantes} moeda={moeda} />
+        <Ranking titulo="Top serviços por Profit HC" dados={rankingServicos} moeda={moeda} />
+      </section>
+
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+        <h2 className="text-2xl font-black mb-5">Resultado por mês</h2>
+
+        <div className="overflow-x-auto">
+          <table className="table min-w-[900px]">
+            <thead>
+              <tr>
+                <th>Mês</th>
+                <th>Processos</th>
+                <th>Faturamento</th>
+                <th>Custos</th>
+                <th>Profit HC</th>
+                <th>Margem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {porMes.map((item: any) => {
+                const margem = item.faturamento > 0 ? (item.profit / item.faturamento) * 100 : 0
+
+                return (
+                  <tr key={item.mes}>
+                    <td className="font-bold text-blue-300">{item.mes}</td>
+                    <td>{item.processos}</td>
+                    <td>{moeda(item.faturamento)}</td>
+                    <td>{moeda(item.custos)}</td>
+                    <td className={item.profit >= 0 ? 'text-green-400 font-black' : 'text-red-400 font-black'}>
+                      {moeda(item.profit)}
+                    </td>
+                    <td>{margem.toFixed(2)}%</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {porMes.length === 0 && (
+            <p className="text-slate-400 text-center py-8">Nenhum dado encontrado.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+        <h2 className="text-2xl font-black mb-5">Processos detalhados</h2>
+
+        <div className="overflow-x-auto">
+          <table className="table min-w-[1300px]">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Despachante</th>
+                <th>Transportadora</th>
+                <th>Serviço</th>
+                <th>Faturamento</th>
+                <th>Custos</th>
+                <th>Profit HC</th>
+                <th>Margem</th>
+                <th>Vencimento</th>
+                <th>Recebimento</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filtrados.map((item) => {
+                const faturamento = Number(item.valor_cobranca || 0)
+                const totalCustos = custos(item)
+                const totalProfit = profit(item)
+                const margem = faturamento > 0 ? (totalProfit / faturamento) * 100 : 0
+
+                return (
+                  <tr key={item.id}>
+                    <td className="font-black text-blue-300">{item.awb || '-'}</td>
+                    <td>{item.cliente || '-'}</td>
+                    <td>{item.despachante || '-'}</td>
+                    <td>{item.transportadora || '-'}</td>
+                    <td>{item.servico || '-'}</td>
+                    <td>{moeda(faturamento)}</td>
+                    <td>{moeda(totalCustos)}</td>
+                    <td className={totalProfit >= 0 ? 'text-green-400 font-black' : 'text-red-400 font-black'}>
+                      {moeda(totalProfit)}
+                    </td>
+                    <td>{margem.toFixed(2)}%</td>
+                    <td>{item.vencimento_cobranca || '-'}</td>
+                    <td>{item.recebimento || '-'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {filtrados.length === 0 && (
+            <p className="text-slate-400 text-center py-8">Nenhum processo encontrado.</p>
+          )}
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function Card({ titulo, valor, detalhe, destaque = false }: any) {
+  return (
+    <div className={`border rounded-3xl p-6 bg-[#071225] ${destaque ? 'border-green-500' : 'border-blue-900'}`}>
+      <p className="text-slate-400 font-bold">{titulo}</p>
+      <h2 className={`text-3xl font-black mt-3 ${destaque ? 'text-green-400' : 'text-white'}`}>{valor}</h2>
+      <p className="text-slate-500 text-sm mt-2">{detalhe}</p>
+    </div>
+  )
+}
+
+function Select({ label, value, onChange, options }: any) {
+  return (
+    <div className="border border-blue-900 bg-[#071225] rounded-2xl p-4">
+      <label className="text-sm text-slate-400 font-bold">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-2 w-full bg-[#020817] border border-blue-900 rounded-xl px-3 py-3 text-white"
+      >
+        {options.map((opcao: string) => (
+          <option key={opcao} value={opcao}>
+            {opcao}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function Ranking({ titulo, dados, moeda }: any) {
+  return (
+    <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+      <h2 className="text-2xl font-black mb-5">{titulo}</h2>
+
+      <div className="overflow-x-auto">
+        <table className="table min-w-[700px]">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Processos</th>
+              <th>Faturamento</th>
+              <th>Custos</th>
+              <th>Profit HC</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {dados.map((item: any) => (
+              <tr key={item.nome}>
+                <td className="font-bold text-blue-300">{item.nome}</td>
+                <td>{item.processos}</td>
+                <td>{moeda(item.faturamento)}</td>
+                <td>{moeda(item.custos)}</td>
+                <td className={item.profit >= 0 ? 'text-green-400 font-black' : 'text-red-400 font-black'}>
+                  {moeda(item.profit)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {dados.length === 0 && (
+          <p className="text-slate-400 text-center py-6">Nenhum dado encontrado.</p>
+        )}
+      </div>
+    </section>
+  )
+}

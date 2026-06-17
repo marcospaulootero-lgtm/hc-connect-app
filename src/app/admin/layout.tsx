@@ -65,14 +65,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <p className="text-slate-500 mt-1">Painel Administrativo</p>
         </div>
 
-        <nav className="space-y-3">
+        <nav className="space-y-3 overflow-y-auto pr-1">
           <MenuItem href="/admin" label="Dashboard" icon="📊" />
           <MenuItem href="/admin/embarques" label="Embarques" icon="📦" />
           <MenuItem href="/admin/embarque-direto" label="Embarque Direto" icon="🚚" />
           <MenuItem href="/admin/cotacoes" label="Cotações" icon="📄" />
           <MenuItem href="/admin/faturas" label="Faturas" icon="🧾" />
           <MenuItem href="/admin/financeiro" label="Financeiro" icon="💰" />
-          <MenuItem href="/admin/intelligence" label="Intelligence" icon="📈" />
+          <MenuItem href="/admin/resultado-financeiro" label="Resultado Financeiro" icon="📈" />
+          <MenuItem href="/admin/intelligence" label="Intelligence" icon="🧠" />
           <MenuItem href="/admin/usuarios" label="Usuários" icon="👥" />
           <MenuItem href="/admin/suporte" label="Suporte" icon="🎧" />
         </nav>
