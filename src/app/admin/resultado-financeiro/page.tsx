@@ -311,7 +311,7 @@ export default function ResultadoFinanceiroPage() {
     return Array.from(new Set(historicoMensal.map((i: any) => i.ano))).sort()
   }, [historicoMensal])
 
-  const resumoAtual = useMemo(() => {
+  const resumoAtual: any = useMemo(() => {
     const anoSelecionado = ano !== 'TODOS' ? Number(ano) : null
     const mesSelecionado = mes !== 'TODOS' ? MESES.indexOf(mes) + 1 : null
 
@@ -322,7 +322,7 @@ export default function ResultadoFinanceiroPage() {
     )
   }, [historicoMensal, ano, mes])
 
-  const resumoAnoAnterior = useMemo(() => {
+  const resumoAnoAnterior: any = useMemo(() => {
     const anoSelecionado = ano !== 'TODOS' ? Number(ano) : null
     const mesSelecionado = mes !== 'TODOS' ? MESES.indexOf(mes) + 1 : null
 
