@@ -73,19 +73,25 @@ export default function ResultadoFinanceiroPage() {
     return nomes[m] || 'SEM DATA'
   }
 
-  function profit(item: any) {
-    return (
-      Number(item.valor_cobranca || 0) -
-      Number(item.doc_dta || 0) -
-      Number(item.debito_terceiro || 0) -
-      Number(item.valor_compra || 0)
-    )
+  function temCustoReal(item: any) {
+    return Number(item.valor_compra || 0) > 0
   }
 
   function custos(item: any) {
     return (
       Number(item.doc_dta || 0) +
       Number(item.debito_terceiro || 0) +
+      Number(item.valor_compra || 0)
+    )
+  }
+
+  function profit(item: any) {
+    if (!temCustoReal(item)) return 0
+
+    return (
+      Number(item.valor_cobranca || 0) -
+      Number(item.doc_dta || 0) -
+      Number(item.debito_terceiro || 0) -
       Number(item.valor_compra || 0)
     )
   }
@@ -132,25 +138,41 @@ export default function ResultadoFinanceiroPage() {
     })
   }, [dados, ano, mes, cliente, transportadora])
 
+  const filtradosComCusto = useMemo(() => {
+    return filtrados.filter(temCustoReal)
+  }, [filtrados])
+
   const totais = useMemo(() => {
-    const faturamento = filtrados.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
-    const totalCustos = filtrados.reduce((acc, item) => acc + custos(item), 0)
-    const totalProfit = faturamento - totalCustos
-    const margem = faturamento > 0 ? (totalProfit / faturamento) * 100 : 0
+    const faturamentoTotal = filtrados.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
+      0
+    )
+
+    const faturamentoReal = filtradosComCusto.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
+      0
+    )
+
+    const totalCustos = filtradosComCusto.reduce((acc, item) => acc + custos(item), 0)
+    const totalProfit = filtradosComCusto.reduce((acc, item) => acc + profit(item), 0)
+    const margemReal = faturamentoReal > 0 ? (totalProfit / faturamentoReal) * 100 : 0
 
     return {
-      faturamento,
+      faturamentoTotal,
+      faturamentoReal,
       custos: totalCustos,
       profit: totalProfit,
-      margem,
+      margemReal,
       processos: filtrados.length,
+      comCusto: filtradosComCusto.length,
+      semCusto: filtrados.length - filtradosComCusto.length,
     }
-  }, [filtrados])
+  }, [filtrados, filtradosComCusto])
 
   function ranking(campo: string) {
     const mapa: any = {}
 
-    filtrados.forEach((item) => {
+    filtradosComCusto.forEach((item) => {
       const chave = item[campo] || `SEM ${campo.toUpperCase()}`
       if (!mapa[chave]) {
         mapa[chave] = {
@@ -181,7 +203,7 @@ export default function ResultadoFinanceiroPage() {
   const porMes = useMemo(() => {
     const mapa: any = {}
 
-    filtrados.forEach((item) => {
+    filtradosComCusto.forEach((item) => {
       const chave = `${getAno(item)} - ${getMes(item)}`
 
       if (!mapa[chave]) {
@@ -201,16 +223,16 @@ export default function ResultadoFinanceiroPage() {
     })
 
     return Object.values(mapa)
-  }, [filtrados])
+  }, [filtradosComCusto])
 
   return (
     <main className="max-w-[1800px] mx-auto text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-5">
         <div>
           <p className="text-blue-400 font-bold mb-2">Resultado Financeiro</p>
-          <h1 className="text-5xl font-black mb-2">Análise de Profit HC</h1>
+          <h1 className="text-5xl font-black mb-2">Análise de Profit HC Real</h1>
           <p className="text-slate-400 text-lg">
-            Visão mensal por cliente, transportadora, despachante, serviço e processo.
+            O profit real considera apenas processos com valor de compra informado.
           </p>
         </div>
 
@@ -229,34 +251,48 @@ export default function ResultadoFinanceiroPage() {
         <Select label="Transportadora" value={transportadora} onChange={setTransportadora} options={transportadoras} />
       </section>
 
-      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
-        <Card titulo="Faturamento" valor={moeda(totais.faturamento)} detalhe="Valor faturado ao cliente" />
-        <Card titulo="Custos" valor={moeda(totais.custos)} detalhe="Compra + DTA + terceiros" />
-        <Card titulo="Profit HC" valor={moeda(totais.profit)} detalhe="Resultado líquido da HC" destaque />
-        <Card titulo="Margem" valor={`${totais.margem.toFixed(2)}%`} detalhe="Profit sobre faturamento" />
-        <Card titulo="Processos" valor={String(totais.processos)} detalhe="Quantidade filtrada" />
+      <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
+        <Card titulo="Faturamento Total" valor={moeda(totais.faturamentoTotal)} detalhe="Todos os processos filtrados" />
+        <Card titulo="Faturamento Real" valor={moeda(totais.faturamentoReal)} detalhe="Somente com custo informado" />
+        <Card titulo="Custos Reais" valor={moeda(totais.custos)} detalhe="Compra + DTA + terceiros" />
+        <Card titulo="Profit HC Real" valor={moeda(totais.profit)} detalhe="Resultado líquido real" destaque />
+        <Card titulo="Margem Real" valor={`${totais.margemReal.toFixed(2)}%`} detalhe="Sobre faturamento real" />
+        <Card titulo="Sem Custo" valor={String(totais.semCusto)} detalhe="Aguardando valor de compra" alerta />
       </section>
 
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+        <Card titulo="Processos com custo" valor={String(totais.comCusto)} detalhe="Entram no Profit HC Real" destaque />
+        <Card titulo="Total de processos" valor={String(totais.processos)} detalhe="Quantidade filtrada geral" />
+      </section>
+
+      {totais.semCusto > 0 && (
+        <section className="border border-yellow-500 bg-yellow-500/10 rounded-3xl p-5 mb-8">
+          <p className="text-yellow-300 font-bold">
+            ⚠ Existem {totais.semCusto} processos sem valor de compra. Eles não entram no Profit HC Real nem nos rankings.
+          </p>
+        </section>
+      )}
+
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-        <Ranking titulo="Top clientes por Profit HC" dados={rankingClientes} moeda={moeda} />
-        <Ranking titulo="Top transportadoras por Profit HC" dados={rankingTransportadoras} moeda={moeda} />
-        <Ranking titulo="Top despachantes por Profit HC" dados={rankingDespachantes} moeda={moeda} />
-        <Ranking titulo="Top serviços por Profit HC" dados={rankingServicos} moeda={moeda} />
+        <Ranking titulo="Top clientes por Profit HC Real" dados={rankingClientes} moeda={moeda} />
+        <Ranking titulo="Top transportadoras por Profit HC Real" dados={rankingTransportadoras} moeda={moeda} />
+        <Ranking titulo="Top despachantes por Profit HC Real" dados={rankingDespachantes} moeda={moeda} />
+        <Ranking titulo="Top serviços por Profit HC Real" dados={rankingServicos} moeda={moeda} />
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
-        <h2 className="text-2xl font-black mb-5">Resultado por mês</h2>
+        <h2 className="text-2xl font-black mb-5">Resultado real por mês</h2>
 
         <div className="overflow-x-auto">
           <table className="table min-w-[900px]">
             <thead>
               <tr>
                 <th>Mês</th>
-                <th>Processos</th>
-                <th>Faturamento</th>
-                <th>Custos</th>
-                <th>Profit HC</th>
-                <th>Margem</th>
+                <th>Processos com custo</th>
+                <th>Faturamento Real</th>
+                <th>Custos Reais</th>
+                <th>Profit HC Real</th>
+                <th>Margem Real</th>
               </tr>
             </thead>
             <tbody>
@@ -280,7 +316,7 @@ export default function ResultadoFinanceiroPage() {
           </table>
 
           {porMes.length === 0 && (
-            <p className="text-slate-400 text-center py-8">Nenhum dado encontrado.</p>
+            <p className="text-slate-400 text-center py-8">Nenhum processo com custo informado.</p>
           )}
         </div>
       </section>
@@ -289,7 +325,7 @@ export default function ResultadoFinanceiroPage() {
         <h2 className="text-2xl font-black mb-5">Processos detalhados</h2>
 
         <div className="overflow-x-auto">
-          <table className="table min-w-[1300px]">
+          <table className="table min-w-[1400px]">
             <thead>
               <tr>
                 <th>AWB</th>
@@ -299,8 +335,9 @@ export default function ResultadoFinanceiroPage() {
                 <th>Serviço</th>
                 <th>Faturamento</th>
                 <th>Custos</th>
-                <th>Profit HC</th>
+                <th>Profit HC Real</th>
                 <th>Margem</th>
+                <th>Status Custo</th>
                 <th>Vencimento</th>
                 <th>Recebimento</th>
               </tr>
@@ -309,9 +346,9 @@ export default function ResultadoFinanceiroPage() {
             <tbody>
               {filtrados.map((item) => {
                 const faturamento = Number(item.valor_cobranca || 0)
-                const totalCustos = custos(item)
+                const totalCustos = temCustoReal(item) ? custos(item) : 0
                 const totalProfit = profit(item)
-                const margem = faturamento > 0 ? (totalProfit / faturamento) * 100 : 0
+                const margem = temCustoReal(item) && faturamento > 0 ? (totalProfit / faturamento) * 100 : 0
 
                 return (
                   <tr key={item.id}>
@@ -321,11 +358,18 @@ export default function ResultadoFinanceiroPage() {
                     <td>{item.transportadora || '-'}</td>
                     <td>{item.servico || '-'}</td>
                     <td>{moeda(faturamento)}</td>
-                    <td>{moeda(totalCustos)}</td>
-                    <td className={totalProfit >= 0 ? 'text-green-400 font-black' : 'text-red-400 font-black'}>
-                      {moeda(totalProfit)}
+                    <td>{temCustoReal(item) ? moeda(totalCustos) : '-'}</td>
+                    <td className={temCustoReal(item) ? (totalProfit >= 0 ? 'text-green-400 font-black' : 'text-red-400 font-black') : 'text-yellow-300 font-black'}>
+                      {temCustoReal(item) ? moeda(totalProfit) : 'Aguardando custo'}
                     </td>
-                    <td>{margem.toFixed(2)}%</td>
+                    <td>{temCustoReal(item) ? `${margem.toFixed(2)}%` : '-'}</td>
+                    <td>
+                      {temCustoReal(item) ? (
+                        <span className="text-green-400 font-bold">Com custo</span>
+                      ) : (
+                        <span className="text-yellow-300 font-bold">Sem custo</span>
+                      )}
+                    </td>
                     <td>{item.vencimento_cobranca || '-'}</td>
                     <td>{item.recebimento || '-'}</td>
                   </tr>
@@ -343,11 +387,25 @@ export default function ResultadoFinanceiroPage() {
   )
 }
 
-function Card({ titulo, valor, detalhe, destaque = false }: any) {
+function Card({ titulo, valor, detalhe, destaque = false, alerta = false }: any) {
   return (
-    <div className={`border rounded-3xl p-6 bg-[#071225] ${destaque ? 'border-green-500' : 'border-blue-900'}`}>
+    <div
+      className={`border rounded-3xl p-6 bg-[#071225] ${
+        destaque
+          ? 'border-green-500'
+          : alerta
+          ? 'border-yellow-500'
+          : 'border-blue-900'
+      }`}
+    >
       <p className="text-slate-400 font-bold">{titulo}</p>
-      <h2 className={`text-3xl font-black mt-3 ${destaque ? 'text-green-400' : 'text-white'}`}>{valor}</h2>
+      <h2
+        className={`text-3xl font-black mt-3 ${
+          destaque ? 'text-green-400' : alerta ? 'text-yellow-300' : 'text-white'
+        }`}
+      >
+        {valor}
+      </h2>
       <p className="text-slate-500 text-sm mt-2">{detalhe}</p>
     </div>
   )
@@ -383,9 +441,9 @@ function Ranking({ titulo, dados, moeda }: any) {
             <tr>
               <th>Nome</th>
               <th>Processos</th>
-              <th>Faturamento</th>
-              <th>Custos</th>
-              <th>Profit HC</th>
+              <th>Faturamento Real</th>
+              <th>Custos Reais</th>
+              <th>Profit HC Real</th>
             </tr>
           </thead>
 
@@ -405,7 +463,9 @@ function Ranking({ titulo, dados, moeda }: any) {
         </table>
 
         {dados.length === 0 && (
-          <p className="text-slate-400 text-center py-6">Nenhum dado encontrado.</p>
+          <p className="text-slate-400 text-center py-6">
+            Nenhum processo com custo informado.
+          </p>
         )}
       </div>
     </section>
