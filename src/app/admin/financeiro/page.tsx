@@ -16,8 +16,6 @@ type FormState = {
   valor_compra: string
   vencimento_cobranca: string
   recebimento: string
-  vencimento_fornecedor: string
-  pagamento_fornecedor: string
   mes: string
   mes_profit: string
   observacoes: string
@@ -43,12 +41,12 @@ const formVazio: FormState = {
   valor_compra: '',
   vencimento_cobranca: '',
   recebimento: '',
-  vencimento_fornecedor: '',
-  pagamento_fornecedor: '',
   mes: '',
   mes_profit: '',
   observacoes: '',
 }
+
+const STATUS_OPCOES = ['EM ABERTO', 'VENCIDO', 'PAGO']
 
 export default function FinanceiroPage() {
   const [lancamentos, setLancamentos] = useState<any[]>([])
@@ -58,8 +56,7 @@ export default function FinanceiroPage() {
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
   const [busca, setBusca] = useState('')
-  const [filtroStatus, setFiltroStatus] = useState('')
-  const [filtroCaixa, setFiltroCaixa] = useState('')
+  const [filtrosStatus, setFiltrosStatus] = useState<string[]>([])
 
   const [form, setForm] = useState<FormState>(formVazio)
 
@@ -77,7 +74,14 @@ export default function FinanceiroPage() {
   function numero(valor: any) {
     if (valor === null || valor === undefined || valor === '') return 0
     if (typeof valor === 'number') return valor
-    return Number(String(valor).replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')) || 0
+    return (
+      Number(
+        String(valor)
+          .replace(/[R$\s]/g, '')
+          .replace(/\./g, '')
+          .replace(',', '.')
+      ) || 0
+    )
   }
 
   function normalizarTexto(valor: any) {
@@ -115,13 +119,16 @@ export default function FinanceiroPage() {
     return String(valor).slice(0, 10)
   }
 
-  function calcularProfit(item: any) {
+  function calcularCustos(item: any) {
     return (
-      Number(item.valor_cobranca || 0) -
-      Number(item.doc_dta || 0) -
-      Number(item.debito_terceiro || 0) -
+      Number(item.doc_dta || 0) +
+      Number(item.debito_terceiro || 0) +
       Number(item.valor_compra || 0)
     )
+  }
+
+  function calcularProfit(item: any) {
+    return Number(item.valor_cobranca || 0) - calcularCustos(item)
   }
 
   function statusCobranca(item: any) {
@@ -129,37 +136,34 @@ export default function FinanceiroPage() {
 
     if (item.vencimento_cobranca) {
       const hoje = new Date().toISOString().slice(0, 10)
-      if (String(item.vencimento_cobranca).slice(0, 10) < hoje) return 'VENCIDO'
+      if (String(item.vencimento_cobranca).slice(0, 10) < hoje) {
+        return 'VENCIDO'
+      }
     }
-
-    return 'EM ABERTO'
-  }
-
-  function statusCaixa(item: any) {
-    const recebeu = !!item.recebimento
-    const pagouFornecedor = !!item.pagamento_fornecedor
-
-    if (recebeu && pagouFornecedor) return 'OK'
-    if (!recebeu && pagouFornecedor) return 'PAGOU E NÃO RECEBEU'
-    if (recebeu && !pagouFornecedor) return 'RECEBEU E NÃO PAGOU'
 
     return 'EM ABERTO'
   }
 
   function badgeStatus(status: string) {
-    if (status === 'PAGO' || status === 'OK') {
+    if (status === 'PAGO') {
       return 'bg-green-100 text-green-800 border-green-300'
     }
 
-    if (status === 'VENCIDO' || status === 'PAGOU E NÃO RECEBEU') {
+    if (status === 'VENCIDO') {
       return 'bg-red-100 text-red-800 border-red-300'
     }
 
-    if (status === 'RECEBEU E NÃO PAGOU') {
-      return 'bg-yellow-100 text-yellow-800 border-yellow-300'
-    }
+    return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+  }
 
-    return 'bg-gray-100 text-gray-700 border-gray-300'
+  function alternarFiltroStatus(status: string) {
+    setFiltrosStatus((atual) => {
+      if (atual.includes(status)) {
+        return atual.filter((s) => s !== status)
+      }
+
+      return [...atual, status]
+    })
   }
 
   async function carregarFinanceiro() {
@@ -194,8 +198,6 @@ export default function FinanceiroPage() {
       valor_compra: numero(form.valor_compra),
       vencimento_cobranca: form.vencimento_cobranca || null,
       recebimento: form.recebimento || null,
-      vencimento_fornecedor: form.vencimento_fornecedor || null,
-      pagamento_fornecedor: form.pagamento_fornecedor || null,
       mes: form.mes,
       mes_profit: form.mes_profit,
       observacoes: form.observacoes,
@@ -256,8 +258,6 @@ export default function FinanceiroPage() {
       valor_compra: String(item.valor_compra || ''),
       vencimento_cobranca: dataInput(item.vencimento_cobranca),
       recebimento: dataInput(item.recebimento),
-      vencimento_fornecedor: dataInput(item.vencimento_fornecedor),
-      pagamento_fornecedor: dataInput(item.pagamento_fornecedor),
       mes: item.mes || '',
       mes_profit: item.mes_profit || '',
       observacoes: item.observacoes || '',
@@ -291,7 +291,15 @@ export default function FinanceiroPage() {
           cliente: normalizarTexto(linha['CLIENTE']),
           despachante: normalizarTexto(linha['DESPACHANTE']),
           awb: normalizarTexto(linha['AWB']),
-          fatura: normalizarTexto(linha['FATURA']),
+          fatura: normalizarTexto(
+            linha['FATURA'] ||
+              linha['Fatura'] ||
+              linha['NUMERO_FATURA'] ||
+              linha['Nº FATURA'] ||
+              linha['N° FATURA'] ||
+              linha['NUMERO DA FATURA'] ||
+              linha['NÚMERO DA FATURA']
+          ),
           transportadora: normalizarTexto(linha['EMPRESA PRESTADORA DE SERVIÇO']),
           servico: normalizarTexto(linha['SERVIÇO']),
           valor_cobranca: numero(linha['VALOR DO FATURAMENTO']),
@@ -300,8 +308,6 @@ export default function FinanceiroPage() {
           valor_compra: numero(linha['VALOR DA COMPRA']),
           vencimento_cobranca: normalizarData(linha['VENCIMENTO_CLIENTE']),
           recebimento: normalizarData(linha['RECEBIMENTO_CLIENTE']),
-          vencimento_fornecedor: normalizarData(linha['VENCIMENTO_FORNECEDOR']),
-          pagamento_fornecedor: normalizarData(linha['PAGAMENTO_FORNECEDOR']),
         }))
         .filter((item) => item.awb || item.cliente || item.valor_cobranca > 0)
 
@@ -314,9 +320,7 @@ export default function FinanceiroPage() {
       for (let i = 0; i < registros.length; i += 500) {
         const lote = registros.slice(i, i + 500)
 
-        const { error } = await supabase
-          .from('financeiro_embarques')
-          .insert(lote)
+        const { error } = await supabase.from('financeiro_embarques').insert(lote)
 
         if (error) {
           alert('Erro ao importar lote: ' + error.message)
@@ -353,45 +357,40 @@ export default function FinanceiroPage() {
 
   const filtrados = useMemo(() => {
     return lancamentos.filter((item) => {
-      const texto = `${item.cliente || ''} ${item.awb || ''} ${item.transportadora || ''} ${item.servico || ''}`.toLowerCase()
-      const passaBusca = texto.includes(busca.toLowerCase())
-      const passaStatus = filtroStatus ? statusCobranca(item) === filtroStatus : true
-      const passaCaixa = filtroCaixa ? statusCaixa(item) === filtroCaixa : true
+      const texto = `
+        ${item.cliente || ''}
+        ${item.despachante || ''}
+        ${item.awb || ''}
+        ${item.fatura || ''}
+        ${item.transportadora || ''}
+        ${item.servico || ''}
+      `.toLowerCase()
 
-      return passaBusca && passaStatus && passaCaixa
+      const passaBusca = texto.includes(busca.toLowerCase())
+      const status = statusCobranca(item)
+      const passaStatus =
+        filtrosStatus.length === 0 || filtrosStatus.includes(status)
+
+      return passaBusca && passaStatus
     })
-  }, [lancamentos, busca, filtroStatus, filtroCaixa])
+  }, [lancamentos, busca, filtrosStatus])
 
   const totais = useMemo(() => {
-    const faturamento = filtrados.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
-
-    const custos = filtrados.reduce(
-      (acc, item) =>
-        acc +
-        Number(item.doc_dta || 0) +
-        Number(item.debito_terceiro || 0) +
-        Number(item.valor_compra || 0),
+    const faturamento = filtrados.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
       0
     )
 
+    const custos = filtrados.reduce((acc, item) => acc + calcularCustos(item), 0)
     const profit = faturamento - custos
 
     const aReceber = filtrados
       .filter((item) => !item.recebimento)
       .reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
 
-    const aPagar = filtrados
-      .filter((item) => !item.pagamento_fornecedor)
-      .reduce(
-        (acc, item) =>
-          acc +
-          Number(item.doc_dta || 0) +
-          Number(item.debito_terceiro || 0) +
-          Number(item.valor_compra || 0),
-        0
-      )
+    const margem = faturamento > 0 ? (profit / faturamento) * 100 : 0
 
-    return { faturamento, custos, profit, aReceber, aPagar }
+    return { faturamento, custos, profit, aReceber, margem }
   }, [filtrados])
 
   return (
@@ -421,7 +420,7 @@ export default function FinanceiroPage() {
         <Card titulo="Custos" valor={moeda(totais.custos)} />
         <Card titulo="Profit HC" valor={moeda(totais.profit)} />
         <Card titulo="A receber" valor={moeda(totais.aReceber)} />
-        <Card titulo="A pagar" valor={moeda(totais.aPagar)} />
+        <Card titulo="Margem" valor={`${totais.margem.toFixed(2)}%`} />
       </section>
 
       <section className="bg-white rounded-xl shadow p-5 mb-6">
@@ -445,7 +444,7 @@ export default function FinanceiroPage() {
           <Input label="Cliente" value={form.cliente} onChange={(v) => setForm({ ...form, cliente: v })} />
           <Input label="Despachante" value={form.despachante} onChange={(v) => setForm({ ...form, despachante: v })} />
           <Input label="AWB" value={form.awb} onChange={(v) => setForm({ ...form, awb: v })} />
-          <Input label="Fatura" value={form.fatura} onChange={(v) => setForm({ ...form, fatura: v })} />
+          <Input label="Número da Fatura" value={form.fatura} onChange={(v) => setForm({ ...form, fatura: v })} />
 
           <Input label="Transportadora" value={form.transportadora} onChange={(v) => setForm({ ...form, transportadora: v })} />
           <Input label="Serviço" value={form.servico} onChange={(v) => setForm({ ...form, servico: v })} />
@@ -456,9 +455,6 @@ export default function FinanceiroPage() {
           <Input label="Valor compra R$" value={form.valor_compra} onChange={(v) => setForm({ ...form, valor_compra: v })} />
           <Input type="date" label="Vencimento cliente" value={form.vencimento_cobranca} onChange={(v) => setForm({ ...form, vencimento_cobranca: v })} />
           <Input type="date" label="Recebimento cliente" value={form.recebimento} onChange={(v) => setForm({ ...form, recebimento: v })} />
-
-          <Input type="date" label="Vencimento fornecedor" value={form.vencimento_fornecedor} onChange={(v) => setForm({ ...form, vencimento_fornecedor: v })} />
-          <Input type="date" label="Pagamento fornecedor" value={form.pagamento_fornecedor} onChange={(v) => setForm({ ...form, pagamento_fornecedor: v })} />
 
           <div className="md:col-span-4">
             <label className="text-sm font-medium text-gray-700">Observações</label>
@@ -496,50 +492,54 @@ export default function FinanceiroPage() {
       </section>
 
       <section className="bg-white rounded-xl shadow p-5">
-        <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between mb-4">
+        <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between mb-4">
           <h2 className="text-lg font-semibold">Lançamentos financeiros</h2>
 
-          <div className="flex flex-col md:flex-row gap-2">
+          <div className="flex flex-col lg:flex-row gap-3">
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar cliente, AWB, serviço..."
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              placeholder="Buscar cliente, AWB, fatura, serviço..."
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
             />
 
-            <select
-              value={filtroStatus}
-              onChange={(e) => setFiltroStatus(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              <option value="">Todos status</option>
-              <option>EM ABERTO</option>
-              <option>PAGO</option>
-              <option>VENCIDO</option>
-            </select>
+            <div className="flex flex-wrap gap-2 items-center rounded-lg border border-gray-300 px-3 py-2">
+              <span className="text-sm font-semibold text-gray-600">
+                Status:
+              </span>
 
-            <select
-              value={filtroCaixa}
-              onChange={(e) => setFiltroCaixa(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              <option value="">Todos caixa</option>
-              <option>EM ABERTO</option>
-              <option>OK</option>
-              <option>PAGOU E NÃO RECEBEU</option>
-              <option>RECEBEU E NÃO PAGOU</option>
-            </select>
+              {STATUS_OPCOES.map((status) => (
+                <label key={status} className="flex items-center gap-1 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={filtrosStatus.includes(status)}
+                    onChange={() => alternarFiltroStatus(status)}
+                  />
+                  {status}
+                </label>
+              ))}
+
+              {filtrosStatus.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFiltrosStatus([])}
+                  className="text-xs text-blue-600 hover:underline font-semibold"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1750px] w-full text-sm">
+          <table className="min-w-[1550px] w-full text-sm">
             <thead className="bg-gray-100 text-gray-700">
               <tr>
                 <Th>Cliente</Th>
                 <Th>Despachante</Th>
                 <Th>AWB</Th>
-                <Th>Fatura</Th>
+                <Th>Nº Fatura</Th>
                 <Th>Transportadora</Th>
                 <Th>Serviço</Th>
                 <Th>Valor faturado</Th>
@@ -550,9 +550,6 @@ export default function FinanceiroPage() {
                 <Th>Venc. Cliente</Th>
                 <Th>Recebimento</Th>
                 <Th>Status cobrança</Th>
-                <Th>Venc. Fornecedor</Th>
-                <Th>Pgto. Fornecedor</Th>
-                <Th>Status caixa</Th>
                 <Th>Ações</Th>
               </tr>
             </thead>
@@ -560,25 +557,26 @@ export default function FinanceiroPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={18} className="p-4 text-center">Carregando...</td>
+                  <td colSpan={15} className="p-4 text-center">
+                    Carregando...
+                  </td>
                 </tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="p-4 text-center text-gray-500">
+                  <td colSpan={15} className="p-4 text-center text-gray-500">
                     Nenhum lançamento encontrado.
                   </td>
                 </tr>
               ) : (
                 filtrados.map((item) => {
                   const cobranca = statusCobranca(item)
-                  const caixa = statusCaixa(item)
 
                   return (
                     <tr key={item.id} className="border-b hover:bg-gray-50">
                       <Td>{item.cliente}</Td>
                       <Td>{item.despachante}</Td>
                       <Td>{item.awb}</Td>
-                      <Td>{item.fatura}</Td>
+                      <Td>{item.fatura || '-'}</Td>
                       <Td>{item.transportadora}</Td>
                       <Td>{item.servico}</Td>
                       <Td>{moeda(item.valor_cobranca)}</Td>
@@ -592,10 +590,9 @@ export default function FinanceiroPage() {
                       </Td>
                       <Td>{item.vencimento_cobranca || '-'}</Td>
                       <Td>{item.recebimento || '-'}</Td>
-                      <Td><Badge texto={cobranca} classe={badgeStatus(cobranca)} /></Td>
-                      <Td>{item.vencimento_fornecedor || '-'}</Td>
-                      <Td>{item.pagamento_fornecedor || '-'}</Td>
-                      <Td><Badge texto={caixa} classe={badgeStatus(caixa)} /></Td>
+                      <Td>
+                        <Badge texto={cobranca} classe={badgeStatus(cobranca)} />
+                      </Td>
                       <Td>
                         <div className="flex gap-3">
                           <button
