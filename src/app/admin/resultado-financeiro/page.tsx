@@ -29,7 +29,14 @@ export default function ResultadoFinanceiroPage() {
       return
     }
 
-    setDados(data || [])
+    setDados(
+  (data || []).sort((a, b) =>
+    String(a.cliente || '').localeCompare(
+      String(b.cliente || ''),
+      'pt-BR'
+    )
+  )
+)
     setLoading(false)
   }
 
@@ -41,8 +48,8 @@ export default function ResultadoFinanceiroPage() {
   }
 
   function getData(item: any) {
-    return item.recebimento || item.vencimento_cobranca || item.criado_em || null
-  }
+  return item.vencimento_cobranca || item.criado_em || null
+}
 
   function getAno(item: any) {
     const data = getData(item)
