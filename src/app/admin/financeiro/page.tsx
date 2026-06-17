@@ -178,8 +178,16 @@ export default function FinanceiroPage() {
 
   function alternarFiltroStatus(status: string) {
     setFiltrosStatus((atual) => {
-      if (atual.includes(status)) {
-        return atual.filter((s) => s !== status)
+      const statusNormalizado = normalizarOpcao(status)
+
+      const existe = atual.some(
+        (item) => normalizarOpcao(item) === statusNormalizado
+      )
+
+      if (existe) {
+        return atual.filter(
+          (item) => normalizarOpcao(item) !== statusNormalizado
+        )
       }
 
       return [...atual, status]
@@ -403,35 +411,25 @@ export default function FinanceiroPage() {
 
   const transportadoras = useMemo(() => {
     return [
-      ...new Set(
-        lancamentos
-          .map((item) => item.transportadora)
-          .filter(Boolean)
-      ),
+      ...new Set(lancamentos.map((item) => item.transportadora).filter(Boolean)),
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
   }, [lancamentos])
 
   const despachantes = useMemo(() => {
     return [
-      ...new Set(
-        lancamentos
-          .map((item) => item.despachante)
-          .filter(Boolean)
-      ),
+      ...new Set(lancamentos.map((item) => item.despachante).filter(Boolean)),
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
   }, [lancamentos])
 
   const servicos = useMemo(() => {
     return [
-      ...new Set(
-        lancamentos
-          .map((item) => item.servico)
-          .filter(Boolean)
-      ),
+      ...new Set(lancamentos.map((item) => item.servico).filter(Boolean)),
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
   }, [lancamentos])
 
   const filtrados = useMemo(() => {
+    const statusSelecionados = filtrosStatus.map(normalizarOpcao)
+
     return lancamentos.filter((item) => {
       const texto = `
         ${item.cliente || ''}
@@ -442,12 +440,14 @@ export default function FinanceiroPage() {
         ${item.servico || ''}
       `.toLowerCase()
 
-      const passaBusca = texto.includes(busca.toLowerCase())
-      const status = statusCobranca(item)
+      const passaBusca = texto.includes(busca.toLowerCase().trim())
+
+      const statusAtual = normalizarOpcao(statusCobranca(item))
 
       const passaStatus =
-        filtrosStatus.length === 0 ||
-        filtrosStatus.map(normalizarOpcao).includes(normalizarOpcao(status))
+        statusSelecionados.length === 0
+          ? true
+          : statusSelecionados.includes(statusAtual)
 
       const passaTransportadora =
         !filtroTransportadora || item.transportadora === filtroTransportadora
@@ -455,8 +455,7 @@ export default function FinanceiroPage() {
       const passaDespachante =
         !filtroDespachante || item.despachante === filtroDespachante
 
-      const passaServico =
-        !filtroServico || item.servico === filtroServico
+      const passaServico = !filtroServico || item.servico === filtroServico
 
       return (
         passaBusca &&
@@ -476,22 +475,26 @@ export default function FinanceiroPage() {
   ])
 
   const totais = useMemo(() => {
-    const faturamento = filtrados.reduce(
+    const faturamento = lancamentos.reduce(
       (acc, item) => acc + Number(item.valor_cobranca || 0),
       0
     )
 
-    const custos = filtrados.reduce((acc, item) => acc + calcularCustos(item), 0)
+    const custos = lancamentos.reduce(
+      (acc, item) => acc + calcularCustos(item),
+      0
+    )
+
     const profit = faturamento - custos
 
-    const aReceber = filtrados
-      .filter((item) => !item.recebimento)
+    const aReceber = lancamentos
+      .filter((item) => statusCobranca(item) !== 'PAGO')
       .reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
 
     const margem = faturamento > 0 ? (profit / faturamento) * 100 : 0
 
     return { faturamento, custos, profit, aReceber, margem }
-  }, [filtrados])
+  }, [lancamentos])
 
   return (
     <main className="min-h-screen bg-gray-100 p-6 text-gray-900">
@@ -605,12 +608,7 @@ export default function FinanceiroPage() {
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
             <h2 className="text-lg font-semibold">
-              Lançamentos financeiros ({
-  filtrados.filter((item) => {
-    const status = statusCobranca(item)
-    return filtrosStatus.length === 0 || filtrosStatus.includes(status)
-  }).length
-})
+              Lançamentos financeiros ({filtrados.length})
             </h2>
 
             <button
@@ -676,7 +674,9 @@ export default function FinanceiroPage() {
                 <label key={status} className="flex items-center gap-1 text-sm">
                   <input
                     type="checkbox"
-                    checked={filtrosStatus.includes(status)}
+                    checked={filtrosStatus.some(
+                      (item) => normalizarOpcao(item) === normalizarOpcao(status)
+                    )}
                     onChange={() => alternarFiltroStatus(status)}
                   />
                   {status}
@@ -722,12 +722,7 @@ export default function FinanceiroPage() {
                   </td>
                 </tr>
               ) : (
-                filtrados
-  .filter((item) => {
-    const status = statusCobranca(item)
-    return filtrosStatus.length === 0 || filtrosStatus.includes(status)
-  })
-  .map((item) => {
+                filtrados.map((item) => {
                   const cobranca = statusCobranca(item)
 
                   return (
@@ -753,7 +748,7 @@ export default function FinanceiroPage() {
                           {moeda(calcularProfit(item))}
                         </span>
                       </Td>
-                      <Td>{item.vencimento_cobranca || '-'}</Td>
+                      <Td>{normalizarData(item.vencimento_cobranca) || '-'}</Td>
                       <Td>{normalizarData(item.recebimento) || '-'}</Td>
                       <Td>
                         <Badge texto={cobranca} classe={badgeStatus(cobranca)} />
@@ -798,7 +793,9 @@ function Card({ titulo, valor }: { titulo: string; valor: string }) {
 
 function Badge({ texto, classe }: { texto: string; classe: string }) {
   return (
-    <span className={`inline-flex px-3 py-1 rounded-full border text-xs font-bold whitespace-nowrap ${classe}`}>
+    <span
+      className={`inline-flex px-3 py-1 rounded-full border text-xs font-bold whitespace-nowrap ${classe}`}
+    >
       {texto}
     </span>
   )
