@@ -3,6 +3,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
+const MESES = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+]
+
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
 export default function ResultadoFinanceiroPage() {
   const [dados, setDados] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -10,6 +27,7 @@ export default function ResultadoFinanceiroPage() {
   const [mes, setMes] = useState('TODOS')
   const [cliente, setCliente] = useState('TODOS')
   const [transportadora, setTransportadora] = useState('TODOS')
+  const [metaMes, setMetaMes] = useState('8000')
 
   useEffect(() => {
     carregar()
@@ -58,6 +76,20 @@ export default function ResultadoFinanceiroPage() {
     })
   }
 
+  function numero(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return 0
+    if (typeof valor === 'number') return valor
+
+    return (
+      Number(
+        String(valor)
+          .replace(/[R$\s]/g, '')
+          .replace(/\./g, '')
+          .replace(',', '.')
+      ) || 0
+    )
+  }
+
   function normalizarData(valor: any) {
     if (!valor) return null
 
@@ -90,28 +122,16 @@ export default function ResultadoFinanceiroPage() {
     return data.slice(0, 4)
   }
 
-  function getMes(item: any) {
+  function getMesNumero(item: any) {
     const data = getDataProfit(item)
-    if (!data) return 'SEM RECEBIMENTO'
+    if (!data) return null
+    return Number(data.slice(5, 7))
+  }
 
-    const m = data.slice(5, 7)
-
-    const nomes: any = {
-      '01': 'Janeiro',
-      '02': 'Fevereiro',
-      '03': 'Março',
-      '04': 'Abril',
-      '05': 'Maio',
-      '06': 'Junho',
-      '07': 'Julho',
-      '08': 'Agosto',
-      '09': 'Setembro',
-      '10': 'Outubro',
-      '11': 'Novembro',
-      '12': 'Dezembro',
-    }
-
-    return nomes[m] || 'SEM RECEBIMENTO'
+  function getMes(item: any) {
+    const numeroMes = getMesNumero(item)
+    if (!numeroMes) return 'SEM RECEBIMENTO'
+    return MESES[numeroMes - 1] || 'SEM RECEBIMENTO'
   }
 
   function temRecebimento(item: any) {
@@ -154,21 +174,7 @@ export default function ResultadoFinanceiroPage() {
     ]
   }, [dadosRecebidos])
 
-  const meses = [
-    'TODOS',
-    'Janeiro',
-    'Fevereiro',
-    'Março',
-    'Abril',
-    'Maio',
-    'Junho',
-    'Julho',
-    'Agosto',
-    'Setembro',
-    'Outubro',
-    'Novembro',
-    'Dezembro',
-  ]
+  const meses = ['TODOS', ...MESES]
 
   const clientes = useMemo(() => {
     return [
@@ -219,6 +225,7 @@ export default function ResultadoFinanceiroPage() {
     const totalCustos = filtradosComCusto.reduce((acc, item) => acc + custos(item), 0)
     const totalProfit = filtradosComCusto.reduce((acc, item) => acc + profit(item), 0)
     const margemReal = faturamentoReal > 0 ? (totalProfit / faturamentoReal) * 100 : 0
+    const ticketMedio = filtrados.length > 0 ? faturamentoTotal / filtrados.length : 0
 
     return {
       faturamentoTotal,
@@ -226,6 +233,7 @@ export default function ResultadoFinanceiroPage() {
       custos: totalCustos,
       profit: totalProfit,
       margemReal,
+      ticketMedio,
       processos: filtrados.length,
       comCusto: filtradosComCusto.length,
       semCusto: filtrados.length - filtradosComCusto.length,
@@ -264,15 +272,22 @@ export default function ResultadoFinanceiroPage() {
   const rankingDespachantes = ranking('despachante')
   const rankingServicos = ranking('servico')
 
-  const porMes = useMemo(() => {
+  const historicoMensal = useMemo(() => {
     const mapa: any = {}
 
-    filtradosComCusto.forEach((item) => {
-      const chave = `${getAno(item)} - ${getMes(item)}`
+    dadosRecebidos.filter(temCustoReal).forEach((item) => {
+      const anoItem = getAno(item)
+      const mesNumero = getMesNumero(item)
+
+      if (!anoItem || !mesNumero) return
+
+      const chave = `${anoItem}-${String(mesNumero).padStart(2, '0')}`
 
       if (!mapa[chave]) {
         mapa[chave] = {
-          mes: chave,
+          ano: anoItem,
+          mesNumero,
+          mes: MESES[mesNumero - 1],
           faturamento: 0,
           custos: 0,
           profit: 0,
@@ -286,17 +301,103 @@ export default function ResultadoFinanceiroPage() {
       mapa[chave].processos += 1
     })
 
-    return Object.values(mapa)
-  }, [filtradosComCusto])
+    return Object.values(mapa).sort((a: any, b: any) => {
+      if (a.ano !== b.ano) return Number(a.ano) - Number(b.ano)
+      return a.mesNumero - b.mesNumero
+    })
+  }, [dadosRecebidos])
+
+  const anosHistorico = useMemo(() => {
+    return Array.from(new Set(historicoMensal.map((i: any) => i.ano))).sort()
+  }, [historicoMensal])
+
+  const resumoAtual = useMemo(() => {
+    const anoSelecionado = ano !== 'TODOS' ? Number(ano) : null
+    const mesSelecionado = mes !== 'TODOS' ? MESES.indexOf(mes) + 1 : null
+
+    if (!anoSelecionado || !mesSelecionado) return null
+
+    return historicoMensal.find(
+      (item: any) => Number(item.ano) === anoSelecionado && item.mesNumero === mesSelecionado
+    )
+  }, [historicoMensal, ano, mes])
+
+  const resumoAnoAnterior = useMemo(() => {
+    const anoSelecionado = ano !== 'TODOS' ? Number(ano) : null
+    const mesSelecionado = mes !== 'TODOS' ? MESES.indexOf(mes) + 1 : null
+
+    if (!anoSelecionado || !mesSelecionado) return null
+
+    return historicoMensal.find(
+      (item: any) =>
+        Number(item.ano) === anoSelecionado - 1 && item.mesNumero === mesSelecionado
+    )
+  }, [historicoMensal, ano, mes])
+
+  const comparativoAnoAnterior = useMemo(() => {
+    if (!resumoAtual || !resumoAnoAnterior) {
+      return {
+        diferenca: 0,
+        percentual: 0,
+        temComparativo: false,
+      }
+    }
+
+    const diferenca = Number(resumoAtual.profit || 0) - Number(resumoAnoAnterior.profit || 0)
+    const percentual =
+      Number(resumoAnoAnterior.profit || 0) > 0
+        ? (diferenca / Number(resumoAnoAnterior.profit || 0)) * 100
+        : 0
+
+    return {
+      diferenca,
+      percentual,
+      temComparativo: true,
+    }
+  }, [resumoAtual, resumoAnoAnterior])
+
+  const metaValor = numero(metaMes)
+  const progressoMeta = metaValor > 0 ? Math.min((totais.profit / metaValor) * 100, 100) : 0
+  const faltaMeta = Math.max(metaValor - totais.profit, 0)
+  const melhorCliente = rankingClientes[0] as any
+  const melhorTransportadora = rankingTransportadoras[0] as any
+
+  const alertas = useMemo(() => {
+    const lista: string[] = []
+
+    if (metaValor > 0 && totais.profit < metaValor) {
+      lista.push(`Faltam ${moeda(faltaMeta)} para atingir a meta do período.`)
+    }
+
+    if (comparativoAnoAnterior.temComparativo && comparativoAnoAnterior.percentual < 0) {
+      lista.push(
+        `Profit ${Math.abs(comparativoAnoAnterior.percentual).toFixed(1)}% abaixo do mesmo mês do ano anterior.`
+      )
+    }
+
+    if (totais.semCusto > 0) {
+      lista.push(`${totais.semCusto} processos recebidos estão sem valor de compra.`)
+    }
+
+    if (totais.margemReal > 0 && totais.margemReal < 20) {
+      lista.push(`Margem real abaixo de 20%. Margem atual: ${totais.margemReal.toFixed(2)}%.`)
+    }
+
+    if (lista.length === 0) {
+      lista.push('Resultado saudável no filtro selecionado.')
+    }
+
+    return lista
+  }, [totais, comparativoAnoAnterior, metaValor, faltaMeta])
 
   return (
-    <main className="max-w-[1800px] mx-auto text-white">
+    <main className="max-w-[1800px] mx-auto text-white pb-12">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-5">
         <div>
-          <p className="text-blue-400 font-bold mb-2">Resultado Financeiro</p>
-          <h1 className="text-5xl font-black mb-2">Análise de Profit HC Real</h1>
+          <p className="text-blue-400 font-bold mb-2">Resultado Financeiro Premium</p>
+          <h1 className="text-5xl font-black mb-2">Painel Executivo HC</h1>
           <p className="text-slate-400 text-lg">
-            O mês do profit é considerado pela data de recebimento.
+            Análise visual por recebimento, comparação histórica, meta e evolução do Profit HC.
           </p>
         </div>
 
@@ -308,80 +409,137 @@ export default function ResultadoFinanceiroPage() {
         </button>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <Select label="Ano" value={ano} onChange={setAno} options={anos} />
         <Select label="Mês" value={mes} onChange={setMes} options={meses} />
         <Select label="Cliente" value={cliente} onChange={setCliente} options={clientes} />
         <Select label="Transportadora" value={transportadora} onChange={setTransportadora} options={transportadoras} />
+
+        <div className="border border-blue-900 bg-[#071225] rounded-2xl p-4">
+          <label className="text-sm text-slate-400 font-bold">Meta do período</label>
+          <input
+            value={metaMes}
+            onChange={(e) => setMetaMes(e.target.value)}
+            className="mt-2 w-full bg-[#020817] border border-blue-900 rounded-xl px-3 py-3 text-white"
+            placeholder="8000"
+          />
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-8">
+        <div className="xl:col-span-2 border border-green-500/60 rounded-3xl bg-gradient-to-br from-[#06231b] to-[#071225] p-7">
+          <p className="text-green-300 font-bold mb-2">Profit HC Real</p>
+          <h2 className="text-6xl font-black text-green-400 mb-4">{moeda(totais.profit)}</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+            <MiniIndicador titulo="Recebido" valor={moeda(totais.faturamentoTotal)} />
+            <MiniIndicador titulo="Custos reais" valor={moeda(totais.custos)} />
+            <MiniIndicador titulo="Margem real" valor={`${totais.margemReal.toFixed(2)}%`} />
+          </div>
+        </div>
+
+        <div className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+          <p className="text-slate-400 font-bold">Comparativo anual</p>
+
+          {comparativoAnoAnterior.temComparativo ? (
+            <>
+              <h2
+                className={`text-4xl font-black mt-4 ${
+                  comparativoAnoAnterior.diferenca >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
+                {comparativoAnoAnterior.percentual >= 0 ? '+' : ''}
+                {comparativoAnoAnterior.percentual.toFixed(1)}%
+              </h2>
+
+              <p className="text-slate-400 mt-3">
+                Diferença vs mesmo mês do ano anterior:
+              </p>
+
+              <p
+                className={`text-2xl font-black mt-2 ${
+                  comparativoAnoAnterior.diferenca >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
+                {moeda(comparativoAnoAnterior.diferenca)}
+              </p>
+            </>
+          ) : (
+            <p className="text-slate-400 mt-5">
+              Selecione um ano e mês com histórico anterior para comparar.
+            </p>
+          )}
+        </div>
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
-        <Card titulo="Faturamento Total" valor={moeda(totais.faturamentoTotal)} detalhe="Recebidos no mês filtrado" />
-        <Card titulo="Faturamento Real" valor={moeda(totais.faturamentoReal)} detalhe="Recebidos com custo informado" />
-        <Card titulo="Custos Reais" valor={moeda(totais.custos)} detalhe="Compra + DTA + terceiros" />
-        <Card titulo="Profit HC Real" valor={moeda(totais.profit)} detalhe="Resultado líquido real" destaque />
-        <Card titulo="Margem Real" valor={`${totais.margemReal.toFixed(2)}%`} detalhe="Sobre faturamento real" />
-        <Card titulo="Sem Custo" valor={String(totais.semCusto)} detalhe="Recebidos sem valor de compra" alerta />
+        <Card titulo="Faturamento Total" valor={moeda(totais.faturamentoTotal)} detalhe="Recebidos no período" />
+        <Card titulo="Faturamento Real" valor={moeda(totais.faturamentoReal)} detalhe="Recebidos com custo" />
+        <Card titulo="Ticket Médio" valor={moeda(totais.ticketMedio)} detalhe="Recebido / processos" />
+        <Card titulo="Processos" valor={String(totais.processos)} detalhe="Recebidos no filtro" />
+        <Card titulo="Com Custo" valor={String(totais.comCusto)} detalhe="Entram no profit" destaque />
+        <Card titulo="Sem Custo" valor={String(totais.semCusto)} detalhe="Aguardando compra" alerta />
       </section>
 
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
-        <Card titulo="Processos com custo" valor={String(totais.comCusto)} detalhe="Entram no Profit HC Real" destaque />
-        <Card titulo="Total de processos" valor={String(totais.processos)} detalhe="Recebidos no filtro selecionado" />
-      </section>
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+        <div className="xl:col-span-2 border border-blue-900 rounded-3xl bg-[#071225] p-7">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+            <div>
+              <h2 className="text-2xl font-black">Evolução do Profit HC</h2>
+              <p className="text-slate-400">
+                Comparativo mensal por ano para visualizar crescimento ou queda.
+              </p>
+            </div>
+          </div>
 
-      {totais.semCusto > 0 && (
-        <section className="border border-yellow-500 bg-yellow-500/10 rounded-3xl p-5 mb-8">
-          <p className="text-yellow-300 font-bold">
-            ⚠ Existem {totais.semCusto} processos recebidos sem valor de compra. Eles não entram no Profit HC Real nem nos rankings.
+          <GraficoLinhas historico={historicoMensal} anos={anosHistorico} moeda={moeda} />
+        </div>
+
+        <div className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+          <h2 className="text-2xl font-black mb-2">Meta do período</h2>
+          <p className="text-slate-400 mb-6">
+            Quanto falta para atingir sua meta no filtro atual.
           </p>
-        </section>
-      )}
+
+          <div className="mb-5">
+            <p className="text-slate-400 font-bold">Meta</p>
+            <h3 className="text-3xl font-black">{moeda(metaValor)}</h3>
+          </div>
+
+          <div className="mb-5">
+            <p className="text-slate-400 font-bold">Realizado</p>
+            <h3 className="text-3xl font-black text-green-400">{moeda(totais.profit)}</h3>
+          </div>
+
+          <BarraProgresso percentual={progressoMeta} />
+
+          <p className="text-slate-400 mt-4">
+            {progressoMeta.toFixed(1)}% atingido
+          </p>
+
+          <p className="text-yellow-300 font-bold mt-3">
+            Faltam {moeda(faltaMeta)}
+          </p>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+        <RankingVisual titulo="Top clientes por Profit HC" dados={rankingClientes} moeda={moeda} />
+        <RankingVisual titulo="Top transportadoras" dados={rankingTransportadoras} moeda={moeda} />
+        <AlertasPremium alertas={alertas} />
+      </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-        <Ranking titulo="Top clientes por Profit HC Real" dados={rankingClientes} moeda={moeda} />
-        <Ranking titulo="Top transportadoras por Profit HC Real" dados={rankingTransportadoras} moeda={moeda} />
         <Ranking titulo="Top despachantes por Profit HC Real" dados={rankingDespachantes} moeda={moeda} />
         <Ranking titulo="Top serviços por Profit HC Real" dados={rankingServicos} moeda={moeda} />
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
-        <h2 className="text-2xl font-black mb-5">Resultado real por mês de recebimento</h2>
+        <h2 className="text-2xl font-black mb-5">Resumo do período</h2>
 
-        <div className="overflow-x-auto">
-          <table className="table min-w-[900px]">
-            <thead>
-              <tr>
-                <th>Mês</th>
-                <th>Processos com custo</th>
-                <th>Faturamento Real</th>
-                <th>Custos Reais</th>
-                <th>Profit HC Real</th>
-                <th>Margem Real</th>
-              </tr>
-            </thead>
-            <tbody>
-              {porMes.map((item: any) => {
-                const margem = item.faturamento > 0 ? (item.profit / item.faturamento) * 100 : 0
-
-                return (
-                  <tr key={item.mes}>
-                    <td className="font-bold text-blue-300">{item.mes}</td>
-                    <td>{item.processos}</td>
-                    <td>{moeda(item.faturamento)}</td>
-                    <td>{moeda(item.custos)}</td>
-                    <td className={item.profit >= 0 ? 'text-green-400 font-black' : 'text-red-400 font-black'}>
-                      {moeda(item.profit)}
-                    </td>
-                    <td>{margem.toFixed(2)}%</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-
-          {porMes.length === 0 && (
-            <p className="text-slate-400 text-center py-8">Nenhum processo recebido com custo informado.</p>
-          )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <ResumoLinha titulo="Melhor cliente" valor={melhorCliente?.nome || '-'} detalhe={melhorCliente ? moeda(melhorCliente.profit) : '-'} />
+          <ResumoLinha titulo="Melhor transportadora" valor={melhorTransportadora?.nome || '-'} detalhe={melhorTransportadora ? moeda(melhorTransportadora.profit) : '-'} />
         </div>
       </section>
 
@@ -474,6 +632,15 @@ function Card({ titulo, valor, detalhe, destaque = false, alerta = false }: any)
   )
 }
 
+function MiniIndicador({ titulo, valor }: any) {
+  return (
+    <div className="rounded-2xl bg-black/20 border border-white/10 p-4">
+      <p className="text-slate-400 font-bold text-sm">{titulo}</p>
+      <p className="text-2xl font-black mt-2">{valor}</p>
+    </div>
+  )
+}
+
 function Select({ label, value, onChange, options }: any) {
   return (
     <div className="border border-blue-900 bg-[#071225] rounded-2xl p-4">
@@ -489,6 +656,159 @@ function Select({ label, value, onChange, options }: any) {
           </option>
         ))}
       </select>
+    </div>
+  )
+}
+
+function BarraProgresso({ percentual }: any) {
+  return (
+    <div className="w-full h-5 bg-[#020817] border border-blue-900 rounded-full overflow-hidden">
+      <div
+        className="h-full bg-green-500 rounded-full"
+        style={{ width: `${Math.max(0, Math.min(percentual, 100))}%` }}
+      />
+    </div>
+  )
+}
+
+function GraficoLinhas({ historico, anos, moeda }: any) {
+  const largura = 900
+  const altura = 300
+  const padding = 45
+
+  const maior = Math.max(...historico.map((i: any) => Number(i.profit || 0)), 1)
+
+  function ponto(mesNumero: number, valor: number) {
+    const x = padding + ((mesNumero - 1) / 11) * (largura - padding * 2)
+    const y = altura - padding - (valor / maior) * (altura - padding * 2)
+    return { x, y }
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${largura} ${altura}`} className="min-w-[900px] w-full h-[330px]">
+        {[0, 1, 2, 3].map((linha) => {
+          const y = padding + linha * ((altura - padding * 2) / 3)
+          return (
+            <line
+              key={linha}
+              x1={padding}
+              x2={largura - padding}
+              y1={y}
+              y2={y}
+              stroke="rgba(148,163,184,0.18)"
+            />
+          )
+        })}
+
+        {MESES_ABREV.map((m, index) => {
+          const x = padding + (index / 11) * (largura - padding * 2)
+          return (
+            <text key={m} x={x} y={altura - 12} fill="#94a3b8" fontSize="13" textAnchor="middle">
+              {m}
+            </text>
+          )
+        })}
+
+        {anos.map((anoItem: string, index: number) => {
+          const pontos = MESES.map((_, mesIndex) => {
+            const item = historico.find(
+              (h: any) => h.ano === anoItem && h.mesNumero === mesIndex + 1
+            )
+
+            return ponto(mesIndex + 1, Number(item?.profit || 0))
+          })
+
+          const d = pontos.map((p: any, i: number) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+
+          const cores = ['#38bdf8', '#22c55e', '#facc15', '#f97316', '#a855f7']
+          const cor = cores[index % cores.length]
+
+          return (
+            <g key={anoItem}>
+              <path d={d} fill="none" stroke={cor} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+
+              {pontos.map((p: any, i: number) => (
+                <circle key={i} cx={p.x} cy={p.y} r="4" fill={cor}>
+                  <title>{`${MESES[i]} ${anoItem}: ${moeda(
+                    historico.find((h: any) => h.ano === anoItem && h.mesNumero === i + 1)?.profit || 0
+                  )}`}</title>
+                </circle>
+              ))}
+
+              <text x={largura - padding + 10} y={pontos[pontos.length - 1]?.y || 20} fill={cor} fontSize="14" fontWeight="bold">
+                {anoItem}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function RankingVisual({ titulo, dados, moeda }: any) {
+  const maior = Math.max(...dados.map((i: any) => Number(i.profit || 0)), 1)
+
+  return (
+    <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+      <h2 className="text-2xl font-black mb-5">{titulo}</h2>
+
+      <div className="space-y-5">
+        {dados.slice(0, 6).map((item: any, index: number) => {
+          const largura = Math.max((Number(item.profit || 0) / maior) * 100, 3)
+
+          return (
+            <div key={item.nome}>
+              <div className="flex justify-between gap-4 mb-2">
+                <p className="font-bold text-blue-300 truncate">
+                  {index === 0 ? '🥇 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : ''}
+                  {item.nome}
+                </p>
+                <p className="font-black">{moeda(item.profit)}</p>
+              </div>
+
+              <div className="h-3 bg-[#020817] border border-blue-900 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${largura}%` }} />
+              </div>
+
+              <p className="text-xs text-slate-500 mt-1">{item.processos} processos</p>
+            </div>
+          )
+        })}
+
+        {dados.length === 0 && (
+          <p className="text-slate-400 text-center py-6">
+            Nenhum processo com custo informado.
+          </p>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function AlertasPremium({ alertas }: any) {
+  return (
+    <section className="border border-yellow-500/60 rounded-3xl bg-yellow-500/10 p-7">
+      <h2 className="text-2xl font-black mb-5 text-yellow-300">Alertas inteligentes</h2>
+
+      <div className="space-y-3">
+        {alertas.map((alerta: string, index: number) => (
+          <div key={index} className="rounded-2xl bg-[#071225] border border-yellow-500/40 p-4">
+            <p className="text-yellow-200 font-bold">⚠ {alerta}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ResumoLinha({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="border border-blue-900 rounded-2xl bg-[#020817] p-5">
+      <p className="text-slate-400 font-bold">{titulo}</p>
+      <h3 className="text-2xl font-black mt-2 text-blue-300">{valor}</h3>
+      <p className="text-green-400 font-black mt-1">{detalhe}</p>
     </div>
   )
 }
