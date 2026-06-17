@@ -47,6 +47,7 @@ const formVazio: FormState = {
 }
 
 const STATUS_OPCOES = ['EM ABERTO', 'VENCIDO', 'PAGO']
+const LIMITE_INICIAL = 200
 
 export default function FinanceiroPage() {
   const [lancamentos, setLancamentos] = useState<any[]>([])
@@ -200,41 +201,67 @@ export default function FinanceiroPage() {
     setFiltroTransportadora('')
     setFiltroDespachante('')
     setFiltroServico('')
+    carregarFinanceiro()
+  }
+
+  function buscaPareceAwbCompleto(valor: string) {
+    const texto = valor.trim()
+    return /^\d{8,}$/.test(texto)
   }
 
   async function carregarFinanceiro() {
     setLoading(true)
 
-    let todos: any[] = []
-    let inicio = 0
-    const limite = 1000
+    let query = supabase
+      .from('financeiro_embarques')
+      .select('*')
+      .order('atualizado_em', { ascending: false })
+      .limit(LIMITE_INICIAL)
 
-    while (true) {
-      const { data, error } = await supabase
-        .from('financeiro_embarques')
-        .select('*')
-        .order('cliente', { ascending: true })
-        .range(inicio, inicio + limite - 1)
+    const termo = busca.trim()
 
-      if (error) {
-        alert('Erro ao carregar financeiro: ' + error.message)
-        setLoading(false)
-        return
+    if (termo) {
+      if (buscaPareceAwbCompleto(termo)) {
+        query = supabase
+          .from('financeiro_embarques')
+          .select('*')
+          .eq('awb', termo)
+          .order('atualizado_em', { ascending: false })
+          .limit(50)
+      } else {
+        const termoSeguro = termo.replace(/[%_,]/g, '')
+        query = supabase
+          .from('financeiro_embarques')
+          .select('*')
+          .or(
+            `cliente.ilike.%${termoSeguro}%,despachante.ilike.%${termoSeguro}%,awb.ilike.%${termoSeguro}%,fatura.ilike.%${termoSeguro}%,transportadora.ilike.%${termoSeguro}%,servico.ilike.%${termoSeguro}%`
+          )
+          .order('atualizado_em', { ascending: false })
+          .limit(LIMITE_INICIAL)
       }
-
-      todos = [...todos, ...(data || [])]
-
-      if (!data || data.length < limite) break
-
-      inicio += limite
     }
 
-    setLancamentos(
-      todos.sort((a, b) =>
-        String(a.cliente || '').localeCompare(String(b.cliente || ''), 'pt-BR')
-      )
-    )
+    if (filtroTransportadora) {
+      query = query.eq('transportadora', filtroTransportadora)
+    }
 
+    if (filtroDespachante) {
+      query = query.eq('despachante', filtroDespachante)
+    }
+
+    if (filtroServico) {
+      query = query.eq('servico', filtroServico)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      alert('Erro ao carregar financeiro: ' + error.message)
+      setLoading(false)
+      return
+    }
+
+    setLancamentos(data || [])
     setLoading(false)
   }
 
@@ -279,7 +306,9 @@ export default function FinanceiroPage() {
 
       alert('Lançamento atualizado com sucesso.')
     } else {
-      const { error } = await supabase.from('financeiro_embarques').insert(payload)
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .insert(payload)
 
       if (error) {
         alert('Erro ao salvar: ' + error.message)
@@ -362,6 +391,7 @@ export default function FinanceiroPage() {
           valor_compra: numero(linha['VALOR DA COMPRA']),
           vencimento_cobranca: normalizarData(linha['VENCIMENTO_CLIENTE']),
           recebimento: normalizarData(linha['RECEBIMENTO_CLIENTE']),
+          atualizado_em: new Date().toISOString(),
         }))
         .filter((item) => item.awb || item.cliente || item.valor_cobranca > 0)
 
@@ -429,6 +459,7 @@ export default function FinanceiroPage() {
 
   const filtrados = useMemo(() => {
     const statusSelecionados = filtrosStatus.map(normalizarOpcao)
+    const termo = busca.toLowerCase().trim()
 
     return lancamentos.filter((item) => {
       const texto = `
@@ -440,7 +471,12 @@ export default function FinanceiroPage() {
         ${item.servico || ''}
       `.toLowerCase()
 
-      const passaBusca = texto.includes(busca.toLowerCase().trim())
+      const awbAtual = String(item.awb || '').toLowerCase().trim()
+
+      const passaBusca =
+        !termo ||
+        awbAtual === termo ||
+        (!buscaPareceAwbCompleto(termo) && texto.includes(termo))
 
       const statusAtual = normalizarOpcao(statusCobranca(item))
 
@@ -475,26 +511,26 @@ export default function FinanceiroPage() {
   ])
 
   const totais = useMemo(() => {
-    const faturamento = lancamentos.reduce(
+    const faturamento = filtrados.reduce(
       (acc, item) => acc + Number(item.valor_cobranca || 0),
       0
     )
 
-    const custos = lancamentos.reduce(
+    const custos = filtrados.reduce(
       (acc, item) => acc + calcularCustos(item),
       0
     )
 
     const profit = faturamento - custos
 
-    const aReceber = lancamentos
+    const aReceber = filtrados
       .filter((item) => statusCobranca(item) !== 'PAGO')
       .reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
 
     const margem = faturamento > 0 ? (profit / faturamento) * 100 : 0
 
     return { faturamento, custos, profit, aReceber, margem }
-  }, [lancamentos])
+  }, [filtrados])
 
   return (
     <main className="min-h-screen bg-gray-100 p-6 text-gray-900">
@@ -512,7 +548,7 @@ export default function FinanceiroPage() {
             onClick={carregarFinanceiro}
             className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700"
           >
-            {loading ? 'Atualizando...' : 'Atualizar dados'}
+            {loading ? 'Atualizando...' : 'Buscar / Atualizar dados'}
           </button>
 
           <label className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-green-700">
@@ -684,6 +720,11 @@ export default function FinanceiroPage() {
               ))}
             </div>
           </div>
+
+          <p className="text-xs text-gray-500">
+            A página carrega no máximo {LIMITE_INICIAL} lançamentos por vez. Para localizar um AWB específico,
+            digite o número completo e clique em Buscar / Atualizar dados.
+          </p>
         </div>
 
         <div className="overflow-x-auto">
@@ -816,7 +857,11 @@ function Input({ label, value, onChange, type = 'text' }: InputProps) {
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">{children}</th>
+  return (
+    <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">
+      {children}
+    </th>
+  )
 }
 
 function Td({ children }: { children: React.ReactNode }) {
