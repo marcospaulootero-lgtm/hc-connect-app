@@ -27,7 +27,7 @@ export default function ResultadoFinanceiroPage() {
   const [mes, setMes] = useState('TODOS')
   const [cliente, setCliente] = useState('TODOS')
   const [transportadora, setTransportadora] = useState('TODOS')
-  const [metaMes, setMetaMes] = useState('8000')
+  const [metaMes, setMetaMes] = useState('40000')
 
   useEffect(() => {
     carregar()
