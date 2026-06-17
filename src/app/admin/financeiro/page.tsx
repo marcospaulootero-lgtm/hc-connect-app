@@ -57,6 +57,9 @@ export default function FinanceiroPage() {
 
   const [busca, setBusca] = useState('')
   const [filtrosStatus, setFiltrosStatus] = useState<string[]>([])
+  const [filtroTransportadora, setFiltroTransportadora] = useState('')
+  const [filtroDespachante, setFiltroDespachante] = useState('')
+  const [filtroServico, setFiltroServico] = useState('')
 
   const [form, setForm] = useState<FormState>(formVazio)
 
@@ -74,6 +77,7 @@ export default function FinanceiroPage() {
   function numero(valor: any) {
     if (valor === null || valor === undefined || valor === '') return 0
     if (typeof valor === 'number') return valor
+
     return (
       Number(
         String(valor)
@@ -136,6 +140,7 @@ export default function FinanceiroPage() {
 
     if (item.vencimento_cobranca) {
       const hoje = new Date().toISOString().slice(0, 10)
+
       if (String(item.vencimento_cobranca).slice(0, 10) < hoje) {
         return 'VENCIDO'
       }
@@ -166,28 +171,47 @@ export default function FinanceiroPage() {
     })
   }
 
+  function limparFiltros() {
+    setBusca('')
+    setFiltrosStatus([])
+    setFiltroTransportadora('')
+    setFiltroDespachante('')
+    setFiltroServico('')
+  }
+
   async function carregarFinanceiro() {
     setLoading(true)
 
-    const { data, error } = await supabase
-      .from('financeiro_embarques')
-      .select('*')
-      .order('cliente', { ascending: true })
+    let todos: any[] = []
+    let inicio = 0
+    const limite = 1000
 
-    if (error) {
-      alert('Erro ao carregar financeiro: ' + error.message)
-      setLoading(false)
-      return
+    while (true) {
+      const { data, error } = await supabase
+        .from('financeiro_embarques')
+        .select('*')
+        .order('cliente', { ascending: true })
+        .range(inicio, inicio + limite - 1)
+
+      if (error) {
+        alert('Erro ao carregar financeiro: ' + error.message)
+        setLoading(false)
+        return
+      }
+
+      todos = [...todos, ...(data || [])]
+
+      if (!data || data.length < limite) break
+
+      inicio += limite
     }
 
     setLancamentos(
-  (data || []).sort((a, b) =>
-    String(a.cliente || '').localeCompare(
-      String(b.cliente || ''),
-      'pt-BR'
+      todos.sort((a, b) =>
+        String(a.cliente || '').localeCompare(String(b.cliente || ''), 'pt-BR')
+      )
     )
-  )
-)
+
     setLoading(false)
   }
 
@@ -362,6 +386,36 @@ export default function FinanceiroPage() {
     carregarFinanceiro()
   }
 
+  const transportadoras = useMemo(() => {
+    return [
+      ...new Set(
+        lancamentos
+          .map((item) => item.transportadora)
+          .filter(Boolean)
+      ),
+    ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
+  }, [lancamentos])
+
+  const despachantes = useMemo(() => {
+    return [
+      ...new Set(
+        lancamentos
+          .map((item) => item.despachante)
+          .filter(Boolean)
+      ),
+    ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
+  }, [lancamentos])
+
+  const servicos = useMemo(() => {
+    return [
+      ...new Set(
+        lancamentos
+          .map((item) => item.servico)
+          .filter(Boolean)
+      ),
+    ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
+  }, [lancamentos])
+
   const filtrados = useMemo(() => {
     return lancamentos.filter((item) => {
       const texto = `
@@ -375,12 +429,35 @@ export default function FinanceiroPage() {
 
       const passaBusca = texto.includes(busca.toLowerCase())
       const status = statusCobranca(item)
+
       const passaStatus =
         filtrosStatus.length === 0 || filtrosStatus.includes(status)
 
-      return passaBusca && passaStatus
+      const passaTransportadora =
+        !filtroTransportadora || item.transportadora === filtroTransportadora
+
+      const passaDespachante =
+        !filtroDespachante || item.despachante === filtroDespachante
+
+      const passaServico =
+        !filtroServico || item.servico === filtroServico
+
+      return (
+        passaBusca &&
+        passaStatus &&
+        passaTransportadora &&
+        passaDespachante &&
+        passaServico
+      )
     })
-  }, [lancamentos, busca, filtrosStatus])
+  }, [
+    lancamentos,
+    busca,
+    filtrosStatus,
+    filtroTransportadora,
+    filtroDespachante,
+    filtroServico,
+  ])
 
   const totais = useMemo(() => {
     const faturamento = filtrados.reduce(
@@ -410,16 +487,26 @@ export default function FinanceiroPage() {
           </p>
         </div>
 
-        <label className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-green-700">
-          {importando ? 'Importando...' : 'Importar Excel'}
-          <input
-            type="file"
-            accept=".xlsx,.xls,.xlsm"
-            onChange={importarExcel}
-            disabled={importando}
-            className="hidden"
-          />
-        </label>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={carregarFinanceiro}
+            className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700"
+          >
+            {loading ? 'Atualizando...' : 'Atualizar dados'}
+          </button>
+
+          <label className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-green-700">
+            {importando ? 'Importando...' : 'Importar Excel'}
+            <input
+              type="file"
+              accept=".xlsx,.xls,.xlsm"
+              onChange={importarExcel}
+              disabled={importando}
+              className="hidden"
+            />
+          </label>
+        </div>
       </div>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-5 mb-6">
@@ -499,21 +586,70 @@ export default function FinanceiroPage() {
       </section>
 
       <section className="bg-white rounded-xl shadow p-5">
-        <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between mb-4">
-          <h2 className="text-lg font-semibold">Lançamentos financeiros</h2>
+        <div className="flex flex-col gap-4 mb-4">
+          <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
+            <h2 className="text-lg font-semibold">
+              Lançamentos financeiros ({filtrados.length})
+            </h2>
 
-          <div className="flex flex-col lg:flex-row gap-3">
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-gray-200 text-gray-800 px-4 py-2 rounded-xl font-bold hover:bg-gray-300 w-fit"
+            >
+              Limpar filtros
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar cliente, AWB, fatura, serviço..."
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[280px]"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
 
+            <select
+              value={filtroTransportadora}
+              onChange={(e) => setFiltroTransportadora(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">Todas transportadoras</option>
+              {transportadoras.map((item: any) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={filtroDespachante}
+              onChange={(e) => setFiltroDespachante(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">Todos despachantes</option>
+              {despachantes.map((item: any) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={filtroServico}
+              onChange={(e) => setFiltroServico(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">Todos serviços</option>
+              {servicos.map((item: any) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+
             <div className="flex flex-wrap gap-2 items-center rounded-lg border border-gray-300 px-3 py-2">
-              <span className="text-sm font-semibold text-gray-600">
-                Status:
-              </span>
+              <span className="text-sm font-semibold text-gray-600">Status:</span>
 
               {STATUS_OPCOES.map((status) => (
                 <label key={status} className="flex items-center gap-1 text-sm">
@@ -525,16 +661,6 @@ export default function FinanceiroPage() {
                   {status}
                 </label>
               ))}
-
-              {filtrosStatus.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setFiltrosStatus([])}
-                  className="text-xs text-blue-600 hover:underline font-semibold"
-                >
-                  Limpar
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -591,7 +717,13 @@ export default function FinanceiroPage() {
                       <Td>{moeda(item.debito_terceiro)}</Td>
                       <Td>{moeda(item.valor_compra)}</Td>
                       <Td>
-                        <span className={calcularProfit(item) >= 0 ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}>
+                        <span
+                          className={
+                            calcularProfit(item) >= 0
+                              ? 'text-green-700 font-semibold'
+                              : 'text-red-700 font-semibold'
+                          }
+                        >
                           {moeda(calcularProfit(item))}
                         </span>
                       </Td>
