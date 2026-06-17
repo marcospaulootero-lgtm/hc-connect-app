@@ -13,6 +13,7 @@ type Embarque = {
   exportador?: string | null
   importador?: string | null
   transportadora: string | null
+  servico?: string | null
   status_operacional: string | null
   status_faturamento?: string | null
   peso_real?: number | null
@@ -93,6 +94,7 @@ export default function FaturasPage() {
           exportador,
           importador,
           transportadora,
+          servico,
           status_operacional,
           status_faturamento,
           peso_taxado,
@@ -107,11 +109,6 @@ export default function FaturasPage() {
 
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
-  }
-
-  function dadosEmbarque(fatura: Fatura) {
-    if (Array.isArray(fatura.embarques)) return fatura.embarques[0] || {}
-    return fatura.embarques || {}
   }
 
   function moeda(valor?: number | string | null) {
@@ -144,6 +141,67 @@ export default function FaturasPage() {
     if (!url.includes(marcador)) return null
 
     return url.split(marcador)[1] || null
+  }
+
+  async function criarOuAtualizarFinanceiro(embarque: Embarque, dados: {
+    faturaUrl?: string | null
+    valorFaturado?: number | null
+    vencimentoCliente?: string | null
+    recebimentoCliente?: string | null
+  }) {
+    const { data: financeiroExistente, error: erroBusca } = await supabase
+      .from('financeiro_embarques')
+      .select('id')
+      .eq('embarque_id', embarque.id)
+      .maybeSingle()
+
+    if (erroBusca) {
+      console.log('Erro ao buscar financeiro:', erroBusca)
+      return
+    }
+
+    const payload: any = {
+      embarque_id: embarque.id,
+      origem: 'FATURA',
+      cliente: embarque.cliente_final || embarque.importador || embarque.exportador || '',
+      awb: embarque.awb || '',
+      fatura: dados.faturaUrl || '',
+      transportadora: embarque.transportadora || '',
+      servico: embarque.servico || '',
+      valor_cobranca: Number(dados.valorFaturado || 0),
+      vencimento_cobranca: dados.vencimentoCliente || null,
+      atualizado_em: new Date().toISOString(),
+    }
+
+    if (dados.recebimentoCliente) {
+      payload.recebimento = dados.recebimentoCliente
+    }
+
+    if (financeiroExistente?.id) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update(payload)
+        .eq('id', financeiroExistente.id)
+
+      if (error) console.log('Erro ao atualizar financeiro:', error)
+      return
+    }
+
+    const { error } = await supabase
+      .from('financeiro_embarques')
+      .insert(payload)
+
+    if (error) console.log('Erro ao criar financeiro:', error)
+  }
+
+  async function removerFinanceiroDaFatura(embarque: Embarque) {
+    const { error } = await supabase
+      .from('financeiro_embarques')
+      .delete()
+      .eq('embarque_id', embarque.id)
+      .eq('origem', 'FATURA')
+
+    if (error) console.log('Erro ao remover financeiro da fatura:', error)
   }
 
   const embarquesFinanceiros = useMemo(() => {
@@ -187,16 +245,16 @@ export default function FaturasPage() {
   const finalizados = embarquesFinanceiros.filter((e) => statusFinanceiro(e) === STATUS_FINALIZADO)
 
   function valorFinanceiro(e: Embarque) {
-  const fatura = faturaDoEmbarque(e.id)
-  if (!fatura?.arquivo_pdf) return 0
-  return Number(e.valor_venda || 0)
-}
+    const fatura = faturaDoEmbarque(e.id)
+    if (!fatura?.arquivo_pdf) return 0
+    return Number(e.valor_venda || 0)
+  }
 
-const valorAFaturar = aFaturar.reduce((acc, e) => acc + valorFinanceiro(e), 0)
-const valorFaturaEnviada = faturaEnviada.reduce((acc, e) => acc + valorFinanceiro(e), 0)
-const valorPago = pagos.reduce((acc, e) => acc + valorFinanceiro(e), 0)
-const valorRecibo = reciboEnviado.reduce((acc, e) => acc + valorFinanceiro(e), 0)
-const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+  const valorAFaturar = aFaturar.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+  const valorFaturaEnviada = faturaEnviada.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+  const valorPago = pagos.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+  const valorRecibo = reciboEnviado.reduce((acc, e) => acc + valorFinanceiro(e), 0)
+  const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e), 0)
 
   function abrirEnvioFatura(embarque: Embarque) {
     setEmbarqueSelecionado(embarque)
@@ -234,6 +292,8 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
 
     const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
 
+    const valorNumerico = valorVenda ? Number(valorVenda) : null
+
     const { error: erroInsert } = await supabase.from('faturas').insert([
       {
         embarque_id: embarqueSelecionado.id,
@@ -241,7 +301,7 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
         vencimento: vencimento || null,
         arquivo_pdf: urlData.publicUrl,
         visivel_cliente: true,
-        valor_pago: valorVenda ? Number(valorVenda) : null,
+        valor_pago: valorNumerico,
       },
     ])
 
@@ -256,20 +316,27 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
       .from('embarques')
       .update({
         status_faturamento: STATUS_FATURA_ENVIADA,
-        valor_venda: valorVenda ? Number(valorVenda) : null,
+        valor_venda: valorNumerico,
         data_fatura_enviada: new Date().toISOString(),
       })
       .eq('id', embarqueSelecionado.id)
 
-    setSalvando(false)
-
     if (erroUpdate) {
+      setSalvando(false)
       alert(erroUpdate.message)
       console.log(erroUpdate)
       return
     }
 
-    alert('Fatura enviada e embarque marcado como FATURA ENVIADA.')
+    await criarOuAtualizarFinanceiro(embarqueSelecionado, {
+      faturaUrl: urlData.publicUrl,
+      valorFaturado: valorNumerico,
+      vencimentoCliente: vencimento || null,
+    })
+
+    setSalvando(false)
+
+    alert('Fatura enviada e financeiro atualizado automaticamente.')
 
     setEmbarqueSelecionado(null)
     setVencimento('')
@@ -291,7 +358,7 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
     }
 
     const confirmar = confirm(
-      `Deseja realmente remover a fatura do AWB ${embarque.awb}?`
+      `Deseja realmente remover a fatura do AWB ${embarque.awb}? Isso também removerá o lançamento financeiro criado por esta fatura.`
     )
 
     if (!confirmar) return
@@ -324,16 +391,18 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
       return
     }
 
+    await removerFinanceiroDaFatura(embarque)
+
     const { error: erroUpdate } = await supabase
-  .from('embarques')
-  .update({
-    status_faturamento: STATUS_A_FATURAR,
-    valor_venda: null,
-    data_fatura_enviada: null,
-    data_pagamento: null,
-    data_recibo_enviado: null,
-  })
-  .eq('id', embarque.id)
+      .from('embarques')
+      .update({
+        status_faturamento: STATUS_A_FATURAR,
+        valor_venda: null,
+        data_fatura_enviada: null,
+        data_pagamento: null,
+        data_recibo_enviado: null,
+      })
+      .eq('id', embarque.id)
 
     setRemovendoFatura(null)
 
@@ -347,16 +416,17 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
   }
 
   async function marcarComoPago(embarque: Embarque) {
-    const confirmar = confirm(`Confirmar pagamento do AWB ${embarque.awb}?`)
+    const confirmar = confirm(`Confirmar recebimento do cliente no AWB ${embarque.awb}?`)
     if (!confirmar) return
 
     const fatura = faturaDoEmbarque(embarque.id)
+    const hoje = new Date().toISOString().slice(0, 10)
 
     if (fatura) {
       await supabase
         .from('faturas')
         .update({
-          data_pagamento: new Date().toISOString().slice(0, 10),
+          data_pagamento: hoje,
           valor_pago: embarque.valor_venda || fatura.valor_pago || null,
         })
         .eq('id', fatura.id)
@@ -366,7 +436,7 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
       .from('embarques')
       .update({
         status_faturamento: STATUS_PAGO,
-        data_pagamento: new Date().toISOString().slice(0, 10),
+        data_pagamento: hoje,
       })
       .eq('id', embarque.id)
 
@@ -374,6 +444,13 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
       alert(error.message)
       return
     }
+
+    await criarOuAtualizarFinanceiro(embarque, {
+      faturaUrl: fatura?.arquivo_pdf || null,
+      valorFaturado: embarque.valor_venda || fatura?.valor_pago || null,
+      vencimentoCliente: fatura?.vencimento || null,
+      recebimentoCliente: hoje,
+    })
 
     carregar()
   }
@@ -409,12 +486,14 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
 
     const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
 
+    const hoje = new Date().toISOString().slice(0, 10)
+
     const { error: erroFatura } = await supabase
       .from('faturas')
       .update({
         recibo_pdf: urlData.publicUrl,
         recibo_nome: arquivo.name,
-        data_pagamento: new Date().toISOString().slice(0, 10),
+        data_pagamento: hoje,
       })
       .eq('id', fatura.id)
 
@@ -432,6 +511,13 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
       })
       .eq('id', embarque.id)
 
+    await criarOuAtualizarFinanceiro(embarque, {
+      faturaUrl: fatura.arquivo_pdf,
+      valorFaturado: embarque.valor_venda || fatura.valor_pago || null,
+      vencimentoCliente: fatura.vencimento || null,
+      recebimentoCliente: hoje,
+    })
+
     setEnviandoRecibo(null)
 
     if (erroEmbarque) {
@@ -439,7 +525,7 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
       return
     }
 
-    alert('Recibo anexado e status alterado para RECIBO ENVIADO.')
+    alert('Recibo anexado, financeiro atualizado e status alterado para RECIBO ENVIADO.')
     carregar()
   }
 
@@ -535,7 +621,7 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
               step="0.01"
               value={valorVenda}
               onChange={(e) => setValorVenda(e.target.value)}
-              placeholder="Valor da venda"
+              placeholder="Valor faturado ao cliente"
             />
 
             <input
@@ -618,7 +704,7 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
                 <th>Transportadora</th>
                 <th>Peso</th>
                 <th>Entrega</th>
-                <th>Valor venda</th>
+                <th>Valor faturado</th>
                 <th>Status operacional</th>
                 <th>Status financeiro</th>
                 <th>Fatura</th>
@@ -711,7 +797,7 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
                             onClick={() => marcarComoPago(embarque)}
                             className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold"
                           >
-                            Marcar pago
+                            Marcar recebido
                           </button>
                         )}
 
@@ -769,8 +855,8 @@ const valorFinalizado = finalizados.reduce((acc, e) => acc + valorFinanceiro(e),
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
           <FluxoCard numero="1" titulo="A faturar" texto="Embarque entregue entra automaticamente na lista para faturamento." icone="🟡" />
-          <FluxoCard numero="2" titulo="Fatura enviada" texto="Você envia o PDF da fatura e o cliente visualiza no portal." icone="📨" />
-          <FluxoCard numero="3" titulo="Pago" texto="Quando o cliente paga, marque como pago para liberar o recibo." icone="💵" />
+          <FluxoCard numero="2" titulo="Fatura enviada" texto="Você envia o PDF da fatura e o financeiro é criado automaticamente." icone="📨" />
+          <FluxoCard numero="3" titulo="Recebido" texto="Quando o cliente paga, marque como recebido para atualizar o financeiro." icone="💵" />
           <FluxoCard numero="4" titulo="Recibo enviado" texto="Anexe o recibo em PDF para o cliente acessar." icone="🧾" />
           <FluxoCard numero="5" titulo="Finalizado" texto="Ciclo financeiro concluído para o embarque." icone="✅" />
         </div>
