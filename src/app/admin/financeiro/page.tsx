@@ -46,8 +46,8 @@ const formVazio: FormState = {
   observacoes: '',
 }
 
-const ABAS = ['EM ABERTO', 'ATRASADOS', 'PAGO', 'TODOS']
-const PAGE_SIZE = 100
+const ABAS = ['EM ABERTO', 'ATRASADO', 'PAGO', 'TODOS']
+const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
 
 export default function FinanceiroPage() {
@@ -139,14 +139,6 @@ export default function FinanceiroPage() {
     return Number(item.valor_cobranca || 0) - calcularCustos(item)
   }
 
-  function normalizarOpcao(valor: any) {
-    return String(valor || '')
-      .trim()
-      .toUpperCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-  }
-
   function temDataValida(valor: any) {
     return !!normalizarData(valor)
   }
@@ -161,7 +153,7 @@ export default function FinanceiroPage() {
       const hoje = new Date().toISOString().slice(0, 10)
 
       if (vencimento < hoje) {
-        return 'ATRASADOS'
+        return 'ATRASADO'
       }
     }
 
@@ -170,14 +162,14 @@ export default function FinanceiroPage() {
 
   function badgeStatus(status: string) {
     if (status === 'PAGO') {
-      return 'bg-green-100 text-green-800 border-green-300'
+      return 'bg-green-100 text-green-700 border-green-300'
     }
 
-    if (status === 'ATRASADOS') {
-      return 'bg-red-100 text-red-800 border-red-300'
+    if (status === 'ATRASADO') {
+      return 'bg-red-100 text-red-700 border-red-300'
     }
 
-    return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+    return 'bg-yellow-100 text-yellow-700 border-yellow-300'
   }
 
   function limparFiltros() {
@@ -215,7 +207,6 @@ export default function FinanceiroPage() {
     })
 
     const respostas = await Promise.all(consultas)
-
     const erro = respostas.find((res) => res.error)
 
     if (erro?.error) {
@@ -228,6 +219,12 @@ export default function FinanceiroPage() {
 
     setLancamentos(
       todos.sort((a, b) => {
+        const statusA = statusCobranca(a)
+        const statusB = statusCobranca(b)
+
+        if (statusA === 'ATRASADO' && statusB !== 'ATRASADO') return -1
+        if (statusA !== 'ATRASADO' && statusB === 'ATRASADO') return 1
+
         const vencA = normalizarData(a.vencimento_cobranca) || '9999-99-99'
         const vencB = normalizarData(b.vencimento_cobranca) || '9999-99-99'
         return vencA.localeCompare(vencB)
@@ -428,32 +425,10 @@ export default function FinanceiroPage() {
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
   }, [lancamentos])
 
-  const totaisGerais = useMemo(() => {
-    const faturamento = lancamentos.reduce(
-      (acc, item) => acc + Number(item.valor_cobranca || 0),
-      0
-    )
-
-    const custos = lancamentos.reduce(
-      (acc, item) => acc + calcularCustos(item),
-      0
-    )
-
-    const profit = faturamento - custos
-
-    const aReceber = lancamentos
-      .filter((item) => statusCobranca(item) !== 'PAGO')
-      .reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
-
-    const margem = faturamento > 0 ? (profit / faturamento) * 100 : 0
-
-    return { faturamento, custos, profit, aReceber, margem }
-  }, [lancamentos])
-
-  const resumoAbas = useMemo(() => {
+  const resumo = useMemo(() => {
     const emAberto = lancamentos.filter((item) => statusCobranca(item) === 'EM ABERTO')
-    const atrasados = lancamentos.filter((item) => statusCobranca(item) === 'ATRASADOS')
-    const pagos = lancamentos.filter((item) => statusCobranca(item) === 'PAGO')
+    const atrasado = lancamentos.filter((item) => statusCobranca(item) === 'ATRASADO')
+    const pago = lancamentos.filter((item) => statusCobranca(item) === 'PAGO')
 
     function total(lista: any[]) {
       return lista.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
@@ -461,8 +436,8 @@ export default function FinanceiroPage() {
 
     return {
       emAberto: { qtd: emAberto.length, total: total(emAberto) },
-      atrasados: { qtd: atrasados.length, total: total(atrasados) },
-      pagos: { qtd: pagos.length, total: total(pagos) },
+      atrasado: { qtd: atrasado.length, total: total(atrasado) },
+      pago: { qtd: pago.length, total: total(pago) },
       todos: { qtd: lancamentos.length, total: total(lancamentos) },
     }
   }, [lancamentos])
@@ -481,9 +456,7 @@ export default function FinanceiroPage() {
       `.toLowerCase()
 
       const passaBusca = !termo || texto.includes(termo)
-
       const statusAtual = statusCobranca(item)
-
       const passaAba = aba === 'TODOS' ? true : statusAtual === aba
 
       const passaTransportadora =
@@ -523,17 +496,12 @@ export default function FinanceiroPage() {
     setPagina(1)
   }
 
-  function mudarBusca(valor: string) {
-    setBusca(valor)
-    setPagina(1)
-  }
-
   return (
-    <main className="min-h-screen bg-gray-100 p-6 text-gray-900">
+    <main className="min-h-screen bg-gray-50 p-6 text-gray-900">
       <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Financeiro</h1>
-          <p className="text-sm text-gray-600">
+          <h1 className="text-2xl font-black text-gray-950">Financeiro</h1>
+          <p className="text-sm text-gray-500">
             Controle financeiro dos embarques da HC Consultoria
           </p>
         </div>
@@ -542,13 +510,13 @@ export default function FinanceiroPage() {
           <button
             type="button"
             onClick={carregarFinanceiro}
-            className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700"
+            className="bg-white border border-gray-200 text-gray-800 px-5 py-3 rounded-xl font-bold hover:bg-gray-100 shadow-sm"
           >
-            {loading ? 'Atualizando...' : 'Atualizar dados'}
+            ↻ Atualizar dados
           </button>
 
-          <label className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-green-700">
-            {importando ? 'Importando...' : 'Importar Excel'}
+          <label className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-blue-700 shadow-sm">
+            ↓ Importar Excel
             <input
               type="file"
               accept=".xlsx,.xls,.xlsm"
@@ -560,55 +528,65 @@ export default function FinanceiroPage() {
         </div>
       </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-5 mb-6">
-        <Card titulo="Faturamento geral" valor={moeda(totaisGerais.faturamento)} />
-        <Card titulo="Custos gerais" valor={moeda(totaisGerais.custos)} />
-        <Card titulo="Profit HC geral" valor={moeda(totaisGerais.profit)} />
-        <Card titulo="A receber geral" valor={moeda(totaisGerais.aReceber)} />
-        <Card titulo="Margem geral" valor={`${totaisGerais.margem.toFixed(2)}%`} />
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+        <BigCard
+          titulo="VALOR EM ABERTO"
+          valor={moeda(resumo.emAberto.total)}
+          subtitulo="Valor pendente de recebimento"
+          icone="📂"
+          classe="bg-orange-50 border-orange-200 text-orange-600"
+        />
+
+        <BigCard
+          titulo="VALOR EM ATRASO"
+          valor={moeda(resumo.atrasado.total)}
+          subtitulo="Valor vencido não recebido"
+          icone="⏰"
+          classe="bg-red-50 border-red-200 text-red-600"
+        />
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-4 mb-6">
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
         <ResumoCard
           ativo={aba === 'EM ABERTO'}
           titulo="Em aberto"
-          quantidade={resumoAbas.emAberto.qtd}
-          valor={moeda(resumoAbas.emAberto.total)}
+          quantidade={resumo.emAberto.qtd}
+          valor={moeda(resumo.emAberto.total)}
+          cor="yellow"
           onClick={() => mudarAba('EM ABERTO')}
-          classe="border-yellow-300"
         />
 
         <ResumoCard
-          ativo={aba === 'ATRASADOS'}
+          ativo={aba === 'ATRASADO'}
           titulo="Atrasados"
-          quantidade={resumoAbas.atrasados.qtd}
-          valor={moeda(resumoAbas.atrasados.total)}
-          onClick={() => mudarAba('ATRASADOS')}
-          classe="border-red-300"
+          quantidade={resumo.atrasado.qtd}
+          valor={moeda(resumo.atrasado.total)}
+          cor="red"
+          onClick={() => mudarAba('ATRASADO')}
         />
 
         <ResumoCard
           ativo={aba === 'PAGO'}
           titulo="Pagos"
-          quantidade={resumoAbas.pagos.qtd}
-          valor={moeda(resumoAbas.pagos.total)}
+          quantidade={resumo.pago.qtd}
+          valor={moeda(resumo.pago.total)}
+          cor="green"
           onClick={() => mudarAba('PAGO')}
-          classe="border-green-300"
         />
 
         <ResumoCard
           ativo={aba === 'TODOS'}
           titulo="Todos"
-          quantidade={resumoAbas.todos.qtd}
-          valor={moeda(resumoAbas.todos.total)}
+          quantidade={resumo.todos.qtd}
+          valor={moeda(resumo.todos.total)}
+          cor="blue"
           onClick={() => mudarAba('TODOS')}
-          classe="border-blue-300"
         />
       </section>
 
-      <section className="bg-white rounded-xl shadow p-5 mb-6">
+      <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">
+          <h2 className="text-lg font-bold">
             {editandoId ? 'Editando lançamento' : 'Novo lançamento'}
           </h2>
 
@@ -616,7 +594,7 @@ export default function FinanceiroPage() {
             <button
               type="button"
               onClick={cancelarEdicao}
-              className="bg-gray-200 text-gray-800 px-4 py-2 rounded-xl font-bold hover:bg-gray-300"
+              className="bg-gray-100 text-gray-800 px-4 py-2 rounded-xl font-bold hover:bg-gray-200"
             >
               Cancelar edição
             </button>
@@ -640,11 +618,11 @@ export default function FinanceiroPage() {
           <Input type="date" label="Recebimento cliente" value={form.recebimento} onChange={(v) => setForm({ ...form, recebimento: v })} />
 
           <div className="md:col-span-4">
-            <label className="text-sm font-medium text-gray-700">Observações</label>
+            <label className="text-sm font-semibold text-gray-600">Observações</label>
             <textarea
               value={form.observacoes}
               onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows={2}
             />
           </div>
@@ -665,7 +643,7 @@ export default function FinanceiroPage() {
               <button
                 type="button"
                 onClick={cancelarEdicao}
-                className="bg-gray-200 text-gray-800 px-5 py-3 rounded-xl hover:bg-gray-300 font-bold"
+                className="bg-gray-100 text-gray-800 px-5 py-3 rounded-xl hover:bg-gray-200 font-bold"
               >
                 Cancelar
               </button>
@@ -674,100 +652,78 @@ export default function FinanceiroPage() {
         </form>
       </section>
 
-      <section className="bg-white rounded-xl shadow p-5">
-        <div className="flex flex-col gap-4 mb-4">
-          <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
-            <h2 className="text-lg font-semibold">
-              {aba === 'TODOS' ? 'Todos os lançamentos' : `Lançamentos ${aba.toLowerCase()}`} ({filtrados.length})
-            </h2>
+      <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-5">
+          <input
+            value={busca}
+            onChange={(e) => {
+              setBusca(e.target.value)
+              setPagina(1)
+            }}
+            placeholder="Buscar por cliente, AWB, fatura, serviço..."
+            className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
 
-            <button
-              type="button"
-              onClick={limparFiltros}
-              className="bg-gray-200 text-gray-800 px-4 py-2 rounded-xl font-bold hover:bg-gray-300 w-fit"
-            >
-              Limpar filtros
-            </button>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {ABAS.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => mudarAba(item)}
-                className={`px-4 py-2 rounded-xl text-sm font-bold border ${
-                  aba === item
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
-                }`}
-              >
+          <select
+            value={filtroTransportadora}
+            onChange={(e) => {
+              setFiltroTransportadora(e.target.value)
+              setPagina(1)
+            }}
+            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+          >
+            <option value="">Todas transportadoras</option>
+            {transportadoras.map((item: any) => (
+              <option key={item} value={item}>
                 {item}
-              </button>
+              </option>
             ))}
-          </div>
+          </select>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <input
-              value={busca}
-              onChange={(e) => mudarBusca(e.target.value)}
-              placeholder="Buscar cliente, AWB, fatura, serviço..."
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
+          <select
+            value={filtroDespachante}
+            onChange={(e) => {
+              setFiltroDespachante(e.target.value)
+              setPagina(1)
+            }}
+            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+          >
+            <option value="">Todos despachantes</option>
+            {despachantes.map((item: any) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
 
-            <select
-              value={filtroTransportadora}
-              onChange={(e) => {
-                setFiltroTransportadora(e.target.value)
-                setPagina(1)
-              }}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              <option value="">Todas transportadoras</option>
-              {transportadoras.map((item: any) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+          <select
+            value={filtroServico}
+            onChange={(e) => {
+              setFiltroServico(e.target.value)
+              setPagina(1)
+            }}
+            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+          >
+            <option value="">Todos serviços</option>
+            {servicos.map((item: any) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
 
-            <select
-              value={filtroDespachante}
-              onChange={(e) => {
-                setFiltroDespachante(e.target.value)
-                setPagina(1)
-              }}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              <option value="">Todos despachantes</option>
-              {despachantes.map((item: any) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={filtroServico}
-              onChange={(e) => {
-                setFiltroServico(e.target.value)
-                setPagina(1)
-              }}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              <option value="">Todos serviços</option>
-              {servicos.map((item: any) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            type="button"
+            onClick={limparFiltros}
+            className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50"
+          >
+            ⌁ Limpar filtros
+          </button>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1550px] w-full text-sm">
-            <thead className="bg-gray-100 text-gray-700">
+          <table className="min-w-[1450px] w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <Th>Cliente</Th>
                 <Th>Despachante</Th>
@@ -775,14 +731,11 @@ export default function FinanceiroPage() {
                 <Th>Nº Fatura</Th>
                 <Th>Transportadora</Th>
                 <Th>Serviço</Th>
-                <Th>Valor faturado</Th>
-                <Th>DTA/DOC/Impostos</Th>
-                <Th>Terceiros</Th>
-                <Th>Valor compra</Th>
-                <Th>Profit HC</Th>
+                <Th>Valor Faturado</Th>
                 <Th>Venc. Cliente</Th>
                 <Th>Recebimento</Th>
-                <Th>Status cobrança</Th>
+                <Th>Status</Th>
+                <Th>Profit HC</Th>
                 <Th>Ações</Th>
               </tr>
             </thead>
@@ -790,22 +743,23 @@ export default function FinanceiroPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={15} className="p-4 text-center">
+                  <td colSpan={12} className="p-6 text-center">
                     Carregando todos os registros...
                   </td>
                 </tr>
               ) : filtradosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="p-4 text-center text-gray-500">
+                  <td colSpan={12} className="p-6 text-center text-gray-500">
                     Nenhum lançamento encontrado.
                   </td>
                 </tr>
               ) : (
                 filtradosPaginados.map((item) => {
                   const cobranca = statusCobranca(item)
+                  const profit = calcularProfit(item)
 
                   return (
-                    <tr key={item.id} className="border-b hover:bg-gray-50">
+                    <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <Td>{item.cliente}</Td>
                       <Td>{item.despachante}</Td>
                       <Td>{item.awb}</Td>
@@ -813,39 +767,36 @@ export default function FinanceiroPage() {
                       <Td>{item.transportadora}</Td>
                       <Td>{item.servico}</Td>
                       <Td>{moeda(item.valor_cobranca)}</Td>
-                      <Td>{moeda(item.doc_dta)}</Td>
-                      <Td>{moeda(item.debito_terceiro)}</Td>
-                      <Td>{moeda(item.valor_compra)}</Td>
-                      <Td>
-                        <span
-                          className={
-                            calcularProfit(item) >= 0
-                              ? 'text-green-700 font-semibold'
-                              : 'text-red-700 font-semibold'
-                          }
-                        >
-                          {moeda(calcularProfit(item))}
-                        </span>
-                      </Td>
                       <Td>{normalizarData(item.vencimento_cobranca) || '-'}</Td>
                       <Td>{normalizarData(item.recebimento) || '-'}</Td>
                       <Td>
                         <Badge texto={cobranca} classe={badgeStatus(cobranca)} />
                       </Td>
                       <Td>
-                        <div className="flex gap-3">
+                        <span
+                          className={
+                            profit >= 0
+                              ? 'text-green-600 font-black'
+                              : 'text-red-600 font-black'
+                          }
+                        >
+                          {moeda(profit)}
+                        </span>
+                      </Td>
+                      <Td>
+                        <div className="flex gap-2">
                           <button
                             onClick={() => editar(item)}
-                            className="text-blue-600 hover:underline font-semibold"
+                            className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold"
                           >
-                            Editar
+                            ✎
                           </button>
 
                           <button
                             onClick={() => excluir(item.id)}
-                            className="text-red-600 hover:underline font-semibold"
+                            className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold"
                           >
-                            Excluir
+                            🗑
                           </button>
                         </div>
                       </Td>
@@ -857,9 +808,9 @@ export default function FinanceiroPage() {
           </table>
         </div>
 
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
-          <p className="text-sm text-gray-600">
-            Mostrando {filtradosPaginados.length} de {filtrados.length} registros encontrados.
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-5">
+          <p className="text-sm text-gray-500">
+            Mostrando {filtradosPaginados.length} de {filtrados.length} registros
           </p>
 
           <div className="flex gap-2 items-center">
@@ -867,12 +818,12 @@ export default function FinanceiroPage() {
               type="button"
               disabled={pagina <= 1}
               onClick={() => setPagina((p) => Math.max(1, p - 1))}
-              className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 font-bold disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 font-bold disabled:opacity-50"
             >
-              Anterior
+              ‹
             </button>
 
-            <span className="text-sm font-semibold">
+            <span className="text-sm font-bold">
               Página {pagina} de {totalPaginas}
             </span>
 
@@ -880,9 +831,9 @@ export default function FinanceiroPage() {
               type="button"
               disabled={pagina >= totalPaginas}
               onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-              className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 font-bold disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 font-bold disabled:opacity-50"
             >
-              Próxima
+              ›
             </button>
           </div>
         </div>
@@ -891,11 +842,32 @@ export default function FinanceiroPage() {
   )
 }
 
-function Card({ titulo, valor }: { titulo: string; valor: string }) {
+function BigCard({
+  titulo,
+  valor,
+  subtitulo,
+  icone,
+  classe,
+}: {
+  titulo: string
+  valor: string
+  subtitulo: string
+  icone: string
+  classe: string
+}) {
   return (
-    <div className="bg-white rounded-xl shadow p-4">
-      <p className="text-sm text-gray-500">{titulo}</p>
-      <p className="text-xl font-bold text-gray-900">{valor}</p>
+    <div className={`rounded-2xl border p-8 shadow-sm ${classe}`}>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-black tracking-wide">{titulo}</p>
+          <p className="text-4xl font-black mt-3">{valor}</p>
+          <p className="text-sm text-gray-500 mt-2">{subtitulo}</p>
+        </div>
+
+        <div className="w-16 h-16 rounded-full bg-white/70 flex items-center justify-center text-3xl">
+          {icone}
+        </div>
+      </div>
     </div>
   )
 }
@@ -906,26 +878,38 @@ function ResumoCard({
   valor,
   ativo,
   onClick,
-  classe,
+  cor,
 }: {
   titulo: string
   quantidade: number
   valor: string
   ativo: boolean
   onClick: () => void
-  classe: string
+  cor: 'yellow' | 'red' | 'green' | 'blue'
 }) {
+  const cores: any = {
+    yellow: 'bg-yellow-400',
+    red: 'bg-red-500',
+    green: 'bg-green-500',
+    blue: 'bg-blue-500',
+  }
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`bg-white rounded-xl shadow p-4 text-left border-2 hover:shadow-md ${
-        ativo ? 'border-blue-600' : classe
+      className={`bg-white rounded-2xl shadow-sm border p-5 text-left hover:shadow-md ${
+        ativo ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-200'
       }`}
     >
-      <p className="text-sm text-gray-500">{titulo}</p>
-      <p className="text-2xl font-bold text-gray-900">{quantidade}</p>
-      <p className="text-sm font-semibold text-gray-700">{valor}</p>
+      <div className="flex items-center gap-2">
+        <span className={`w-3 h-3 rounded-full ${cores[cor]}`} />
+        <p className="font-black text-gray-900">{titulo}</p>
+        <span className="ml-auto bg-gray-100 text-gray-700 text-xs font-black px-2 py-1 rounded-full">
+          {quantidade}
+        </span>
+      </div>
+      <p className="text-sm font-bold text-gray-600 mt-3">{valor}</p>
     </button>
   )
 }
@@ -933,7 +917,7 @@ function ResumoCard({
 function Badge({ texto, classe }: { texto: string; classe: string }) {
   return (
     <span
-      className={`inline-flex px-3 py-1 rounded-full border text-xs font-bold whitespace-nowrap ${classe}`}
+      className={`inline-flex px-3 py-1 rounded-full border text-xs font-black whitespace-nowrap ${classe}`}
     >
       {texto}
     </span>
@@ -943,21 +927,25 @@ function Badge({ texto, classe }: { texto: string; classe: string }) {
 function Input({ label, value, onChange, type = 'text' }: InputProps) {
   return (
     <div>
-      <label className="text-sm font-medium text-gray-700">{label}</label>
+      <label className="text-sm font-semibold text-gray-600">{label}</label>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>
   )
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">{children}</th>
+  return (
+    <th className="px-3 py-3 text-left font-black whitespace-nowrap">
+      {children}
+    </th>
+  )
 }
 
 function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-3 py-2 whitespace-nowrap">{children}</td>
+  return <td className="px-3 py-3 whitespace-nowrap">{children}</td>
 }
