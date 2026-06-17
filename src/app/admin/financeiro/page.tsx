@@ -46,8 +46,9 @@ const formVazio: FormState = {
   observacoes: '',
 }
 
-const STATUS_OPCOES = ['EM ABERTO', 'VENCIDO', 'PAGO']
-const LIMITE_INICIAL = 200
+const ABAS = ['EM ABERTO', 'ATRASADOS', 'PAGO', 'TODOS']
+const PAGE_SIZE = 100
+const LOTE_SUPABASE = 1000
 
 export default function FinanceiroPage() {
   const [lancamentos, setLancamentos] = useState<any[]>([])
@@ -56,8 +57,10 @@ export default function FinanceiroPage() {
   const [importando, setImportando] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
+  const [aba, setAba] = useState('EM ABERTO')
+  const [pagina, setPagina] = useState(1)
+
   const [busca, setBusca] = useState('')
-  const [filtrosStatus, setFiltrosStatus] = useState<string[]>([])
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
   const [filtroDespachante, setFiltroDespachante] = useState('')
   const [filtroServico, setFiltroServico] = useState('')
@@ -158,7 +161,7 @@ export default function FinanceiroPage() {
       const hoje = new Date().toISOString().slice(0, 10)
 
       if (vencimento < hoje) {
-        return 'VENCIDO'
+        return 'ATRASADOS'
       }
     }
 
@@ -170,98 +173,68 @@ export default function FinanceiroPage() {
       return 'bg-green-100 text-green-800 border-green-300'
     }
 
-    if (status === 'VENCIDO') {
+    if (status === 'ATRASADOS') {
       return 'bg-red-100 text-red-800 border-red-300'
     }
 
     return 'bg-yellow-100 text-yellow-800 border-yellow-300'
   }
 
-  function alternarFiltroStatus(status: string) {
-    setFiltrosStatus((atual) => {
-      const statusNormalizado = normalizarOpcao(status)
-
-      const existe = atual.some(
-        (item) => normalizarOpcao(item) === statusNormalizado
-      )
-
-      if (existe) {
-        return atual.filter(
-          (item) => normalizarOpcao(item) !== statusNormalizado
-        )
-      }
-
-      return [...atual, status]
-    })
-  }
-
   function limparFiltros() {
     setBusca('')
-    setFiltrosStatus([])
     setFiltroTransportadora('')
     setFiltroDespachante('')
     setFiltroServico('')
-    carregarFinanceiro()
-  }
-
-  function buscaPareceAwbCompleto(valor: string) {
-    const texto = valor.trim()
-    return /^\d{8,}$/.test(texto)
+    setPagina(1)
   }
 
   async function carregarFinanceiro() {
     setLoading(true)
 
-    let query = supabase
+    const { count, error: countError } = await supabase
       .from('financeiro_embarques')
-      .select('*')
-      .order('atualizado_em', { ascending: false })
-      .limit(LIMITE_INICIAL)
+      .select('*', { count: 'exact', head: true })
 
-    const termo = busca.trim()
-
-    if (termo) {
-      if (buscaPareceAwbCompleto(termo)) {
-        query = supabase
-          .from('financeiro_embarques')
-          .select('*')
-          .eq('awb', termo)
-          .order('atualizado_em', { ascending: false })
-          .limit(50)
-      } else {
-        const termoSeguro = termo.replace(/[%_,]/g, '')
-        query = supabase
-          .from('financeiro_embarques')
-          .select('*')
-          .or(
-            `cliente.ilike.%${termoSeguro}%,despachante.ilike.%${termoSeguro}%,awb.ilike.%${termoSeguro}%,fatura.ilike.%${termoSeguro}%,transportadora.ilike.%${termoSeguro}%,servico.ilike.%${termoSeguro}%`
-          )
-          .order('atualizado_em', { ascending: false })
-          .limit(LIMITE_INICIAL)
-      }
-    }
-
-    if (filtroTransportadora) {
-      query = query.eq('transportadora', filtroTransportadora)
-    }
-
-    if (filtroDespachante) {
-      query = query.eq('despachante', filtroDespachante)
-    }
-
-    if (filtroServico) {
-      query = query.eq('servico', filtroServico)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      alert('Erro ao carregar financeiro: ' + error.message)
+    if (countError) {
+      alert('Erro ao contar financeiro: ' + countError.message)
       setLoading(false)
       return
     }
 
-    setLancamentos(data || [])
+    const total = count || 0
+    const paginas = Math.ceil(total / LOTE_SUPABASE)
+
+    const consultas = Array.from({ length: paginas }, (_, index) => {
+      const inicio = index * LOTE_SUPABASE
+      const fim = inicio + LOTE_SUPABASE - 1
+
+      return supabase
+        .from('financeiro_embarques')
+        .select('*')
+        .range(inicio, fim)
+    })
+
+    const respostas = await Promise.all(consultas)
+
+    const erro = respostas.find((res) => res.error)
+
+    if (erro?.error) {
+      alert('Erro ao carregar financeiro: ' + erro.error.message)
+      setLoading(false)
+      return
+    }
+
+    const todos = respostas.flatMap((res) => res.data || [])
+
+    setLancamentos(
+      todos.sort((a, b) => {
+        const vencA = normalizarData(a.vencimento_cobranca) || '9999-99-99'
+        const vencB = normalizarData(b.vencimento_cobranca) || '9999-99-99'
+        return vencA.localeCompare(vencB)
+      })
+    )
+
+    setPagina(1)
     setLoading(false)
   }
 
@@ -306,9 +279,7 @@ export default function FinanceiroPage() {
 
       alert('Lançamento atualizado com sucesso.')
     } else {
-      const { error } = await supabase
-        .from('financeiro_embarques')
-        .insert(payload)
+      const { error } = await supabase.from('financeiro_embarques').insert(payload)
 
       if (error) {
         alert('Erro ao salvar: ' + error.message)
@@ -457,8 +428,46 @@ export default function FinanceiroPage() {
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
   }, [lancamentos])
 
+  const totaisGerais = useMemo(() => {
+    const faturamento = lancamentos.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
+      0
+    )
+
+    const custos = lancamentos.reduce(
+      (acc, item) => acc + calcularCustos(item),
+      0
+    )
+
+    const profit = faturamento - custos
+
+    const aReceber = lancamentos
+      .filter((item) => statusCobranca(item) !== 'PAGO')
+      .reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
+
+    const margem = faturamento > 0 ? (profit / faturamento) * 100 : 0
+
+    return { faturamento, custos, profit, aReceber, margem }
+  }, [lancamentos])
+
+  const resumoAbas = useMemo(() => {
+    const emAberto = lancamentos.filter((item) => statusCobranca(item) === 'EM ABERTO')
+    const atrasados = lancamentos.filter((item) => statusCobranca(item) === 'ATRASADOS')
+    const pagos = lancamentos.filter((item) => statusCobranca(item) === 'PAGO')
+
+    function total(lista: any[]) {
+      return lista.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
+    }
+
+    return {
+      emAberto: { qtd: emAberto.length, total: total(emAberto) },
+      atrasados: { qtd: atrasados.length, total: total(atrasados) },
+      pagos: { qtd: pagos.length, total: total(pagos) },
+      todos: { qtd: lancamentos.length, total: total(lancamentos) },
+    }
+  }, [lancamentos])
+
   const filtrados = useMemo(() => {
-    const statusSelecionados = filtrosStatus.map(normalizarOpcao)
     const termo = busca.toLowerCase().trim()
 
     return lancamentos.filter((item) => {
@@ -471,19 +480,11 @@ export default function FinanceiroPage() {
         ${item.servico || ''}
       `.toLowerCase()
 
-      const awbAtual = String(item.awb || '').toLowerCase().trim()
+      const passaBusca = !termo || texto.includes(termo)
 
-      const passaBusca =
-        !termo ||
-        awbAtual === termo ||
-        (!buscaPareceAwbCompleto(termo) && texto.includes(termo))
+      const statusAtual = statusCobranca(item)
 
-      const statusAtual = normalizarOpcao(statusCobranca(item))
-
-      const passaStatus =
-        statusSelecionados.length === 0
-          ? true
-          : statusSelecionados.includes(statusAtual)
+      const passaAba = aba === 'TODOS' ? true : statusAtual === aba
 
       const passaTransportadora =
         !filtroTransportadora || item.transportadora === filtroTransportadora
@@ -494,8 +495,8 @@ export default function FinanceiroPage() {
       const passaServico = !filtroServico || item.servico === filtroServico
 
       return (
+        passaAba &&
         passaBusca &&
-        passaStatus &&
         passaTransportadora &&
         passaDespachante &&
         passaServico
@@ -503,34 +504,29 @@ export default function FinanceiroPage() {
     })
   }, [
     lancamentos,
+    aba,
     busca,
-    filtrosStatus,
     filtroTransportadora,
     filtroDespachante,
     filtroServico,
   ])
 
-  const totais = useMemo(() => {
-    const faturamento = filtrados.reduce(
-      (acc, item) => acc + Number(item.valor_cobranca || 0),
-      0
-    )
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
-    const custos = filtrados.reduce(
-      (acc, item) => acc + calcularCustos(item),
-      0
-    )
+  const filtradosPaginados = useMemo(() => {
+    const inicio = (pagina - 1) * PAGE_SIZE
+    return filtrados.slice(inicio, inicio + PAGE_SIZE)
+  }, [filtrados, pagina])
 
-    const profit = faturamento - custos
+  function mudarAba(novaAba: string) {
+    setAba(novaAba)
+    setPagina(1)
+  }
 
-    const aReceber = filtrados
-      .filter((item) => statusCobranca(item) !== 'PAGO')
-      .reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
-
-    const margem = faturamento > 0 ? (profit / faturamento) * 100 : 0
-
-    return { faturamento, custos, profit, aReceber, margem }
-  }, [filtrados])
+  function mudarBusca(valor: string) {
+    setBusca(valor)
+    setPagina(1)
+  }
 
   return (
     <main className="min-h-screen bg-gray-100 p-6 text-gray-900">
@@ -548,7 +544,7 @@ export default function FinanceiroPage() {
             onClick={carregarFinanceiro}
             className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700"
           >
-            {loading ? 'Atualizando...' : 'Buscar / Atualizar dados'}
+            {loading ? 'Atualizando...' : 'Atualizar dados'}
           </button>
 
           <label className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-green-700">
@@ -565,11 +561,49 @@ export default function FinanceiroPage() {
       </div>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-5 mb-6">
-        <Card titulo="Faturamento" valor={moeda(totais.faturamento)} />
-        <Card titulo="Custos" valor={moeda(totais.custos)} />
-        <Card titulo="Profit HC" valor={moeda(totais.profit)} />
-        <Card titulo="A receber" valor={moeda(totais.aReceber)} />
-        <Card titulo="Margem" valor={`${totais.margem.toFixed(2)}%`} />
+        <Card titulo="Faturamento geral" valor={moeda(totaisGerais.faturamento)} />
+        <Card titulo="Custos gerais" valor={moeda(totaisGerais.custos)} />
+        <Card titulo="Profit HC geral" valor={moeda(totaisGerais.profit)} />
+        <Card titulo="A receber geral" valor={moeda(totaisGerais.aReceber)} />
+        <Card titulo="Margem geral" valor={`${totaisGerais.margem.toFixed(2)}%`} />
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-4 mb-6">
+        <ResumoCard
+          ativo={aba === 'EM ABERTO'}
+          titulo="Em aberto"
+          quantidade={resumoAbas.emAberto.qtd}
+          valor={moeda(resumoAbas.emAberto.total)}
+          onClick={() => mudarAba('EM ABERTO')}
+          classe="border-yellow-300"
+        />
+
+        <ResumoCard
+          ativo={aba === 'ATRASADOS'}
+          titulo="Atrasados"
+          quantidade={resumoAbas.atrasados.qtd}
+          valor={moeda(resumoAbas.atrasados.total)}
+          onClick={() => mudarAba('ATRASADOS')}
+          classe="border-red-300"
+        />
+
+        <ResumoCard
+          ativo={aba === 'PAGO'}
+          titulo="Pagos"
+          quantidade={resumoAbas.pagos.qtd}
+          valor={moeda(resumoAbas.pagos.total)}
+          onClick={() => mudarAba('PAGO')}
+          classe="border-green-300"
+        />
+
+        <ResumoCard
+          ativo={aba === 'TODOS'}
+          titulo="Todos"
+          quantidade={resumoAbas.todos.qtd}
+          valor={moeda(resumoAbas.todos.total)}
+          onClick={() => mudarAba('TODOS')}
+          classe="border-blue-300"
+        />
       </section>
 
       <section className="bg-white rounded-xl shadow p-5 mb-6">
@@ -644,7 +678,7 @@ export default function FinanceiroPage() {
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
             <h2 className="text-lg font-semibold">
-              Lançamentos financeiros ({filtrados.length})
+              {aba === 'TODOS' ? 'Todos os lançamentos' : `Lançamentos ${aba.toLowerCase()}`} ({filtrados.length})
             </h2>
 
             <button
@@ -656,17 +690,37 @@ export default function FinanceiroPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="flex flex-wrap gap-2">
+            {ABAS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => mudarAba(item)}
+                className={`px-4 py-2 rounded-xl text-sm font-bold border ${
+                  aba === item
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <input
               value={busca}
-              onChange={(e) => setBusca(e.target.value)}
+              onChange={(e) => mudarBusca(e.target.value)}
               placeholder="Buscar cliente, AWB, fatura, serviço..."
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
 
             <select
               value={filtroTransportadora}
-              onChange={(e) => setFiltroTransportadora(e.target.value)}
+              onChange={(e) => {
+                setFiltroTransportadora(e.target.value)
+                setPagina(1)
+              }}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
             >
               <option value="">Todas transportadoras</option>
@@ -679,7 +733,10 @@ export default function FinanceiroPage() {
 
             <select
               value={filtroDespachante}
-              onChange={(e) => setFiltroDespachante(e.target.value)}
+              onChange={(e) => {
+                setFiltroDespachante(e.target.value)
+                setPagina(1)
+              }}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
             >
               <option value="">Todos despachantes</option>
@@ -692,7 +749,10 @@ export default function FinanceiroPage() {
 
             <select
               value={filtroServico}
-              onChange={(e) => setFiltroServico(e.target.value)}
+              onChange={(e) => {
+                setFiltroServico(e.target.value)
+                setPagina(1)
+              }}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
             >
               <option value="">Todos serviços</option>
@@ -702,29 +762,7 @@ export default function FinanceiroPage() {
                 </option>
               ))}
             </select>
-
-            <div className="flex flex-wrap gap-2 items-center rounded-lg border border-gray-300 px-3 py-2">
-              <span className="text-sm font-semibold text-gray-600">Status:</span>
-
-              {STATUS_OPCOES.map((status) => (
-                <label key={status} className="flex items-center gap-1 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={filtrosStatus.some(
-                      (item) => normalizarOpcao(item) === normalizarOpcao(status)
-                    )}
-                    onChange={() => alternarFiltroStatus(status)}
-                  />
-                  {status}
-                </label>
-              ))}
-            </div>
           </div>
-
-          <p className="text-xs text-gray-500">
-            A página carrega no máximo {LIMITE_INICIAL} lançamentos por vez. Para localizar um AWB específico,
-            digite o número completo e clique em Buscar / Atualizar dados.
-          </p>
         </div>
 
         <div className="overflow-x-auto">
@@ -753,17 +791,17 @@ export default function FinanceiroPage() {
               {loading ? (
                 <tr>
                   <td colSpan={15} className="p-4 text-center">
-                    Carregando...
+                    Carregando todos os registros...
                   </td>
                 </tr>
-              ) : filtrados.length === 0 ? (
+              ) : filtradosPaginados.length === 0 ? (
                 <tr>
                   <td colSpan={15} className="p-4 text-center text-gray-500">
                     Nenhum lançamento encontrado.
                   </td>
                 </tr>
               ) : (
-                filtrados.map((item) => {
+                filtradosPaginados.map((item) => {
                   const cobranca = statusCobranca(item)
 
                   return (
@@ -818,6 +856,36 @@ export default function FinanceiroPage() {
             </tbody>
           </table>
         </div>
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
+          <p className="text-sm text-gray-600">
+            Mostrando {filtradosPaginados.length} de {filtrados.length} registros encontrados.
+          </p>
+
+          <div className="flex gap-2 items-center">
+            <button
+              type="button"
+              disabled={pagina <= 1}
+              onClick={() => setPagina((p) => Math.max(1, p - 1))}
+              className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 font-bold disabled:opacity-50"
+            >
+              Anterior
+            </button>
+
+            <span className="text-sm font-semibold">
+              Página {pagina} de {totalPaginas}
+            </span>
+
+            <button
+              type="button"
+              disabled={pagina >= totalPaginas}
+              onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+              className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 font-bold disabled:opacity-50"
+            >
+              Próxima
+            </button>
+          </div>
+        </div>
       </section>
     </main>
   )
@@ -829,6 +897,36 @@ function Card({ titulo, valor }: { titulo: string; valor: string }) {
       <p className="text-sm text-gray-500">{titulo}</p>
       <p className="text-xl font-bold text-gray-900">{valor}</p>
     </div>
+  )
+}
+
+function ResumoCard({
+  titulo,
+  quantidade,
+  valor,
+  ativo,
+  onClick,
+  classe,
+}: {
+  titulo: string
+  quantidade: number
+  valor: string
+  ativo: boolean
+  onClick: () => void
+  classe: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`bg-white rounded-xl shadow p-4 text-left border-2 hover:shadow-md ${
+        ativo ? 'border-blue-600' : classe
+      }`}
+    >
+      <p className="text-sm text-gray-500">{titulo}</p>
+      <p className="text-2xl font-bold text-gray-900">{quantidade}</p>
+      <p className="text-sm font-semibold text-gray-700">{valor}</p>
+    </button>
   )
 }
 
@@ -857,11 +955,7 @@ function Input({ label, value, onChange, type = 'text' }: InputProps) {
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">
-      {children}
-    </th>
-  )
+  return <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">{children}</th>
 }
 
 function Td({ children }: { children: React.ReactNode }) {
