@@ -16,12 +16,18 @@ export default function ResultadoFinanceiroPage() {
   }, [])
 
   async function carregar() {
-    setLoading(true)
+  setLoading(true)
 
+  let todos: any[] = []
+  let inicio = 0
+  const limite = 1000
+
+  while (true) {
     const { data, error } = await supabase
       .from('financeiro_embarques')
       .select('*')
       .order('cliente', { ascending: true })
+      .range(inicio, inicio + limite - 1)
 
     if (error) {
       alert('Erro ao carregar resultado financeiro: ' + error.message)
@@ -29,14 +35,23 @@ export default function ResultadoFinanceiroPage() {
       return
     }
 
-    setDados(
-      (data || []).sort((a, b) =>
-        String(a.cliente || '').localeCompare(String(b.cliente || ''), 'pt-BR')
-      )
-    )
+    todos = [...todos, ...(data || [])]
 
-    setLoading(false)
+    if (!data || data.length < limite) {
+      break
+    }
+
+    inicio += limite
   }
+
+  setDados(
+    todos.sort((a, b) =>
+      String(a.cliente || '').localeCompare(String(b.cliente || ''), 'pt-BR')
+    )
+  )
+
+  setLoading(false)
+}
 
   function moeda(valor: any) {
     return Number(valor || 0).toLocaleString('pt-BR', {
