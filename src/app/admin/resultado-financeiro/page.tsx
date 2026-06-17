@@ -16,42 +16,40 @@ export default function ResultadoFinanceiroPage() {
   }, [])
 
   async function carregar() {
-  setLoading(true)
+    setLoading(true)
 
-  let todos: any[] = []
-  let inicio = 0
-  const limite = 1000
+    let todos: any[] = []
+    let inicio = 0
+    const limite = 1000
 
-  while (true) {
-    const { data, error } = await supabase
-      .from('financeiro_embarques')
-      .select('*')
-      .order('cliente', { ascending: true })
-      .range(inicio, inicio + limite - 1)
+    while (true) {
+      const { data, error } = await supabase
+        .from('financeiro_embarques')
+        .select('*')
+        .order('cliente', { ascending: true })
+        .range(inicio, inicio + limite - 1)
 
-    if (error) {
-      alert('Erro ao carregar resultado financeiro: ' + error.message)
-      setLoading(false)
-      return
+      if (error) {
+        alert('Erro ao carregar resultado financeiro: ' + error.message)
+        setLoading(false)
+        return
+      }
+
+      todos = [...todos, ...(data || [])]
+
+      if (!data || data.length < limite) break
+
+      inicio += limite
     }
 
-    todos = [...todos, ...(data || [])]
-
-    if (!data || data.length < limite) {
-      break
-    }
-
-    inicio += limite
-  }
-
-  setDados(
-    todos.sort((a, b) =>
-      String(a.cliente || '').localeCompare(String(b.cliente || ''), 'pt-BR')
+    setDados(
+      todos.sort((a, b) =>
+        String(a.cliente || '').localeCompare(String(b.cliente || ''), 'pt-BR')
+      )
     )
-  )
 
-  setLoading(false)
-}
+    setLoading(false)
+  }
 
   function moeda(valor: any) {
     return Number(valor || 0).toLocaleString('pt-BR', {
@@ -60,21 +58,43 @@ export default function ResultadoFinanceiroPage() {
     })
   }
 
+  function normalizarData(valor: any) {
+    if (!valor) return null
+
+    if (valor instanceof Date && !isNaN(valor.getTime())) {
+      return valor.toISOString().slice(0, 10)
+    }
+
+    const texto = String(valor).trim()
+    if (!texto) return null
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(texto)) {
+      return texto.slice(0, 10)
+    }
+
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(texto)) {
+      const [dia, mes, ano] = texto.split('/')
+      return `${ano}-${mes}-${dia}`
+    }
+
+    return null
+  }
+
   function getDataProfit(item: any) {
-    return item.recebimento || null
+    return normalizarData(item.recebimento)
   }
 
   function getAno(item: any) {
     const data = getDataProfit(item)
     if (!data) return 'SEM RECEBIMENTO'
-    return String(data).slice(0, 4)
+    return data.slice(0, 4)
   }
 
   function getMes(item: any) {
     const data = getDataProfit(item)
     if (!data) return 'SEM RECEBIMENTO'
 
-    const m = String(data).slice(5, 7)
+    const m = data.slice(5, 7)
 
     const nomes: any = {
       '01': 'Janeiro',
@@ -95,7 +115,7 @@ export default function ResultadoFinanceiroPage() {
   }
 
   function temRecebimento(item: any) {
-    return !!item.recebimento
+    return !!getDataProfit(item)
   }
 
   function temCustoReal(item: any) {
@@ -126,7 +146,12 @@ export default function ResultadoFinanceiroPage() {
   }, [dados])
 
   const anos = useMemo(() => {
-    return ['TODOS', ...Array.from(new Set(dadosRecebidos.map(getAno))).filter(Boolean)]
+    return [
+      'TODOS',
+      ...Array.from(new Set(dadosRecebidos.map(getAno)))
+        .filter(Boolean)
+        .sort(),
+    ]
   }, [dadosRecebidos])
 
   const meses = [
@@ -212,6 +237,7 @@ export default function ResultadoFinanceiroPage() {
 
     filtradosComCusto.forEach((item) => {
       const chave = item[campo] || `SEM ${campo.toUpperCase()}`
+
       if (!mapa[chave]) {
         mapa[chave] = {
           nome: chave,
@@ -386,7 +412,10 @@ export default function ResultadoFinanceiroPage() {
                 const faturamento = Number(item.valor_cobranca || 0)
                 const totalCustos = temCustoReal(item) ? custos(item) : 0
                 const totalProfit = profit(item)
-                const margem = temCustoReal(item) && faturamento > 0 ? (totalProfit / faturamento) * 100 : 0
+                const margem =
+                  temCustoReal(item) && faturamento > 0
+                    ? (totalProfit / faturamento) * 100
+                    : 0
 
                 return (
                   <tr key={item.id}>
@@ -409,7 +438,7 @@ export default function ResultadoFinanceiroPage() {
                       )}
                     </td>
                     <td>{item.vencimento_cobranca || '-'}</td>
-                    <td>{item.recebimento || '-'}</td>
+                    <td>{getDataProfit(item) || '-'}</td>
                   </tr>
                 )
               })}
@@ -429,11 +458,7 @@ function Card({ titulo, valor, detalhe, destaque = false, alerta = false }: any)
   return (
     <div
       className={`border rounded-3xl p-6 bg-[#071225] ${
-        destaque
-          ? 'border-green-500'
-          : alerta
-          ? 'border-yellow-500'
-          : 'border-blue-900'
+        destaque ? 'border-green-500' : alerta ? 'border-yellow-500' : 'border-blue-900'
       }`}
     >
       <p className="text-slate-400 font-bold">{titulo}</p>
