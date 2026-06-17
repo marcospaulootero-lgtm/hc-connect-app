@@ -605,7 +605,12 @@ export default function FinanceiroPage() {
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
             <h2 className="text-lg font-semibold">
-              Lançamentos financeiros ({filtrados.length})
+              Lançamentos financeiros ({
+  filtrados.filter((item) => {
+    const status = statusCobranca(item)
+    return filtrosStatus.length === 0 || filtrosStatus.includes(status)
+  }).length
+})
             </h2>
 
             <button
@@ -717,7 +722,12 @@ export default function FinanceiroPage() {
                   </td>
                 </tr>
               ) : (
-                filtrados.map((item) => {
+                filtrados
+  .filter((item) => {
+    const status = statusCobranca(item)
+    return filtrosStatus.length === 0 || filtrosStatus.includes(status)
+  })
+  .map((item) => {
                   const cobranca = statusCobranca(item)
 
                   return (
