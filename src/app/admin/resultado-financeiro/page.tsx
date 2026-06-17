@@ -19,9 +19,9 @@ export default function ResultadoFinanceiroPage() {
     setLoading(true)
 
     const { data, error } = await supabase
-      .from('financeiro_embarques')
-      .select('*')
-      .order('vencimento_cobranca', { ascending: false })
+  .from('financeiro_embarques')
+  .select('*')
+  .order('cliente', { ascending: true })
 
     if (error) {
       alert('Erro ao carregar resultado financeiro: ' + error.message)

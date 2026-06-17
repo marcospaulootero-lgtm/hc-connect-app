@@ -172,7 +172,7 @@ export default function FinanceiroPage() {
     const { data, error } = await supabase
       .from('financeiro_embarques')
       .select('*')
-      .order('criado_em', { ascending: false })
+      .order('cliente', { ascending: true })
 
     if (error) {
       alert('Erro ao carregar financeiro: ' + error.message)
@@ -180,7 +180,14 @@ export default function FinanceiroPage() {
       return
     }
 
-    setLancamentos(data || [])
+    setLancamentos(
+  (data || []).sort((a, b) =>
+    String(a.cliente || '').localeCompare(
+      String(b.cliente || ''),
+      'pt-BR'
+    )
+  )
+)
     setLoading(false)
   }
 
