@@ -74,8 +74,12 @@ export default function ResultadoFinanceiroPage() {
   }
 
   function temCustoReal(item: any) {
-    return Number(item.valor_compra || 0) > 0
-  }
+  return (
+    item.valor_compra !== null &&
+    item.valor_compra !== undefined &&
+    Number(item.valor_compra) > 0
+  )
+}
 
   function custos(item: any) {
     return (
