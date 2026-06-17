@@ -18,8 +18,6 @@ type FormState = {
   recebimento: string
   vencimento_fornecedor: string
   pagamento_fornecedor: string
-  status: string
-  status_caixa: string
   mes: string
   mes_profit: string
   observacoes: string
@@ -32,11 +30,24 @@ type InputProps = {
   type?: string
 }
 
-type SelectProps = {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  children: React.ReactNode
+const formVazio: FormState = {
+  cliente: '',
+  despachante: '',
+  awb: '',
+  fatura: '',
+  transportadora: '',
+  servico: '',
+  valor_cobranca: '',
+  doc_dta: '',
+  debito_terceiro: '',
+  valor_compra: '',
+  vencimento_cobranca: '',
+  recebimento: '',
+  vencimento_fornecedor: '',
+  pagamento_fornecedor: '',
+  mes: '',
+  mes_profit: '',
+  observacoes: '',
 }
 
 export default function FinanceiroPage() {
@@ -44,32 +55,13 @@ export default function FinanceiroPage() {
   const [loading, setLoading] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [editandoId, setEditandoId] = useState<string | null>(null)
 
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroCaixa, setFiltroCaixa] = useState('')
 
-  const [form, setForm] = useState<FormState>({
-    cliente: '',
-    despachante: '',
-    awb: '',
-    fatura: '',
-    transportadora: '',
-    servico: '',
-    valor_cobranca: '',
-    doc_dta: '',
-    debito_terceiro: '',
-    valor_compra: '',
-    vencimento_cobranca: '',
-    recebimento: '',
-    vencimento_fornecedor: '',
-    pagamento_fornecedor: '',
-    status: 'EM ABERTO',
-    status_caixa: 'EM ABERTO',
-    mes: '',
-    mes_profit: '',
-    observacoes: '',
-  })
+  const [form, setForm] = useState<FormState>(formVazio)
 
   useEffect(() => {
     carregarFinanceiro()
@@ -118,6 +110,11 @@ export default function FinanceiroPage() {
     return null
   }
 
+  function dataInput(valor: any) {
+    if (!valor) return ''
+    return String(valor).slice(0, 10)
+  }
+
   function calcularProfit(item: any) {
     return (
       Number(item.valor_cobranca || 0) -
@@ -125,6 +122,44 @@ export default function FinanceiroPage() {
       Number(item.debito_terceiro || 0) -
       Number(item.valor_compra || 0)
     )
+  }
+
+  function statusCobranca(item: any) {
+    if (item.recebimento) return 'PAGO'
+
+    if (item.vencimento_cobranca) {
+      const hoje = new Date().toISOString().slice(0, 10)
+      if (String(item.vencimento_cobranca).slice(0, 10) < hoje) return 'VENCIDO'
+    }
+
+    return 'EM ABERTO'
+  }
+
+  function statusCaixa(item: any) {
+    const recebeu = !!item.recebimento
+    const pagouFornecedor = !!item.pagamento_fornecedor
+
+    if (recebeu && pagouFornecedor) return 'OK'
+    if (!recebeu && pagouFornecedor) return 'PAGOU E NÃO RECEBEU'
+    if (recebeu && !pagouFornecedor) return 'RECEBEU E NÃO PAGOU'
+
+    return 'EM ABERTO'
+  }
+
+  function badgeStatus(status: string) {
+    if (status === 'PAGO' || status === 'OK') {
+      return 'bg-green-100 text-green-800 border-green-300'
+    }
+
+    if (status === 'VENCIDO' || status === 'PAGOU E NÃO RECEBEU') {
+      return 'bg-red-100 text-red-800 border-red-300'
+    }
+
+    if (status === 'RECEBEU E NÃO PAGOU') {
+      return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+    }
+
+    return 'bg-gray-100 text-gray-700 border-gray-300'
   }
 
   async function carregarFinanceiro() {
@@ -145,11 +180,8 @@ export default function FinanceiroPage() {
     setLoading(false)
   }
 
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault()
-    setSalvando(true)
-
-    const payload = {
+  function montarPayload() {
+    return {
       cliente: form.cliente,
       despachante: form.despachante,
       awb: form.awb,
@@ -164,45 +196,79 @@ export default function FinanceiroPage() {
       recebimento: form.recebimento || null,
       vencimento_fornecedor: form.vencimento_fornecedor || null,
       pagamento_fornecedor: form.pagamento_fornecedor || null,
-      status: form.status,
-      status_caixa: form.status_caixa,
       mes: form.mes,
       mes_profit: form.mes_profit,
       observacoes: form.observacoes,
+      atualizado_em: new Date().toISOString(),
+    }
+  }
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setSalvando(true)
+
+    const payload = montarPayload()
+
+    if (editandoId) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update(payload)
+        .eq('id', editandoId)
+
+      if (error) {
+        alert('Erro ao atualizar: ' + error.message)
+        setSalvando(false)
+        return
+      }
+
+      alert('Lançamento atualizado com sucesso.')
+    } else {
+      const { error } = await supabase.from('financeiro_embarques').insert(payload)
+
+      if (error) {
+        alert('Erro ao salvar: ' + error.message)
+        setSalvando(false)
+        return
+      }
+
+      alert('Lançamento salvo com sucesso.')
     }
 
-    const { error } = await supabase.from('financeiro_embarques').insert(payload)
-
-    if (error) {
-      alert('Erro ao salvar: ' + error.message)
-      setSalvando(false)
-      return
-    }
-
-    setForm({
-      cliente: '',
-      despachante: '',
-      awb: '',
-      fatura: '',
-      transportadora: '',
-      servico: '',
-      valor_cobranca: '',
-      doc_dta: '',
-      debito_terceiro: '',
-      valor_compra: '',
-      vencimento_cobranca: '',
-      recebimento: '',
-      vencimento_fornecedor: '',
-      pagamento_fornecedor: '',
-      status: 'EM ABERTO',
-      status_caixa: 'EM ABERTO',
-      mes: '',
-      mes_profit: '',
-      observacoes: '',
-    })
-
+    setForm(formVazio)
+    setEditandoId(null)
     await carregarFinanceiro()
     setSalvando(false)
+  }
+
+  function editar(item: any) {
+    setEditandoId(item.id)
+
+    setForm({
+      cliente: item.cliente || '',
+      despachante: item.despachante || '',
+      awb: item.awb || '',
+      fatura: item.fatura || '',
+      transportadora: item.transportadora || '',
+      servico: item.servico || '',
+      valor_cobranca: String(item.valor_cobranca || ''),
+      doc_dta: String(item.doc_dta || ''),
+      debito_terceiro: String(item.debito_terceiro || ''),
+      valor_compra: String(item.valor_compra || ''),
+      vencimento_cobranca: dataInput(item.vencimento_cobranca),
+      recebimento: dataInput(item.recebimento),
+      vencimento_fornecedor: dataInput(item.vencimento_fornecedor),
+      pagamento_fornecedor: dataInput(item.pagamento_fornecedor),
+      mes: item.mes || '',
+      mes_profit: item.mes_profit || '',
+      observacoes: item.observacoes || '',
+    })
+
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null)
+    setForm(formVazio)
   }
 
   async function importarExcel(event: React.ChangeEvent<HTMLInputElement>) {
@@ -234,10 +300,8 @@ export default function FinanceiroPage() {
           valor_compra: numero(linha['VALOR DA COMPRA']),
           vencimento_cobranca: normalizarData(linha['VENCIMENTO_CLIENTE']),
           recebimento: normalizarData(linha['RECEBIMENTO_CLIENTE']),
-          status: normalizarTexto(linha['STATUS']) || 'EM ABERTO',
           vencimento_fornecedor: normalizarData(linha['VENCIMENTO_FORNECEDOR']),
           pagamento_fornecedor: normalizarData(linha['PAGAMENTO_FORNECEDOR']),
-          status_caixa: normalizarTexto(linha['STATUS DO CAIXA']) || 'EM ABERTO',
         }))
         .filter((item) => item.awb || item.cliente || item.valor_cobranca > 0)
 
@@ -291,8 +355,9 @@ export default function FinanceiroPage() {
     return lancamentos.filter((item) => {
       const texto = `${item.cliente || ''} ${item.awb || ''} ${item.transportadora || ''} ${item.servico || ''}`.toLowerCase()
       const passaBusca = texto.includes(busca.toLowerCase())
-      const passaStatus = filtroStatus ? item.status === filtroStatus : true
-      const passaCaixa = filtroCaixa ? item.status_caixa === filtroCaixa : true
+      const passaStatus = filtroStatus ? statusCobranca(item) === filtroStatus : true
+      const passaCaixa = filtroCaixa ? statusCaixa(item) === filtroCaixa : true
+
       return passaBusca && passaStatus && passaCaixa
     })
   }, [lancamentos, busca, filtroStatus, filtroCaixa])
@@ -354,46 +419,46 @@ export default function FinanceiroPage() {
       <section className="grid grid-cols-1 gap-4 md:grid-cols-5 mb-6">
         <Card titulo="Faturamento" valor={moeda(totais.faturamento)} />
         <Card titulo="Custos" valor={moeda(totais.custos)} />
-        <Card titulo="Profit" valor={moeda(totais.profit)} />
+        <Card titulo="Profit HC" valor={moeda(totais.profit)} />
         <Card titulo="A receber" valor={moeda(totais.aReceber)} />
         <Card titulo="A pagar" valor={moeda(totais.aPagar)} />
       </section>
 
       <section className="bg-white rounded-xl shadow p-5 mb-6">
-        <h2 className="text-lg font-semibold mb-4">Novo lançamento</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">
+            {editandoId ? 'Editando lançamento' : 'Novo lançamento'}
+          </h2>
+
+          {editandoId && (
+            <button
+              type="button"
+              onClick={cancelarEdicao}
+              className="bg-gray-200 text-gray-800 px-4 py-2 rounded-xl font-bold hover:bg-gray-300"
+            >
+              Cancelar edição
+            </button>
+          )}
+        </div>
 
         <form onSubmit={salvar} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Input label="Cliente" value={form.cliente} onChange={(v: string) => setForm({ ...form, cliente: v })} />
-          <Input label="Despachante" value={form.despachante} onChange={(v: string) => setForm({ ...form, despachante: v })} />
-          <Input label="AWB" value={form.awb} onChange={(v: string) => setForm({ ...form, awb: v })} />
-          <Input label="Fatura" value={form.fatura} onChange={(v: string) => setForm({ ...form, fatura: v })} />
+          <Input label="Cliente" value={form.cliente} onChange={(v) => setForm({ ...form, cliente: v })} />
+          <Input label="Despachante" value={form.despachante} onChange={(v) => setForm({ ...form, despachante: v })} />
+          <Input label="AWB" value={form.awb} onChange={(v) => setForm({ ...form, awb: v })} />
+          <Input label="Fatura" value={form.fatura} onChange={(v) => setForm({ ...form, fatura: v })} />
 
-          <Input label="Transportadora" value={form.transportadora} onChange={(v: string) => setForm({ ...form, transportadora: v })} />
-          <Input label="Serviço" value={form.servico} onChange={(v: string) => setForm({ ...form, servico: v })} />
-          <Input label="Valor faturado ao cliente R$" value={form.valor_cobranca} onChange={(v: string) => setForm({ ...form, valor_cobranca: v })} />
-          <Input label="DTA / DOC / Impostos R$" value={form.doc_dta} onChange={(v: string) => setForm({ ...form, doc_dta: v })} />
+          <Input label="Transportadora" value={form.transportadora} onChange={(v) => setForm({ ...form, transportadora: v })} />
+          <Input label="Serviço" value={form.servico} onChange={(v) => setForm({ ...form, servico: v })} />
+          <Input label="Valor faturado ao cliente R$" value={form.valor_cobranca} onChange={(v) => setForm({ ...form, valor_cobranca: v })} />
+          <Input label="DTA / DOC / Impostos R$" value={form.doc_dta} onChange={(v) => setForm({ ...form, doc_dta: v })} />
 
-          <Input label="Custos terceiros R$" value={form.debito_terceiro} onChange={(v: string) => setForm({ ...form, debito_terceiro: v })} />
-          <Input label="Valor compra R$" value={form.valor_compra} onChange={(v: string) => setForm({ ...form, valor_compra: v })} />
-          <Input type="date" label="Vencimento cliente" value={form.vencimento_cobranca} onChange={(v: string) => setForm({ ...form, vencimento_cobranca: v })} />
-          <Input type="date" label="Recebimento cliente" value={form.recebimento} onChange={(v: string) => setForm({ ...form, recebimento: v })} />
+          <Input label="Custos terceiros R$" value={form.debito_terceiro} onChange={(v) => setForm({ ...form, debito_terceiro: v })} />
+          <Input label="Valor compra R$" value={form.valor_compra} onChange={(v) => setForm({ ...form, valor_compra: v })} />
+          <Input type="date" label="Vencimento cliente" value={form.vencimento_cobranca} onChange={(v) => setForm({ ...form, vencimento_cobranca: v })} />
+          <Input type="date" label="Recebimento cliente" value={form.recebimento} onChange={(v) => setForm({ ...form, recebimento: v })} />
 
-          <Input type="date" label="Vencimento fornecedor" value={form.vencimento_fornecedor} onChange={(v: string) => setForm({ ...form, vencimento_fornecedor: v })} />
-          <Input type="date" label="Pagamento fornecedor" value={form.pagamento_fornecedor} onChange={(v: string) => setForm({ ...form, pagamento_fornecedor: v })} />
-
-          <Select label="Status" value={form.status} onChange={(v: string) => setForm({ ...form, status: v })}>
-            <option>EM ABERTO</option>
-            <option>PAGO</option>
-            <option>VENCIDO</option>
-            <option>FINALIZADO</option>
-          </Select>
-
-          <Select label="Status do caixa" value={form.status_caixa} onChange={(v: string) => setForm({ ...form, status_caixa: v })}>
-            <option>EM ABERTO</option>
-            <option>OK</option>
-            <option>PAGOU E NÃO RECEBEU</option>
-            <option>RECEBEU E NÃO PAGOU</option>
-          </Select>
+          <Input type="date" label="Vencimento fornecedor" value={form.vencimento_fornecedor} onChange={(v) => setForm({ ...form, vencimento_fornecedor: v })} />
+          <Input type="date" label="Pagamento fornecedor" value={form.pagamento_fornecedor} onChange={(v) => setForm({ ...form, pagamento_fornecedor: v })} />
 
           <div className="md:col-span-4">
             <label className="text-sm font-medium text-gray-700">Observações</label>
@@ -405,13 +470,27 @@ export default function FinanceiroPage() {
             />
           </div>
 
-          <div className="md:col-span-4">
+          <div className="md:col-span-4 flex gap-3">
             <button
               disabled={salvando}
               className="bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 font-bold"
             >
-              {salvando ? 'Salvando...' : 'Salvar lançamento'}
+              {salvando
+                ? 'Salvando...'
+                : editandoId
+                  ? 'Salvar alterações'
+                  : 'Salvar lançamento'}
             </button>
+
+            {editandoId && (
+              <button
+                type="button"
+                onClick={cancelarEdicao}
+                className="bg-gray-200 text-gray-800 px-5 py-3 rounded-xl hover:bg-gray-300 font-bold"
+              >
+                Cancelar
+              </button>
+            )}
           </div>
         </form>
       </section>
@@ -437,7 +516,6 @@ export default function FinanceiroPage() {
               <option>EM ABERTO</option>
               <option>PAGO</option>
               <option>VENCIDO</option>
-              <option>FINALIZADO</option>
             </select>
 
             <select
@@ -455,7 +533,7 @@ export default function FinanceiroPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1700px] w-full text-sm">
+          <table className="min-w-[1750px] w-full text-sm">
             <thead className="bg-gray-100 text-gray-700">
               <tr>
                 <Th>Cliente</Th>
@@ -468,10 +546,10 @@ export default function FinanceiroPage() {
                 <Th>DTA/DOC/Impostos</Th>
                 <Th>Terceiros</Th>
                 <Th>Valor compra</Th>
-                <Th>Profit</Th>
+                <Th>Profit HC</Th>
                 <Th>Venc. Cliente</Th>
                 <Th>Recebimento</Th>
-                <Th>Status</Th>
+                <Th>Status cobrança</Th>
                 <Th>Venc. Fornecedor</Th>
                 <Th>Pgto. Fornecedor</Th>
                 <Th>Status caixa</Th>
@@ -491,36 +569,53 @@ export default function FinanceiroPage() {
                   </td>
                 </tr>
               ) : (
-                filtrados.map((item) => (
-                  <tr key={item.id} className="border-b hover:bg-gray-50">
-                    <Td>{item.cliente}</Td>
-                    <Td>{item.despachante}</Td>
-                    <Td>{item.awb}</Td>
-                    <Td>{item.fatura}</Td>
-                    <Td>{item.transportadora}</Td>
-                    <Td>{item.servico}</Td>
-                    <Td>{moeda(item.valor_cobranca)}</Td>
-                    <Td>{moeda(item.doc_dta)}</Td>
-                    <Td>{moeda(item.debito_terceiro)}</Td>
-                    <Td>{moeda(item.valor_compra)}</Td>
-                    <Td>
-                      <span className={calcularProfit(item) >= 0 ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}>
-                        {moeda(calcularProfit(item))}
-                      </span>
-                    </Td>
-                    <Td>{item.vencimento_cobranca || '-'}</Td>
-                    <Td>{item.recebimento || '-'}</Td>
-                    <Td>{item.status}</Td>
-                    <Td>{item.vencimento_fornecedor || '-'}</Td>
-                    <Td>{item.pagamento_fornecedor || '-'}</Td>
-                    <Td>{item.status_caixa}</Td>
-                    <Td>
-                      <button onClick={() => excluir(item.id)} className="text-red-600 hover:underline">
-                        Excluir
-                      </button>
-                    </Td>
-                  </tr>
-                ))
+                filtrados.map((item) => {
+                  const cobranca = statusCobranca(item)
+                  const caixa = statusCaixa(item)
+
+                  return (
+                    <tr key={item.id} className="border-b hover:bg-gray-50">
+                      <Td>{item.cliente}</Td>
+                      <Td>{item.despachante}</Td>
+                      <Td>{item.awb}</Td>
+                      <Td>{item.fatura}</Td>
+                      <Td>{item.transportadora}</Td>
+                      <Td>{item.servico}</Td>
+                      <Td>{moeda(item.valor_cobranca)}</Td>
+                      <Td>{moeda(item.doc_dta)}</Td>
+                      <Td>{moeda(item.debito_terceiro)}</Td>
+                      <Td>{moeda(item.valor_compra)}</Td>
+                      <Td>
+                        <span className={calcularProfit(item) >= 0 ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}>
+                          {moeda(calcularProfit(item))}
+                        </span>
+                      </Td>
+                      <Td>{item.vencimento_cobranca || '-'}</Td>
+                      <Td>{item.recebimento || '-'}</Td>
+                      <Td><Badge texto={cobranca} classe={badgeStatus(cobranca)} /></Td>
+                      <Td>{item.vencimento_fornecedor || '-'}</Td>
+                      <Td>{item.pagamento_fornecedor || '-'}</Td>
+                      <Td><Badge texto={caixa} classe={badgeStatus(caixa)} /></Td>
+                      <Td>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => editar(item)}
+                            className="text-blue-600 hover:underline font-semibold"
+                          >
+                            Editar
+                          </button>
+
+                          <button
+                            onClick={() => excluir(item.id)}
+                            className="text-red-600 hover:underline font-semibold"
+                          >
+                            Excluir
+                          </button>
+                        </div>
+                      </Td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -539,6 +634,14 @@ function Card({ titulo, valor }: { titulo: string; valor: string }) {
   )
 }
 
+function Badge({ texto, classe }: { texto: string; classe: string }) {
+  return (
+    <span className={`inline-flex px-3 py-1 rounded-full border text-xs font-bold whitespace-nowrap ${classe}`}>
+      {texto}
+    </span>
+  )
+}
+
 function Input({ label, value, onChange, type = 'text' }: InputProps) {
   return (
     <div>
@@ -549,21 +652,6 @@ function Input({ label, value, onChange, type = 'text' }: InputProps) {
         onChange={(e) => onChange(e.target.value)}
         className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
       />
-    </div>
-  )
-}
-
-function Select({ label, value, onChange, children }: SelectProps) {
-  return (
-    <div>
-      <label className="text-sm font-medium text-gray-700">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
-      >
-        {children}
-      </select>
     </div>
   )
 }
