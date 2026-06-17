@@ -135,13 +135,28 @@ export default function FinanceiroPage() {
     return Number(item.valor_cobranca || 0) - calcularCustos(item)
   }
 
-  function statusCobranca(item: any) {
-    if (item.recebimento) return 'PAGO'
+  function normalizarOpcao(valor: any) {
+    return String(valor || '')
+      .trim()
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  }
 
-    if (item.vencimento_cobranca) {
+  function temDataValida(valor: any) {
+    return !!normalizarData(valor)
+  }
+
+  function statusCobranca(item: any) {
+    if (temDataValida(item.recebimento)) {
+      return 'PAGO'
+    }
+
+    const vencimento = normalizarData(item.vencimento_cobranca)
+    if (vencimento) {
       const hoje = new Date().toISOString().slice(0, 10)
 
-      if (String(item.vencimento_cobranca).slice(0, 10) < hoje) {
+      if (vencimento < hoje) {
         return 'VENCIDO'
       }
     }
@@ -431,7 +446,8 @@ export default function FinanceiroPage() {
       const status = statusCobranca(item)
 
       const passaStatus =
-        filtrosStatus.length === 0 || filtrosStatus.includes(status)
+        filtrosStatus.length === 0 ||
+        filtrosStatus.map(normalizarOpcao).includes(normalizarOpcao(status))
 
       const passaTransportadora =
         !filtroTransportadora || item.transportadora === filtroTransportadora
@@ -728,7 +744,7 @@ export default function FinanceiroPage() {
                         </span>
                       </Td>
                       <Td>{item.vencimento_cobranca || '-'}</Td>
-                      <Td>{item.recebimento || '-'}</Td>
+                      <Td>{normalizarData(item.recebimento) || '-'}</Td>
                       <Td>
                         <Badge texto={cobranca} classe={badgeStatus(cobranca)} />
                       </Td>
