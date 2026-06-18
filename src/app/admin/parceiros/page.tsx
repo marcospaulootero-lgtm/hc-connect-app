@@ -836,20 +836,24 @@ export default function ParceirosPage() {
                 </select>
               </div>
 
-              <div className="flex h-[175px] items-end gap-3 border-t border-slate-100 pt-4">
-                {graficoMensal.map((item) => (
-                  <div key={item.key} className="flex flex-1 flex-col items-center gap-2">
-                    <span className="text-[10px] font-black text-slate-700">
-                      {item.valor > 0 ? moeda(item.valor).replace('R$', '').trim() : ''}
-                    </span>
-                    <div
-                      className={`w-full max-w-[34px] rounded-t-lg shadow-sm ${modoGrafico === 'PENDENTE' ? 'bg-orange-400' : modoGrafico === 'TODOS' ? 'bg-slate-500' : 'bg-blue-500'}`}
-                      style={{ height: `${item.altura}px` }}
-                      title={`${item.label}: ${moeda(item.valor)}`}
-                    />
-                    <span className="text-xs font-bold text-slate-500">{item.label}</span>
-                  </div>
-                ))}
+              <div className="mt-4 h-[150px] border-t border-slate-100 pt-4">
+                <div className="flex h-full items-end gap-3">
+                  {graficoMensal.map((item) => (
+                    <div key={item.key} className="flex flex-1 flex-col items-center justify-end gap-2">
+                      <span className="min-h-[16px] text-[11px] font-black text-slate-800">
+                        {item.valor > 0 ? moeda(item.valor).replace('R$', '').trim() : '0,00'}
+                      </span>
+
+                      <div
+                        className={`w-full max-w-[34px] rounded-t-lg shadow-sm ${modoGrafico === 'PENDENTE' ? 'bg-orange-400' : modoGrafico === 'TODOS' ? 'bg-slate-500' : 'bg-blue-500'}`}
+                        style={{ height: `${item.valor > 0 ? item.altura : 6}px` }}
+                        title={`${item.label}: ${moeda(item.valor)}`}
+                      />
+
+                      <span className="text-xs font-bold text-slate-500">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
