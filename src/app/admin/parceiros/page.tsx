@@ -421,41 +421,149 @@ export default function ParceirosPage() {
     setSalvando(false)
   }
 
-  function exportarParceiro() {
-    const cabecalho = [
-      'Parceiro',
-      'Cliente',
-      'AWB',
-      'Serviço',
-      'Valor Parceiro',
-      'Mês Pgto',
-      'Status',
-    ]
+  async function gerarPdfFiltro() {
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      const autoTableModule: any = await import('jspdf-autotable')
+      const autoTable = autoTableModule.default || autoTableModule
 
-    const linhas = filtrados.map((item) => [
-      item.parceiro || item.despachante || '',
-      item.cliente || '',
-      item.awb || '',
-      item.servico || '',
-      Number(item.debito_terceiro || 0).toFixed(2).replace('.', ','),
-      item.mes_pgto || '',
-      statusVisual(item),
-    ])
+      const nomeParceiro = parceiroSelecionado || 'Todos parceiros'
+      const dataGeracao = new Date().toLocaleString('pt-BR')
 
-    const csv = [cabecalho, ...linhas]
-      .map((linha) => linha.map((campo) => `"${String(campo).replace(/"/g, '""')}"`).join(';'))
-      .join('\n')
+      const nomeArquivo = String(nomeParceiro)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
 
-    const blob = new Blob([`\uFEFF${csv}`], {
-      type: 'text/csv;charset=utf-8;',
-    })
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      })
 
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `profit-parceiro-${parceiroSelecionado || 'todos'}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+      const pageWidth = doc.internal.pageSize.getWidth()
+
+      doc.setFillColor(2, 12, 34)
+      doc.rect(0, 0, pageWidth, 22, 'F')
+
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(18)
+      doc.setFont('helvetica', 'bold')
+      doc.text('HC Connect', 14, 14)
+
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text('Relatório de Profit Parceiros', pageWidth - 14, 14, {
+        align: 'right',
+      })
+
+      doc.setTextColor(15, 23, 42)
+      doc.setFontSize(18)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Resumo do filtro - Profit Parceiros', 14, 34)
+
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(71, 85, 105)
+      doc.text(`Parceiro: ${nomeParceiro}`, 14, 41)
+      doc.text(
+        `Período: ${periodo === 'TODOS' ? 'Todos os períodos' : periodo}`,
+        14,
+        47
+      )
+      doc.text(`Status: ${aba}`, 14, 53)
+      doc.text(`Busca: ${busca || '-'}`, 14, 59)
+      doc.text(`Gerado em: ${dataGeracao}`, pageWidth - 14, 41, {
+        align: 'right',
+      })
+
+      autoTable(doc, {
+        startY: 66,
+        head: [['Processos', 'Total terceiro', 'Pago terceiro', 'Pendente terceiro', 'Ticket médio']],
+        body: [[
+          String(resumoFiltrado.qtd),
+          moeda(resumoFiltrado.total),
+          moeda(resumoFiltrado.pago),
+          moeda(resumoFiltrado.pendente),
+          moeda(resumoFiltrado.ticket),
+        ]],
+        theme: 'grid',
+        headStyles: {
+          fillColor: [37, 99, 235],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+        },
+        bodyStyles: {
+          halign: 'center',
+          fontStyle: 'bold',
+        },
+        styles: {
+          fontSize: 9,
+          cellPadding: 3,
+        },
+      })
+
+      const tabela = filtrados.map((item) => [
+        item.awb || '-',
+        item.cliente || '-',
+        item.servico || '-',
+        moeda(item.debito_terceiro),
+        statusVisual(item),
+        item.mes_pgto || '-',
+      ])
+
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 10,
+        head: [['AWB', 'Cliente', 'Serviço', 'Valor terceiro', 'Status pgto terceiro', 'Mês pgto terceiro']],
+        body: tabela.length ? tabela : [['-', '-', '-', '-', '-', '-']],
+        theme: 'striped',
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+        },
+        styles: {
+          fontSize: 8,
+          cellPadding: 2.5,
+          overflow: 'linebreak',
+        },
+        columnStyles: {
+          0: { cellWidth: 28 },
+          1: { cellWidth: 58 },
+          2: { cellWidth: 38 },
+          3: { cellWidth: 34, halign: 'right' },
+          4: { cellWidth: 38, halign: 'center' },
+          5: { cellWidth: 35, halign: 'center' },
+        },
+        didDrawPage: () => {
+          const pageHeight = doc.internal.pageSize.getHeight()
+          doc.setFontSize(8)
+          doc.setTextColor(100, 116, 139)
+          doc.text(
+            'Relatório gerado automaticamente pelo HC Connect',
+            14,
+            pageHeight - 8
+          )
+          doc.text(
+            `Página ${doc.getNumberOfPages()}`,
+            pageWidth - 14,
+            pageHeight - 8,
+            { align: 'right' }
+          )
+        },
+      })
+
+      doc.save(`profit-parceiros-${nomeArquivo || 'todos'}.pdf`)
+    } catch (error: any) {
+      alert(
+        'Erro ao gerar PDF: ' +
+          error.message +
+          '\n\nConfira se você instalou: npm install jspdf jspdf-autotable'
+      )
+    }
   }
 
   const parceirosResumo = useMemo(() => {
@@ -633,6 +741,25 @@ export default function ParceirosPage() {
       return passaBusca && passaAba
     })
   }, [dadosParceiroPeriodo, busca, aba])
+
+  const resumoFiltrado = useMemo(() => {
+    const pagos = filtrados.filter((item) => status(item) === 'PAGO')
+    const pendentes = filtrados.filter((item) => status(item) !== 'PAGO')
+
+    function total(lista: any[]) {
+      return lista.reduce((acc, item) => acc + Number(item.debito_terceiro || 0), 0)
+    }
+
+    const totalFiltrado = total(filtrados)
+
+    return {
+      qtd: filtrados.length,
+      total: totalFiltrado,
+      pago: total(pagos),
+      pendente: total(pendentes),
+      ticket: filtrados.length ? totalFiltrado / filtrados.length : 0,
+    }
+  }, [filtrados])
 
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
@@ -1060,10 +1187,10 @@ export default function ParceirosPage() {
 
                 <button
                   type="button"
-                  onClick={exportarParceiro}
+                  onClick={gerarPdfFiltro}
                   className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
                 >
-                  ⇩ Exportar
+                  📄 Gerar PDF
                 </button>
 
                 <button
@@ -1099,6 +1226,35 @@ export default function ParceirosPage() {
                 </button>
               ))}
             </div>
+
+            <section className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+              <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h4 className="text-sm font-black text-slate-950">
+                    Resumo do filtro para enviar ao cliente
+                  </h4>
+                  <p className="text-xs font-bold text-slate-500">
+                    Os valores abaixo mudam conforme parceiro, período, busca e status selecionados.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={gerarPdfFiltro}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700"
+                >
+                  Gerar PDF do filtro
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <ResumoFiltroCard titulo="Processos" valor={String(resumoFiltrado.qtd)} />
+                <ResumoFiltroCard titulo="Total terceiro" valor={moeda(resumoFiltrado.total)} />
+                <ResumoFiltroCard titulo="Pago terceiro" valor={moeda(resumoFiltrado.pago)} destaque="green" />
+                <ResumoFiltroCard titulo="Pendente terceiro" valor={moeda(resumoFiltrado.pendente)} destaque="orange" />
+                <ResumoFiltroCard titulo="Ticket médio" valor={moeda(resumoFiltrado.ticket)} />
+              </div>
+            </section>
 
             <div className="overflow-x-auto">
               <table className="min-w-[1450px] w-full text-sm">
@@ -1295,6 +1451,24 @@ function MiniInfo({ titulo, valor, destaque }: any) {
     <div className="border-r border-slate-100 last:border-r-0">
       <p className="text-xs font-black text-slate-500">{titulo}</p>
       <p className={`mt-1 text-xl font-black ${cor}`}>{valor}</p>
+    </div>
+  )
+}
+
+function ResumoFiltroCard({ titulo, valor, destaque }: any) {
+  const cor =
+    destaque === 'green'
+      ? 'text-green-600'
+      : destaque === 'orange'
+      ? 'text-orange-600'
+      : 'text-slate-950'
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+        {titulo}
+      </p>
+      <p className={`mt-1 text-lg font-black ${cor}`}>{valor}</p>
     </div>
   )
 }
