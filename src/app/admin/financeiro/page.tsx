@@ -492,6 +492,75 @@ export default function FinanceiroPage() {
     filtroServico,
   ])
 
+  const resumoFiltrado = useMemo(() => {
+    const totalValorFaturado = filtrados.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
+      0
+    )
+
+    const totalDtaDocImpostos = filtrados.reduce(
+      (acc, item) => acc + Number(item.doc_dta || 0),
+      0
+    )
+
+    const totalTerceiros = filtrados.reduce(
+      (acc, item) => acc + Number(item.debito_terceiro || 0),
+      0
+    )
+
+    const totalValorCompra = filtrados.reduce(
+      (acc, item) => acc + Number(item.valor_compra || 0),
+      0
+    )
+
+    const totalProfitHC = filtrados.reduce((acc, item) => {
+      const possuiCusto = Number(item.valor_compra || 0) > 0
+      return possuiCusto ? acc + calcularProfit(item) : acc
+    }, 0)
+
+    const aguardandoCusto = filtrados.filter(
+      (item) => Number(item.valor_compra || 0) <= 0
+    ).length
+
+    const emAberto = filtrados.filter(
+      (item) => statusCobranca(item) === 'EM ABERTO'
+    )
+
+    const atrasado = filtrados.filter(
+      (item) => statusCobranca(item) === 'ATRASADO'
+    )
+
+    const pago = filtrados.filter(
+      (item) => statusCobranca(item) === 'PAGO'
+    )
+
+    function totalCobranca(lista: any[]) {
+      return lista.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
+    }
+
+    return {
+      qtd: filtrados.length,
+      totalValorFaturado,
+      totalDtaDocImpostos,
+      totalTerceiros,
+      totalValorCompra,
+      totalProfitHC,
+      aguardandoCusto,
+      emAberto: {
+        qtd: emAberto.length,
+        total: totalCobranca(emAberto),
+      },
+      atrasado: {
+        qtd: atrasado.length,
+        total: totalCobranca(atrasado),
+      },
+      pago: {
+        qtd: pago.length,
+        total: totalCobranca(pago),
+      },
+    }
+  }, [filtrados])
+
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
   const filtradosPaginados = useMemo(() => {
@@ -637,6 +706,96 @@ export default function FinanceiroPage() {
           </button>
         </div>
 
+        <section className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
+          <div className="mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <div>
+              <h3 className="text-lg font-black text-gray-950">Resumo dos filtros aplicados</h3>
+              <p className="text-sm text-gray-500">
+                Somatório calculado somente com os registros exibidos no filtro atual.
+              </p>
+            </div>
+
+            <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-black text-blue-700 border border-blue-100">
+              {resumoFiltrado.qtd} lançamentos filtrados
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+            <FiltroResumoCard
+              titulo="Valor Faturado"
+              valor={moeda(resumoFiltrado.totalValorFaturado)}
+              detalhe="Cliente"
+              classe="bg-white text-blue-700 border-blue-100"
+            />
+
+            <FiltroResumoCard
+              titulo="DTA/DOC/Impostos"
+              valor={moeda(resumoFiltrado.totalDtaDocImpostos)}
+              detalhe="Custos extras"
+              classe="bg-white text-slate-700 border-slate-100"
+            />
+
+            <FiltroResumoCard
+              titulo="Terceiros"
+              valor={moeda(resumoFiltrado.totalTerceiros)}
+              detalhe="Parceiros"
+              classe="bg-white text-orange-700 border-orange-100"
+            />
+
+            <FiltroResumoCard
+              titulo="Valor Compra"
+              valor={moeda(resumoFiltrado.totalValorCompra)}
+              detalhe="Custo HC"
+              classe="bg-white text-slate-700 border-slate-100"
+            />
+
+            <FiltroResumoCard
+              titulo="Profit HC"
+              valor={moeda(resumoFiltrado.totalProfitHC)}
+              detalhe={
+                resumoFiltrado.aguardandoCusto > 0
+                  ? `${resumoFiltrado.aguardandoCusto} sem custo`
+                  : 'Com custo lançado'
+              }
+              classe={
+                resumoFiltrado.totalProfitHC >= 0
+                  ? 'bg-white text-green-700 border-green-100'
+                  : 'bg-white text-red-700 border-red-100'
+              }
+            />
+
+            <FiltroResumoCard
+              titulo="Recebimento"
+              valor={`${resumoFiltrado.pago.qtd} pagos`}
+              detalhe={`${moeda(resumoFiltrado.pago.total)} recebido`}
+              classe="bg-white text-green-700 border-green-100"
+            />
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <FiltroMiniStatus
+              titulo="Em aberto"
+              quantidade={resumoFiltrado.emAberto.qtd}
+              valor={moeda(resumoFiltrado.emAberto.total)}
+              classe="bg-yellow-50 text-yellow-700 border-yellow-200"
+            />
+
+            <FiltroMiniStatus
+              titulo="Atrasados"
+              quantidade={resumoFiltrado.atrasado.qtd}
+              valor={moeda(resumoFiltrado.atrasado.total)}
+              classe="bg-red-50 text-red-700 border-red-200"
+            />
+
+            <FiltroMiniStatus
+              titulo="Pagos"
+              quantidade={resumoFiltrado.pago.qtd}
+              valor={moeda(resumoFiltrado.pago.total)}
+              classe="bg-green-50 text-green-700 border-green-200"
+            />
+          </div>
+        </section>
+
         <div className="overflow-x-auto">
           <table className="min-w-[1750px] w-full text-sm">
             <thead className="bg-gray-50 text-gray-500">
@@ -701,6 +860,29 @@ export default function FinanceiroPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+function FiltroResumoCard({ titulo, valor, detalhe, classe }: any) {
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${classe}`}>
+      <p className="text-xs font-black tracking-wide opacity-80">{titulo}</p>
+      <p className="mt-2 text-xl font-black">{valor}</p>
+      <p className="mt-1 text-xs font-bold opacity-70">{detalhe}</p>
+    </div>
+  )
+}
+
+function FiltroMiniStatus({ titulo, quantidade, valor, classe }: any) {
+  return (
+    <div className={`rounded-xl border px-4 py-3 flex items-center justify-between ${classe}`}>
+      <div>
+        <p className="text-sm font-black">{titulo}</p>
+        <p className="text-xs font-bold opacity-75">{quantidade} lançamentos</p>
+      </div>
+
+      <p className="text-sm font-black">{valor}</p>
+    </div>
   )
 }
 
