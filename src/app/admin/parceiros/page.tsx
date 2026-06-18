@@ -6,22 +6,6 @@ import { supabase } from '@/lib/supabaseClient'
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
 
-const MESES = [
-  { key: 'janeiro', label: 'Jan' },
-  { key: 'fevereiro', label: 'Fev' },
-  { key: 'marco', label: 'Mar' },
-  { key: 'março', label: 'Mar' },
-  { key: 'abril', label: 'Abr' },
-  { key: 'maio', label: 'Mai' },
-  { key: 'junho', label: 'Jun' },
-  { key: 'julho', label: 'Jul' },
-  { key: 'agosto', label: 'Ago' },
-  { key: 'setembro', label: 'Set' },
-  { key: 'outubro', label: 'Out' },
-  { key: 'novembro', label: 'Nov' },
-  { key: 'dezembro', label: 'Dez' },
-]
-
 const MESES_UNICOS = [
   { key: 'janeiro', label: 'Jan' },
   { key: 'fevereiro', label: 'Fev' },
@@ -49,7 +33,8 @@ export default function ParceirosPage() {
   const [parceiroSelecionado, setParceiroSelecionado] = useState('')
   const [aba, setAba] = useState('TODOS')
   const [pagina, setPagina] = useState(1)
-  const [periodo, setPeriodo] = useState('2024')
+  const [periodo, setPeriodo] = useState('2026')
+  const [modoGrafico, setModoGrafico] = useState('PAGO')
 
   const [form, setForm] = useState({
     parceiro: '',
@@ -114,6 +99,17 @@ export default function ParceirosPage() {
     return new Date()
       .toLocaleDateString('pt-BR', { month: 'long' })
       .toLowerCase()
+  }
+
+  function anoRegistro(item: any) {
+    return normalizarTexto(
+      item.ano ||
+        item.ano_pgto ||
+        item.ano_pagamento ||
+        item.ano_referencia ||
+        item.competencia_ano ||
+        ''
+    )
   }
 
   function status(item: any) {
@@ -488,6 +484,30 @@ export default function ParceirosPage() {
     )
   }, [registros, parceiroSelecionado])
 
+  const anosDisponiveis = useMemo(() => {
+    const anos = [
+      ...new Set(
+        dadosParceiro
+          .map((item) => anoRegistro(item))
+          .filter(Boolean)
+      ),
+    ].sort((a: any, b: any) => String(b).localeCompare(String(a)))
+
+    return anos.length ? anos : ['2026', '2025', '2024']
+  }, [dadosParceiro])
+
+  const dadosParceiroPeriodo = useMemo(() => {
+    if (periodo === 'TODOS') return dadosParceiro
+
+    return dadosParceiro.filter((item) => {
+      const ano = anoRegistro(item)
+
+      if (!ano) return true
+
+      return ano === periodo
+    })
+  }, [dadosParceiro, periodo])
+
   const resumoGeral = useMemo(() => {
     const emAberto = registros.filter((item) => status(item) !== 'PAGO')
     const pagos = registros.filter((item) => status(item) === 'PAGO')
@@ -506,23 +526,23 @@ export default function ParceirosPage() {
   }, [registros, parceirosResumo.length])
 
   const resumoParceiro = useMemo(() => {
-    const emAberto = dadosParceiro.filter((item) => status(item) !== 'PAGO')
-    const pagos = dadosParceiro.filter((item) => status(item) === 'PAGO')
+    const emAberto = dadosParceiroPeriodo.filter((item) => status(item) !== 'PAGO')
+    const pagos = dadosParceiroPeriodo.filter((item) => status(item) === 'PAGO')
 
     function total(lista: any[]) {
       return lista.reduce((acc, item) => acc + Number(item.debito_terceiro || 0), 0)
     }
 
-    const totalParceiro = total(dadosParceiro)
+    const totalParceiro = total(dadosParceiroPeriodo)
 
     return {
       total: totalParceiro,
       aberto: total(emAberto),
       pago: total(pagos),
-      qtd: dadosParceiro.length,
-      ticket: dadosParceiro.length ? totalParceiro / dadosParceiro.length : 0,
+      qtd: dadosParceiroPeriodo.length,
+      ticket: dadosParceiroPeriodo.length ? totalParceiro / dadosParceiroPeriodo.length : 0,
     }
-  }, [dadosParceiro])
+  }, [dadosParceiroPeriodo])
 
   const ranking = useMemo(() => {
     return [...parceirosResumo].slice(0, 5)
@@ -535,11 +555,12 @@ export default function ParceirosPage() {
       mapa[mes.key] = 0
     })
 
-    dadosParceiro.forEach((item) => {
-      if (status(item) !== 'PAGO') return
+    dadosParceiroPeriodo.forEach((item) => {
+      if (modoGrafico === 'PAGO' && status(item) !== 'PAGO') return
+      if (modoGrafico === 'PENDENTE' && status(item) === 'PAGO') return
 
-      const mes = normalizarMes(item.mes_pgto)
-      if (!mes) return
+      const mes = normalizarMes(item.mes_pgto) || 'sem_mes'
+      if (mes === 'sem_mes') return
 
       mapa[mes] = (mapa[mes] || 0) + Number(item.debito_terceiro || 0)
     })
@@ -553,14 +574,14 @@ export default function ParceirosPage() {
 
     return lista.map((item) => ({
       ...item,
-      altura: Math.max(8, (item.valor / maior) * 150),
+      altura: item.valor > 0 ? Math.max(10, (item.valor / maior) * 105) : 4,
     }))
-  }, [dadosParceiro])
+  }, [dadosParceiroPeriodo, modoGrafico])
 
   const filtrados = useMemo(() => {
     const termo = normalizarBusca(busca)
 
-    return dadosParceiro.filter((item) => {
+    return dadosParceiroPeriodo.filter((item) => {
       const texto = normalizarBusca(`
         ${item.parceiro || item.despachante || ''}
         ${item.cliente || ''}
@@ -584,7 +605,7 @@ export default function ParceirosPage() {
 
       return passaBusca && passaAba
     })
-  }, [dadosParceiro, busca, aba])
+  }, [dadosParceiroPeriodo, busca, aba])
 
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
@@ -757,12 +778,18 @@ export default function ParceirosPage() {
 
               <select
                 value={periodo}
-                onChange={(e) => setPeriodo(e.target.value)}
+                onChange={(e) => {
+                  setPeriodo(e.target.value)
+                  setPagina(1)
+                }}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
               >
-                <option value="2024">📅 Período: 2024</option>
-                <option value="2025">📅 Período: 2025</option>
-                <option value="2026">📅 Período: 2026</option>
+                <option value="TODOS">📅 Todos os períodos</option>
+                {anosDisponiveis.map((ano: any) => (
+                  <option key={ano} value={ano}>
+                    📅 Período: {ano}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -786,31 +813,37 @@ export default function ParceirosPage() {
             </p>
           </section>
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_330px]">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-black">
                     Evolução de pagamentos (por mês)
                   </h3>
                   <p className="text-sm text-slate-500">
-                    Valores pagos por mês
+                    Valores filtrados por mês
                   </p>
                 </div>
 
-                <select className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold">
-                  <option>Exibir: Pagos</option>
+                <select
+                  value={modoGrafico}
+                  onChange={(e) => setModoGrafico(e.target.value)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold"
+                >
+                  <option value="PAGO">Exibir: Pagos</option>
+                  <option value="PENDENTE">Exibir: Pendentes</option>
+                  <option value="TODOS">Exibir: Todos</option>
                 </select>
               </div>
 
-              <div className="flex h-[245px] items-end gap-3 border-t border-slate-100 pt-6">
+              <div className="flex h-[175px] items-end gap-3 border-t border-slate-100 pt-4">
                 {graficoMensal.map((item) => (
                   <div key={item.key} className="flex flex-1 flex-col items-center gap-2">
                     <span className="text-[10px] font-black text-slate-700">
                       {item.valor > 0 ? moeda(item.valor).replace('R$', '').trim() : ''}
                     </span>
                     <div
-                      className="w-full max-w-[34px] rounded-t-lg bg-blue-500 shadow-sm"
+                      className={`w-full max-w-[34px] rounded-t-lg shadow-sm ${modoGrafico === 'PENDENTE' ? 'bg-orange-400' : modoGrafico === 'TODOS' ? 'bg-slate-500' : 'bg-blue-500'}`}
                       style={{ height: `${item.altura}px` }}
                       title={`${item.label}: ${moeda(item.valor)}`}
                     />
@@ -820,8 +853,8 @@ export default function ParceirosPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-base font-black">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-lg font-black">
                 Ranking de parceiros
                 <span className="font-normal text-slate-500"> (por valor total)</span>
               </h3>
@@ -833,7 +866,7 @@ export default function ParceirosPage() {
                 {ranking.map((item: any, index: number) => (
                   <div
                     key={item.nome}
-                    className="flex items-center justify-between border-b border-slate-100 pb-3"
+                    className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 px-3 py-3"
                   >
                     <div className="flex items-center gap-3">
                       <span
@@ -856,7 +889,7 @@ export default function ParceirosPage() {
                       </div>
                     </div>
 
-                    <p className="text-sm font-black text-slate-950">
+                    <p className="text-base font-black text-slate-950">
                       {moeda(item.total)}
                     </p>
                   </div>
@@ -970,6 +1003,9 @@ export default function ParceirosPage() {
                     {filtrados.length} registros
                   </span>
                 </h3>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  Controle dos terceiros: valor = coluna I, status = coluna Q, mês do pagamento = coluna S.
+                </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -1026,16 +1062,15 @@ export default function ParceirosPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="min-w-[1250px] w-full text-sm">
+              <table className="min-w-[1450px] w-full text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <Th>AWB</Th>
                     <Th>Cliente</Th>
                     <Th>Serviço</Th>
-                    <Th>Valor Parceiro</Th>
-                    <Th>Mês Pgto</Th>
-                    <Th>Status</Th>
-                    <Th>Pagamento</Th>
+                    <Th>Valor Terceiro</Th>
+                    <Th>Status Pgto Terceiro</Th>
+                    <Th>Mês Pgto Terceiro</Th>
                     <Th>Ações</Th>
                   </tr>
                 </thead>
@@ -1043,13 +1078,13 @@ export default function ParceirosPage() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center">
+                      <td colSpan={7} className="p-8 text-center">
                         Carregando registros...
                       </td>
                     </tr>
                   ) : paginados.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-500">
+                      <td colSpan={7} className="p-8 text-center text-slate-500">
                         Nenhum profit de parceiro encontrado.
                       </td>
                     </tr>
@@ -1070,34 +1105,33 @@ export default function ParceirosPage() {
                               {moeda(item.debito_terceiro)}
                             </span>
                           </Td>
-                          <Td>{item.mes_pgto || '-'}</Td>
                           <Td>
                             <Badge texto={statusAtual} classe={badge(statusAtual)} />
                           </Td>
-                          <Td>{statusAtual === 'PAGO' ? item.mes_pgto || '-' : '-'}</Td>
+                          <Td>{item.mes_pgto || '-'}</Td>
                           <Td>
                             <div className="flex gap-2">
                               {statusAtual === 'PAGO' ? (
                                 <button
                                   onClick={() => reabrirPagamento(item)}
-                                  className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 font-bold text-yellow-700 hover:bg-yellow-100"
+                                  className="min-w-[110px] rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-2 font-black text-yellow-700 hover:bg-yellow-100"
                                 >
-                                  ↺
+                                  ↺ Reabrir
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => marcarPago(item)}
-                                  className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 font-bold text-green-700 hover:bg-green-100"
+                                  className="min-w-[110px] rounded-lg border border-green-200 bg-green-50 px-4 py-2 font-black text-green-700 hover:bg-green-100"
                                 >
-                                  ✓
+                                  ✓ Pago
                                 </button>
                               )}
 
                               <button
                                 onClick={() => editar(item)}
-                                className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-bold text-blue-600 hover:bg-blue-100"
+                                className="min-w-[90px] rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 font-black text-blue-600 hover:bg-blue-100"
                               >
-                                ›
+                                Editar
                               </button>
                             </div>
                           </Td>
