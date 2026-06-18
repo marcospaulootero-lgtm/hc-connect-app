@@ -91,6 +91,29 @@ export default function FinanceiroPage() {
     )
   }
 
+  function formatarMoedaInput(valor: string) {
+    const apenasNumeros = String(valor || '').replace(/\D/g, '')
+
+    if (!apenasNumeros) return ''
+
+    const numeroFinal = Number(apenasNumeros) / 100
+
+    return numeroFinal.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  }
+
+  function formatarValorParaForm(valor: any) {
+    const n = Number(valor || 0)
+    if (!n) return ''
+
+    return n.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  }
+
   function normalizarTexto(valor: any) {
     if (valor === null || valor === undefined) return ''
     return String(valor).trim()
@@ -143,31 +166,20 @@ export default function FinanceiroPage() {
   }
 
   function statusCobranca(item: any) {
-    if (temDataValida(item.recebimento)) {
-      return 'PAGO'
-    }
+    if (temDataValida(item.recebimento)) return 'PAGO'
 
     const vencimento = normalizarData(item.vencimento_cobranca)
     if (vencimento) {
       const hoje = new Date().toISOString().slice(0, 10)
-
-      if (vencimento < hoje) {
-        return 'ATRASADO'
-      }
+      if (vencimento < hoje) return 'ATRASADO'
     }
 
     return 'EM ABERTO'
   }
 
   function badgeStatus(status: string) {
-    if (status === 'PAGO') {
-      return 'bg-green-100 text-green-700 border-green-300'
-    }
-
-    if (status === 'ATRASADO') {
-      return 'bg-red-100 text-red-700 border-red-300'
-    }
-
+    if (status === 'PAGO') return 'bg-green-100 text-green-700 border-green-300'
+    if (status === 'ATRASADO') return 'bg-red-100 text-red-700 border-red-300'
     return 'bg-yellow-100 text-yellow-700 border-yellow-300'
   }
 
@@ -199,10 +211,7 @@ export default function FinanceiroPage() {
       const inicio = index * LOTE_SUPABASE
       const fim = inicio + LOTE_SUPABASE - 1
 
-      return supabase
-        .from('financeiro_embarques')
-        .select('*')
-        .range(inicio, fim)
+      return supabase.from('financeiro_embarques').select('*').range(inicio, fim)
     })
 
     const respostas = await Promise.all(consultas)
@@ -302,10 +311,10 @@ export default function FinanceiroPage() {
       fatura: item.fatura || '',
       transportadora: item.transportadora || '',
       servico: item.servico || '',
-      valor_cobranca: String(item.valor_cobranca || ''),
-      doc_dta: String(item.doc_dta || ''),
-      debito_terceiro: String(item.debito_terceiro || ''),
-      valor_compra: String(item.valor_compra || ''),
+      valor_cobranca: formatarValorParaForm(item.valor_cobranca),
+      doc_dta: formatarValorParaForm(item.doc_dta),
+      debito_terceiro: formatarValorParaForm(item.debito_terceiro),
+      valor_compra: formatarValorParaForm(item.valor_compra),
       vencimento_cobranca: dataInput(item.vencimento_cobranca),
       recebimento: dataInput(item.recebimento),
       mes: item.mes || '',
@@ -546,59 +555,16 @@ export default function FinanceiroPage() {
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
-        <ResumoCard
-          ativo={aba === 'EM ABERTO'}
-          titulo="Em aberto"
-          quantidade={resumo.emAberto.qtd}
-          valor={moeda(resumo.emAberto.total)}
-          cor="yellow"
-          onClick={() => mudarAba('EM ABERTO')}
-        />
-
-        <ResumoCard
-          ativo={aba === 'ATRASADO'}
-          titulo="Atrasados"
-          quantidade={resumo.atrasado.qtd}
-          valor={moeda(resumo.atrasado.total)}
-          cor="red"
-          onClick={() => mudarAba('ATRASADO')}
-        />
-
-        <ResumoCard
-          ativo={aba === 'PAGO'}
-          titulo="Pagos"
-          quantidade={resumo.pago.qtd}
-          valor={moeda(resumo.pago.total)}
-          cor="green"
-          onClick={() => mudarAba('PAGO')}
-        />
-
-        <ResumoCard
-          ativo={aba === 'TODOS'}
-          titulo="Todos"
-          quantidade={resumo.todos.qtd}
-          valor={moeda(resumo.todos.total)}
-          cor="blue"
-          onClick={() => mudarAba('TODOS')}
-        />
+        <ResumoCard ativo={aba === 'EM ABERTO'} titulo="Em aberto" quantidade={resumo.emAberto.qtd} valor={moeda(resumo.emAberto.total)} cor="yellow" onClick={() => mudarAba('EM ABERTO')} />
+        <ResumoCard ativo={aba === 'ATRASADO'} titulo="Atrasados" quantidade={resumo.atrasado.qtd} valor={moeda(resumo.atrasado.total)} cor="red" onClick={() => mudarAba('ATRASADO')} />
+        <ResumoCard ativo={aba === 'PAGO'} titulo="Pagos" quantidade={resumo.pago.qtd} valor={moeda(resumo.pago.total)} cor="green" onClick={() => mudarAba('PAGO')} />
+        <ResumoCard ativo={aba === 'TODOS'} titulo="Todos" quantidade={resumo.todos.qtd} valor={moeda(resumo.todos.total)} cor="blue" onClick={() => mudarAba('TODOS')} />
       </section>
 
       <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">
-            {editandoId ? 'Editando lançamento' : 'Novo lançamento'}
-          </h2>
-
-          {editandoId && (
-            <button
-              type="button"
-              onClick={cancelarEdicao}
-              className="bg-gray-100 text-gray-800 px-4 py-2 rounded-xl font-bold hover:bg-gray-200"
-            >
-              Cancelar edição
-            </button>
-          )}
-        </div>
+        <h2 className="text-lg font-bold mb-4">
+          {editandoId ? 'Editando lançamento' : 'Novo lançamento'}
+        </h2>
 
         <form onSubmit={salvar} className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input label="Cliente" value={form.cliente} onChange={(v) => setForm({ ...form, cliente: v })} />
@@ -608,11 +574,11 @@ export default function FinanceiroPage() {
 
           <Input label="Transportadora" value={form.transportadora} onChange={(v) => setForm({ ...form, transportadora: v })} />
           <Input label="Serviço" value={form.servico} onChange={(v) => setForm({ ...form, servico: v })} />
-          <Input label="Valor faturado ao cliente R$" value={form.valor_cobranca} onChange={(v) => setForm({ ...form, valor_cobranca: v })} />
-          <Input label="DTA / DOC / Impostos R$" value={form.doc_dta} onChange={(v) => setForm({ ...form, doc_dta: v })} />
+          <InputMoney label="Valor faturado ao cliente R$" value={form.valor_cobranca} onChange={(v) => setForm({ ...form, valor_cobranca: v })} />
+          <InputMoney label="DTA / DOC / Impostos R$" value={form.doc_dta} onChange={(v) => setForm({ ...form, doc_dta: v })} />
 
-          <Input label="Custos terceiros R$" value={form.debito_terceiro} onChange={(v) => setForm({ ...form, debito_terceiro: v })} />
-          <Input label="Valor compra R$" value={form.valor_compra} onChange={(v) => setForm({ ...form, valor_compra: v })} />
+          <InputMoney label="Custos terceiros R$" value={form.debito_terceiro} onChange={(v) => setForm({ ...form, debito_terceiro: v })} />
+          <InputMoney label="Valor compra R$" value={form.valor_compra} onChange={(v) => setForm({ ...form, valor_compra: v })} />
           <Input type="date" label="Vencimento cliente" value={form.vencimento_cobranca} onChange={(v) => setForm({ ...form, vencimento_cobranca: v })} />
           <Input type="date" label="Recebimento cliente" value={form.recebimento} onChange={(v) => setForm({ ...form, recebimento: v })} />
 
@@ -631,11 +597,7 @@ export default function FinanceiroPage() {
               disabled={salvando}
               className="bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 font-bold"
             >
-              {salvando
-                ? 'Salvando...'
-                : editandoId
-                  ? 'Salvar alterações'
-                  : 'Salvar lançamento'}
+              {salvando ? 'Salvando...' : editandoId ? 'Salvar alterações' : 'Salvar lançamento'}
             </button>
 
             {editandoId && (
@@ -653,69 +615,24 @@ export default function FinanceiroPage() {
 
       <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-5">
-          <input
-            value={busca}
-            onChange={(e) => {
-              setBusca(e.target.value)
-              setPagina(1)
-            }}
-            placeholder="Buscar por cliente, AWB, fatura, serviço..."
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviço..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
-          <select
-            value={filtroTransportadora}
-            onChange={(e) => {
-              setFiltroTransportadora(e.target.value)
-              setPagina(1)
-            }}
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-          >
+          <select value={filtroTransportadora} onChange={(e) => { setFiltroTransportadora(e.target.value); setPagina(1) }} className="rounded-xl border border-gray-200 px-4 py-3 text-sm">
             <option value="">Todas transportadoras</option>
-            {transportadoras.map((item: any) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
+            {transportadoras.map((item: any) => <option key={item} value={item}>{item}</option>)}
           </select>
 
-          <select
-            value={filtroDespachante}
-            onChange={(e) => {
-              setFiltroDespachante(e.target.value)
-              setPagina(1)
-            }}
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-          >
+          <select value={filtroDespachante} onChange={(e) => { setFiltroDespachante(e.target.value); setPagina(1) }} className="rounded-xl border border-gray-200 px-4 py-3 text-sm">
             <option value="">Todos despachantes</option>
-            {despachantes.map((item: any) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
+            {despachantes.map((item: any) => <option key={item} value={item}>{item}</option>)}
           </select>
 
-          <select
-            value={filtroServico}
-            onChange={(e) => {
-              setFiltroServico(e.target.value)
-              setPagina(1)
-            }}
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-          >
+          <select value={filtroServico} onChange={(e) => { setFiltroServico(e.target.value); setPagina(1) }} className="rounded-xl border border-gray-200 px-4 py-3 text-sm">
             <option value="">Todos serviços</option>
-            {servicos.map((item: any) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
+            {servicos.map((item: any) => <option key={item} value={item}>{item}</option>)}
           </select>
 
-          <button
-            type="button"
-            onClick={limparFiltros}
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50"
-          >
+          <button type="button" onClick={limparFiltros} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
             ⌁ Limpar filtros
           </button>
         </div>
@@ -744,17 +661,9 @@ export default function FinanceiroPage() {
 
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={15} className="p-6 text-center">
-                    Carregando todos os registros...
-                  </td>
-                </tr>
+                <tr><td colSpan={15} className="p-6 text-center">Carregando todos os registros...</td></tr>
               ) : filtradosPaginados.length === 0 ? (
-                <tr>
-                  <td colSpan={15} className="p-6 text-center text-gray-500">
-                    Nenhum lançamento encontrado.
-                  </td>
-                </tr>
+                <tr><td colSpan={15} className="p-6 text-center text-gray-500">Nenhum lançamento encontrado.</td></tr>
               ) : (
                 filtradosPaginados.map((item) => {
                   const cobranca = statusCobranca(item)
@@ -772,52 +681,15 @@ export default function FinanceiroPage() {
                       <Td>{moeda(item.valor_cobranca)}</Td>
                       <Td>{moeda(item.doc_dta)}</Td>
                       <Td>{moeda(item.debito_terceiro)}</Td>
-                      <Td>
-                        {possuiCusto ? (
-                          moeda(item.valor_compra)
-                        ) : (
-                          <span className="inline-flex rounded-lg bg-yellow-100 px-2 py-1 text-xs font-black text-yellow-700 border border-yellow-300">
-                            ⚠ AGUARDANDO CUSTO
-                          </span>
-                        )}
-                      </Td>
-                      <Td>
-                        {profit === null ? (
-                          <span className="text-gray-400 font-black">
-                            AGUARDANDO CUSTO
-                          </span>
-                        ) : (
-                          <span
-                            className={
-                              profit >= 0
-                                ? 'text-green-600 font-black'
-                                : 'text-red-600 font-black'
-                            }
-                          >
-                            {moeda(profit)}
-                          </span>
-                        )}
-                      </Td>
+                      <Td>{possuiCusto ? moeda(item.valor_compra) : <span className="inline-flex rounded-lg bg-yellow-100 px-2 py-1 text-xs font-black text-yellow-700 border border-yellow-300">⚠ AGUARDANDO CUSTO</span>}</Td>
+                      <Td>{profit === null ? <span className="text-gray-400 font-black">AGUARDANDO CUSTO</span> : <span className={profit >= 0 ? 'text-green-600 font-black' : 'text-red-600 font-black'}>{moeda(profit)}</span>}</Td>
                       <Td>{normalizarData(item.vencimento_cobranca) || '-'}</Td>
                       <Td>{normalizarData(item.recebimento) || '-'}</Td>
-                      <Td>
-                        <Badge texto={cobranca} classe={badgeStatus(cobranca)} />
-                      </Td>
+                      <Td><Badge texto={cobranca} classe={badgeStatus(cobranca)} /></Td>
                       <Td>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => editar(item)}
-                            className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold"
-                          >
-                            ✎
-                          </button>
-
-                          <button
-                            onClick={() => excluir(item.id)}
-                            className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold"
-                          >
-                            🗑
-                          </button>
+                          <button onClick={() => editar(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">✎</button>
+                          <button onClick={() => excluir(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold">🗑</button>
                         </div>
                       </Td>
                     </tr>
@@ -827,54 +699,12 @@ export default function FinanceiroPage() {
             </tbody>
           </table>
         </div>
-
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-5">
-          <p className="text-sm text-gray-500">
-            Mostrando {filtradosPaginados.length} de {filtrados.length} registros
-          </p>
-
-          <div className="flex gap-2 items-center">
-            <button
-              type="button"
-              disabled={pagina <= 1}
-              onClick={() => setPagina((p) => Math.max(1, p - 1))}
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 font-bold disabled:opacity-50"
-            >
-              ‹
-            </button>
-
-            <span className="text-sm font-bold">
-              Página {pagina} de {totalPaginas}
-            </span>
-
-            <button
-              type="button"
-              disabled={pagina >= totalPaginas}
-              onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 font-bold disabled:opacity-50"
-            >
-              ›
-            </button>
-          </div>
-        </div>
       </section>
     </main>
   )
 }
 
-function BigCard({
-  titulo,
-  valor,
-  subtitulo,
-  icone,
-  classe,
-}: {
-  titulo: string
-  valor: string
-  subtitulo: string
-  icone: string
-  classe: string
-}) {
+function BigCard({ titulo, valor, subtitulo, icone, classe }: any) {
   return (
     <div className={`rounded-2xl border p-8 shadow-sm ${classe}`}>
       <div className="flex items-center justify-between gap-4">
@@ -883,30 +713,13 @@ function BigCard({
           <p className="text-4xl font-black mt-3">{valor}</p>
           <p className="text-sm text-gray-500 mt-2">{subtitulo}</p>
         </div>
-
-        <div className="w-16 h-16 rounded-full bg-white/70 flex items-center justify-center text-3xl">
-          {icone}
-        </div>
+        <div className="w-16 h-16 rounded-full bg-white/70 flex items-center justify-center text-3xl">{icone}</div>
       </div>
     </div>
   )
 }
 
-function ResumoCard({
-  titulo,
-  quantidade,
-  valor,
-  ativo,
-  onClick,
-  cor,
-}: {
-  titulo: string
-  quantidade: number
-  valor: string
-  ativo: boolean
-  onClick: () => void
-  cor: 'yellow' | 'red' | 'green' | 'blue'
-}) {
+function ResumoCard({ titulo, quantidade, valor, ativo, onClick, cor }: any) {
   const cores: any = {
     yellow: 'bg-yellow-400',
     red: 'bg-red-500',
@@ -915,19 +728,11 @@ function ResumoCard({
   }
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`bg-white rounded-2xl shadow-sm border p-5 text-left hover:shadow-md ${
-        ativo ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-200'
-      }`}
-    >
+    <button type="button" onClick={onClick} className={`bg-white rounded-2xl shadow-sm border p-5 text-left hover:shadow-md ${ativo ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-200'}`}>
       <div className="flex items-center gap-2">
         <span className={`w-3 h-3 rounded-full ${cores[cor]}`} />
         <p className="font-black text-gray-900">{titulo}</p>
-        <span className="ml-auto bg-gray-100 text-gray-700 text-xs font-black px-2 py-1 rounded-full">
-          {quantidade}
-        </span>
+        <span className="ml-auto bg-gray-100 text-gray-700 text-xs font-black px-2 py-1 rounded-full">{quantidade}</span>
       </div>
       <p className="text-sm font-bold text-gray-600 mt-3">{valor}</p>
     </button>
@@ -935,23 +740,39 @@ function ResumoCard({
 }
 
 function Badge({ texto, classe }: { texto: string; classe: string }) {
-  return (
-    <span
-      className={`inline-flex px-3 py-1 rounded-full border text-xs font-black whitespace-nowrap ${classe}`}
-    >
-      {texto}
-    </span>
-  )
+  return <span className={`inline-flex px-3 py-1 rounded-full border text-xs font-black whitespace-nowrap ${classe}`}>{texto}</span>
 }
 
 function Input({ label, value, onChange, type = 'text' }: InputProps) {
   return (
     <div>
       <label className="text-sm font-semibold text-gray-600">{label}</label>
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    </div>
+  )
+}
+
+function InputMoney({ label, value, onChange }: InputProps) {
+  function formatar(valor: string) {
+    const apenasNumeros = String(valor || '').replace(/\D/g, '')
+    if (!apenasNumeros) return ''
+
+    const numeroFinal = Number(apenasNumeros) / 100
+
+    return numeroFinal.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  }
+
+  return (
+    <div>
+      <label className="text-sm font-semibold text-gray-600">{label}</label>
       <input
-        type={type}
+        type="text"
+        inputMode="numeric"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => onChange(formatar(e.target.value))}
         className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>
@@ -959,11 +780,7 @@ function Input({ label, value, onChange, type = 'text' }: InputProps) {
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-3 py-3 text-left font-black whitespace-nowrap">
-      {children}
-    </th>
-  )
+  return <th className="px-3 py-3 text-left font-black whitespace-nowrap">{children}</th>
 }
 
 function Td({ children }: { children: React.ReactNode }) {
