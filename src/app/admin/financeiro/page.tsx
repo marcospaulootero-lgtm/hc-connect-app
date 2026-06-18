@@ -46,7 +46,6 @@ const formVazio: FormState = {
   observacoes: '',
 }
 
-const ABAS = ['EM ABERTO', 'ATRASADO', 'PAGO', 'TODOS']
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
 
@@ -722,7 +721,7 @@ export default function FinanceiroPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1450px] w-full text-sm">
+          <table className="min-w-[1750px] w-full text-sm">
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <Th>Cliente</Th>
@@ -732,10 +731,13 @@ export default function FinanceiroPage() {
                 <Th>Transportadora</Th>
                 <Th>Serviço</Th>
                 <Th>Valor Faturado</Th>
+                <Th>DTA/DOC/Impostos</Th>
+                <Th>Terceiros</Th>
+                <Th>Valor Compra</Th>
+                <Th>Profit HC</Th>
                 <Th>Venc. Cliente</Th>
                 <Th>Recebimento</Th>
                 <Th>Status</Th>
-                <Th>Profit HC</Th>
                 <Th>Ações</Th>
               </tr>
             </thead>
@@ -743,20 +745,21 @@ export default function FinanceiroPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="p-6 text-center">
+                  <td colSpan={15} className="p-6 text-center">
                     Carregando todos os registros...
                   </td>
                 </tr>
               ) : filtradosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="p-6 text-center text-gray-500">
+                  <td colSpan={15} className="p-6 text-center text-gray-500">
                     Nenhum lançamento encontrado.
                   </td>
                 </tr>
               ) : (
                 filtradosPaginados.map((item) => {
                   const cobranca = statusCobranca(item)
-                  const profit = calcularProfit(item)
+                  const possuiCusto = Number(item.valor_compra || 0) > 0
+                  const profit = possuiCusto ? calcularProfit(item) : null
 
                   return (
                     <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
@@ -767,21 +770,38 @@ export default function FinanceiroPage() {
                       <Td>{item.transportadora}</Td>
                       <Td>{item.servico}</Td>
                       <Td>{moeda(item.valor_cobranca)}</Td>
+                      <Td>{moeda(item.doc_dta)}</Td>
+                      <Td>{moeda(item.debito_terceiro)}</Td>
+                      <Td>
+                        {possuiCusto ? (
+                          moeda(item.valor_compra)
+                        ) : (
+                          <span className="inline-flex rounded-lg bg-yellow-100 px-2 py-1 text-xs font-black text-yellow-700 border border-yellow-300">
+                            ⚠ AGUARDANDO CUSTO
+                          </span>
+                        )}
+                      </Td>
+                      <Td>
+                        {profit === null ? (
+                          <span className="text-gray-400 font-black">
+                            AGUARDANDO CUSTO
+                          </span>
+                        ) : (
+                          <span
+                            className={
+                              profit >= 0
+                                ? 'text-green-600 font-black'
+                                : 'text-red-600 font-black'
+                            }
+                          >
+                            {moeda(profit)}
+                          </span>
+                        )}
+                      </Td>
                       <Td>{normalizarData(item.vencimento_cobranca) || '-'}</Td>
                       <Td>{normalizarData(item.recebimento) || '-'}</Td>
                       <Td>
                         <Badge texto={cobranca} classe={badgeStatus(cobranca)} />
-                      </Td>
-                      <Td>
-                        <span
-                          className={
-                            profit >= 0
-                              ? 'text-green-600 font-black'
-                              : 'text-red-600 font-black'
-                          }
-                        >
-                          {moeda(profit)}
-                        </span>
                       </Td>
                       <Td>
                         <div className="flex gap-2">
