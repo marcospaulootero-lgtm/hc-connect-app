@@ -21,7 +21,9 @@ export default function ParceirosPage() {
 
   const [form, setForm] = useState({
     parceiro: '',
-    pagamento_parceiro: '',
+    debito_terceiro: '',
+    pgta_terceiros: 'PENDENTE',
+    mes_pgto: '',
   })
 
   useEffect(() => {
@@ -35,99 +37,49 @@ export default function ParceirosPage() {
     })
   }
 
-  function data(valor: any) {
-    if (!valor) return ''
-    return String(valor).slice(0, 10)
-  }
-
   function normalizarTexto(valor: any) {
     if (valor === null || valor === undefined) return ''
     return String(valor).trim()
   }
 
-  function normalizarData(valor: any) {
-    if (!valor) return null
+  function normalizarStatusParceiro(valor: any) {
+    const texto = normalizarTexto(valor)
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
 
-    if (valor instanceof Date && !isNaN(valor.getTime())) {
-      return valor.toISOString().split('T')[0]
-    }
+    if (texto.includes('PAGO')) return 'PAGO'
+    if (texto.includes('PENDENTE')) return 'PENDENTE'
 
-    if (typeof valor === 'number') {
-      const dataExcel = new Date((valor - 25569) * 86400 * 1000)
-      return dataExcel.toISOString().split('T')[0]
-    }
-
-    const texto = String(valor).trim()
-    if (!texto || texto === '0') return null
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto
-
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(texto)) {
-      const [dia, mes, ano] = texto.split('/')
-      return `${ano}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
-    }
-
-    if (/^\d{1,2}\/\d{4}$/.test(texto)) {
-      const [mes, ano] = texto.split('/')
-      return `${ano}-${mes.padStart(2, '0')}-01`
-    }
-
-    return null
+    return 'PENDENTE'
   }
 
-  function normalizarPagamentoParceiro(statusExcel: any, mesPagamento: any, anoExcel: any) {
-  const texto = String(statusExcel || '')
-    .trim()
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-
-  const estaPago =
-    texto === 'PAGO' ||
-    texto.includes('PAGO') ||
-    texto.includes('PGTO') ||
-    texto.includes('PAGAMENTO') ||
-    texto === 'OK' ||
-    texto === 'SIM'
-
-  if (!estaPago) return null
-
-  const meses: any = {
-    JAN: '01',
-    FEV: '02',
-    MAR: '03',
-    ABR: '04',
-    MAI: '05',
-    JUN: '06',
-    JUL: '07',
-    AGO: '08',
-    SET: '09',
-    OUT: '10',
-    NOV: '11',
-    DEZ: '12',
+  function normalizarMes(valor: any) {
+    return normalizarTexto(valor).toLowerCase()
   }
 
-  const mesTexto = String(mesPagamento || '')
-    .trim()
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  function normalizarNumero(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return 0
 
-  const ano = String(anoExcel || '').trim()
+    if (typeof valor === 'number') return valor
 
-  if (meses[mesTexto] && ano) {
-    return `${ano}-${meses[mesTexto]}-01`
+    let texto = String(valor)
+      .replace(/\s/g, '')
+      .replace('R$', '')
+      .replace(/\./g, '')
+      .replace(',', '.')
+
+    const numero = Number(texto)
+
+    return isNaN(numero) ? 0 : numero
   }
-
-  const dataPagamento = normalizarData(mesPagamento)
-
-  if (dataPagamento) return dataPagamento
-
-  return new Date().toISOString().slice(0, 10)
-}
 
   function status(item: any) {
-    return item.pagamento_parceiro ? 'PAGO' : 'EM ABERTO'
+    const pgta = normalizarStatusParceiro(item.pgta_terceiros)
+
+    if (pgta === 'PAGO') return 'PAGO'
+
+    return 'EM ABERTO'
   }
 
   function badge(statusAtual: string) {
@@ -190,129 +142,114 @@ export default function ParceirosPage() {
     setLoading(false)
   }
 
-  function dividirEmLotes<T>(lista: T[], tamanho = 200) {
-  const lotes: T[][] = []
+  function dividirEmLotes<T>(lista: T[], tamanho = 25) {
+    const lotes: T[][] = []
 
-  for (let i = 0; i < lista.length; i += tamanho) {
-    lotes.push(lista.slice(i, i + tamanho))
-  }
-
-  return lotes
-}
-
-async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement>) {
-  const file = event.target.files?.[0]
-  if (!file) return
-
-  if (
-    !confirm(
-      'Importar pagamentos dos parceiros?\n\nEsta ação vai atualizar SOMENTE o campo pagamento_parceiro usando AWB, PGTA_TERCEIROS e MÊS DO PGT. Nenhum outro dado será alterado.'
-    )
-  ) {
-    event.target.value = ''
-    return
-  }
-
-  setImportando(true)
-
-  try {
-    const XLSX = await import('xlsx')
-    const buffer = await file.arrayBuffer()
-    const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
-
-    const pagosPorData: Record<string, string[]> = {}
-    const pendentes: string[] = []
-    let ignorados = 0
-    let atualizados = 0
-    let erros = 0
-
-    for (const linha of linhas) {
-      const awb = normalizarTexto(linha['AWB'])
-      const statusExcel = linha['PGTA_TERCEIROS']
-      const mesPagamento = linha['MÊS DO PGT']
-
-      if (!awb) {
-        ignorados++
-        continue
-      }
-
-      const pagamentoParceiro = normalizarPagamentoParceiro(
-  statusExcel,
-  mesPagamento,
-  linha['ANO']
-)
-
-      if (pagamentoParceiro) {
-        if (!pagosPorData[pagamentoParceiro]) {
-          pagosPorData[pagamentoParceiro] = []
-        }
-
-        pagosPorData[pagamentoParceiro].push(awb)
-      } else {
-        pendentes.push(awb)
-      }
+    for (let i = 0; i < lista.length; i += tamanho) {
+      lotes.push(lista.slice(i, i + tamanho))
     }
 
-    for (const dataPagamento of Object.keys(pagosPorData)) {
-      const lotes = dividirEmLotes(pagosPorData[dataPagamento], 200)
+    return lotes
+  }
+
+  async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (
+      !confirm(
+        'Importar dados dos parceiros?\n\nEsta ação vai atualizar SOMENTE:\n\nColuna I = Valor do parceiro\nColuna Q = Pago/Pendente\nColuna S = Mês do pagamento\n\nUsando a AWB como chave.'
+      )
+    ) {
+      event.target.value = ''
+      return
+    }
+
+    setImportando(true)
+
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const linhas: any[][] = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        defval: '',
+      })
+
+      const atualizacoes: any[] = []
+      let ignorados = 0
+      let atualizados = 0
+      let erros = 0
+
+      for (let i = 1; i < linhas.length; i++) {
+        const linha = linhas[i]
+
+        const awb = normalizarTexto(linha[2])
+        const valorParceiro = normalizarNumero(linha[8])
+        const pgtaTerceiros = normalizarStatusParceiro(linha[16])
+        const mesPgto = normalizarMes(linha[18])
+
+        if (!awb) {
+          ignorados++
+          continue
+        }
+
+        atualizacoes.push({
+          awb,
+          debito_terceiro: valorParceiro,
+          pgta_terceiros: pgtaTerceiros,
+          mes_pgto: mesPgto || null,
+        })
+      }
+
+      const lotes = dividirEmLotes(atualizacoes, 25)
 
       for (const lote of lotes) {
-        const { error } = await supabase
-          .from('financeiro_embarques')
-          .update({
-            pagamento_parceiro: dataPagamento,
-            atualizado_em: new Date().toISOString(),
-          })
-          .in('awb', lote)
-          .gt('debito_terceiro', 0)
+        const respostas = await Promise.all(
+          lote.map((item) =>
+            supabase
+              .from('financeiro_embarques')
+              .update({
+                debito_terceiro: item.debito_terceiro,
+                pgta_terceiros: item.pgta_terceiros,
+                mes_pgto: item.mes_pgto,
+                atualizado_em: new Date().toISOString(),
+              })
+              .eq('awb', item.awb)
+              .select('id')
+          )
+        )
 
-        if (error) {
-          erros += lote.length
-        } else {
-          atualizados += lote.length
+        for (const resposta of respostas) {
+          if (resposta.error) {
+            erros++
+          } else {
+            atualizados += resposta.data?.length || 0
+          }
         }
       }
+
+      alert(
+        `Importação concluída.\n\nAtualizados: ${atualizados}\nIgnorados sem AWB: ${ignorados}\nErros: ${erros}`
+      )
+
+      await carregar()
+    } catch (error: any) {
+      alert('Erro ao importar pagamentos: ' + error.message)
     }
 
-    const lotesPendentes = dividirEmLotes(pendentes, 200)
-
-    for (const lote of lotesPendentes) {
-      const { error } = await supabase
-        .from('financeiro_embarques')
-        .update({
-          pagamento_parceiro: null,
-          atualizado_em: new Date().toISOString(),
-        })
-        .in('awb', lote)
-        .gt('debito_terceiro', 0)
-
-      if (error) {
-        erros += lote.length
-      } else {
-        atualizados += lote.length
-      }
-    }
-
-    alert(
-      `Importação concluída.\n\nAtualizados: ${atualizados}\nIgnorados sem AWB: ${ignorados}\nErros: ${erros}`
-    )
-
-    await carregar()
-  } catch (error: any) {
-    alert('Erro ao importar pagamentos: ' + error.message)
+    setImportando(false)
+    event.target.value = ''
   }
-
-  setImportando(false)
-  event.target.value = ''
-}
 
   function editar(item: any) {
     setEditando(item)
     setForm({
       parceiro: item.parceiro || item.despachante || '',
-      pagamento_parceiro: data(item.pagamento_parceiro),
+      debito_terceiro: String(item.debito_terceiro || ''),
+      pgta_terceiros: normalizarStatusParceiro(item.pgta_terceiros),
+      mes_pgto: item.mes_pgto || '',
     })
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -322,7 +259,9 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
     setEditando(null)
     setForm({
       parceiro: '',
-      pagamento_parceiro: '',
+      debito_terceiro: '',
+      pgta_terceiros: 'PENDENTE',
+      mes_pgto: '',
     })
   }
 
@@ -337,7 +276,9 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
       .from('financeiro_embarques')
       .update({
         parceiro: form.parceiro,
-        pagamento_parceiro: form.pagamento_parceiro || null,
+        debito_terceiro: normalizarNumero(form.debito_terceiro),
+        pgta_terceiros: normalizarStatusParceiro(form.pgta_terceiros),
+        mes_pgto: form.mes_pgto || null,
         atualizado_em: new Date().toISOString(),
       })
       .eq('id', editando.id)
@@ -398,6 +339,8 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
         ${item.cliente || ''}
         ${item.awb || ''}
         ${item.servico || ''}
+        ${item.pgta_terceiros || ''}
+        ${item.mes_pgto || ''}
       `.toLowerCase()
 
       const passaBusca = !termo || texto.includes(termo)
@@ -466,9 +409,9 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
         />
 
         <BigCard
-          titulo="EM ABERTO"
+          titulo="A PAGAR PARCEIROS"
           valor={moeda(resumo.aberto)}
-          subtitulo="Aguardando pagamento"
+          subtitulo="Parceiros pendentes de pagamento"
           icone="💰"
           classe="bg-orange-50 border-orange-200 text-orange-600"
         />
@@ -477,7 +420,7 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
       <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
         <ResumoCard
           ativo={aba === 'EM ABERTO'}
-          titulo="Em aberto"
+          titulo="A pagar"
           quantidade={registros.filter((i) => status(i) === 'EM ABERTO').length}
           valor={moeda(resumo.aberto)}
           cor="yellow"
@@ -546,25 +489,51 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
               <input
                 value={form.parceiro}
                 onChange={(e) => setForm({ ...form, parceiro: e.target.value })}
-                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
               />
             </div>
 
             <Info label="Cliente" value={editando.cliente || '-'} />
             <Info label="AWB" value={editando.awb || '-'} />
-            <Info label="Valor Parceiro" value={moeda(editando.debito_terceiro)} />
 
             <div>
               <label className="text-sm font-semibold text-gray-600">
-                Data pagamento parceiro
+                Valor parceiro
               </label>
               <input
-                type="date"
-                value={form.pagamento_parceiro}
+                value={form.debito_terceiro}
                 onChange={(e) =>
-                  setForm({ ...form, pagamento_parceiro: e.target.value })
+                  setForm({ ...form, debito_terceiro: e.target.value })
                 }
-                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-gray-600">
+                Status pagamento
+              </label>
+              <select
+                value={form.pgta_terceiros}
+                onChange={(e) =>
+                  setForm({ ...form, pgta_terceiros: e.target.value })
+                }
+                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+              >
+                <option value="PENDENTE">PENDENTE</option>
+                <option value="PAGO">PAGO</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-gray-600">
+                Mês do pagamento
+              </label>
+              <input
+                value={form.mes_pgto}
+                onChange={(e) => setForm({ ...form, mes_pgto: e.target.value })}
+                placeholder="Ex: junho"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
               />
             </div>
 
@@ -575,16 +544,6 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
               >
                 {salvando ? 'Salvando...' : 'Salvar pagamento'}
               </button>
-
-              {form.pagamento_parceiro && (
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, pagamento_parceiro: '' })}
-                  className="bg-yellow-100 text-yellow-700 border border-yellow-300 px-5 py-3 rounded-xl hover:bg-yellow-200 font-bold"
-                >
-                  Remover pagamento
-                </button>
-              )}
             </div>
           </form>
         </section>
@@ -598,8 +557,8 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
               setBusca(e.target.value)
               setPagina(1)
             }}
-            placeholder="Buscar parceiro, cliente, AWB ou serviço..."
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Buscar parceiro, cliente, AWB, serviço ou mês..."
+            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
           />
 
           <select
@@ -664,7 +623,7 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1250px] w-full text-sm">
+          <table className="min-w-[1350px] w-full text-sm">
             <thead className="bg-gray-50 text-gray-500">
               <tr>
                 <Th>Parceiro</Th>
@@ -672,8 +631,8 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
                 <Th>AWB</Th>
                 <Th>Serviço</Th>
                 <Th>Valor Parceiro</Th>
-                <Th>Pagamento Parceiro</Th>
-                <Th>Status</Th>
+                <Th>Mês Pgto</Th>
+                <Th>Status Parceiro</Th>
                 <Th>Ações</Th>
               </tr>
             </thead>
@@ -710,7 +669,7 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
                           {moeda(item.debito_terceiro)}
                         </span>
                       </Td>
-                      <Td>{data(item.pagamento_parceiro) || '-'}</Td>
+                      <Td>{item.mes_pgto || '-'}</Td>
                       <Td>
                         <Badge texto={statusAtual} classe={badge(statusAtual)} />
                       </Td>
