@@ -163,75 +163,122 @@ export default function ParceirosPage() {
     setLoading(false)
   }
 
-  async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
+  function dividirEmLotes<T>(lista: T[], tamanho = 200) {
+  const lotes: T[][] = []
 
-    if (
-      !confirm(
-        'Importar pagamentos dos parceiros?\n\nEsta ação vai atualizar SOMENTE o campo pagamento_parceiro usando AWB, PGTA_TERCEIROS e MÊS DO PGT. Nenhum outro dado será alterado.'
+  for (let i = 0; i < lista.length; i += tamanho) {
+    lotes.push(lista.slice(i, i + tamanho))
+  }
+
+  return lotes
+}
+
+async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement>) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  if (
+    !confirm(
+      'Importar pagamentos dos parceiros?\n\nEsta ação vai atualizar SOMENTE o campo pagamento_parceiro usando AWB, PGTA_TERCEIROS e MÊS DO PGT. Nenhum outro dado será alterado.'
+    )
+  ) {
+    event.target.value = ''
+    return
+  }
+
+  setImportando(true)
+
+  try {
+    const XLSX = await import('xlsx')
+    const buffer = await file.arrayBuffer()
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+    const pagosPorData: Record<string, string[]> = {}
+    const pendentes: string[] = []
+    let ignorados = 0
+    let atualizados = 0
+    let erros = 0
+
+    for (const linha of linhas) {
+      const awb = normalizarTexto(linha['AWB'])
+      const statusExcel = linha['PGTA_TERCEIROS']
+      const mesPagamento = linha['MÊS DO PGT']
+
+      if (!awb) {
+        ignorados++
+        continue
+      }
+
+      const pagamentoParceiro = normalizarPagamentoParceiro(
+        statusExcel,
+        mesPagamento
       )
-    ) {
-      event.target.value = ''
-      return
-    }
 
-    setImportando(true)
-
-    try {
-      const XLSX = await import('xlsx')
-      const buffer = await file.arrayBuffer()
-      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
-
-      let atualizados = 0
-      let ignorados = 0
-      let erros = 0
-
-      for (const linha of linhas) {
-        const awb = normalizarTexto(linha['AWB'])
-        const statusExcel = linha['PGTA_TERCEIROS']
-        const mesPagamento = linha['MÊS DO PGT']
-
-        if (!awb) {
-          ignorados++
-          continue
+      if (pagamentoParceiro) {
+        if (!pagosPorData[pagamentoParceiro]) {
+          pagosPorData[pagamentoParceiro] = []
         }
 
-        const pagamentoParceiro = normalizarPagamentoParceiro(
-          statusExcel,
-          mesPagamento
-        )
+        pagosPorData[pagamentoParceiro].push(awb)
+      } else {
+        pendentes.push(awb)
+      }
+    }
 
+    for (const dataPagamento of Object.keys(pagosPorData)) {
+      const lotes = dividirEmLotes(pagosPorData[dataPagamento], 200)
+
+      for (const lote of lotes) {
         const { error } = await supabase
           .from('financeiro_embarques')
           .update({
-            pagamento_parceiro: pagamentoParceiro,
+            pagamento_parceiro: dataPagamento,
             atualizado_em: new Date().toISOString(),
           })
-          .eq('awb', awb)
+          .in('awb', lote)
           .gt('debito_terceiro', 0)
 
         if (error) {
-          erros++
+          erros += lote.length
         } else {
-          atualizados++
+          atualizados += lote.length
         }
       }
-
-      alert(
-        `Importação concluída.\n\nAtualizados: ${atualizados}\nIgnorados sem AWB: ${ignorados}\nErros: ${erros}`
-      )
-
-      await carregar()
-    } catch (error: any) {
-      alert('Erro ao importar pagamentos: ' + error.message)
     }
 
-    setImportando(false)
-    event.target.value = ''
+    const lotesPendentes = dividirEmLotes(pendentes, 200)
+
+    for (const lote of lotesPendentes) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update({
+          pagamento_parceiro: null,
+          atualizado_em: new Date().toISOString(),
+        })
+        .in('awb', lote)
+        .gt('debito_terceiro', 0)
+
+      if (error) {
+        erros += lote.length
+      } else {
+        atualizados += lote.length
+      }
+    }
+
+    alert(
+      `Importação concluída.\n\nAtualizados: ${atualizados}\nIgnorados sem AWB: ${ignorados}\nErros: ${erros}`
+    )
+
+    await carregar()
+  } catch (error: any) {
+    alert('Erro ao importar pagamentos: ' + error.message)
   }
+
+  setImportando(false)
+  event.target.value = ''
+}
 
   function editar(item: any) {
     setEditando(item)
