@@ -10,6 +10,7 @@ export default function ParceirosPage() {
   const [registros, setRegistros] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  const [importando, setImportando] = useState(false)
   const [editando, setEditando] = useState<any>(null)
 
   const [busca, setBusca] = useState('')
@@ -37,6 +38,65 @@ export default function ParceirosPage() {
   function data(valor: any) {
     if (!valor) return ''
     return String(valor).slice(0, 10)
+  }
+
+  function normalizarTexto(valor: any) {
+    if (valor === null || valor === undefined) return ''
+    return String(valor).trim()
+  }
+
+  function normalizarData(valor: any) {
+    if (!valor) return null
+
+    if (valor instanceof Date && !isNaN(valor.getTime())) {
+      return valor.toISOString().split('T')[0]
+    }
+
+    if (typeof valor === 'number') {
+      const dataExcel = new Date((valor - 25569) * 86400 * 1000)
+      return dataExcel.toISOString().split('T')[0]
+    }
+
+    const texto = String(valor).trim()
+    if (!texto || texto === '0') return null
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto
+
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(texto)) {
+      const [dia, mes, ano] = texto.split('/')
+      return `${ano}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
+    }
+
+    if (/^\d{1,2}\/\d{4}$/.test(texto)) {
+      const [mes, ano] = texto.split('/')
+      return `${ano}-${mes.padStart(2, '0')}-01`
+    }
+
+    return null
+  }
+
+  function normalizarPagamentoParceiro(statusExcel: any, mesPagamento: any) {
+    const texto = String(statusExcel || '')
+      .trim()
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+
+    const estaPago =
+      texto.includes('PAGO') ||
+      texto.includes('PGTO') ||
+      texto.includes('PAGAMENTO') ||
+      texto.includes('PAGOU') ||
+      texto === 'OK' ||
+      texto === 'SIM'
+
+    if (!estaPago) return null
+
+    const dataPagamento = normalizarData(mesPagamento)
+
+    if (dataPagamento) return dataPagamento
+
+    return new Date().toISOString().slice(0, 10)
   }
 
   function status(item: any) {
@@ -101,6 +161,76 @@ export default function ParceirosPage() {
 
     setPagina(1)
     setLoading(false)
+  }
+
+  async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (
+      !confirm(
+        'Importar pagamentos dos parceiros?\n\nEsta ação vai atualizar SOMENTE o campo pagamento_parceiro usando AWB, PGTA_TERCEIROS e MÊS DO PGT. Nenhum outro dado será alterado.'
+      )
+    ) {
+      event.target.value = ''
+      return
+    }
+
+    setImportando(true)
+
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+      let atualizados = 0
+      let ignorados = 0
+      let erros = 0
+
+      for (const linha of linhas) {
+        const awb = normalizarTexto(linha['AWB'])
+        const statusExcel = linha['PGTA_TERCEIROS']
+        const mesPagamento = linha['MÊS DO PGT']
+
+        if (!awb) {
+          ignorados++
+          continue
+        }
+
+        const pagamentoParceiro = normalizarPagamentoParceiro(
+          statusExcel,
+          mesPagamento
+        )
+
+        const { error } = await supabase
+          .from('financeiro_embarques')
+          .update({
+            pagamento_parceiro: pagamentoParceiro,
+            atualizado_em: new Date().toISOString(),
+          })
+          .eq('awb', awb)
+          .gt('debito_terceiro', 0)
+
+        if (error) {
+          erros++
+        } else {
+          atualizados++
+        }
+      }
+
+      alert(
+        `Importação concluída.\n\nAtualizados: ${atualizados}\nIgnorados sem AWB: ${ignorados}\nErros: ${erros}`
+      )
+
+      await carregar()
+    } catch (error: any) {
+      alert('Erro ao importar pagamentos: ' + error.message)
+    }
+
+    setImportando(false)
+    event.target.value = ''
   }
 
   function editar(item: any) {
@@ -229,13 +359,26 @@ export default function ParceirosPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={carregar}
-          className="bg-white border border-gray-200 text-gray-800 px-5 py-3 rounded-xl font-bold hover:bg-gray-100 shadow-sm"
-        >
-          ↻ Atualizar dados
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={carregar}
+            className="bg-white border border-gray-200 text-gray-800 px-5 py-3 rounded-xl font-bold hover:bg-gray-100 shadow-sm"
+          >
+            ↻ Atualizar dados
+          </button>
+
+          <label className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-blue-700 shadow-sm">
+            {importando ? 'Importando...' : '⬇ Importar Pagamentos Excel'}
+            <input
+              type="file"
+              accept=".xlsx,.xls,.xlsm"
+              onChange={importarPagamentosExcel}
+              disabled={importando}
+              className="hidden"
+            />
+          </label>
+        </div>
       </div>
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
