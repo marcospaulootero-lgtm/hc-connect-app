@@ -75,29 +75,56 @@ export default function ParceirosPage() {
     return null
   }
 
-  function normalizarPagamentoParceiro(statusExcel: any, mesPagamento: any) {
-    const texto = String(statusExcel || '')
-      .trim()
-      .toUpperCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+  function normalizarPagamentoParceiro(statusExcel: any, mesPagamento: any, anoExcel: any) {
+  const texto = String(statusExcel || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
 
-    const estaPago =
-      texto.includes('PAGO') ||
-      texto.includes('PGTO') ||
-      texto.includes('PAGAMENTO') ||
-      texto.includes('PAGOU') ||
-      texto === 'OK' ||
-      texto === 'SIM'
+  const estaPago =
+    texto === 'PAGO' ||
+    texto.includes('PAGO') ||
+    texto.includes('PGTO') ||
+    texto.includes('PAGAMENTO') ||
+    texto === 'OK' ||
+    texto === 'SIM'
 
-    if (!estaPago) return null
+  if (!estaPago) return null
 
-    const dataPagamento = normalizarData(mesPagamento)
-
-    if (dataPagamento) return dataPagamento
-
-    return new Date().toISOString().slice(0, 10)
+  const meses: any = {
+    JAN: '01',
+    FEV: '02',
+    MAR: '03',
+    ABR: '04',
+    MAI: '05',
+    JUN: '06',
+    JUL: '07',
+    AGO: '08',
+    SET: '09',
+    OUT: '10',
+    NOV: '11',
+    DEZ: '12',
   }
+
+  const mesTexto = String(mesPagamento || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  const ano = String(anoExcel || '').trim()
+
+  if (meses[mesTexto] && ano) {
+    return `${ano}-${meses[mesTexto]}-01`
+  }
+
+  const dataPagamento = normalizarData(mesPagamento)
+
+  if (dataPagamento) return dataPagamento
+
+  return new Date().toISOString().slice(0, 10)
+}
 
   function status(item: any) {
     return item.pagamento_parceiro ? 'PAGO' : 'EM ABERTO'
@@ -212,9 +239,10 @@ async function importarPagamentosExcel(event: React.ChangeEvent<HTMLInputElement
       }
 
       const pagamentoParceiro = normalizarPagamentoParceiro(
-        statusExcel,
-        mesPagamento
-      )
+  statusExcel,
+  mesPagamento,
+  linha['ANO']
+)
 
       if (pagamentoParceiro) {
         if (!pagosPorData[pagamentoParceiro]) {
