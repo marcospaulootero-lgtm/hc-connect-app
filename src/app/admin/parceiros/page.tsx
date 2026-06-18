@@ -33,7 +33,7 @@ export default function ParceirosPage() {
   const [parceiroSelecionado, setParceiroSelecionado] = useState('')
   const [aba, setAba] = useState('TODOS')
   const [pagina, setPagina] = useState(1)
-  const [periodo, setPeriodo] = useState('2026')
+  const [periodo, setPeriodo] = useState('TODOS')
   const [modoGrafico, setModoGrafico] = useState('PAGO')
 
   const [form, setForm] = useState({
@@ -102,14 +102,37 @@ export default function ParceirosPage() {
   }
 
   function anoRegistro(item: any) {
-    return normalizarTexto(
+    const direto = normalizarTexto(
       item.ano ||
         item.ano_pgto ||
         item.ano_pagamento ||
         item.ano_referencia ||
         item.competencia_ano ||
+        item.mes_ano ||
+        item.mes_profit ||
         ''
     )
+
+    const anoDireto = direto.match(/20\d{2}/)?.[0]
+    if (anoDireto) return anoDireto
+
+    const datas = [
+      item.recebimento,
+      item.recebimento_cliente,
+      item.vencimento_cobranca,
+      item.vencimento_cliente,
+      item.atualizado_em,
+      item.created_at,
+      item.criado_em,
+    ]
+
+    for (const data of datas) {
+      const texto = normalizarTexto(data)
+      const ano = texto.match(/20\d{2}/)?.[0]
+      if (ano) return ano
+    }
+
+    return ''
   }
 
   function status(item: any) {
@@ -493,7 +516,7 @@ export default function ParceirosPage() {
       ),
     ].sort((a: any, b: any) => String(b).localeCompare(String(a)))
 
-    return anos.length ? anos : ['2026', '2025', '2024']
+    return anos
   }, [dadosParceiro])
 
   const dadosParceiroPeriodo = useMemo(() => {
@@ -502,7 +525,7 @@ export default function ParceirosPage() {
     return dadosParceiro.filter((item) => {
       const ano = anoRegistro(item)
 
-      if (!ano) return true
+      if (!ano) return false
 
       return ano === periodo
     })
@@ -577,6 +600,10 @@ export default function ParceirosPage() {
       altura: item.valor > 0 ? Math.max(10, (item.valor / maior) * 105) : 4,
     }))
   }, [dadosParceiroPeriodo, modoGrafico])
+
+  const totalGrafico = useMemo(() => {
+    return graficoMensal.reduce((acc, item) => acc + Number(item.valor || 0), 0)
+  }, [graficoMensal])
 
   const filtrados = useMemo(() => {
     const termo = normalizarBusca(busca)
@@ -685,19 +712,18 @@ export default function ParceirosPage() {
         />
       </section>
 
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[290px_1fr]">
+      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[330px_1fr]">
         <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-4">
             <h2 className="text-base font-black">Selecione o parceiro</h2>
 
-            <div className="mt-4 flex items-center rounded-xl border border-slate-200 bg-white px-3">
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-1">
               <input
                 value={buscaParceiro}
                 onChange={(e) => setBuscaParceiro(e.target.value)}
                 placeholder="Buscar parceiro..."
-                className="w-full py-3 text-sm outline-none"
+                className="w-full rounded-lg bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-400"
               />
-              <span className="text-slate-400">⌕</span>
             </div>
           </div>
 
@@ -715,7 +741,7 @@ export default function ParceirosPage() {
                 className={`group w-full border-b border-slate-100 p-4 text-left transition ${
                   parceiroSelecionado === item.nome
                     ? 'border-l-4 border-l-blue-600 bg-blue-50'
-                    : 'hover:bg-slate-50'
+                    : 'bg-white hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -727,7 +753,7 @@ export default function ParceirosPage() {
                   </div>
 
                   <div className="text-right">
-                    <p className="text-xs font-black text-slate-900">
+                    <p className="text-sm font-black text-slate-950">
                       {moeda(item.total)}
                     </p>
                     <span className="text-slate-300 group-hover:text-blue-500">›</span>
@@ -836,25 +862,34 @@ export default function ParceirosPage() {
                 </select>
               </div>
 
-              <div className="mt-4 h-[150px] border-t border-slate-100 pt-4">
-                <div className="flex h-full items-end gap-3">
-                  {graficoMensal.map((item) => (
-                    <div key={item.key} className="flex flex-1 flex-col items-center justify-end gap-2">
-                      <span className="min-h-[16px] text-[11px] font-black text-slate-800">
-                        {item.valor > 0 ? moeda(item.valor).replace('R$', '').trim() : '0,00'}
-                      </span>
+              {totalGrafico > 0 ? (
+                <div className="mt-4 h-[145px] border-t border-slate-100 pt-4">
+                  <div className="flex h-full items-end gap-3">
+                    {graficoMensal.map((item) => (
+                      <div key={item.key} className="flex flex-1 flex-col items-center justify-end gap-2">
+                        <span className="min-h-[16px] text-[11px] font-black text-slate-800">
+                          {item.valor > 0 ? moeda(item.valor).replace('R$', '').trim() : '-'}
+                        </span>
 
-                      <div
-                        className={`w-full max-w-[34px] rounded-t-lg shadow-sm ${modoGrafico === 'PENDENTE' ? 'bg-orange-400' : modoGrafico === 'TODOS' ? 'bg-slate-500' : 'bg-blue-500'}`}
-                        style={{ height: `${item.valor > 0 ? item.altura : 6}px` }}
-                        title={`${item.label}: ${moeda(item.valor)}`}
-                      />
+                        <div
+                          className={`w-full max-w-[34px] rounded-t-lg shadow-sm ${modoGrafico === 'PENDENTE' ? 'bg-orange-400' : modoGrafico === 'TODOS' ? 'bg-slate-500' : 'bg-blue-500'}`}
+                          style={{ height: `${item.valor > 0 ? item.altura : 4}px` }}
+                          title={`${item.label}: ${moeda(item.valor)}`}
+                        />
 
-                      <span className="text-xs font-bold text-slate-500">{item.label}</span>
-                    </div>
-                  ))}
+                        <span className="text-xs font-bold text-slate-500">{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="mt-4 flex h-[145px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center">
+                  <div>
+                    <p className="text-sm font-black text-slate-700">Sem valores para exibir neste gráfico</p>
+                    <p className="mt-1 text-xs text-slate-500">Altere o período ou o filtro Pagos/Pendentes.</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
