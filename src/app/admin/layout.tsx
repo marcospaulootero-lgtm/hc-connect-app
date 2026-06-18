@@ -72,6 +72,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <MenuItem href="/admin/cotacoes" label="Cotações" icon="📄" />
           <MenuItem href="/admin/faturas" label="Faturas" icon="🧾" />
           <MenuItem href="/admin/financeiro" label="Financeiro" icon="💰" />
+          <MenuItem href="/admin/parceiros" label="Profit Parceiros" icon="🤝" />
           <MenuItem href="/admin/resultado-financeiro" label="Resultado Financeiro" icon="📈" />
           <MenuItem href="/admin/intelligence" label="Intelligence" icon="🧠" />
           <MenuItem href="/admin/usuarios" label="Usuários" icon="👥" />
