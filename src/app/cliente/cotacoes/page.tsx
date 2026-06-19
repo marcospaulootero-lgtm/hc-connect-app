@@ -140,6 +140,36 @@ export default function CotacoesClientePage() {
     return Number(String(valor).replace(',', '.'))
   }
 
+
+  async function avisarEquipeNovaCotacao(cotacaoCriada: any) {
+    try {
+      await fetch('/api/email-nova-cotacao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cotacao_id: cotacaoCriada.id,
+          solicitante_email: usuario?.email,
+          exportador: form.exportador,
+          importador: form.importador,
+          referencia_cliente: form.referencia_cliente,
+          servico: form.servico,
+          transportadoras_consulta: form.transportadoras_consulta,
+          origem: form.origem,
+          destino: form.destino,
+          peso_real: form.peso_real || String(calcularPesoTotal()),
+          peso_taxado: form.peso_taxado || String(calcularPesoTotal()),
+          peso_total: String(calcularPesoTotal()),
+          moeda: form.moeda,
+          valor_mercadoria: form.valor_mercadoria,
+          observacoes: form.observacoes,
+          link_admin: `${window.location.origin}/admin/cotacoes/${cotacaoCriada.id}`,
+        }),
+      })
+    } catch (error) {
+      console.log('Erro ao avisar equipe sobre nova cotação:', error)
+    }
+  }
+
   async function enviarCotacao() {
     if (!usuario?.id) {
       alert('Usuário não identificado')
@@ -253,6 +283,8 @@ export default function CotacoesClientePage() {
         ])
       }
     }
+
+    await avisarEquipeNovaCotacao(cotacaoCriada)
 
     setSalvando(false)
 
