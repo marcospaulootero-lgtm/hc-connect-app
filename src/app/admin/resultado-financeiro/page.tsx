@@ -20,6 +20,8 @@ const MESES = [
 
 const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
+const STORAGE_KEY = 'hc_resultado_financeiro_filtros'
+
 export default function ResultadoFinanceiroPage() {
   const [dados, setDados] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -30,8 +32,37 @@ export default function ResultadoFinanceiroPage() {
   const [metaMes, setMetaMes] = useState('40000')
 
   useEffect(() => {
+    const filtrosSalvos = localStorage.getItem(STORAGE_KEY)
+
+    if (filtrosSalvos) {
+      try {
+        const filtros = JSON.parse(filtrosSalvos)
+
+        setAno(filtros.ano || 'TODOS')
+        setMes(filtros.mes || 'TODOS')
+        setCliente(filtros.cliente || 'TODOS')
+        setTransportadora(filtros.transportadora || 'TODOS')
+        setMetaMes(filtros.metaMes || '40000')
+      } catch (error) {
+        console.error('Erro ao carregar filtros salvos', error)
+      }
+    }
+
     carregar()
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ano,
+        mes,
+        cliente,
+        transportadora,
+        metaMes,
+      })
+    )
+  }, [ano, mes, cliente, transportadora, metaMes])
 
   async function carregar() {
     setLoading(true)
