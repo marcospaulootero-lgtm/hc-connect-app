@@ -3,6 +3,14 @@ import { NextResponse } from 'next/server'
 
 export async function POST(req: Request) {
   try {
+    if (!process.env.RESEND_API_KEY) {
+      console.error('RESEND_API_KEY não configurada na Vercel')
+      return NextResponse.json(
+        { error: 'RESEND_API_KEY não configurada' },
+        { status: 500 }
+      )
+    }
+
     const resend = new Resend(process.env.RESEND_API_KEY)
     const body = await req.json()
 
@@ -25,11 +33,19 @@ export async function POST(req: Request) {
       link_admin,
     } = body
 
+    console.log('Disparando aviso de nova cotação:', {
+      cotacao_id,
+      solicitante_email,
+      servico,
+      origem,
+      destino,
+    })
+
     const transportadoras = Array.isArray(transportadoras_consulta)
       ? transportadoras_consulta.join(', ')
       : transportadoras_consulta || '-'
 
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: 'HC Connect - Cotações <cotacoes@hcbhz.com>',
       to: ['marcos@hcbhz.com', 'hericamcouto@outlook.com'],
       subject: `Nova cotação recebida | ${servico || 'HC Connect'}`,
@@ -109,11 +125,16 @@ export async function POST(req: Request) {
     })
 
     if (error) {
+      console.error('Erro Resend ao enviar aviso de cotação:', error)
       return NextResponse.json({ error }, { status: 400 })
     }
 
-    return NextResponse.json({ success: true })
+    console.log('Aviso de cotação enviado com sucesso:', data)
+
+    return NextResponse.json({ success: true, data })
   } catch (error: any) {
+    console.error('Erro geral ao enviar aviso de nova cotação:', error)
+
     return NextResponse.json(
       { error: error.message || 'Erro ao enviar aviso de nova cotação' },
       { status: 500 }
