@@ -16,14 +16,14 @@ export async function GET(req: Request) {
     }
 
     const { data: embarques, error } = await supabase
-  .from('embarques')
-  .select('*')
-  .not('awb', 'is', null)
-  .not('awb', 'eq', 'AGUARDANDO AWB')
-  .not('status_operacional', 'eq', 'Entregue')
-  .not('status_operacional', 'eq', 'Finalizado')
-  .not('status_operacional', 'eq', 'Cancelado')
-  .order('ultima_atualizacao', { ascending: true })
+      .from('embarques')
+      .select('*')
+      .not('awb', 'is', null)
+      .not('awb', 'eq', 'AGUARDANDO AWB')
+      .not('status_operacional', 'eq', 'Entregue')
+      .not('status_operacional', 'eq', 'Finalizado')
+      .not('status_operacional', 'eq', 'Cancelado')
+      .order('ultima_atualizacao', { ascending: true })
 
     if (error) {
       return NextResponse.json(
@@ -36,19 +36,20 @@ export async function GET(req: Request) {
 
     for (const embarque of embarques || []) {
       if (
-  embarque.proxima_tentativa_rastreio &&
-  new Date(embarque.proxima_tentativa_rastreio) > new Date()
-) {
-  resultados.push({
-    id: embarque.id,
-    awb: embarque.awb,
-    transportadora: embarque.transportadora,
-    sucesso: false,
-    erro: `AWB temporariamente bloqueado até ${embarque.proxima_tentativa_rastreio}`,
-  })
+        embarque.proxima_tentativa_rastreio &&
+        new Date(embarque.proxima_tentativa_rastreio) > new Date()
+      ) {
+        resultados.push({
+          id: embarque.id,
+          awb: embarque.awb,
+          transportadora: embarque.transportadora,
+          sucesso: false,
+          erro: `AWB temporariamente bloqueado até ${embarque.proxima_tentativa_rastreio}`,
+        })
 
-  continue
-}
+        continue
+      }
+
       try {
         const awb = String(embarque.awb || '').trim()
         const transportadora = String(embarque.transportadora || '').toUpperCase()
@@ -84,32 +85,32 @@ export async function GET(req: Request) {
           erro: 'Transportadora não suportada.',
         })
       } catch (erro: any) {
-  const mensagemErro = erro?.message || String(erro)
+        const mensagemErro = erro?.message || String(erro)
 
-  if (
-    mensagemErro.includes('429') ||
-    mensagemErro.includes('Too Many Requests')
-  ) {
-    const proximaTentativa = new Date(
-      Date.now() + 3 * 60 * 60 * 1000
-    ).toISOString()
+        if (
+          mensagemErro.includes('429') ||
+          mensagemErro.includes('Too Many Requests')
+        ) {
+          const proximaTentativa = new Date(
+            Date.now() + 3 * 60 * 60 * 1000
+          ).toISOString()
 
-    await supabase
-      .from('embarques')
-      .update({
-        proxima_tentativa_rastreio: proximaTentativa,
-      })
-      .eq('id', embarque.id)
-  }
+          await supabase
+            .from('embarques')
+            .update({
+              proxima_tentativa_rastreio: proximaTentativa,
+            })
+            .eq('id', embarque.id)
+        }
 
-  resultados.push({
-    id: embarque.id,
-    awb: embarque.awb || '-',
-    transportadora: embarque.transportadora || '-',
-    sucesso: false,
-    erro: limparMensagemErro(mensagemErro),
-  })
-}
+        resultados.push({
+          id: embarque.id,
+          awb: embarque.awb || '-',
+          transportadora: embarque.transportadora || '-',
+          sucesso: false,
+          erro: limparMensagemErro(mensagemErro),
+        })
+      }
     }
 
     const totalSucesso = resultados.filter((r) => r.sucesso === true).length
@@ -172,7 +173,9 @@ async function rastrearDHL(embarque: any, awb: string) {
     throw new Error('DHL_API_KEY não configurada.')
   }
 
-  const url = `https://api-eu.dhl.com/track/shipments?trackingNumber=${encodeURIComponent(awb)}`
+  const url = `https://api-eu.dhl.com/track/shipments?trackingNumber=${encodeURIComponent(
+    awb
+  )}`
 
   const response = await fetch(url, {
     method: 'GET',
@@ -204,6 +207,16 @@ async function rastrearDHL(embarque: any, awb: string) {
     shipment?.status?.statusCode ||
     'Sem descrição'
 
+  const statusCompleto = [
+    shipment?.status?.description,
+    shipment?.status?.status,
+    shipment?.status?.statusCode,
+    eventoAtual?.description,
+    eventoAtual?.typeCode,
+  ]
+    .filter(Boolean)
+    .join(' | ')
+
   const local =
     shipment?.status?.location?.address?.addressLocality ||
     eventoAtual?.location?.address?.addressLocality ||
@@ -218,7 +231,7 @@ async function rastrearDHL(embarque: any, awb: string) {
     embarque,
     awb,
     transportadora: 'DHL',
-    status: descricao,
+    status: statusCompleto || descricao,
     descricao,
     local,
     dataEvento,
@@ -263,24 +276,27 @@ async function rastrearFedEx(embarque: any, awb: string) {
 
   const accessToken = tokenData.access_token
 
-  const trackResponse = await fetch('https://apis.fedex.com/track/v1/trackingnumbers', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      includeDetailedScans: true,
-      trackingInfo: [
-        {
-          trackingNumberInfo: {
-            trackingNumber: awb,
+  const trackResponse = await fetch(
+    'https://apis.fedex.com/track/v1/trackingnumbers',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        includeDetailedScans: true,
+        trackingInfo: [
+          {
+            trackingNumberInfo: {
+              trackingNumber: awb,
+            },
           },
-        },
-      ],
-    }),
-    cache: 'no-store',
-  })
+        ],
+      }),
+      cache: 'no-store',
+    }
+  )
 
   const data = await trackResponse.json()
 
@@ -306,6 +322,15 @@ async function rastrearFedEx(embarque: any, awb: string) {
     resultado?.latestStatusDetail?.description ||
     'Sem descrição'
 
+  const statusCompleto = [
+    resultado?.latestStatusDetail?.description,
+    resultado?.latestStatusDetail?.code,
+    ultimoEvento?.eventDescription,
+    ultimoEvento?.eventType,
+  ]
+    .filter(Boolean)
+    .join(' | ')
+
   const local =
     ultimoEvento?.scanLocation?.city ||
     resultado?.latestStatusDetail?.scanLocation?.city ||
@@ -320,7 +345,7 @@ async function rastrearFedEx(embarque: any, awb: string) {
     embarque,
     awb,
     transportadora: 'FEDEX',
-    status,
+    status: statusCompleto || status,
     descricao,
     local,
     dataEvento,
@@ -339,9 +364,33 @@ async function rastrearFedEx(embarque: any, awb: string) {
 function normalizarStatus(status: string) {
   const s = String(status || '').toLowerCase()
 
-  if (s.includes('delivered') || s.includes('entregue')) return 'Entregue'
+  if (s.includes('delivered') || s.includes('entregue')) {
+    return 'Entregue'
+  }
 
   if (
+    s.includes('shipment information received') ||
+    s.includes('shipping information received') ||
+    s.includes('label created') ||
+    s.includes('label generated') ||
+    s.includes('etiqueta') ||
+    s.includes('gerou a etiqueta') ||
+    s.includes('remessa ainda não foi entregue') ||
+    s.includes('não foi entregue fisicamente') ||
+    s.includes('nao foi entregue fisicamente') ||
+    s.includes('not yet handed over') ||
+    s.includes('not yet been handed over') ||
+    s.includes('not yet received') ||
+    s.includes('has not been handed over') ||
+    s.includes('aguardando coleta') ||
+    s.includes('pre-shipment')
+  ) {
+    return 'Etiqueta gerada'
+  }
+
+  if (
+    s.includes('clearance event') ||
+    s.includes('customs status updated') ||
     s.includes('liberação') ||
     s.includes('liberacao') ||
     s.includes('clearance') ||
@@ -355,12 +404,20 @@ function normalizarStatus(status: string) {
     s.includes('available for delivery') ||
     s.includes('out for delivery') ||
     s.includes('released') ||
-    s.includes('liberado')
+    s.includes('liberado') ||
+    s.includes('liberada')
   ) {
     return 'Liberado'
   }
 
-  if (s.includes('picked') || s.includes('pickup') || s.includes('colet')) {
+  if (
+    s.includes('picked up') ||
+    s.includes('pickup') ||
+    s.includes('collected') ||
+    s.includes('coletado') ||
+    s.includes('coleta realizada') ||
+    s.includes('shipment picked up')
+  ) {
     return 'Coletado'
   }
 
@@ -370,12 +427,17 @@ function normalizarStatus(status: string) {
     s.includes('transito') ||
     s.includes('processed') ||
     s.includes('depart') ||
-    s.includes('movement')
+    s.includes('arrived') ||
+    s.includes('arrival') ||
+    s.includes('movement') ||
+    s.includes('facility') ||
+    s.includes('sort facility') ||
+    s.includes('hub')
   ) {
     return 'Em trânsito'
   }
 
-  return 'Em trânsito'
+  return 'Etiqueta gerada'
 }
 
 async function salvarRastreio({
@@ -390,16 +452,19 @@ async function salvarRastreio({
   const statusNormalizado = normalizarStatus(status)
 
   const dadosAtualizar: any = {
-  status_operacional: statusNormalizado,
-  ultima_atualizacao: new Date().toISOString(),
-  proxima_tentativa_rastreio: null,
-}
+    status_operacional: statusNormalizado,
+    ultima_atualizacao: new Date().toISOString(),
+    proxima_tentativa_rastreio: null,
+  }
 
   if (statusNormalizado === 'Entregue') {
     dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
   }
 
-  if (statusNormalizado === 'Coletado' && !embarque.data_envio) {
+  if (
+    (statusNormalizado === 'Coletado' || statusNormalizado === 'Em trânsito') &&
+    !embarque.data_envio
+  ) {
     dadosAtualizar.data_envio = new Date().toISOString().split('T')[0]
   }
 
