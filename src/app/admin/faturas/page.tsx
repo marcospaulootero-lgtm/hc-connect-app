@@ -378,7 +378,7 @@ export default function FaturasPage() {
   }
 
   return (
-    <main className="max-w-[1600px] mx-auto p-8 text-white">
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
         <div>
           <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
@@ -472,7 +472,7 @@ export default function FaturasPage() {
         </section>
       )}
 
-      <section id="tabela_faturas" className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
         <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
           <div>
             <h2 className="text-2xl font-black">Faturas por embarque</h2>
@@ -494,13 +494,26 @@ export default function FaturasPage() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por AWB, cliente, fatura..."
-              className="min-w-[320px]"
+              className="w-full md:w-[360px]"
             />
           </div>
         </div>
 
-        <div className="overflow-auto">
-          <table className="table">
+        <div className="w-full overflow-visible">
+          <table className="w-full table-fixed text-xs lg:text-sm [&_th]:px-2 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-2 [&_td]:py-3 [&_td]:align-middle [&_td]:break-words">
+            <colgroup>
+              <col className="w-[9%]" />
+              <col className="w-[12%]" />
+              <col className="w-[8%]" />
+              <col className="w-[10%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[6%]" />
+              <col className="w-[7%]" />
+              <col className="w-[8%]" />
+              <col className="w-[10%]" />
+              <col className="w-[14%]" />
+            </colgroup>
             <thead>
               <tr>
                 <th>AWB</th>
@@ -534,7 +547,7 @@ export default function FaturasPage() {
                     <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
                     <td>
                       {fatura?.arquivo_pdf ? (
-                        <Link href={fatura.arquivo_pdf} target="_blank" className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold inline-block">
+                        <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
                           Abrir
                         </Link>
                       ) : (
@@ -543,28 +556,31 @@ export default function FaturasPage() {
                     </td>
                     <td>
                       {fatura?.recibo_pdf ? (
-                        <Link href={fatura.recibo_pdf} target="_blank" className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold inline-block">
+                        <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
                           Abrir
                         </Link>
                       ) : fatura?.arquivo_pdf ? (
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          disabled={enviandoRecibo === embarque.id}
-                          onChange={(e) => anexarRecibo(embarque, e.target.files?.[0] || null)}
-                          className="text-sm"
-                        />
+                        <label className="inline-flex cursor-pointer rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
+                          {enviandoRecibo === embarque.id ? 'Enviando...' : 'Anexar'}
+                          <input
+                            type="file"
+                            accept="application/pdf"
+                            disabled={enviandoRecibo === embarque.id}
+                            onChange={(e) => anexarRecibo(embarque, e.target.files?.[0] || null)}
+                            className="hidden"
+                          />
+                        </label>
                       ) : (
                         <span className="text-slate-500">-</span>
                       )}
                     </td>
                     <td>
                       {fatura?.data_pagamento ? (
-                        <span className="bg-green-600/20 text-green-300 border border-green-500 px-3 py-1 rounded-full text-xs font-black">
+                        <span className="inline-flex rounded-full border border-green-500 bg-green-600/20 px-2 py-1 text-[11px] font-black text-green-300">
                           Pago em {dataBR(fatura.data_pagamento)}
                         </span>
                       ) : fatura ? (
-                        <span className="bg-yellow-500/20 text-yellow-300 border border-yellow-500 px-3 py-1 rounded-full text-xs font-black">
+                        <span className="inline-flex rounded-full border border-yellow-500 bg-yellow-500/20 px-2 py-1 text-[11px] font-black text-yellow-300">
                           Pendente
                         </span>
                       ) : (
@@ -572,13 +588,13 @@ export default function FaturasPage() {
                       )}
                     </td>
                     <td>
-                      <div className="flex gap-2 flex-wrap min-w-[260px]">
-                        <button onClick={() => abrirFormulario(embarque)} className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl font-bold">
+                      <div className="flex flex-wrap gap-1">
+                        <button onClick={() => abrirFormulario(embarque)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black">
                           {fatura ? 'Editar' : 'Anexar'}
                         </button>
 
                         {fatura && (
-                          <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold">
+                          <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
                             {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
                           </button>
                         )}
@@ -586,7 +602,7 @@ export default function FaturasPage() {
                         {fatura && (
                           <button
                             onClick={() => alternarPagamento(fatura)}
-                            className={fatura.data_pagamento ? 'bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-xl font-bold' : 'bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold'}
+                            className={fatura.data_pagamento ? 'bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded-lg text-xs font-black' : 'bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black'}
                           >
                             {fatura.data_pagamento ? 'Reabrir' : 'Finalizar'}
                           </button>
@@ -596,7 +612,7 @@ export default function FaturasPage() {
                           <button
                             onClick={() => removerFatura(embarque)}
                             disabled={removendoFatura === embarque.id}
-                            className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-xl font-bold disabled:opacity-60"
+                            className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
                           >
                             {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
                           </button>
