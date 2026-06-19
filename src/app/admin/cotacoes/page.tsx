@@ -42,6 +42,34 @@ export default function CotacoesAdminPage() {
     return usuario?.email || '-'
   }
 
+  function dataHoraBR(data?: string | null) {
+    if (!data) return '-'
+
+    return new Date(data).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  function tempoNaFila(data?: string | null) {
+    if (!data) return '-'
+
+    const inicio = new Date(data).getTime()
+    const agora = Date.now()
+    const diff = Math.max(0, agora - inicio)
+
+    const minutos = Math.floor(diff / 60000)
+    const horas = Math.floor(minutos / 60)
+    const dias = Math.floor(horas / 24)
+
+    if (dias > 0) return `${dias}d ${horas % 24}h`
+    if (horas > 0) return `${horas}h ${minutos % 60}min`
+    return `${minutos}min`
+  }
+
   async function atualizarStatus(id: string, status: string) {
   const cotacao = cotacoes.find((c) => c.id === id)
 
@@ -99,23 +127,30 @@ export default function CotacoesAdminPage() {
   }
 
   const cotacoesFiltradas = useMemo(() => {
-    return cotacoes.filter((item) => {
-      const texto = `
-        ${nomeUsuario(item.usuario_id)}
-        ${emailUsuario(item.usuario_id)}
-        ${item.solicitante_email}
-        ${item.cliente_final}
-        ${item.tipo_operacao}
-        ${item.origem}
-        ${item.destino}
-        ${item.status}
-      `.toLowerCase()
+    return cotacoes
+      .filter((item) => {
+        const texto = `
+          ${nomeUsuario(item.usuario_id)}
+          ${emailUsuario(item.usuario_id)}
+          ${item.solicitante_email}
+          ${item.cliente_final}
+          ${item.tipo_operacao}
+          ${item.origem}
+          ${item.destino}
+          ${item.status}
+        `.toLowerCase()
 
-      const matchBusca = texto.includes(busca.toLowerCase())
-      const matchStatus = !filtroStatus || item.status === filtroStatus
+        const matchBusca = texto.includes(busca.toLowerCase())
+        const matchStatus = !filtroStatus || item.status === filtroStatus
 
-      return matchBusca && matchStatus
-    })
+        return matchBusca && matchStatus
+      })
+      .sort((a, b) => {
+        const dataA = a.criado_em ? new Date(a.criado_em).getTime() : 0
+        const dataB = b.criado_em ? new Date(b.criado_em).getTime() : 0
+
+        return dataA - dataB
+      })
   }, [cotacoes, usuarios, busca, filtroStatus])
 
   function corStatus(status: string) {
@@ -135,6 +170,9 @@ export default function CotacoesAdminPage() {
   const totalDisponiveis = cotacoes.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
   const totalAprovadas = cotacoes.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
   const totalRecusadas = cotacoes.filter((c) => c.status === 'RECUSADA').length
+
+  const proximaCotacao = cotacoesFiltradas[0]
+  const ultimaCotacao = cotacoesFiltradas[cotacoesFiltradas.length - 1]
 
   return (
     <main className="w-full max-w-none p-8 text-white">
@@ -166,6 +204,38 @@ export default function CotacoesAdminPage() {
         <Card titulo="Disponíveis" valor={totalDisponiveis} detalhe="Resposta enviada" icone="📄" />
         <Card titulo="Aprovadas" valor={totalAprovadas} detalhe="Cliente aprovou" icone="✅" />
         <Card titulo="Recusadas" valor={totalRecusadas} detalhe="Não aprovadas" icone="❌" />
+      </section>
+
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-6 mb-8">
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+          <div>
+            <p className="text-blue-400 font-bold mb-1">Fila virtual</p>
+            <h2 className="text-2xl font-black">Ordem de chegada das cotações</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              A sequência abaixo é ordenada pela data e hora em que a cotação entrou no portal.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 xl:min-w-[760px]">
+            <FilaCard
+              titulo="Na fila filtrada"
+              valor={cotacoesFiltradas.length}
+              detalhe="cotações na sequência"
+            />
+
+            <FilaCard
+              titulo="Próxima da fila"
+              valor={proximaCotacao ? '#1' : '-'}
+              detalhe={proximaCotacao ? `${proximaCotacao.cliente_final || proximaCotacao.solicitante_email || 'Cliente'} · ${dataHoraBR(proximaCotacao.criado_em)}` : 'Sem cotação'}
+            />
+
+            <FilaCard
+              titulo="Última entrada"
+              valor={ultimaCotacao ? dataHoraBR(ultimaCotacao.criado_em) : '-'}
+              detalhe={ultimaCotacao ? ultimaCotacao.cliente_final || ultimaCotacao.solicitante_email || 'Cliente' : 'Sem cotação'}
+            />
+          </div>
+        </div>
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
@@ -230,10 +300,12 @@ export default function CotacoesAdminPage() {
         </div>
 
         <div className="overflow-auto">
-          <table className="table">
+          <table className="table w-full border-collapse">
             <thead>
               <tr>
-                <th>Data</th>
+                <th>Fila</th>
+                <th>Chegou em</th>
+                <th>Tempo</th>
                 <th>Solicitante</th>
                 <th>E-mail</th>
                 <th>Cliente final</th>
@@ -245,22 +317,30 @@ export default function CotacoesAdminPage() {
             </thead>
 
             <tbody>
-              {cotacoesFiltradas.map((item) => (
-                <tr key={item.id}>
+              {cotacoesFiltradas.map((item, index) => (
+                <tr key={item.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                  <td>
+                    <span className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white">
+                      #{index + 1}
+                    </span>
+                  </td>
+
                   <td>
                     <div>
                       <p className="font-bold">
-                        {item.criado_em
-                          ? new Date(item.criado_em).toLocaleDateString('pt-BR')
-                          : '-'}
+                        {dataHoraBR(item.criado_em)}
                       </p>
 
                       <p className="text-slate-500 text-xs">
-                        {item.criado_em
-                          ? new Date(item.criado_em).toLocaleTimeString('pt-BR')
-                          : '-'}
+                        Entrada registrada
                       </p>
                     </div>
+                  </td>
+
+                  <td>
+                    <span className="inline-flex rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-black text-blue-300">
+                      {tempoNaFila(item.criado_em)}
+                    </span>
                   </td>
 
                   <td>
@@ -356,6 +436,19 @@ export default function CotacoesAdminPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+
+function FilaCard({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+        {titulo}
+      </p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500 line-clamp-2">{detalhe}</p>
+    </div>
   )
 }
 
