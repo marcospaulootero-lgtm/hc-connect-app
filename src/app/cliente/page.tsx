@@ -119,31 +119,38 @@ export default function ClientePage() {
   }
 
   async function carregarFaturas(usuarioId: string) {
-  const { data: embarquesCliente } = await supabase
-    .from('embarques')
-    .select('id')
-    .eq('usuario_id', usuarioId)
+    const { data: embarquesCliente } = await supabase
+      .from('embarques')
+      .select('id')
+      .eq('usuario_id', usuarioId)
 
-  const ids = (embarquesCliente || []).map((e) => e.id)
+    const ids = (embarquesCliente || []).map((e) => e.id)
 
-  if (ids.length === 0) {
-    setFaturas([])
-    return
+    if (ids.length === 0) {
+      setFaturas([])
+      return
+    }
+
+    const { data } = await supabase
+      .from('faturas')
+      .select('*')
+      .in('embarque_id', ids)
+      .eq('visivel_cliente', true)
+      .order('criado_em', { ascending: false })
+
+    setFaturas(data || [])
   }
-
-  const { data } = await supabase
-    .from('faturas')
-    .select('*')
-    .in('embarque_id', ids)
-    .eq('visivel_cliente', true)
-    .order('criado_em', { ascending: false })
-
-  setFaturas(data || [])
-}
 
   async function sair() {
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  function normalizarTexto(texto: string) {
+    return String(texto || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
   }
 
   function dataBR(data?: string | null) {
@@ -173,14 +180,16 @@ export default function ClientePage() {
   }
 
   function progresso(status: string) {
-    const s = String(status || '').toLowerCase()
+    const s = normalizarTexto(status)
 
     if (s.includes('entregue')) return 100
-    if (s.includes('liberado')) return 80
-    if (s.includes('fiscal')) return 60
-    if (s.includes('trânsito') || s.includes('transito')) return 40
-    if (s.includes('colet')) return 20
-    return 10
+    if (s.includes('liberado')) return 85
+    if (s.includes('fiscalizacao')) return 70
+    if (s.includes('em transito')) return 55
+    if (s.includes('coletado')) return 40
+    if (s.includes('aguardando coleta') || s.includes('etiqueta gerada')) return 20
+
+    return 0
   }
 
   function corCotacao(status: string) {
@@ -224,10 +233,27 @@ export default function ClientePage() {
     0
   )
 
-  const emTransito = embarques.filter((e) => e.status_operacional === 'Em trânsito').length
-  const fiscalizacao = embarques.filter((e) => e.status_operacional === 'Fiscalização').length
-  const liberados = embarques.filter((e) => e.status_operacional === 'Liberado').length
-  const entregues = embarques.filter((e) => e.status_operacional === 'Entregue').length
+  const aguardandoColeta = embarques.filter((e) => {
+    const s = normalizarTexto(e.status_operacional)
+    return s.includes('aguardando coleta') || s.includes('etiqueta gerada')
+  }).length
+
+  const emTransito = embarques.filter(
+    (e) => normalizarTexto(e.status_operacional) === 'em transito'
+  ).length
+
+  const fiscalizacao = embarques.filter(
+    (e) => normalizarTexto(e.status_operacional) === 'fiscalizacao'
+  ).length
+
+  const liberados = embarques.filter(
+    (e) => normalizarTexto(e.status_operacional) === 'liberado'
+  ).length
+
+  const entregues = embarques.filter(
+    (e) => normalizarTexto(e.status_operacional) === 'entregue'
+  ).length
+
   const pesoTotal = embarques.reduce(
     (acc, e) => acc + Number(e.peso_taxado || e.peso_real || 0),
     0
@@ -272,12 +298,9 @@ export default function ClientePage() {
                 Solicitar cotação
               </a>
 
-              <a
-  href="/cliente/minhas-cotacoes"
-  className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
->
-  Minhas cotações
-</a>
+              <a href="/cliente/minhas-cotacoes" className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold">
+                Minhas cotações
+              </a>
 
               <a href="/cliente/faturas" className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold">
                 Faturamento
@@ -309,8 +332,9 @@ export default function ClientePage() {
           )}
         </header>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-5 mb-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-5 mb-8">
           <Kpi titulo="Embarques" valor={embarques.length} detalhe="Processos vinculados" icone="📦" cor="blue" />
+          <Kpi titulo="Aguardando coleta" valor={aguardandoColeta} detalhe="Etiqueta criada" icone="📄" cor="blue" />
           <Kpi titulo="Em trânsito" valor={emTransito} detalhe="Em andamento" icone="🚚" cor="green" />
           <Kpi titulo="Fiscalização" valor={fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" />
           <Kpi titulo="Liberados" valor={liberados} detalhe="Prontos para seguir" icone="✅" cor="green" />
@@ -324,6 +348,7 @@ export default function ClientePage() {
             <h2 className="text-2xl font-black mb-5">🚨 Alertas importantes</h2>
 
             <div className="space-y-4">
+              <Alerta titulo="Aguardando coleta" valor={aguardandoColeta} icone="📄" cor="blue" />
               <Alerta titulo="Embarques em fiscalização" valor={fiscalizacao} icone="🛃" cor="yellow" />
               <Alerta titulo="Cotações disponíveis" valor={cotacoesDisponiveis} icone="📄" cor="green" />
               <Alerta titulo="Faturas disponíveis" valor={faturasDisponiveis} icone="🧾" cor="blue" />
@@ -394,8 +419,8 @@ export default function ClientePage() {
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-black">Minhas cotações</h2>
               <a href="/cliente/minhas-cotacoes" className="text-blue-400 font-bold">
-  Ver todas
-</a>
+                Ver todas
+              </a>
             </div>
 
             {ultimasCotacoes.length === 0 ? (
@@ -650,18 +675,59 @@ function Info({ titulo, valor }: any) {
 }
 
 function Timeline({ status }: any) {
-  const s = String(status || '').toLowerCase()
+  const s = String(status || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
 
   const passos = [
-    { nome: 'Coletado', ativo: s.includes('colet') || s.includes('trânsito') || s.includes('transito') || s.includes('fiscal') || s.includes('liberado') || s.includes('entregue') },
-    { nome: 'Em trânsito', ativo: s.includes('trânsito') || s.includes('transito') || s.includes('fiscal') || s.includes('liberado') || s.includes('entregue') },
-    { nome: 'Fiscalização', ativo: s.includes('fiscal') || s.includes('liberado') || s.includes('entregue') },
-    { nome: 'Liberado', ativo: s.includes('liberado') || s.includes('entregue') },
-    { nome: 'Entregue', ativo: s.includes('entregue') },
+    {
+      nome: 'Aguardando coleta',
+      ativo:
+        s.includes('aguardando coleta') ||
+        s.includes('etiqueta gerada') ||
+        s.includes('coletado') ||
+        s.includes('em transito') ||
+        s.includes('fiscalizacao') ||
+        s.includes('liberado') ||
+        s.includes('entregue'),
+    },
+    {
+      nome: 'Coletado',
+      ativo:
+        s.includes('coletado') ||
+        s.includes('em transito') ||
+        s.includes('fiscalizacao') ||
+        s.includes('liberado') ||
+        s.includes('entregue'),
+    },
+    {
+      nome: 'Em trânsito',
+      ativo:
+        s.includes('em transito') ||
+        s.includes('fiscalizacao') ||
+        s.includes('liberado') ||
+        s.includes('entregue'),
+    },
+    {
+      nome: 'Fiscalização',
+      ativo:
+        s.includes('fiscalizacao') ||
+        s.includes('liberado') ||
+        s.includes('entregue'),
+    },
+    {
+      nome: 'Liberado',
+      ativo: s.includes('liberado') || s.includes('entregue'),
+    },
+    {
+      nome: 'Entregue',
+      ativo: s.includes('entregue'),
+    },
   ]
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
       {passos.map((p) => (
         <div
           key={p.nome}
