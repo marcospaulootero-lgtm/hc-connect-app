@@ -168,7 +168,7 @@ Instruções: ${item.instrucoes || '-'}
   }
 
   return (
-    <main className="max-w-[1600px] mx-auto p-8 text-white">
+    <main className="w-full max-w-none p-8 text-white">
       <div className="mb-8 flex flex-col xl:flex-row justify-between gap-6">
         <div>
           <p className="text-blue-400 font-bold mb-2">Operação</p>

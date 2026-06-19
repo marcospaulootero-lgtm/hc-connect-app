@@ -137,7 +137,7 @@ export default function CotacoesAdminPage() {
   const totalRecusadas = cotacoes.filter((c) => c.status === 'RECUSADA').length
 
   return (
-    <main className="max-w-[1500px] mx-auto p-8 text-white">
+    <main className="w-full max-w-none p-8 text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
         <div>
           <p className="text-blue-400 font-bold mb-2">Comercial</p>

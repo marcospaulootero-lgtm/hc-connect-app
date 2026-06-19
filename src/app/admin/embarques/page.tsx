@@ -509,7 +509,7 @@ export default function EmbarquesPage() {
   const totalEntregues = embarques.filter((e) => e.status_operacional === 'Entregue').length
 
   return (
-    <main className="max-w-[1600px] mx-auto p-8 text-white">
+    <main className="w-full max-w-none p-8 text-white">
       <div className="mb-8 flex justify-between items-start gap-6">
         <div>
           <h1 className="text-5xl font-black mb-2">Embarques</h1>
