@@ -11,17 +11,32 @@ type Volume = {
   peso_kg: string
 }
 
+const SERVICOS = [
+  'IMPORTAÇÃO FORMAL',
+  'IMPORTAÇÃO COURIER',
+  'EXPORTAÇÃO',
+  'AÉREO FORMAL',
+  'MARÍTIMO',
+  'RODOVIÁRIO',
+]
+
+const TRANSPORTADORAS = ['DHL', 'FEDEX', 'UPS', 'AGENTE DE CARGA']
+
 export default function CotacoesClientePage() {
   const [usuario, setUsuario] = useState<any>(null)
-  const [cotacoes, setCotacoes] = useState<any[]>([])
   const [salvando, setSalvando] = useState(false)
   const [arquivos, setArquivos] = useState<File[]>([])
 
   const [form, setForm] = useState({
-    cliente_final: '',
-    tipo_operacao: '',
+    exportador: '',
+    importador: '',
+    referencia_cliente: '',
+    servico: '',
+    transportadoras_consulta: [] as string[],
     origem: '',
     destino: '',
+    peso_real: '',
+    peso_taxado: '',
     descricao_mercadoria: '',
     moeda: 'USD',
     valor_mercadoria: '',
@@ -68,29 +83,11 @@ export default function CotacoesClientePage() {
       return
     }
 
-    const usuarioLogado = {
+    setUsuario({
       ...perfil,
       id: user.id,
       email: user.email,
-    }
-
-    setUsuario(usuarioLogado)
-    carregarCotacoes(user.id)
-  }
-
-  async function carregarCotacoes(usuarioId: string) {
-    const { data, error } = await supabase
-      .from('cotacoes')
-      .select('*')
-      .eq('usuario_id', usuarioId)
-      .order('criado_em', { ascending: false })
-
-    if (error) {
-      console.log(error)
-      return
-    }
-
-    setCotacoes(data || [])
+    })
   }
 
   function adicionarVolume() {
@@ -121,23 +118,26 @@ export default function CotacoesClientePage() {
     setVolumes(novosVolumes)
   }
 
+  function alternarTransportadora(nome: string, marcado: boolean) {
+    setForm((atual) => ({
+      ...atual,
+      transportadoras_consulta: marcado
+        ? [...atual.transportadoras_consulta, nome]
+        : atual.transportadoras_consulta.filter((item) => item !== nome),
+    }))
+  }
+
   function calcularPesoTotal() {
     return volumes.reduce((total, volume) => {
-      const qtd = Number(volume.quantidade || 0)
-      const peso = Number(volume.peso_kg || 0)
+      const qtd = Number(String(volume.quantidade || 0).replace(',', '.'))
+      const peso = Number(String(volume.peso_kg || 0).replace(',', '.'))
       return total + qtd * peso
     }, 0)
   }
 
-  function corStatus(status: string) {
-    if (status === 'AGUARDANDO ANÁLISE') return 'bg-yellow-400 text-black'
-    if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
-    if (status === 'AGUARDANDO TRANSPORTADORA') return 'bg-purple-600 text-white'
-    if (status === 'COTAÇÃO DISPONÍVEL') return 'bg-emerald-600 text-white'
-    if (status === 'APROVADA') return 'bg-green-700 text-white'
-    if (status === 'RECUSADA') return 'bg-red-600 text-white'
-
-    return 'bg-slate-600 text-white'
+  function numero(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return null
+    return Number(String(valor).replace(',', '.'))
   }
 
   async function enviarCotacao() {
@@ -146,8 +146,13 @@ export default function CotacoesClientePage() {
       return
     }
 
-    if (!form.tipo_operacao || !form.origem || !form.destino) {
-      alert('Informe tipo de operação, origem e destino')
+    if (!form.exportador || !form.importador || !form.servico || !form.origem || !form.destino) {
+      alert('Preencha exportador, importador, serviço, origem e destino.')
+      return
+    }
+
+    if (form.transportadoras_consulta.length === 0) {
+      alert('Selecione pelo menos uma transportadora para consulta.')
       return
     }
 
@@ -167,19 +172,33 @@ export default function CotacoesClientePage() {
 
     setSalvando(true)
 
+    const pesoTotal = calcularPesoTotal()
+
     const { data: cotacaoCriada, error } = await supabase
       .from('cotacoes')
       .insert([
         {
           usuario_id: usuario.id,
           solicitante_email: usuario.email,
-          cliente_final: form.cliente_final,
-          tipo_operacao: form.tipo_operacao,
+
+          exportador: form.exportador,
+          importador: form.importador,
+          referencia_cliente: form.referencia_cliente || null,
+
+          servico: form.servico,
+          tipo_operacao: form.servico,
+
+          transportadoras_consulta: form.transportadoras_consulta,
+
           origem: form.origem,
           destino: form.destino,
-          peso: String(calcularPesoTotal()),
+
+          peso_real: numero(form.peso_real) || pesoTotal,
+          peso_taxado: numero(form.peso_taxado) || pesoTotal,
+          peso: String(pesoTotal),
           dimensoes: `${volumes.length} volume(s)`,
           volumes,
+
           descricao_mercadoria: form.descricao_mercadoria,
           moeda: form.moeda,
           valor_mercadoria: form.valor_mercadoria,
@@ -192,14 +211,20 @@ export default function CotacoesClientePage() {
 
     if (error) {
       setSalvando(false)
-      alert('Erro ao enviar cotação')
+      alert('Erro ao enviar cotação. Verifique se as novas colunas foram criadas no Supabase.')
       console.log(error)
       return
     }
 
     if (arquivos.length > 0 && cotacaoCriada?.id) {
       for (const arquivo of arquivos) {
-        const caminho = `${usuario.id}/${cotacaoCriada.id}/${Date.now()}-${arquivo.name}`
+        const nomeLimpo = arquivo.name
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9.-]/g, '_')
+          .replace(/_+/g, '_')
+
+        const caminho = `${usuario.id}/${cotacaoCriada.id}/${Date.now()}-${nomeLimpo}`
 
         const { error: uploadError } = await supabase.storage
           .from('cotacoes-documentos')
@@ -234,10 +259,15 @@ export default function CotacoesClientePage() {
     alert('Solicitação de cotação enviada com sucesso')
 
     setForm({
-      cliente_final: '',
-      tipo_operacao: '',
+      exportador: '',
+      importador: '',
+      referencia_cliente: '',
+      servico: '',
+      transportadoras_consulta: [],
       origem: '',
       destino: '',
+      peso_real: '',
+      peso_taxado: '',
       descricao_mercadoria: '',
       moeda: 'USD',
       valor_mercadoria: '',
@@ -256,118 +286,87 @@ export default function CotacoesClientePage() {
 
     setArquivos([])
 
-    carregarCotacoes(usuario.id)
-  }
-
-  async function atualizarStatusCotacao(id: string, status: string) {
-    const confirmar = confirm(
-      status === 'APROVADA'
-        ? 'Confirmar aprovação desta cotação?'
-        : 'Confirmar recusa desta cotação?'
-    )
-
-    if (!confirmar) return
-
-    const { error } = await supabase
-      .from('cotacoes')
-      .update({
-        status,
-        autorizada: status === 'APROVADA',
-        data_autorizacao:
-          status === 'APROVADA'
-            ? new Date().toISOString()
-            : null,
-      })
-      .eq('id', id)
-
-    if (error) {
-      alert('Erro ao atualizar cotação')
-      console.log(error)
-      return
-    }
-
-    alert(
-      status === 'APROVADA'
-        ? 'Cotação aprovada com sucesso'
-        : 'Cotação recusada'
-    )
-
-    carregarCotacoes(usuario.id)
-  }
-
-  async function excluirCotacao(id: string) {
-    const confirmar = confirm('Deseja realmente excluir esta cotação do seu histórico?')
-
-    if (!confirmar) return
-
-    const { error } = await supabase
-      .from('cotacoes')
-      .delete()
-      .eq('id', id)
-      .eq('usuario_id', usuario.id)
-
-    if (error) {
-      alert('Erro ao excluir cotação')
-      console.log(error)
-      return
-    }
-
-    alert('Cotação excluída do histórico')
-    carregarCotacoes(usuario.id)
+    const inputArquivo = document.getElementById('arquivos_cotacao') as HTMLInputElement | null
+    if (inputArquivo) inputArquivo.value = ''
   }
 
   return (
     <main className="min-h-screen bg-[#020817] text-white p-10">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-10 flex justify-between items-start gap-6">
+        <div className="mb-10 flex flex-col lg:flex-row justify-between items-start gap-6">
           <div>
             <h1 className="text-5xl font-black mb-2">
-              Cotações
+              Solicitar cotação
             </h1>
 
             <p className="text-slate-400 text-lg">
-              Solicite novas cotações e acompanhe o andamento.
+              Preencha os dados da operação. Se a cotação for aprovada, essas informações serão usadas para criar o embarque.
             </p>
           </div>
 
-          <a
-            href="/cliente"
-            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold"
-          >
-            Voltar ao portal
-          </a>
+          <div className="flex gap-3 flex-wrap">
+            <a
+              href="/cliente/minhas-cotacoes"
+              className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold"
+            >
+              Minhas cotações
+            </a>
+
+            <a
+              href="/cliente"
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold"
+            >
+              Voltar ao portal
+            </a>
+          </div>
         </div>
 
         <section className="card mb-8">
           <h2 className="text-2xl font-black mb-6">
-            Nova solicitação de cotação
+            Dados da operação
           </h2>
 
           <div className="form-grid">
             <input
-              placeholder="Cliente final"
-              value={form.cliente_final}
+              placeholder="Exportador *"
+              value={form.exportador}
               onChange={(e) =>
-                setForm({ ...form, cliente_final: e.target.value })
+                setForm({ ...form, exportador: e.target.value })
+              }
+            />
+
+            <input
+              placeholder="Importador *"
+              value={form.importador}
+              onChange={(e) =>
+                setForm({ ...form, importador: e.target.value })
+              }
+            />
+
+            <input
+              placeholder="Referência cliente"
+              value={form.referencia_cliente}
+              onChange={(e) =>
+                setForm({ ...form, referencia_cliente: e.target.value })
               }
             />
 
             <select
-              value={form.tipo_operacao}
+              value={form.servico}
               onChange={(e) =>
-                setForm({ ...form, tipo_operacao: e.target.value })
+                setForm({ ...form, servico: e.target.value })
               }
             >
-              <option value="">Tipo de operação</option>
-              <option value="Importação">Importação</option>
-              <option value="Exportação">Exportação</option>
-              <option value="Courier">Courier</option>
-              <option value="Marítimo">Marítimo</option>
-              <option value="Aéreo formal">Aéreo formal</option>
+              <option value="">Serviço *</option>
+              {SERVICOS.map((servico) => (
+                <option key={servico} value={servico}>
+                  {servico}
+                </option>
+              ))}
             </select>
 
             <input
-              placeholder="Origem"
+              placeholder="Origem *"
               value={form.origem}
               onChange={(e) =>
                 setForm({ ...form, origem: e.target.value })
@@ -375,10 +374,26 @@ export default function CotacoesClientePage() {
             />
 
             <input
-              placeholder="Destino"
+              placeholder="Destino *"
               value={form.destino}
               onChange={(e) =>
                 setForm({ ...form, destino: e.target.value })
+              }
+            />
+
+            <input
+              placeholder="Peso real kg"
+              value={form.peso_real}
+              onChange={(e) =>
+                setForm({ ...form, peso_real: e.target.value })
+              }
+            />
+
+            <input
+              placeholder="Peso taxado kg"
+              value={form.peso_taxado}
+              onChange={(e) =>
+                setForm({ ...form, peso_taxado: e.target.value })
               }
             />
 
@@ -413,96 +428,133 @@ export default function CotacoesClientePage() {
               }
             />
           </div>
+        </section>
 
-          <section className="mt-8">
-            <div className="flex justify-between items-center mb-5">
-              <div>
-                <h3 className="text-2xl font-black">
-                  Volumes / caixas
-                </h3>
+        <section className="card mb-8">
+          <h2 className="text-2xl font-black mb-4">
+            Transportadoras para consulta
+          </h2>
 
-                <p className="text-slate-400">
-                  Informe quantidade, dimensões em cm e peso em kg de cada volume.
-                </p>
-              </div>
+          <p className="text-slate-400 mb-5">
+            Marque uma ou mais empresas para cotação.
+          </p>
 
-              <button type="button" onClick={adicionarVolume}>
-                + Adicionar volume
-              </button>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {TRANSPORTADORAS.map((nome) => (
+              <label
+                key={nome}
+                className={`border rounded-2xl p-5 cursor-pointer font-black ${
+                  form.transportadoras_consulta.includes(nome)
+                    ? 'border-blue-500 bg-blue-600/20 text-blue-300'
+                    : 'border-blue-900 bg-[#071225] text-slate-300'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={form.transportadoras_consulta.includes(nome)}
+                  onChange={(e) => alternarTransportadora(nome, e.target.checked)}
+                  className="mr-3"
+                />
+                {nome}
+              </label>
+            ))}
+          </div>
+        </section>
 
-            <div className="space-y-5">
-              {volumes.map((volume, index) => (
-                <div
-                  key={index}
-                  className="border border-blue-900 rounded-3xl p-5 bg-[#071225]"
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <h4 className="text-xl font-bold">
-                      Volume {index + 1}
-                    </h4>
-
-                    <button
-                      type="button"
-                      onClick={() => removerVolume(index)}
-                      className="bg-red-600 hover:bg-red-500"
-                    >
-                      Remover
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    <input
-                      placeholder="Quantidade"
-                      value={volume.quantidade}
-                      onChange={(e) =>
-                        atualizarVolume(index, 'quantidade', e.target.value)
-                      }
-                    />
-
-                    <input
-                      placeholder="Comprimento cm"
-                      value={volume.comprimento_cm}
-                      onChange={(e) =>
-                        atualizarVolume(index, 'comprimento_cm', e.target.value)
-                      }
-                    />
-
-                    <input
-                      placeholder="Largura cm"
-                      value={volume.largura_cm}
-                      onChange={(e) =>
-                        atualizarVolume(index, 'largura_cm', e.target.value)
-                      }
-                    />
-
-                    <input
-                      placeholder="Altura cm"
-                      value={volume.altura_cm}
-                      onChange={(e) =>
-                        atualizarVolume(index, 'altura_cm', e.target.value)
-                      }
-                    />
-
-                    <input
-                      placeholder="Peso kg"
-                      value={volume.peso_kg}
-                      onChange={(e) =>
-                        atualizarVolume(index, 'peso_kg', e.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5 border border-blue-900 rounded-2xl p-5 bg-[#020817]">
-              <p className="text-slate-400">Peso total informado</p>
-              <h3 className="text-3xl font-black mt-2">
-                {calcularPesoTotal()} kg
+        <section className="card mb-8">
+          <div className="flex flex-col md:flex-row justify-between gap-5 md:items-center mb-5">
+            <div>
+              <h3 className="text-2xl font-black">
+                Volumes / caixas
               </h3>
+
+              <p className="text-slate-400">
+                Informe quantidade, dimensões em cm e peso em kg de cada volume.
+              </p>
             </div>
-          </section>
+
+            <button type="button" onClick={adicionarVolume}>
+              + Adicionar volume
+            </button>
+          </div>
+
+          <div className="space-y-5">
+            {volumes.map((volume, index) => (
+              <div
+                key={index}
+                className="border border-blue-900 rounded-3xl p-5 bg-[#071225]"
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="text-xl font-bold">
+                    Volume {index + 1}
+                  </h4>
+
+                  <button
+                    type="button"
+                    onClick={() => removerVolume(index)}
+                    className="bg-red-600 hover:bg-red-500"
+                  >
+                    Remover
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <input
+                    placeholder="Quantidade"
+                    value={volume.quantidade}
+                    onChange={(e) =>
+                      atualizarVolume(index, 'quantidade', e.target.value)
+                    }
+                  />
+
+                  <input
+                    placeholder="Comprimento cm"
+                    value={volume.comprimento_cm}
+                    onChange={(e) =>
+                      atualizarVolume(index, 'comprimento_cm', e.target.value)
+                    }
+                  />
+
+                  <input
+                    placeholder="Largura cm"
+                    value={volume.largura_cm}
+                    onChange={(e) =>
+                      atualizarVolume(index, 'largura_cm', e.target.value)
+                    }
+                  />
+
+                  <input
+                    placeholder="Altura cm"
+                    value={volume.altura_cm}
+                    onChange={(e) =>
+                      atualizarVolume(index, 'altura_cm', e.target.value)
+                    }
+                  />
+
+                  <input
+                    placeholder="Peso kg"
+                    value={volume.peso_kg}
+                    onChange={(e) =>
+                      atualizarVolume(index, 'peso_kg', e.target.value)
+                    }
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 border border-blue-900 rounded-2xl p-5 bg-[#020817]">
+            <p className="text-slate-400">Peso total informado</p>
+            <h3 className="text-3xl font-black mt-2">
+              {calcularPesoTotal()} kg
+            </h3>
+          </div>
+        </section>
+
+        <section className="card mb-8">
+          <h2 className="text-2xl font-black mb-6">
+            Observações e documentos
+          </h2>
 
           <textarea
             placeholder="Observações"
@@ -510,7 +562,7 @@ export default function CotacoesClientePage() {
             onChange={(e) =>
               setForm({ ...form, observacoes: e.target.value })
             }
-            className="mt-5 min-h-[120px]"
+            className="min-h-[120px]"
           />
 
           <div className="mt-6 border border-blue-900 rounded-3xl p-5 bg-[#071225]">
@@ -523,6 +575,7 @@ export default function CotacoesClientePage() {
             </p>
 
             <input
+              id="arquivos_cotacao"
               type="file"
               multiple
               accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
@@ -553,113 +606,6 @@ export default function CotacoesClientePage() {
           >
             {salvando ? 'Enviando...' : 'Enviar cotação'}
           </button>
-        </section>
-
-        <section className="card">
-          <h2 className="text-2xl font-black mb-6">
-            Minhas cotações
-          </h2>
-
-          <div className="overflow-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Cliente final</th>
-                  <th>Operação</th>
-                  <th>Origem</th>
-                  <th>Destino</th>
-                  <th>Peso total</th>
-                  <th>Valor</th>
-                  <th>Status</th>
-                  <th>Ações</th>
-                  <th>Arquivo</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {cotacoes.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      {new Date(item.criado_em).toLocaleDateString('pt-BR')}
-                    </td>
-
-                    <td>{item.cliente_final}</td>
-                    <td>{item.tipo_operacao}</td>
-                    <td>{item.origem}</td>
-                    <td>{item.destino}</td>
-                    <td>{item.peso} kg</td>
-
-                    <td>
-                      {item.moeda || ''} {item.valor_mercadoria || '-'}
-                    </td>
-
-                    <td>
-                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${corStatus(item.status)}`}>
-                        {item.status}
-                      </span>
-                    </td>
-
-                    <td>
-                      <div className="flex gap-2 flex-wrap">
-                        {item.status === 'COTAÇÃO DISPONÍVEL' && (
-                          <>
-                            <button
-                              onClick={() =>
-                                atualizarStatusCotacao(item.id, 'APROVADA')
-                              }
-                              className="bg-green-600 hover:bg-green-500"
-                            >
-                              Aprovar
-                            </button>
-
-                            <button
-                              onClick={() =>
-                                atualizarStatusCotacao(item.id, 'RECUSADA')
-                              }
-                              className="bg-red-600 hover:bg-red-500"
-                            >
-                              Recusar
-                            </button>
-
-                            <button
-                              onClick={() => excluirCotacao(item.id)}
-                              className="bg-red-700 hover:bg-red-600"
-                            >
-                              Excluir
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-
-                    <td>
-                      {item.pdf_cotacao_url ? (
-                        <div className="flex flex-col gap-2">
-                          <span className="text-sm text-slate-300">
-                            📄 {item.pdf_nome || 'PDF da cotação'}
-                          </span>
-
-                          <a
-                            href={item.pdf_cotacao_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white font-bold text-center"
-                          >
-                            Abrir PDF
-                          </a>
-                        </div>
-                      ) : (
-                        <span className="text-slate-500">
-                          Nenhum arquivo
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </section>
       </div>
     </main>
