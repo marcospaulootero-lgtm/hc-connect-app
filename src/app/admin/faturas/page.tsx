@@ -26,6 +26,7 @@ type Fatura = {
   arquivo_pdf: string | null
   recibo_pdf: string | null
   recibo_nome: string | null
+  data_pagamento?: string | null
   criado_em: string
   visivel_cliente?: boolean | null
   observacoes?: string | null
@@ -72,6 +73,7 @@ export default function FaturasPage() {
         arquivo_pdf,
         recibo_pdf,
         recibo_nome,
+        data_pagamento,
         criado_em,
         visivel_cliente,
         observacoes,
@@ -317,6 +319,7 @@ export default function FaturasPage() {
       .update({
         recibo_pdf: urlData.publicUrl,
         recibo_nome: arquivo.name,
+        data_pagamento: fatura.data_pagamento || new Date().toISOString().slice(0, 10),
       })
       .eq('id', fatura.id)
 
@@ -328,6 +331,33 @@ export default function FaturasPage() {
     }
 
     alert('Recibo anexado com sucesso.')
+    carregar()
+  }
+
+  async function alternarPagamento(fatura: Fatura) {
+    const pago = !!fatura.data_pagamento
+
+    const confirmar = confirm(
+      pago
+        ? 'Deseja reabrir este pagamento e voltar para pendente?'
+        : 'Deseja finalizar este pagamento como pago?'
+    )
+
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('faturas')
+      .update({
+        data_pagamento: pago ? null : new Date().toISOString().slice(0, 10),
+      })
+      .eq('id', fatura.id)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    alert(pago ? 'Pagamento reaberto como pendente.' : 'Pagamento finalizado como pago.')
     carregar()
   }
 
@@ -482,6 +512,7 @@ export default function FaturasPage() {
                 <th>Visível</th>
                 <th>Fatura</th>
                 <th>Recibo</th>
+                <th>Pagamento</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -528,6 +559,19 @@ export default function FaturasPage() {
                       )}
                     </td>
                     <td>
+                      {fatura?.data_pagamento ? (
+                        <span className="bg-green-600/20 text-green-300 border border-green-500 px-3 py-1 rounded-full text-xs font-black">
+                          Pago em {dataBR(fatura.data_pagamento)}
+                        </span>
+                      ) : fatura ? (
+                        <span className="bg-yellow-500/20 text-yellow-300 border border-yellow-500 px-3 py-1 rounded-full text-xs font-black">
+                          Pendente
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </td>
+                    <td>
                       <div className="flex gap-2 flex-wrap min-w-[260px]">
                         <button onClick={() => abrirFormulario(embarque)} className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl font-bold">
                           {fatura ? 'Editar' : 'Anexar'}
@@ -536,6 +580,15 @@ export default function FaturasPage() {
                         {fatura && (
                           <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold">
                             {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                          </button>
+                        )}
+
+                        {fatura && (
+                          <button
+                            onClick={() => alternarPagamento(fatura)}
+                            className={fatura.data_pagamento ? 'bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-xl font-bold' : 'bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl font-bold'}
+                          >
+                            {fatura.data_pagamento ? 'Reabrir' : 'Finalizar'}
                           </button>
                         )}
 

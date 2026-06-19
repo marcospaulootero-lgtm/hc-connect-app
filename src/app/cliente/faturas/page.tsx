@@ -128,8 +128,8 @@ export default function FaturasClientePage() {
 
   const totalFaturas = faturas.length
   const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
-  const totalPendentes = faturas.filter((f) => !f.data_pagamento).length
-  const totalPagas = faturas.filter((f) => f.data_pagamento).length
+  const totalPendentes = faturas.filter((f) => !f.data_pagamento && !f.recibo_pdf).length
+  const totalPagas = faturas.filter((f) => f.data_pagamento || f.recibo_pdf).length
 
   return (
     <main className="min-h-screen bg-[#020817] text-white p-6 lg:p-10">
@@ -201,7 +201,7 @@ export default function FaturasClientePage() {
                             AWB {embarque?.awb || '-'}
                           </h3>
 
-                          <StatusFinanceiro pago={!!fatura.data_pagamento} />
+                          <StatusFinanceiro pago={!!fatura.data_pagamento || !!fatura.recibo_pdf} />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -217,7 +217,7 @@ export default function FaturasClientePage() {
                           />
                           <Info
                             label="Pagamento"
-                            valor={fatura.data_pagamento ? `Pago em ${dataBR(fatura.data_pagamento)}` : 'Pendente'}
+                            valor={fatura.data_pagamento ? `Pago em ${dataBR(fatura.data_pagamento)}` : fatura.recibo_pdf ? 'Pago - recibo disponível' : 'Pendente'}
                           />
                           <Info
                             label="Recibo"

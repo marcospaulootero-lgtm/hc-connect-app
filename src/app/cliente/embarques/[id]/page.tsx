@@ -24,6 +24,9 @@ type Fatura = {
   id: string
   vencimento: string | null
   arquivo_pdf: string | null
+  recibo_pdf: string | null
+  recibo_nome?: string | null
+  data_pagamento?: string | null
   criado_em: string
 }
 
@@ -96,7 +99,7 @@ setDocumentos(documentosSemFatura)
 
     const { data: faturasData, error: erroFaturas } = await supabase
       .from('faturas')
-      .select('id, vencimento, arquivo_pdf, criado_em')
+      .select('id, vencimento, arquivo_pdf, recibo_pdf, recibo_nome, data_pagamento, criado_em')
       .eq('embarque_id', params.id)
       .eq('visivel_cliente', true)
       .order('criado_em', { ascending: false })
@@ -618,22 +621,43 @@ setDocumentos(documentosSemFatura)
                         <p className="text-slate-500 text-sm mt-1">
                           Vencimento: {dataBR(fatura.vencimento)}
                         </p>
+
+                        <p className="text-slate-500 text-sm mt-1">
+                          Pagamento: {fatura.data_pagamento ? `Pago em ${dataBR(fatura.data_pagamento)}` : 'Pendente'}
+                        </p>
                       </div>
 
-                      {fatura.arquivo_pdf ? (
-                        <a
-                          href={fatura.arquivo_pdf}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap"
-                        >
-                          Baixar PDF
-                        </a>
-                      ) : (
-                        <span className="text-slate-500 text-sm">
-                          PDF indisponível
-                        </span>
-                      )}
+                      <div className="flex gap-2 flex-wrap justify-end">
+                        {fatura.arquivo_pdf ? (
+                          <a
+                            href={fatura.arquivo_pdf}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap"
+                          >
+                            Baixar fatura
+                          </a>
+                        ) : (
+                          <span className="text-slate-500 text-sm">
+                            PDF indisponível
+                          </span>
+                        )}
+
+                        {fatura.recibo_pdf ? (
+                          <a
+                            href={fatura.recibo_pdf}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap"
+                          >
+                            Baixar recibo
+                          </a>
+                        ) : (
+                          <span className="text-slate-500 text-sm">
+                            Recibo indisponível
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))
                 )}
