@@ -143,7 +143,7 @@ export default function CotacoesClientePage() {
 
   async function avisarEquipeNovaCotacao(cotacaoCriada: any) {
     try {
-      await fetch('/api/email-nova-cotacao', {
+      await fetch('/api/enviar-email-cotacao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
