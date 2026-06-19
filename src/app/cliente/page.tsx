@@ -272,9 +272,12 @@ export default function ClientePage() {
                 Solicitar cotação
               </a>
 
-              <a href="/cliente/cotacoes" className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold">
-                Minhas cotações
-              </a>
+              <a
+  href="/cliente/minhas-cotacoes"
+  className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
+>
+  Minhas cotações
+</a>
 
               <a href="/cliente/faturas" className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold">
                 Faturamento
@@ -390,9 +393,9 @@ export default function ClientePage() {
           <div className="card">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-black">Minhas cotações</h2>
-              <a href="/cliente/cotacoes" className="text-blue-400 font-bold">
-                Ver todas
-              </a>
+              <a href="/cliente/minhas-cotacoes" className="text-blue-400 font-bold">
+  Ver todas
+</a>
             </div>
 
             {ultimasCotacoes.length === 0 ? (
