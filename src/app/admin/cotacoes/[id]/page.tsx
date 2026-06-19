@@ -258,6 +258,11 @@ export default function DetalheCotacaoAdminPage() {
     const pesoReal = numero(cotacao.peso_real || cotacao.peso)
     const pesoTaxado = numero(cotacao.peso_taxado || cotacao.peso)
 
+    const transportadoraSelecionada =
+      transportadorasTexto() !== '-'
+        ? transportadorasTexto()
+        : 'AGENTE DE CARGA'
+
     const { data: novoEmbarque, error } = await supabase
       .from('embarques')
       .insert([
@@ -279,7 +284,7 @@ export default function DetalheCotacaoAdminPage() {
           referencia_hc: referenciaHC || cotacao.referencia_hc || null,
 
           awb: 'AGUARDANDO AWB',
-          transportadora: null,
+          transportadora: transportadoraSelecionada,
           servico,
           origem: cotacao.origem || null,
           destino: cotacao.destino || null,
@@ -287,7 +292,7 @@ export default function DetalheCotacaoAdminPage() {
           peso_real: pesoReal,
           peso_taxado: pesoTaxado,
 
-          status_operacional: 'Aguardando AWB',
+          status_operacional: 'COTAÇÃO APROVADA',
           data_envio: null,
           data_prevista: null,
           ultima_atualizacao: new Date().toISOString(),
