@@ -304,45 +304,60 @@ export default function DetalheEmbarquePage() {
   }
 
   function etapaConcluida(etapa: string) {
-    const status = (embarque?.status_operacional || '').toLowerCase()
+  const status = String(embarque?.status_operacional || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
 
-    if (etapa === 'coleta') {
-      return (
-        status.includes('colet') ||
-        status.includes('trânsito') ||
-        status.includes('fiscal') ||
-        status.includes('liberado') ||
-        status.includes('entregue')
-      )
-    }
-
-    if (etapa === 'transito') {
-      return (
-        status.includes('trânsito') ||
-        status.includes('fiscal') ||
-        status.includes('liberado') ||
-        status.includes('entregue')
-      )
-    }
-
-    if (etapa === 'fiscalizacao') {
-      return (
-        status.includes('fiscal') ||
-        status.includes('liberado') ||
-        status.includes('entregue')
-      )
-    }
-
-    if (etapa === 'liberado') {
-      return status.includes('liberado') || status.includes('entregue')
-    }
-
-    if (etapa === 'entregue') {
-      return status.includes('entregue')
-    }
-
-    return false
+  if (etapa === 'aguardando_coleta') {
+    return (
+      status.includes('aguardando coleta') ||
+      status.includes('etiqueta gerada') ||
+      status.includes('coletado') ||
+      status.includes('em transito') ||
+      status.includes('fiscalizacao') ||
+      status.includes('liberado') ||
+      status.includes('entregue')
+    )
   }
+
+  if (etapa === 'coleta') {
+    return (
+      status.includes('coletado') ||
+      status.includes('em transito') ||
+      status.includes('fiscalizacao') ||
+      status.includes('liberado') ||
+      status.includes('entregue')
+    )
+  }
+
+  if (etapa === 'transito') {
+    return (
+      status.includes('em transito') ||
+      status.includes('fiscalizacao') ||
+      status.includes('liberado') ||
+      status.includes('entregue')
+    )
+  }
+
+  if (etapa === 'fiscalizacao') {
+    return (
+      status.includes('fiscalizacao') ||
+      status.includes('liberado') ||
+      status.includes('entregue')
+    )
+  }
+
+  if (etapa === 'liberado') {
+    return status.includes('liberado') || status.includes('entregue')
+  }
+
+  if (etapa === 'entregue') {
+    return status.includes('entregue')
+  }
+
+  return false
+}
 
   if (!embarque) {
     return <main className="p-10 text-white">Carregando embarque...</main>
@@ -511,13 +526,14 @@ export default function DetalheEmbarquePage() {
       <section className="card mb-8">
         <h2 className="text-2xl font-black mb-8">Progresso do embarque</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <Etapa titulo="Coletado" ativo={etapaConcluida('coleta')} />
-          <Etapa titulo="Em trânsito" ativo={etapaConcluida('transito')} />
-          <Etapa titulo="Fiscalização" ativo={etapaConcluida('fiscalizacao')} />
-          <Etapa titulo="Liberado" ativo={etapaConcluida('liberado')} />
-          <Etapa titulo="Entregue" ativo={etapaConcluida('entregue')} />
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+  <Etapa titulo="Aguardando coleta" ativo={etapaConcluida('aguardando_coleta')} />
+  <Etapa titulo="Coletado" ativo={etapaConcluida('coleta')} />
+  <Etapa titulo="Em trânsito" ativo={etapaConcluida('transito')} />
+  <Etapa titulo="Fiscalização" ativo={etapaConcluida('fiscalizacao')} />
+  <Etapa titulo="Liberado" ativo={etapaConcluida('liberado')} />
+  <Etapa titulo="Entregue" ativo={etapaConcluida('entregue')} />
+</div>
       </section>
 
       <section className="card mb-8">
