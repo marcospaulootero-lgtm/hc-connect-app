@@ -33,15 +33,24 @@ type Fatura = {
   embarques?: any
 }
 
+type FinanceiroPagamento = {
+  awb: string | null
+  recebimento_cliente?: string | null
+  recebimento?: string | null
+}
+
 export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
+  const [financeiros, setFinanceiros] = useState<FinanceiroPagamento[]>([])
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
 
   const [busca, setBusca] = useState('')
-  const [filtro, setFiltro] = useState('TODOS')
+  const [filtroDocumento, setFiltroDocumento] = useState('TODOS')
+  const [filtroStatusEmbarque, setFiltroStatusEmbarque] = useState('TODOS')
+  const [filtroPagamento, setFiltroPagamento] = useState('TODOS')
 
   const [embarqueSelecionado, setEmbarqueSelecionado] = useState<Embarque | null>(null)
   const [numeroFatura, setNumeroFatura] = useState('')
@@ -90,12 +99,48 @@ export default function FaturasPage() {
 
     if (erroFaturas) console.log(erroFaturas)
 
+    const { data: financeiroData, error: erroFinanceiro } = await supabase
+      .from('financeiro_embarques')
+      .select('awb, recebimento_cliente, recebimento')
+
+    if (erroFinanceiro) console.log(erroFinanceiro)
+
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
+    setFinanceiros((financeiroData as FinanceiroPagamento[]) || [])
   }
 
   function faturaDoEmbarque(embarqueId: string) {
     return faturas.find((f) => f.embarque_id === embarqueId) || null
+  }
+
+  function financeiroDoAwb(awb?: string | null) {
+    if (!awb) return null
+    const awbLimpo = String(awb).trim()
+    return financeiros.find((item) => String(item.awb || '').trim() === awbLimpo) || null
+  }
+
+  function dataRecebimentoFinanceiro(embarque: Embarque) {
+    const financeiro = financeiroDoAwb(embarque.awb)
+    return financeiro?.recebimento_cliente || financeiro?.recebimento || null
+  }
+
+  function dataPagamento(embarque: Embarque, fatura?: Fatura | null) {
+    return fatura?.data_pagamento || dataRecebimentoFinanceiro(embarque)
+  }
+
+  function pagamentoConfirmado(embarque: Embarque, fatura?: Fatura | null) {
+    return !!dataPagamento(embarque, fatura)
+  }
+
+  function statusOperacionaisDisponiveis() {
+    return Array.from(
+      new Set(
+        embarques
+          .map((item) => item.status_operacional)
+          .filter(Boolean)
+      )
+    ).sort((a: any, b: any) => String(a).localeCompare(String(b), 'pt-BR'))
   }
 
   function dataBR(data?: string | null) {
@@ -125,21 +170,49 @@ export default function FaturasPage() {
 
       const passaBusca = texto.includes(busca.toLowerCase())
 
-      const passaFiltro =
-        filtro === 'TODOS' ||
-        (filtro === 'COM_FATURA' && !!fatura?.arquivo_pdf) ||
-        (filtro === 'SEM_FATURA' && !fatura?.arquivo_pdf) ||
-        (filtro === 'COM_RECIBO' && !!fatura?.recibo_pdf) ||
-        (filtro === 'VISIVEL' && !!fatura?.visivel_cliente)
+      const passaDocumento =
+        filtroDocumento === 'TODOS' ||
+        (filtroDocumento === 'COM_FATURA' && !!fatura?.arquivo_pdf) ||
+        (filtroDocumento === 'SEM_FATURA' && !fatura?.arquivo_pdf) ||
+        (filtroDocumento === 'COM_RECIBO' && !!fatura?.recibo_pdf) ||
+        (filtroDocumento === 'SEM_RECIBO' && !!fatura?.arquivo_pdf && !fatura?.recibo_pdf) ||
+        (filtroDocumento === 'VISIVEL' && !!fatura?.visivel_cliente) ||
+        (filtroDocumento === 'OCULTO' && fatura && !fatura?.visivel_cliente)
 
-      return passaBusca && passaFiltro
+      const passaStatusEmbarque =
+        filtroStatusEmbarque === 'TODOS' ||
+        e.status_operacional === filtroStatusEmbarque
+
+      const pago = pagamentoConfirmado(e, fatura)
+
+      const passaPagamento =
+        filtroPagamento === 'TODOS' ||
+        (filtroPagamento === 'PAGO' && pago) ||
+        (filtroPagamento === 'PENDENTE' && fatura && !pago) ||
+        (filtroPagamento === 'SEM_FATURA' && !fatura)
+
+      return passaBusca && passaDocumento && passaStatusEmbarque && passaPagamento
     })
-  }, [embarques, faturas, busca, filtro])
+  }, [
+    embarques,
+    faturas,
+    financeiros,
+    busca,
+    filtroDocumento,
+    filtroStatusEmbarque,
+    filtroPagamento,
+  ])
 
   const totalComFatura = faturas.filter((f) => f.arquivo_pdf).length
   const totalVisiveis = faturas.filter((f) => f.visivel_cliente).length
   const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
   const totalSemFatura = embarques.filter((e) => !faturaDoEmbarque(e.id)?.arquivo_pdf).length
+  const totalPagos = embarques.filter((e) => pagamentoConfirmado(e, faturaDoEmbarque(e.id))).length
+  const totalPendentesPagamento = embarques.filter((e) => {
+    const fatura = faturaDoEmbarque(e.id)
+    return fatura && !pagamentoConfirmado(e, fatura)
+  }).length
+  const statusDisponiveis = statusOperacionaisDisponiveis()
 
   function abrirFormulario(embarque: Embarque) {
     const fatura = faturaDoEmbarque(embarque.id)
@@ -481,26 +554,54 @@ export default function FaturasPage() {
             </p>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-3">
-            <select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
-              <option value="TODOS">Todos</option>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 w-full lg:max-w-[1150px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
               <option value="COM_FATURA">Com fatura</option>
               <option value="SEM_FATURA">Sem fatura</option>
               <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
               <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="PENDENTE">Pendente</option>
+              <option value="SEM_FATURA">Sem fatura</option>
             </select>
 
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por AWB, cliente, fatura..."
-              className="w-full md:w-[360px]"
+              className="w-full xl:col-span-2"
             />
           </div>
         </div>
 
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="com data no financeiro" />
+          <ResumoFiltro titulo="Pendentes" valor={totalPendentesPagamento} detalhe="com fatura e sem recebimento" />
+          <ResumoFiltro titulo="Sem fatura" valor={totalSemFatura} detalhe="pendente de anexo" />
+        </div>
+
         <div className="w-full overflow-visible">
-          <table className="w-full table-fixed text-xs lg:text-sm [&_th]:px-2 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-2 [&_td]:py-3 [&_td]:align-middle [&_td]:break-words">
+          <table className="w-full table-fixed border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-2 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-2 [&_td]:py-4 [&_td]:align-middle [&_td]:break-words">
             <colgroup>
               <col className="w-[9%]" />
               <col className="w-[12%]" />
@@ -533,9 +634,11 @@ export default function FaturasPage() {
             <tbody>
               {embarquesFiltrados.map((embarque) => {
                 const fatura = faturaDoEmbarque(embarque.id)
+                const recebimento = dataPagamento(embarque, fatura)
+                const pago = !!recebimento
 
                 return (
-                  <tr key={embarque.id}>
+                  <tr key={embarque.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
                     <td className="font-black text-blue-400">{embarque.awb || '-'}</td>
                     <td>{embarque.cliente_final || embarque.importador || '-'}</td>
                     <td>{embarque.transportadora || '-'}</td>
@@ -575,9 +678,9 @@ export default function FaturasPage() {
                       )}
                     </td>
                     <td>
-                      {fatura?.data_pagamento ? (
+                      {pago ? (
                         <span className="inline-flex rounded-full border border-green-500 bg-green-600/20 px-2 py-1 text-[11px] font-black text-green-300">
-                          Pago em {dataBR(fatura.data_pagamento)}
+                          Pago em {dataBR(recebimento)}
                         </span>
                       ) : fatura ? (
                         <span className="inline-flex rounded-full border border-yellow-500 bg-yellow-500/20 px-2 py-1 text-[11px] font-black text-yellow-300">
@@ -601,10 +704,11 @@ export default function FaturasPage() {
 
                         {fatura && (
                           <button
-                            onClick={() => alternarPagamento(fatura)}
-                            className={fatura.data_pagamento ? 'bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded-lg text-xs font-black' : 'bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black'}
+                            onClick={() => pago && !fatura.data_pagamento ? null : alternarPagamento(fatura)}
+                            disabled={pago && !fatura.data_pagamento}
+                            className={fatura.data_pagamento ? 'bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded-lg text-xs font-black' : pago ? 'bg-slate-600 px-3 py-2 rounded-lg text-xs font-black opacity-70 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black'}
                           >
-                            {fatura.data_pagamento ? 'Reabrir' : 'Finalizar'}
+                            {fatura.data_pagamento ? 'Reabrir' : pago ? 'Pago financeiro' : 'Finalizar'}
                           </button>
                         )}
 
@@ -633,6 +737,16 @@ export default function FaturasPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
   )
 }
 
