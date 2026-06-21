@@ -272,6 +272,21 @@ export default function FinanceiroPage() {
     return TIPOS_MOVIMENTACAO.find((item) => item.value === tipo)?.label || tipo
   }
 
+  function ehReservaOperacionalFundo(item: any) {
+    const tipo = String(item.tipo || '')
+    const categoria = normalizarBusca(item.categoria || '')
+    const descricao = normalizarBusca(item.descricao || '')
+
+    if (tipo !== 'FUNDO_CAIXA_ENTRADA') return false
+
+    return (
+      categoria.includes('FECHAMENTO MENSAL') ||
+      categoria.includes('RESERVA 50') ||
+      descricao.includes('FECHAMENTO MENSAL') ||
+      descricao.includes('RESERVA 50')
+    )
+  }
+
   function limparFiltros() {
     setBusca('')
     setFiltroTransportadora('')
@@ -1142,7 +1157,7 @@ export default function FinanceiroPage() {
       `Gerar fechamento de ${mesResultado}?\n\n` +
       `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
       `Fundo de caixa 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}\n` +
-      `Já reservado no fundo: ${moeda(resultadoGeral.entradasFundoMes)}\n` +
+      `Já reservado no fundo: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
       `Valor que será lançado agora: ${moeda(valorReserva)}\n\n` +
       `Parte Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}\n` +
       `Parte Hérica 25%: ${moeda(resultadoGeral.parteHerica)}`
@@ -1460,6 +1475,18 @@ export default function FinanceiroPage() {
       .filter((item) => item.tipo === 'FUNDO_CAIXA_ENTRADA' && statusMovimento(item) === 'PAGO')
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
+    const reservasFundoMes = movimentosMes
+      .filter((item) => ehReservaOperacionalFundo(item) && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const entradasNaoOperacionaisMes = movimentosMes
+      .filter((item) =>
+        item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
+        statusMovimento(item) === 'PAGO' &&
+        !ehReservaOperacionalFundo(item)
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
     const saidasFundoMes = movimentosMes
       .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA' && statusMovimento(item) === 'PAGO')
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
@@ -1480,8 +1507,20 @@ export default function FinanceiroPage() {
     const parteHerica = lucroDistribuivel * 0.25
     const saldoMarcos = parteMarcos - retiradasMarcos
     const saldoHerica = parteHerica - retiradasHerica
-    const saldoFundoMes = fundoPrevistoMes - entradasFundoMes
-    const saldoCaixaRealMes = resultadoOperacional - retiradasTotal + aportes - entradasFundoMes + saidasFundoMes
+
+    // Reserva operacional é somente o fechamento mensal dos 50% do lucro.
+    // Entradas não operacionais, como venda de carro, aumentam caixa,
+    // mas não contam como reserva mensal dos 50%.
+    const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
+
+    // Caixa real do mês considera lucro operacional, entradas não operacionais,
+    // aportes, retiradas dos sócios e saídas reais do fundo/caixa.
+    const saldoCaixaRealMes =
+      resultadoOperacional +
+      entradasNaoOperacionaisMes +
+      aportes -
+      retiradasTotal -
+      saidasFundoMes
 
     return {
       processos: processosPagosMes.length,
@@ -1495,6 +1534,8 @@ export default function FinanceiroPage() {
       retiradasTotal,
       aportes,
       entradasFundoMes,
+      reservasFundoMes,
+      entradasNaoOperacionaisMes,
       saidasFundoMes,
       fundoAtual,
       resultadoOperacional,
@@ -1846,7 +1887,7 @@ export default function FinanceiroPage() {
           { label: 'Profit HC', valor: moeda(resultadoGeral.profitRecebido), detalhe: `${resultadoGeral.semCusto} sem custo` },
           { label: 'Despesas pagas', valor: moeda(resultadoGeral.despesasPagas), detalhe: `${moeda(resultadoGeral.despesasPendentes)} pendente` },
           { label: 'Lucro líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas' },
-          { label: 'Fundo 50%', valor: moeda(resultadoGeral.fundoPrevistoMes), detalhe: `${moeda(resultadoGeral.entradasFundoMes)} lançado` },
+          { label: 'Fundo 50%', valor: moeda(resultadoGeral.fundoPrevistoMes), detalhe: `${moeda(resultadoGeral.reservasFundoMes)} reservado` },
           { label: 'Parte Marcos 25%', valor: moeda(resultadoGeral.parteMarcos), detalhe: `${moeda(resultadoGeral.retiradasMarcos)} retirado` },
           { label: 'Parte Hérica 25%', valor: moeda(resultadoGeral.parteHerica), detalhe: `${moeda(resultadoGeral.retiradasHerica)} retirado` },
           { label: 'Fundo atual', valor: moeda(resultadoGeral.fundoAtual), detalhe: 'Acumulado' },
@@ -1863,7 +1904,8 @@ export default function FinanceiroPage() {
           ['Saldo Marcos a retirar', moeda(resultadoGeral.saldoMarcos)],
           ['Retirado Hérica no mês', `- ${moeda(resultadoGeral.retiradasHerica)}`],
           ['Saldo Hérica a retirar', moeda(resultadoGeral.saldoHerica)],
-          ['Reservado no fundo no mês', moeda(resultadoGeral.entradasFundoMes)],
+          ['Reservado no fundo no mês', moeda(resultadoGeral.reservasFundoMes)],
+          ['Entradas não operacionais no caixa', moeda(resultadoGeral.entradasNaoOperacionaisMes)],
           ['Saldo para reservar no fundo', moeda(resultadoGeral.saldoFundoMes)],
           ['Saldo real do caixa no mês', moeda(resultadoGeral.saldoCaixaRealMes)],
         ],
@@ -2609,7 +2651,7 @@ export default function FinanceiroPage() {
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <FiltroResumoCard titulo="Fundo de caixa 50%" valor={moeda(resultadoGeral.fundoPrevistoMes)} detalhe={`${moeda(resultadoGeral.entradasFundoMes)} já lançado no fundo`} classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Fundo de caixa 50%" valor={moeda(resultadoGeral.fundoPrevistoMes)} detalhe={`${moeda(resultadoGeral.reservasFundoMes)} já reservado dos 50%`} classe="bg-white text-blue-700 border-blue-100" />
             <FiltroResumoCard titulo="Parte Marcos 25%" valor={moeda(resultadoGeral.parteMarcos)} detalhe={`${moeda(resultadoGeral.retiradasMarcos)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
             <FiltroResumoCard titulo="Parte Hérica 25%" valor={moeda(resultadoGeral.parteHerica)} detalhe={`${moeda(resultadoGeral.retiradasHerica)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
             <FiltroResumoCard titulo="Fundo atual" valor={moeda(resultadoGeral.fundoAtual)} detalhe="Saldo reservado acumulado" classe="bg-white text-blue-700 border-blue-100" />
@@ -2654,14 +2696,15 @@ export default function FinanceiroPage() {
                 <LinhaResultado label="Saldo Marcos a retirar" valor={resultadoGeral.saldoMarcos} destaque />
                 <LinhaResultado label="Retirado Hérica no mês" valor={resultadoGeral.retiradasHerica} negativo />
                 <LinhaResultado label="Saldo Hérica a retirar" valor={resultadoGeral.saldoHerica} destaque />
-                <LinhaResultado label="Reservado no fundo no mês" valor={resultadoGeral.entradasFundoMes} negativo />
+                <LinhaResultado label="Reservado no fundo no mês" valor={resultadoGeral.reservasFundoMes} negativo />
+                <LinhaResultado label="Entradas não operacionais no caixa" valor={resultadoGeral.entradasNaoOperacionaisMes} positivo />
                 <LinhaResultado label="Saldo para reservar no fundo" valor={resultadoGeral.saldoFundoMes} destaque />
               </div>
 
               <div className="border-t border-gray-200 pt-4 mt-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-base font-black text-gray-950">Saldo real do caixa no mês</p>
-                  <p className="text-xs font-bold text-gray-500">Lucro líquido - retiradas - fundo reservado + aportes + saídas usadas do fundo</p>
+                  <p className="text-xs font-bold text-gray-500">Lucro líquido + entradas não operacionais + aportes - retiradas - saídas do caixa/fundo</p>
                 </div>
                 <p className={`text-2xl font-black ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                   {moeda(resultadoGeral.saldoCaixaRealMes)}
