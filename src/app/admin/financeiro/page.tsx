@@ -88,7 +88,7 @@ const LOTE_SUPABASE = 1000
 const TIPOS_MOVIMENTACAO = [
   { value: 'DESPESA', label: 'Despesa da empresa' },
   { value: 'RETIRADA_SOCIO', label: 'Retirada de sócio' },
-  { value: 'PAGAMENTO_SOCIO', label: 'Pagamento / Pró-labore' },
+  { value: 'PAGAMENTO_SOCIO', label: 'Pagamento de sócio' },
   { value: 'REEMBOLSO_SOCIO', label: 'Reembolso de sócio' },
   { value: 'APORTE_SOCIO', label: 'Aporte de sócio' },
   { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entrada no fundo de caixa' },
@@ -826,6 +826,147 @@ export default function FinanceiroPage() {
     event.target.value = ''
   }
 
+
+  async function importarRetiradasSociosExcel(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!confirm('Importar este Excel para Sócios / Retiradas? As colunas SALÁRIO e TOTAL RECEBIDO serão ignoradas.')) return
+
+    setImportando(true)
+
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      const nomeArquivo = normalizarBusca(file.name)
+
+      function identificarSocio(linha: any) {
+        const beneficiario = normalizarBusca(pegarCampoExcel(linha, ['BENEFICIARIO', 'BENEFICIÁRIO', 'Beneficiário', 'Beneficiario']))
+
+        if (beneficiario.includes('HERICA')) return 'HERICA'
+        if (beneficiario.includes('MARCOS') || beneficiario.includes('PAULO')) return 'MARCOS'
+        if (nomeArquivo.includes('HERICA')) return 'HERICA'
+        if (nomeArquivo.includes('MARCOS') || nomeArquivo.includes('PAULO')) return 'MARCOS'
+
+        return ''
+      }
+
+      const registros = linhas.flatMap((linha) => {
+        const beneficiarioOriginal = normalizarTexto(pegarCampoExcel(linha, ['BENEFICIARIO', 'BENEFICIÁRIO', 'Beneficiário', 'Beneficiario']))
+        const beneficiarioBusca = normalizarBusca(beneficiarioOriginal)
+
+        if (!beneficiarioOriginal || beneficiarioBusca.includes('TOTAL')) return []
+
+        const socio = identificarSocio(linha)
+        if (!socio) return []
+
+        const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
+        const mesReferencia = mesReferenciaExcel(linha)
+        const valorSaida = numero(pegarCampoExcel(linha, ['VALOR DE SAIDA', 'VALOR DE SAÍDA', 'Valor de saída', 'Valor de Saida']))
+        const reembolso = numero(pegarCampoExcel(linha, ['REEMBOLSO', 'Reembolso']))
+        const nomeSocio = socio === 'HERICA' ? 'Hérica' : 'Marcos'
+        const registrosLinha: any[] = []
+
+        if (valorSaida > 0) {
+          registrosLinha.push({
+            tipo: 'RETIRADA_SOCIO',
+            categoria: 'Retirada',
+            descricao: `Retirada ${nomeSocio} - ${mesReferencia}`,
+            valor: valorSaida,
+            data_vencimento: data,
+            data_pagamento: data,
+            mes_referencia: mesReferencia,
+            status: data ? 'PAGO' : 'PENDENTE',
+            socio,
+            forma_pagamento: '',
+            impacta_resultado: false,
+            impacta_caixa: true,
+            observacoes: 'Importado do Excel de retiradas. Salário e total recebido ignorados pela regra 50% caixa / 25% Marcos / 25% Hérica.',
+            comprovante_url: '',
+          })
+        }
+
+        if (reembolso > 0) {
+          registrosLinha.push({
+            tipo: 'REEMBOLSO_SOCIO',
+            categoria: 'Reembolso',
+            descricao: `Reembolso ${nomeSocio} - ${mesReferencia}`,
+            valor: reembolso,
+            data_vencimento: data,
+            data_pagamento: data,
+            mes_referencia: mesReferencia,
+            status: data ? 'PAGO' : 'PENDENTE',
+            socio,
+            forma_pagamento: '',
+            impacta_resultado: false,
+            impacta_caixa: true,
+            observacoes: 'Importado do Excel de retiradas de sócios.',
+            comprovante_url: '',
+          })
+        }
+
+        return registrosLinha
+      })
+
+      if (registros.length === 0) {
+        alert('Nenhuma retirada válida encontrada no Excel.')
+        setImportando(false)
+        return
+      }
+
+      const chaves = new Set(movimentacoes.map((item) => chaveMovimentoImportado(item)))
+      const registrosUnicos: any[] = []
+      let duplicados = 0
+
+      registros.forEach((item) => {
+        const chave = chaveMovimentoImportado(item)
+
+        if (chaves.has(chave)) {
+          duplicados += 1
+          return
+        }
+
+        chaves.add(chave)
+        registrosUnicos.push(item)
+      })
+
+      if (registrosUnicos.length === 0) {
+        alert(`Nenhuma nova retirada importada. ${duplicados} linhas já existiam no sistema.`)
+        setImportando(false)
+        event.target.value = ''
+        return
+      }
+
+      for (let i = 0; i < registrosUnicos.length; i += 500) {
+        const lote = registrosUnicos.slice(i, i + 500)
+
+        const { error } = await supabase.from('financeiro_movimentacoes').insert(lote)
+
+        if (error) {
+          alert('Erro ao importar retiradas: ' + error.message)
+          setImportando(false)
+          return
+        }
+      }
+
+      alert(
+        `Importação concluída: ${registrosUnicos.length} retiradas/reembolsos importados.` +
+          (duplicados > 0 ? ` ${duplicados} duplicados foram ignorados.` : '')
+      )
+
+      await carregarMovimentacoes()
+      setAbaPrincipal('SOCIOS')
+    } catch (error: any) {
+      alert('Erro ao importar Excel de retiradas: ' + error.message)
+    }
+
+    setImportando(false)
+    event.target.value = ''
+  }
+
   async function importarExcel(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
@@ -944,7 +1085,7 @@ export default function FinanceiroPage() {
       socio: 'MARCOS',
       impacta_resultado: false,
       impacta_caixa: true,
-      categoria: tipo === 'APORTE_SOCIO' ? 'Aporte' : 'Retirada',
+      categoria: tipo === 'APORTE_SOCIO' ? 'Aporte' : tipo === 'REEMBOLSO_SOCIO' ? 'Reembolso' : 'Retirada',
     })
     setEditandoMovimentoId(null)
   }
@@ -1242,7 +1383,14 @@ export default function FinanceiroPage() {
 
     const retiradasTotal = retiradasMarcos + retiradasHerica
     const resultadoOperacional = profitRecebido - despesasPagas
-    const saldoDisponivel = resultadoOperacional - retiradasTotal + aportes - entradasFundoMes + saidasFundoMes
+    const lucroDistribuivel = resultadoOperacional > 0 ? resultadoOperacional : 0
+    const fundoPrevistoMes = lucroDistribuivel * 0.5
+    const parteMarcos = lucroDistribuivel * 0.25
+    const parteHerica = lucroDistribuivel * 0.25
+    const saldoMarcos = parteMarcos - retiradasMarcos
+    const saldoHerica = parteHerica - retiradasHerica
+    const saldoFundoMes = fundoPrevistoMes - entradasFundoMes
+    const saldoCaixaRealMes = resultadoOperacional - retiradasTotal + aportes - entradasFundoMes + saidasFundoMes
 
     return {
       processos: processosPagosMes.length,
@@ -1259,7 +1407,14 @@ export default function FinanceiroPage() {
       saidasFundoMes,
       fundoAtual,
       resultadoOperacional,
-      saldoDisponivel,
+      lucroDistribuivel,
+      fundoPrevistoMes,
+      parteMarcos,
+      parteHerica,
+      saldoMarcos,
+      saldoHerica,
+      saldoFundoMes,
+      saldoCaixaRealMes,
     }
   }, [lancamentos, movimentacoes, mesResultado])
 
@@ -1308,7 +1463,7 @@ export default function FinanceiroPage() {
             {abaPrincipal === 'SOCIOS' && (
               <>
                 <button type="button" onClick={() => prepararSocio('RETIRADA_SOCIO')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Retirada</button>
-                <button type="button" onClick={() => prepararSocio('PAGAMENTO_SOCIO')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Pró-labore</button>
+                <button type="button" onClick={() => prepararSocio('REEMBOLSO_SOCIO')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Reembolso</button>
                 <button type="button" onClick={() => prepararSocio('APORTE_SOCIO')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Aporte</button>
               </>
             )}
@@ -1602,6 +1757,19 @@ export default function FinanceiroPage() {
               />
             </label>
           )}
+
+          {abaPrincipal === 'SOCIOS' && (
+            <label className="bg-purple-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-purple-700 shadow-sm">
+              ↓ Importar Retiradas Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls,.xlsm"
+                onChange={importarRetiradasSociosExcel}
+                disabled={importando}
+                className="hidden"
+              />
+            </label>
+          )}
         </div>
       </div>
 
@@ -1883,7 +2051,7 @@ export default function FinanceiroPage() {
 
       {abaPrincipal === 'SOCIOS' && (
         <>
-          {renderFormularioMovimento('Nova movimentação de sócio', 'Controle retiradas, pró-labore, reembolsos e aportes de Marcos e Hérica.')}
+          {renderFormularioMovimento('Nova movimentação de sócio', 'Controle retiradas, reembolsos e aportes de Marcos e Hérica. As retiradas abatem a parte de cada sócio no lucro.')}
           {renderTabelaMovimentos()}
         </>
       )}
@@ -1925,7 +2093,7 @@ export default function FinanceiroPage() {
             <div>
               <h2 className="text-xl font-black text-gray-950">Resultado Geral</h2>
               <p className="text-sm text-gray-500">
-                Visão do mês considerando processos recebidos, despesas pagas, retiradas, aportes e fundo de caixa.
+                Visão do mês pela regra: lucro líquido = Profit HC - despesas; 50% fica no caixa, 25% Marcos e 25% Hérica.
               </p>
             </div>
 
@@ -1944,35 +2112,66 @@ export default function FinanceiroPage() {
             <FiltroResumoCard titulo="Valor recebido" valor={moeda(resultadoGeral.valorRecebido)} detalhe={`${resultadoGeral.processos} processos pagos`} classe="bg-white text-blue-700 border-blue-100" />
             <FiltroResumoCard titulo="Profit HC recebido" valor={moeda(resultadoGeral.profitRecebido)} detalhe={resultadoGeral.semCusto > 0 ? `${resultadoGeral.semCusto} sem custo` : 'Com custo lançado'} classe="bg-white text-green-700 border-green-100" />
             <FiltroResumoCard titulo="Despesas pagas" valor={moeda(resultadoGeral.despesasPagas)} detalhe={`${moeda(resultadoGeral.despesasPendentes)} pendente`} classe="bg-white text-red-700 border-red-100" />
-            <FiltroResumoCard titulo="Resultado operacional" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas pagas" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+            <FiltroResumoCard titulo="Lucro líquido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas pagas" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <FiltroResumoCard titulo="Retirada Marcos" valor={moeda(resultadoGeral.retiradasMarcos)} detalhe="Pagas no mês" classe="bg-white text-slate-700 border-slate-100" />
-            <FiltroResumoCard titulo="Retirada Hérica" valor={moeda(resultadoGeral.retiradasHerica)} detalhe="Pagas no mês" classe="bg-white text-slate-700 border-slate-100" />
-            <FiltroResumoCard titulo="Aportes" valor={moeda(resultadoGeral.aportes)} detalhe="Entradas dos sócios" classe="bg-white text-blue-700 border-blue-100" />
-            <FiltroResumoCard titulo="Fundo atual" valor={moeda(resultadoGeral.fundoAtual)} detalhe="Saldo reservado" classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Fundo de caixa 50%" valor={moeda(resultadoGeral.fundoPrevistoMes)} detalhe={`${moeda(resultadoGeral.entradasFundoMes)} já lançado no fundo`} classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Parte Marcos 25%" valor={moeda(resultadoGeral.parteMarcos)} detalhe={`${moeda(resultadoGeral.retiradasMarcos)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
+            <FiltroResumoCard titulo="Parte Hérica 25%" valor={moeda(resultadoGeral.parteHerica)} detalhe={`${moeda(resultadoGeral.retiradasHerica)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
+            <FiltroResumoCard titulo="Fundo atual" valor={moeda(resultadoGeral.fundoAtual)} detalhe="Saldo reservado acumulado" classe="bg-white text-blue-700 border-blue-100" />
+          </section>
+
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <FiltroResumoCard
+              titulo="Saldo Marcos"
+              valor={moeda(resultadoGeral.saldoMarcos)}
+              detalhe={resultadoGeral.saldoMarcos >= 0 ? 'Ainda pode retirar' : 'Retirou acima da parte'}
+              classe={resultadoGeral.saldoMarcos >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'}
+            />
+
+            <FiltroResumoCard
+              titulo="Saldo Hérica"
+              valor={moeda(resultadoGeral.saldoHerica)}
+              detalhe={resultadoGeral.saldoHerica >= 0 ? 'Ainda pode retirar' : 'Retirou acima da parte'}
+              classe={resultadoGeral.saldoHerica >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'}
+            />
+
+            <FiltroResumoCard
+              titulo="Saldo fundo do mês"
+              valor={moeda(resultadoGeral.saldoFundoMes)}
+              detalhe={resultadoGeral.saldoFundoMes >= 0 ? 'Ainda falta reservar' : 'Reservado acima dos 50%'}
+              classe={resultadoGeral.saldoFundoMes >= 0 ? 'bg-white text-orange-700 border-orange-100' : 'bg-white text-blue-700 border-blue-100'}
+            />
           </section>
 
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-black text-gray-950 mb-4">Conta do mês</h3>
+            <h3 className="text-lg font-black text-gray-950 mb-4">Distribuição do lucro do mês</h3>
 
             <div className="space-y-3 text-sm">
               <LinhaResultado label="Profit HC dos processos recebidos" valor={resultadoGeral.profitRecebido} positivo />
               <LinhaResultado label="Despesas pagas da empresa" valor={resultadoGeral.despesasPagas} negativo />
-              <LinhaResultado label="Resultado operacional" valor={resultadoGeral.resultadoOperacional} destaque />
-              <LinhaResultado label="Retiradas / pagamentos dos sócios" valor={resultadoGeral.retiradasTotal} negativo />
-              <LinhaResultado label="Aportes dos sócios" valor={resultadoGeral.aportes} positivo />
-              <LinhaResultado label="Entrada reservada no fundo de caixa" valor={resultadoGeral.entradasFundoMes} negativo />
-              <LinhaResultado label="Saída usada do fundo de caixa" valor={resultadoGeral.saidasFundoMes} positivo />
+              <LinhaResultado label="Lucro líquido para distribuição" valor={resultadoGeral.resultadoOperacional} destaque />
+              <LinhaResultado label="50% para fundo de caixa" valor={resultadoGeral.fundoPrevistoMes} negativo />
+              <LinhaResultado label="25% parte Marcos" valor={resultadoGeral.parteMarcos} negativo />
+              <LinhaResultado label="25% parte Hérica" valor={resultadoGeral.parteHerica} negativo />
+
+              <div className="border-t border-gray-200 pt-4 mt-4 space-y-3">
+                <LinhaResultado label="Retirado Marcos no mês" valor={resultadoGeral.retiradasMarcos} negativo />
+                <LinhaResultado label="Saldo Marcos a retirar" valor={resultadoGeral.saldoMarcos} destaque />
+                <LinhaResultado label="Retirado Hérica no mês" valor={resultadoGeral.retiradasHerica} negativo />
+                <LinhaResultado label="Saldo Hérica a retirar" valor={resultadoGeral.saldoHerica} destaque />
+                <LinhaResultado label="Reservado no fundo no mês" valor={resultadoGeral.entradasFundoMes} negativo />
+                <LinhaResultado label="Saldo para reservar no fundo" valor={resultadoGeral.saldoFundoMes} destaque />
+              </div>
 
               <div className="border-t border-gray-200 pt-4 mt-4 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-base font-black text-gray-950">Saldo disponível estimado</p>
-                  <p className="text-xs font-bold text-gray-500">Resultado operacional - retiradas + aportes - reserva no fundo</p>
+                  <p className="text-base font-black text-gray-950">Saldo real do caixa no mês</p>
+                  <p className="text-xs font-bold text-gray-500">Lucro líquido - retiradas - fundo reservado + aportes + saídas usadas do fundo</p>
                 </div>
-                <p className={`text-2xl font-black ${resultadoGeral.saldoDisponivel >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                  {moeda(resultadoGeral.saldoDisponivel)}
+                <p className={`text-2xl font-black ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  {moeda(resultadoGeral.saldoCaixaRealMes)}
                 </p>
               </div>
             </div>
