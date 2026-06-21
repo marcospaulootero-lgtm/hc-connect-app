@@ -114,6 +114,34 @@ const CATEGORIAS_DESPESA = [
   'Outros',
 ]
 
+const STATUS_PROCESSOS = [
+  { value: 'EM ABERTO', label: 'Em aberto' },
+  { value: 'ATRASADO', label: 'Atrasado' },
+  { value: 'PAGO', label: 'Pago' },
+]
+
+const STATUS_MOVIMENTOS = [
+  { value: 'PENDENTE', label: 'Pendente' },
+  { value: 'VENCIDO', label: 'Vencido' },
+  { value: 'PAGO', label: 'Pago' },
+]
+
+const SOCIOS_OPCOES = [
+  { value: 'MARCOS', label: 'Marcos' },
+  { value: 'HERICA', label: 'Hérica' },
+]
+
+const TIPOS_EXTRATO = [
+  { value: 'RECEBIMENTO_PROCESSO', label: 'Recebimentos de processos' },
+  { value: 'DESPESA', label: 'Despesas' },
+  { value: 'RETIRADA_SOCIO', label: 'Retiradas de sócio' },
+  { value: 'REEMBOLSO_SOCIO', label: 'Reembolsos de sócio' },
+  { value: 'APORTE_SOCIO', label: 'Aportes' },
+  { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entradas no fundo' },
+  { value: 'FUNDO_CAIXA_SAIDA', label: 'Saídas do fundo' },
+  { value: 'AJUSTE_CAIXA', label: 'Ajustes de caixa' },
+]
+
 export default function FinanceiroPage() {
   const [lancamentos, setLancamentos] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
@@ -134,19 +162,22 @@ export default function FinanceiroPage() {
   const [paginaExtrato, setPaginaExtrato] = useState(1)
 
   const [busca, setBusca] = useState('')
-  const [filtroTransportadora, setFiltroTransportadora] = useState('')
-  const [filtroDespachante, setFiltroDespachante] = useState('')
-  const [filtroServico, setFiltroServico] = useState('')
+  const [filtroStatusProcessos, setFiltroStatusProcessos] = useState<string[]>([])
+  const [filtroTransportadora, setFiltroTransportadora] = useState<string[]>([])
+  const [filtroDespachante, setFiltroDespachante] = useState<string[]>([])
+  const [filtroServico, setFiltroServico] = useState<string[]>([])
 
   const [buscaMovimento, setBuscaMovimento] = useState('')
-  const [filtroMesMovimento, setFiltroMesMovimento] = useState(new Date().toISOString().slice(0, 7))
-  const [filtroStatusMovimento, setFiltroStatusMovimento] = useState('')
-  const [filtroSocioMovimento, setFiltroSocioMovimento] = useState('')
+  const [filtroMesMovimento, setFiltroMesMovimento] = useState<string[]>([new Date().toISOString().slice(0, 7)])
+  const [filtroStatusMovimento, setFiltroStatusMovimento] = useState<string[]>([])
+  const [filtroSocioMovimento, setFiltroSocioMovimento] = useState<string[]>([])
   const [mesResultado, setMesResultado] = useState(new Date().toISOString().slice(0, 7))
 
   const [anoExtrato, setAnoExtrato] = useState(String(new Date().getFullYear()))
   const [buscaExtrato, setBuscaExtrato] = useState('')
-  const [tipoExtrato, setTipoExtrato] = useState('')
+  const [tipoExtrato, setTipoExtrato] = useState<string[]>([])
+  const [filtroStatusExtrato, setFiltroStatusExtrato] = useState<string[]>([])
+  const [filtroSocioExtrato, setFiltroSocioExtrato] = useState<string[]>([])
 
   const [form, setForm] = useState<FormState>(formVazio)
   const [formMovimento, setFormMovimento] = useState<MovimentacaoFormState>(movimentacaoVazia)
@@ -277,6 +308,25 @@ export default function FinanceiroPage() {
     return TIPOS_MOVIMENTACAO.find((item) => item.value === tipo)?.label || tipo
   }
 
+
+  function filtraMultipla(valores: string[], valor: any) {
+    return valores.length === 0 || valores.includes(String(valor || ''))
+  }
+
+  function textoFiltroMultiplo(valores: string[], opcoes: { value: string; label: string }[], vazio = 'Todos') {
+    if (valores.length === 0) return vazio
+
+    return valores
+      .map((valor) => opcoes.find((opcao) => opcao.value === valor)?.label || valor)
+      .join(', ')
+  }
+
+  function textoMesesSelecionados(valores: string[]) {
+    if (valores.length === 0) return 'Todos os meses'
+    if (valores.length > 3) return `${valores.length} meses selecionados`
+    return valores.map((valor) => formatarMesVisual(valor)).join(', ')
+  }
+
   function ehReservaOperacionalFundo(item: any) {
     const tipo = String(item.tipo || '')
     const categoria = normalizarBusca(item.categoria || '')
@@ -294,23 +344,27 @@ export default function FinanceiroPage() {
 
   function limparFiltros() {
     setBusca('')
-    setFiltroTransportadora('')
-    setFiltroDespachante('')
-    setFiltroServico('')
+    setAba('TODOS')
+    setFiltroStatusProcessos([])
+    setFiltroTransportadora([])
+    setFiltroDespachante([])
+    setFiltroServico([])
     setPagina(1)
   }
 
   function limparFiltrosMovimentos() {
     setBuscaMovimento('')
-    setFiltroMesMovimento('')
-    setFiltroStatusMovimento('')
-    setFiltroSocioMovimento('')
+    setFiltroMesMovimento([])
+    setFiltroStatusMovimento([])
+    setFiltroSocioMovimento([])
     setPaginaMovimentos(1)
   }
 
   function limparFiltrosExtrato() {
     setBuscaExtrato('')
-    setTipoExtrato('')
+    setTipoExtrato([])
+    setFiltroStatusExtrato([])
+    setFiltroSocioExtrato([])
     setPaginaExtrato(1)
   }
 
@@ -1213,7 +1267,7 @@ export default function FinanceiroPage() {
     }
 
     await carregarMovimentacoes()
-    setFiltroMesMovimento(mesResultado)
+    setFiltroMesMovimento([mesResultado])
     setGerandoFechamento(false)
 
     alert('Fechamento mensal gerado com sucesso. A reserva de 50% foi lançada no Fundo de Caixa.')
@@ -1270,17 +1324,14 @@ export default function FinanceiroPage() {
       const passaBusca = !termo || texto.includes(termo)
       const statusAtual = statusCobranca(item)
       const passaAba = aba === 'TODOS' ? true : statusAtual === aba
-
-      const passaTransportadora =
-        !filtroTransportadora || item.transportadora === filtroTransportadora
-
-      const passaDespachante =
-        !filtroDespachante || item.despachante === filtroDespachante
-
-      const passaServico = !filtroServico || item.servico === filtroServico
+      const passaStatusMultiplo = filtraMultipla(filtroStatusProcessos, statusAtual)
+      const passaTransportadora = filtraMultipla(filtroTransportadora, item.transportadora)
+      const passaDespachante = filtraMultipla(filtroDespachante, item.despachante)
+      const passaServico = filtraMultipla(filtroServico, item.servico)
 
       return (
         passaAba &&
+        passaStatusMultiplo &&
         passaBusca &&
         passaTransportadora &&
         passaDespachante &&
@@ -1291,6 +1342,7 @@ export default function FinanceiroPage() {
     lancamentos,
     aba,
     busca,
+    filtroStatusProcessos,
     filtroTransportadora,
     filtroDespachante,
     filtroServico,
@@ -1385,6 +1437,12 @@ export default function FinanceiroPage() {
     return movimentacoes
   }, [abaPrincipal, movimentacoes])
 
+  const mesesMovimentacoes = useMemo(() => {
+    return [
+      ...new Set(movimentacoesDaAba.map((item) => item.mes_referencia).filter(Boolean)),
+    ].sort((a, b) => String(b).localeCompare(String(a)))
+  }, [movimentacoesDaAba])
+
   const movimentacoesFiltradas = useMemo(() => {
     const termo = buscaMovimento.toLowerCase().trim()
 
@@ -1399,10 +1457,10 @@ export default function FinanceiroPage() {
       `.toLowerCase()
 
       const passaBusca = !termo || texto.includes(termo)
-      const passaMes = !filtroMesMovimento || item.mes_referencia === filtroMesMovimento
+      const passaMes = filtraMultipla(filtroMesMovimento, item.mes_referencia)
       const statusAtual = statusMovimento(item)
-      const passaStatus = !filtroStatusMovimento || statusAtual === filtroStatusMovimento
-      const passaSocio = !filtroSocioMovimento || item.socio === filtroSocioMovimento
+      const passaStatus = filtraMultipla(filtroStatusMovimento, statusAtual)
+      const passaSocio = filtraMultipla(filtroSocioMovimento, item.socio)
 
       return passaBusca && passaMes && passaStatus && passaSocio
     })
@@ -1566,7 +1624,7 @@ export default function FinanceiroPage() {
   const resumoFundoFiltro = useMemo(() => {
     const movimentosFundo = movimentacoes.filter((item) => {
       const tipoFundo = ['FUNDO_CAIXA_ENTRADA', 'FUNDO_CAIXA_SAIDA', 'AJUSTE_CAIXA'].includes(item.tipo)
-      const passaMes = !filtroMesMovimento || item.mes_referencia === filtroMesMovimento
+      const passaMes = filtraMultipla(filtroMesMovimento, item.mes_referencia)
       return tipoFundo && passaMes && statusMovimento(item) === 'PAGO'
     })
 
@@ -1681,11 +1739,13 @@ export default function FinanceiroPage() {
       `)
 
       const passaBusca = !termo || texto.includes(termo)
-      const passaTipo = !tipoExtrato || item.tipo === tipoExtrato
+      const passaTipo = filtraMultipla(tipoExtrato, item.tipo)
+      const passaStatus = filtraMultipla(filtroStatusExtrato, item.status)
+      const passaSocio = filtraMultipla(filtroSocioExtrato, item.socio)
 
-      return passaBusca && passaTipo
+      return passaBusca && passaTipo && passaStatus && passaSocio
     })
-  }, [extratoAnual, buscaExtrato, tipoExtrato])
+  }, [extratoAnual, buscaExtrato, tipoExtrato, filtroStatusExtrato, filtroSocioExtrato])
 
   const resumoExtrato = useMemo(() => {
     const pagos = extratoFiltrado.filter((item) => item.status === 'PAGO')
@@ -2013,11 +2073,11 @@ export default function FinanceiroPage() {
         titulo: 'Processos faturados filtrados',
         subtitulo: 'Relatório de processos, recebimentos, custos e Profit HC conforme os filtros aplicados.',
         filtros: [
-          { label: 'Status', valor: aba === 'TODOS' ? 'Todos' : aba },
+          { label: 'Status', valor: filtroStatusProcessos.length > 0 ? textoFiltroMultiplo(filtroStatusProcessos, STATUS_PROCESSOS) : (aba === 'TODOS' ? 'Todos' : aba) },
           { label: 'Busca', valor: busca || 'Todas' },
-          { label: 'Transportadora', valor: filtroTransportadora || 'Todas' },
-          { label: 'Despachante', valor: filtroDespachante || 'Todos' },
-          { label: 'Serviço', valor: filtroServico || 'Todos' },
+          { label: 'Transportadora', valor: textoFiltroMultiplo(filtroTransportadora, transportadoras.map((item: any) => ({ value: String(item), label: String(item) })), 'Todas') },
+          { label: 'Despachante', valor: textoFiltroMultiplo(filtroDespachante, despachantes.map((item: any) => ({ value: String(item), label: String(item) })), 'Todos') },
+          { label: 'Serviço', valor: textoFiltroMultiplo(filtroServico, servicos.map((item: any) => ({ value: String(item), label: String(item) })), 'Todos') },
         ],
         cards: [
           { label: 'Valor faturado', valor: moeda(resumoFiltrado.totalValorFaturado), detalhe: `${resumoFiltrado.qtd} lançamentos` },
@@ -2074,7 +2134,9 @@ export default function FinanceiroPage() {
         filtros: [
           { label: 'Ano', valor: anoExtrato },
           { label: 'Busca', valor: buscaExtrato || 'Todas' },
-          { label: 'Tipo', valor: tipoExtrato ? (tipoExtrato === 'RECEBIMENTO_PROCESSO' ? 'Recebimento de processo' : labelTipo(tipoExtrato)) : 'Todos' },
+          { label: 'Tipo', valor: textoFiltroMultiplo(tipoExtrato, TIPOS_EXTRATO, 'Todos') },
+          { label: 'Status', valor: textoFiltroMultiplo(filtroStatusExtrato, STATUS_MOVIMENTOS, 'Todos') },
+          { label: 'Sócio', valor: textoFiltroMultiplo(filtroSocioExtrato, SOCIOS_OPCOES, 'Todos') },
         ],
         cards: [
           { label: 'Entradas pagas', valor: moeda(resumoExtrato.entradas), detalhe: `${resumoExtrato.qtd} registros filtrados` },
@@ -2161,9 +2223,9 @@ export default function FinanceiroPage() {
       subtitulo: 'Relatório das movimentações conforme os filtros aplicados na tela.',
       filtros: [
         { label: 'Busca', valor: buscaMovimento || 'Todas' },
-        { label: 'Mês', valor: filtroMesMovimento ? formatarMesVisual(filtroMesMovimento) : 'Todos' },
-        { label: 'Status', valor: filtroStatusMovimento || 'Todos' },
-        { label: 'Sócio', valor: filtroSocioMovimento || 'Todos' },
+        { label: 'Mês', valor: textoMesesSelecionados(filtroMesMovimento) },
+        { label: 'Status', valor: textoFiltroMultiplo(filtroStatusMovimento, STATUS_MOVIMENTOS, 'Todos') },
+        { label: 'Sócio', valor: textoFiltroMultiplo(filtroSocioMovimento, SOCIOS_OPCOES, 'Todos') },
       ],
       cards: [
         { label: 'Total filtrado', valor: moeda(resumoMovimentosFiltrados.total), detalhe: `${resumoMovimentosFiltrados.qtd} lançamentos` },
@@ -2365,33 +2427,29 @@ export default function FinanceiroPage() {
             className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
-          <input
-            type="month"
-            value={filtroMesMovimento}
-            onChange={(e) => { setFiltroMesMovimento(e.target.value); setPaginaMovimentos(1) }}
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          <MultiSelect
+            label="Mês"
+            values={filtroMesMovimento}
+            onChange={(valores) => { setFiltroMesMovimento(valores); setPaginaMovimentos(1) }}
+            options={mesesMovimentacoes.map((item: any) => ({ value: String(item), label: formatarMesVisual(item) }))}
+            placeholder="Todos os meses"
           />
 
-          <select
-            value={filtroStatusMovimento}
-            onChange={(e) => { setFiltroStatusMovimento(e.target.value); setPaginaMovimentos(1) }}
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-          >
-            <option value="">Todos status</option>
-            <option value="PENDENTE">Pendente</option>
-            <option value="VENCIDO">Vencido</option>
-            <option value="PAGO">Pago</option>
-          </select>
+          <MultiSelect
+            label="Status"
+            values={filtroStatusMovimento}
+            onChange={(valores) => { setFiltroStatusMovimento(valores); setPaginaMovimentos(1) }}
+            options={STATUS_MOVIMENTOS}
+            placeholder="Todos status"
+          />
 
-          <select
-            value={filtroSocioMovimento}
-            onChange={(e) => { setFiltroSocioMovimento(e.target.value); setPaginaMovimentos(1) }}
-            className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-          >
-            <option value="">Todos sócios</option>
-            <option value="MARCOS">Marcos</option>
-            <option value="HERICA">Hérica</option>
-          </select>
+          <MultiSelect
+            label="Sócios"
+            values={filtroSocioMovimento}
+            onChange={(valores) => { setFiltroSocioMovimento(valores); setPaginaMovimentos(1) }}
+            options={SOCIOS_OPCOES}
+            placeholder="Todos sócios"
+          />
 
           <button type="button" onClick={limparFiltrosMovimentos} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
             ⌁ Limpar filtros
@@ -2479,7 +2537,7 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-5">
             <input
               type="number"
               min="2020"
@@ -2497,21 +2555,29 @@ export default function FinanceiroPage() {
               className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
 
-            <select
-              value={tipoExtrato}
-              onChange={(e) => { setTipoExtrato(e.target.value); setPaginaExtrato(1) }}
-              className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-            >
-              <option value="">Todos os tipos</option>
-              <option value="RECEBIMENTO_PROCESSO">Recebimentos de processos</option>
-              <option value="DESPESA">Despesas</option>
-              <option value="RETIRADA_SOCIO">Retiradas de sócio</option>
-              <option value="REEMBOLSO_SOCIO">Reembolsos de sócio</option>
-              <option value="APORTE_SOCIO">Aportes</option>
-              <option value="FUNDO_CAIXA_ENTRADA">Entradas no fundo</option>
-              <option value="FUNDO_CAIXA_SAIDA">Saídas do fundo</option>
-              <option value="AJUSTE_CAIXA">Ajustes de caixa</option>
-            </select>
+            <MultiSelect
+              label="Tipos"
+              values={tipoExtrato}
+              onChange={(valores) => { setTipoExtrato(valores); setPaginaExtrato(1) }}
+              options={TIPOS_EXTRATO}
+              placeholder="Todos os tipos"
+            />
+
+            <MultiSelect
+              label="Status"
+              values={filtroStatusExtrato}
+              onChange={(valores) => { setFiltroStatusExtrato(valores); setPaginaExtrato(1) }}
+              options={STATUS_MOVIMENTOS}
+              placeholder="Todos status"
+            />
+
+            <MultiSelect
+              label="Sócios"
+              values={filtroSocioExtrato}
+              onChange={(valores) => { setFiltroSocioExtrato(valores); setPaginaExtrato(1) }}
+              options={SOCIOS_OPCOES}
+              placeholder="Todos sócios"
+            />
 
             <button type="button" onClick={limparFiltrosExtrato} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
               ⌁ Limpar filtros
@@ -2742,23 +2808,40 @@ export default function FinanceiroPage() {
           </section>
 
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-5">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-5">
               <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviço..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
-              <select value={filtroTransportadora} onChange={(e) => { setFiltroTransportadora(e.target.value); setPagina(1) }} className="rounded-xl border border-gray-200 px-4 py-3 text-sm">
-                <option value="">Todas transportadoras</option>
-                {transportadoras.map((item: any) => <option key={item} value={item}>{item}</option>)}
-              </select>
+              <MultiSelect
+                label="Status"
+                values={filtroStatusProcessos}
+                onChange={(valores) => { setFiltroStatusProcessos(valores); if (valores.length > 0) setAba('TODOS'); setPagina(1) }}
+                options={STATUS_PROCESSOS}
+                placeholder="Todos status"
+              />
 
-              <select value={filtroDespachante} onChange={(e) => { setFiltroDespachante(e.target.value); setPagina(1) }} className="rounded-xl border border-gray-200 px-4 py-3 text-sm">
-                <option value="">Todos despachantes</option>
-                {despachantes.map((item: any) => <option key={item} value={item}>{item}</option>)}
-              </select>
+              <MultiSelect
+                label="Transportadoras"
+                values={filtroTransportadora}
+                onChange={(valores) => { setFiltroTransportadora(valores); setPagina(1) }}
+                options={transportadoras.map((item: any) => ({ value: String(item), label: String(item) }))}
+                placeholder="Todas transportadoras"
+              />
 
-              <select value={filtroServico} onChange={(e) => { setFiltroServico(e.target.value); setPagina(1) }} className="rounded-xl border border-gray-200 px-4 py-3 text-sm">
-                <option value="">Todos serviços</option>
-                {servicos.map((item: any) => <option key={item} value={item}>{item}</option>)}
-              </select>
+              <MultiSelect
+                label="Despachantes"
+                values={filtroDespachante}
+                onChange={(valores) => { setFiltroDespachante(valores); setPagina(1) }}
+                options={despachantes.map((item: any) => ({ value: String(item), label: String(item) }))}
+                placeholder="Todos despachantes"
+              />
+
+              <MultiSelect
+                label="Serviços"
+                values={filtroServico}
+                onChange={(valores) => { setFiltroServico(valores); setPagina(1) }}
+                options={servicos.map((item: any) => ({ value: String(item), label: String(item) }))}
+                placeholder="Todos serviços"
+              />
 
               <button type="button" onClick={limparFiltros} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
                 ⌁ Limpar filtros
@@ -2950,14 +3033,14 @@ export default function FinanceiroPage() {
             <BigCard
               titulo="ENTRADAS NO MÊS"
               valor={moeda(resumoFundoFiltro.entradas)}
-              subtitulo={filtroMesMovimento ? formatarMesVisual(filtroMesMovimento) : 'Todos os meses'}
+              subtitulo={textoMesesSelecionados(filtroMesMovimento)}
               icone="⬆️"
               classe="bg-green-50 border-green-200 text-green-700"
             />
             <BigCard
               titulo="SAÍDAS NO MÊS"
               valor={moeda(resumoFundoFiltro.saidas)}
-              subtitulo={filtroMesMovimento ? formatarMesVisual(filtroMesMovimento) : 'Todos os meses'}
+              subtitulo={textoMesesSelecionados(filtroMesMovimento)}
               icone="⬇️"
               classe="bg-red-50 border-red-200 text-red-700"
             />
@@ -3160,6 +3243,34 @@ function Input({ label, value, onChange, type = 'text', placeholder = '' }: Inpu
     <div>
       <label className="text-sm font-semibold text-gray-600">{label}</label>
       <input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    </div>
+  )
+}
+
+
+function MultiSelect({ label, values, onChange, options, placeholder = 'Todos' }: {
+  label: string
+  values: string[]
+  onChange: (values: string[]) => void
+  options: { value: string; label: string }[]
+  placeholder?: string
+}) {
+  const selecionados = values.length === 0 ? placeholder : `${values.length} selecionado${values.length > 1 ? 's' : ''}`
+
+  return (
+    <div>
+      <label className="text-sm font-semibold text-gray-600">{label}</label>
+      <select
+        multiple
+        value={values}
+        onChange={(e) => onChange(Array.from(e.currentTarget.selectedOptions as HTMLCollectionOf<HTMLOptionElement>, (option) => option.value))}
+        className="mt-1 h-24 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        {options.map((item) => (
+          <option key={item.value} value={item.value}>{item.label}</option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11px] font-bold text-gray-500">{selecionados}</p>
     </div>
   )
 }
