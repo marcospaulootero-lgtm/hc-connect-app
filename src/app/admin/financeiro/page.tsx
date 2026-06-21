@@ -108,6 +108,9 @@ const CATEGORIAS_DESPESA = [
   'Combustível',
   'Material de escritório',
   'Manutenção',
+  'Cartão empresa',
+  'Veículo',
+  'Plano de saúde',
   'Outros',
 ]
 
@@ -548,6 +551,279 @@ export default function FinanceiroPage() {
   function cancelarEdicaoMovimento() {
     setEditandoMovimentoId(null)
     setFormMovimento(movimentacaoVazia)
+  }
+
+
+  function normalizarBusca(valor: any) {
+    return normalizarTexto(valor)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+  }
+
+  function pegarCampoExcel(linha: any, nomes: string[]) {
+    for (const nome of nomes) {
+      if (linha[nome] !== undefined && linha[nome] !== null && linha[nome] !== '') {
+        return linha[nome]
+      }
+    }
+
+    const chaves = Object.keys(linha || {})
+
+    for (const nome of nomes) {
+      const nomeNormalizado = normalizarBusca(nome)
+      const chaveEncontrada = chaves.find((chave) => normalizarBusca(chave) === nomeNormalizado)
+
+      if (
+        chaveEncontrada &&
+        linha[chaveEncontrada] !== undefined &&
+        linha[chaveEncontrada] !== null &&
+        linha[chaveEncontrada] !== ''
+      ) {
+        return linha[chaveEncontrada]
+      }
+    }
+
+    return ''
+  }
+
+  function mesReferenciaExcel(linha: any) {
+    const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
+    const mesTexto = normalizarBusca(pegarCampoExcel(linha, ['MÊS', 'MES', 'Mês', 'Mes']))
+    const anoTexto = normalizarTexto(pegarCampoExcel(linha, ['ANO', 'Ano']))
+
+    const meses: Record<string, string> = {
+      JANEIRO: '01',
+      FEVEREIRO: '02',
+      MARCO: '03',
+      ABRIL: '04',
+      MAIO: '05',
+      JUNHO: '06',
+      JULHO: '07',
+      AGOSTO: '08',
+      SETEMBRO: '09',
+      OUTUBRO: '10',
+      NOVEMBRO: '11',
+      DEZEMBRO: '12',
+    }
+
+    const mesNumero = meses[mesTexto]
+    const anoNumero = String(anoTexto || '').replace(/\D/g, '').slice(0, 4)
+
+    if (anoNumero && mesNumero) return `${anoNumero}-${mesNumero}`
+    if (data) return data.slice(0, 7)
+
+    return new Date().toISOString().slice(0, 7)
+  }
+
+  function classificarMovimentoDespesaExcel(descricaoOriginal: any) {
+    const descricao = normalizarBusca(descricaoOriginal)
+    const temNomeSocio =
+      descricao.includes('HERICA') ||
+      descricao.includes('MARCOS') ||
+      descricao.includes('PAULO')
+
+    const pareceRetiradaSocio =
+      temNomeSocio &&
+      (
+        descricao.includes('ADIANTAMENTO') ||
+        descricao.includes('RETIRADA') ||
+        descricao.includes('PRO LABORE') ||
+        descricao.includes('PRO-LABORE') ||
+        descricao.includes('PAGAMENTO SOCIO') ||
+        descricao.includes('PAGAMENTO SOCIO')
+      )
+
+    if (pareceRetiradaSocio) {
+      return {
+        tipo: 'RETIRADA_SOCIO',
+        socio: descricao.includes('HERICA') ? 'HERICA' : 'MARCOS',
+        categoria: 'Retirada',
+        impacta_resultado: false,
+        impacta_caixa: true,
+      }
+    }
+
+    return {
+      tipo: 'DESPESA',
+      socio: null,
+      categoria: categoriaDespesaExcel(descricaoOriginal),
+      impacta_resultado: true,
+      impacta_caixa: true,
+    }
+  }
+
+  function categoriaDespesaExcel(descricaoOriginal: any) {
+    const descricao = normalizarBusca(descricaoOriginal)
+
+    if (descricao.includes('ALUGUEL')) return 'Aluguel'
+    if (descricao.includes('CONTABILIDADE') || descricao.includes('CONTADOR')) return 'Contador'
+    if (
+      descricao.includes('IMPOSTO') ||
+      descricao.includes('DAS') ||
+      descricao.includes('DARF') ||
+      descricao.includes('SIMPLES') ||
+      descricao.includes('ISS')
+    ) return 'Impostos'
+    if (
+      descricao.includes('OFFICE') ||
+      descricao.includes('SISTEMA') ||
+      descricao.includes('SOFTWARE') ||
+      descricao.includes('PORTAL') ||
+      descricao.includes('DOMINIO') ||
+      descricao.includes('HOSPEDAGEM')
+    ) return 'Sistema'
+    if (descricao.includes('INTERNET') || descricao.includes('EMBRATEL')) return 'Internet'
+    if (
+      descricao.includes('CLARO') ||
+      descricao.includes('VIVO') ||
+      descricao.includes('OI') ||
+      descricao.includes('TELEFONE') ||
+      descricao.includes('CHIP') ||
+      descricao.includes('TIM')
+    ) return 'Telefone'
+    if (descricao.includes('BRINDE') || descricao.includes('MARKETING') || descricao.includes('ANUNCIO') || descricao.includes('ADESIVO')) return 'Marketing'
+    if (
+      descricao.includes('BANCO') ||
+      descricao.includes('BS2') ||
+      descricao.includes('ITAU') ||
+      descricao.includes('BOLETO') ||
+      descricao.includes('TARIFA') ||
+      descricao.includes('CARTAO EMPRESA')
+    ) return descricao.includes('CARTAO EMPRESA') ? 'Cartão empresa' : 'Tarifa bancária'
+    if (
+      descricao.includes('CARRO') ||
+      descricao.includes('SEGURO CARRO') ||
+      descricao.includes('FINANCIAMENTO CARRO') ||
+      descricao.includes('UBER') ||
+      descricao.includes('ESTACIONAMENTO')
+    ) return 'Veículo'
+    if (
+      descricao.includes('COMBUSTIVEL') ||
+      descricao.includes('GASOLINA') ||
+      descricao.includes('ETANOL')
+    ) return 'Combustível'
+    if (
+      descricao.includes('FOLHA') ||
+      descricao.includes('PAPEL') ||
+      descricao.includes('A4') ||
+      descricao.includes('BLOCO') ||
+      descricao.includes('IMPRESSORA') ||
+      descricao.includes('MATERIAL')
+    ) return 'Material de escritório'
+    if (descricao.includes('CONSERTO') || descricao.includes('MANUTENCAO')) return 'Manutenção'
+    if (descricao.includes('PLANO DE SAUDE') || descricao.includes('SAUDE')) return 'Plano de saúde'
+
+    return 'Outros'
+  }
+
+  function chaveMovimentoImportado(item: any) {
+    return [
+      item.tipo || '',
+      normalizarBusca(item.descricao || ''),
+      Number(item.valor || 0).toFixed(2),
+      item.data_pagamento || '',
+      item.data_vencimento || '',
+      item.mes_referencia || '',
+      item.socio || '',
+    ].join('|')
+  }
+
+  async function importarDespesasExcel(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!confirm('Importar este Excel para Despesas/Sócios? Os processos faturados não serão alterados.')) return
+
+    setImportando(true)
+
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+      const registros = linhas
+        .map((linha) => {
+          const descricao = normalizarTexto(pegarCampoExcel(linha, ['DESCRIÇÃO', 'DESCRICAO', 'Descrição', 'Descricao']))
+          const valor = numero(pegarCampoExcel(linha, ['VALOR', 'Valor']))
+          const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
+          const classificacao = classificarMovimentoDespesaExcel(descricao)
+
+          return {
+            tipo: classificacao.tipo,
+            categoria: classificacao.categoria,
+            descricao,
+            valor,
+            data_vencimento: data,
+            data_pagamento: data,
+            mes_referencia: mesReferenciaExcel(linha),
+            status: data ? 'PAGO' : 'PENDENTE',
+            socio: classificacao.socio,
+            forma_pagamento: '',
+            impacta_resultado: classificacao.impacta_resultado,
+            impacta_caixa: classificacao.impacta_caixa,
+            observacoes: 'Importado do Excel de despesas',
+            comprovante_url: '',
+          }
+        })
+        .filter((item) => item.descricao && item.valor > 0)
+
+      if (registros.length === 0) {
+        alert('Nenhuma despesa válida encontrada no Excel.')
+        setImportando(false)
+        return
+      }
+
+      const chaves = new Set(movimentacoes.map((item) => chaveMovimentoImportado(item)))
+      const registrosUnicos: any[] = []
+      let duplicados = 0
+
+      registros.forEach((item) => {
+        const chave = chaveMovimentoImportado(item)
+
+        if (chaves.has(chave)) {
+          duplicados += 1
+          return
+        }
+
+        chaves.add(chave)
+        registrosUnicos.push(item)
+      })
+
+      if (registrosUnicos.length === 0) {
+        alert(`Nenhuma nova movimentação importada. ${duplicados} linhas já existiam no sistema.`)
+        setImportando(false)
+        event.target.value = ''
+        return
+      }
+
+      for (let i = 0; i < registrosUnicos.length; i += 500) {
+        const lote = registrosUnicos.slice(i, i + 500)
+
+        const { error } = await supabase.from('financeiro_movimentacoes').insert(lote)
+
+        if (error) {
+          alert('Erro ao importar despesas: ' + error.message)
+          setImportando(false)
+          return
+        }
+      }
+
+      alert(
+        `Importação concluída: ${registrosUnicos.length} movimentações importadas.` +
+          (duplicados > 0 ? ` ${duplicados} duplicadas foram ignoradas.` : '')
+      )
+
+      await carregarMovimentacoes()
+      setAbaPrincipal('DESPESAS')
+    } catch (error: any) {
+      alert('Erro ao importar Excel de despesas: ' + error.message)
+    }
+
+    setImportando(false)
+    event.target.value = ''
   }
 
   async function importarExcel(event: ChangeEvent<HTMLInputElement>) {
@@ -1308,6 +1584,19 @@ export default function FinanceiroPage() {
                 type="file"
                 accept=".xlsx,.xls,.xlsm"
                 onChange={importarExcel}
+                disabled={importando}
+                className="hidden"
+              />
+            </label>
+          )}
+
+          {abaPrincipal === 'DESPESAS' && (
+            <label className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-green-700 shadow-sm">
+              ↓ Importar Despesas Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls,.xlsm"
+                onChange={importarDespesasExcel}
                 disabled={importando}
                 className="hidden"
               />
