@@ -1537,6 +1537,389 @@ export default function FinanceiroPage() {
     if (novaAba === 'FUNDO') prepararFundo()
   }
 
+  function escaparHtml(valor: any) {
+    return String(valor ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+
+  function formatarMesVisual(valor: any) {
+    const texto = String(valor || '')
+    if (!/^\d{4}-\d{2}$/.test(texto)) return texto || '-'
+
+    const [ano, mes] = texto.split('-')
+    const nomes: Record<string, string> = {
+      '01': 'janeiro',
+      '02': 'fevereiro',
+      '03': 'março',
+      '04': 'abril',
+      '05': 'maio',
+      '06': 'junho',
+      '07': 'julho',
+      '08': 'agosto',
+      '09': 'setembro',
+      '10': 'outubro',
+      '11': 'novembro',
+      '12': 'dezembro',
+    }
+
+    return `${nomes[mes] || mes} de ${ano}`
+  }
+
+  function abrirPdfDoFiltro({ titulo, subtitulo, filtros, cards, cabecalhos, linhas }: any) {
+    const janela = window.open('', '_blank')
+
+    if (!janela) {
+      alert('O navegador bloqueou a janela do PDF. Libere pop-ups para o portal e tente novamente.')
+      return
+    }
+
+    const dataGeracao = new Date().toLocaleString('pt-BR')
+    const filtrosHtml = (filtros || [])
+      .filter((item: any) => item && item.valor !== undefined && item.valor !== null && item.valor !== '')
+      .map((item: any) => `<span><strong>${escaparHtml(item.label)}:</strong> ${escaparHtml(item.valor)}</span>`)
+      .join('')
+
+    const cardsHtml = (cards || [])
+      .map((item: any) => `
+        <div class="card">
+          <p>${escaparHtml(item.label)}</p>
+          <strong>${escaparHtml(item.valor)}</strong>
+          ${item.detalhe ? `<small>${escaparHtml(item.detalhe)}</small>` : ''}
+        </div>
+      `)
+      .join('')
+
+    const tabelaHtml = cabecalhos?.length
+      ? `
+        <table>
+          <thead>
+            <tr>${cabecalhos.map((item: any) => `<th>${escaparHtml(item)}</th>`).join('')}</tr>
+          </thead>
+          <tbody>
+            ${linhas.length > 0
+              ? linhas
+                  .map((linha: any[]) => `<tr>${linha.map((item: any) => `<td>${escaparHtml(item)}</td>`).join('')}</tr>`)
+                  .join('')
+              : `<tr><td colspan="${cabecalhos.length}" class="vazio">Nenhum registro encontrado para os filtros aplicados.</td></tr>`
+            }
+          </tbody>
+        </table>
+      `
+      : ''
+
+    janela.document.write(`
+      <!doctype html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <title>${escaparHtml(titulo)}</title>
+          <style>
+            @page { size: A4 landscape; margin: 12mm; }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              font-family: Arial, Helvetica, sans-serif;
+              color: #111827;
+              background: #ffffff;
+              font-size: 11px;
+            }
+            .header {
+              display: flex;
+              align-items: flex-start;
+              justify-content: space-between;
+              gap: 20px;
+              border-bottom: 2px solid #1d4ed8;
+              padding-bottom: 12px;
+              margin-bottom: 14px;
+            }
+            .brand {
+              font-size: 20px;
+              line-height: 1;
+              font-weight: 900;
+              color: #0f172a;
+              margin: 0 0 6px;
+            }
+            h1 {
+              font-size: 18px;
+              margin: 0 0 4px;
+              color: #1d4ed8;
+            }
+            .subtitle {
+              margin: 0;
+              color: #4b5563;
+              font-size: 11px;
+            }
+            .meta {
+              text-align: right;
+              color: #4b5563;
+              font-size: 10px;
+              white-space: nowrap;
+            }
+            .filters {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 6px;
+              margin-bottom: 12px;
+            }
+            .filters span {
+              border: 1px solid #dbeafe;
+              background: #eff6ff;
+              color: #1e3a8a;
+              border-radius: 999px;
+              padding: 5px 8px;
+            }
+            .cards {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 8px;
+              margin-bottom: 14px;
+            }
+            .card {
+              border: 1px solid #e5e7eb;
+              border-radius: 10px;
+              padding: 10px;
+              background: #f9fafb;
+              min-height: 62px;
+            }
+            .card p {
+              margin: 0 0 4px;
+              color: #4b5563;
+              font-size: 9px;
+              font-weight: 800;
+              text-transform: uppercase;
+            }
+            .card strong {
+              display: block;
+              color: #111827;
+              font-size: 14px;
+              font-weight: 900;
+            }
+            .card small {
+              display: block;
+              margin-top: 3px;
+              color: #6b7280;
+              font-size: 9px;
+              font-weight: 700;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              table-layout: auto;
+            }
+            th {
+              background: #0f172a;
+              color: #ffffff;
+              text-align: left;
+              font-size: 9px;
+              padding: 6px;
+              border: 1px solid #0f172a;
+              white-space: nowrap;
+            }
+            td {
+              padding: 6px;
+              border: 1px solid #e5e7eb;
+              vertical-align: top;
+              font-size: 9px;
+            }
+            tr:nth-child(even) td { background: #f9fafb; }
+            .vazio {
+              text-align: center;
+              color: #6b7280;
+              padding: 18px;
+            }
+            .footer {
+              margin-top: 14px;
+              padding-top: 8px;
+              border-top: 1px solid #e5e7eb;
+              color: #6b7280;
+              font-size: 9px;
+            }
+            @media print {
+              button { display: none; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <p class="brand">HC Connect</p>
+              <h1>${escaparHtml(titulo)}</h1>
+              <p class="subtitle">${escaparHtml(subtitulo)}</p>
+            </div>
+            <div class="meta">
+              <strong>HC Consultoria</strong><br />
+              Gerado em ${escaparHtml(dataGeracao)}<br />
+              Total de registros: ${escaparHtml(linhas.length)}
+            </div>
+          </div>
+
+          ${filtrosHtml ? `<div class="filters">${filtrosHtml}</div>` : ''}
+          ${cardsHtml ? `<div class="cards">${cardsHtml}</div>` : ''}
+          ${tabelaHtml}
+
+          <div class="footer">
+            Relatório gerado a partir dos filtros aplicados no HC Connect. Valores em reais (BRL).
+          </div>
+        </body>
+      </html>
+    `)
+
+    janela.document.close()
+    janela.focus()
+    setTimeout(() => janela.print(), 500)
+  }
+
+  function exportarPdfDoFiltro() {
+    if (abaPrincipal === 'PROCESSOS') {
+      abrirPdfDoFiltro({
+        titulo: 'Processos faturados filtrados',
+        subtitulo: 'Relatório de processos, recebimentos, custos e Profit HC conforme os filtros aplicados.',
+        filtros: [
+          { label: 'Status', valor: aba === 'TODOS' ? 'Todos' : aba },
+          { label: 'Busca', valor: busca || 'Todas' },
+          { label: 'Transportadora', valor: filtroTransportadora || 'Todas' },
+          { label: 'Despachante', valor: filtroDespachante || 'Todos' },
+          { label: 'Serviço', valor: filtroServico || 'Todos' },
+        ],
+        cards: [
+          { label: 'Valor faturado', valor: moeda(resumoFiltrado.totalValorFaturado), detalhe: `${resumoFiltrado.qtd} lançamentos` },
+          { label: 'Valor compra', valor: moeda(resumoFiltrado.totalValorCompra), detalhe: 'Custo HC' },
+          { label: 'Profit HC', valor: moeda(resumoFiltrado.totalProfitHC), detalhe: `${resumoFiltrado.aguardandoCusto} sem custo` },
+          { label: 'Recebido', valor: moeda(resumoFiltrado.pago.total), detalhe: `${resumoFiltrado.pago.qtd} pagos` },
+        ],
+        cabecalhos: [
+          'Cliente',
+          'Despachante',
+          'AWB',
+          'Fatura',
+          'Transportadora',
+          'Serviço',
+          'Valor faturado',
+          'DTA/DOC/Impostos',
+          'Terceiros',
+          'Valor compra',
+          'Profit HC',
+          'Vencimento',
+          'Recebimento',
+          'Status',
+        ],
+        linhas: filtrados.map((item) => {
+          const possuiCusto = Number(item.valor_compra || 0) > 0
+          const profit = possuiCusto ? calcularProfit(item) : null
+
+          return [
+            item.cliente || '-',
+            item.despachante || '-',
+            item.awb || '-',
+            item.fatura || '-',
+            item.transportadora || '-',
+            item.servico || '-',
+            moeda(item.valor_cobranca),
+            moeda(item.doc_dta),
+            moeda(item.debito_terceiro),
+            possuiCusto ? moeda(item.valor_compra) : 'Aguardando custo',
+            profit === null ? 'Aguardando custo' : moeda(profit),
+            normalizarData(item.vencimento_cobranca) || '-',
+            normalizarData(item.recebimento) || '-',
+            statusCobranca(item),
+          ]
+        }),
+      })
+
+      return
+    }
+
+    if (abaPrincipal === 'RESULTADO') {
+      abrirPdfDoFiltro({
+        titulo: 'Resultado geral do mês',
+        subtitulo: 'Distribuição do lucro pela regra 50% fundo de caixa, 25% Marcos e 25% Hérica.',
+        filtros: [
+          { label: 'Mês', valor: formatarMesVisual(mesResultado) },
+        ],
+        cards: [
+          { label: 'Valor recebido', valor: moeda(resultadoGeral.valorRecebido), detalhe: `${resultadoGeral.processos} processos pagos` },
+          { label: 'Profit HC', valor: moeda(resultadoGeral.profitRecebido), detalhe: `${resultadoGeral.semCusto} sem custo` },
+          { label: 'Despesas pagas', valor: moeda(resultadoGeral.despesasPagas), detalhe: `${moeda(resultadoGeral.despesasPendentes)} pendente` },
+          { label: 'Lucro líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas' },
+          { label: 'Fundo 50%', valor: moeda(resultadoGeral.fundoPrevistoMes), detalhe: `${moeda(resultadoGeral.entradasFundoMes)} lançado` },
+          { label: 'Parte Marcos 25%', valor: moeda(resultadoGeral.parteMarcos), detalhe: `${moeda(resultadoGeral.retiradasMarcos)} retirado` },
+          { label: 'Parte Hérica 25%', valor: moeda(resultadoGeral.parteHerica), detalhe: `${moeda(resultadoGeral.retiradasHerica)} retirado` },
+          { label: 'Fundo atual', valor: moeda(resultadoGeral.fundoAtual), detalhe: 'Acumulado' },
+        ],
+        cabecalhos: ['Descrição', 'Valor'],
+        linhas: [
+          ['Profit HC dos processos recebidos', moeda(resultadoGeral.profitRecebido)],
+          ['Despesas pagas da empresa', `- ${moeda(resultadoGeral.despesasPagas)}`],
+          ['Lucro líquido para distribuição', moeda(resultadoGeral.resultadoOperacional)],
+          ['50% para fundo de caixa', moeda(resultadoGeral.fundoPrevistoMes)],
+          ['25% parte Marcos', moeda(resultadoGeral.parteMarcos)],
+          ['25% parte Hérica', moeda(resultadoGeral.parteHerica)],
+          ['Retirado Marcos no mês', `- ${moeda(resultadoGeral.retiradasMarcos)}`],
+          ['Saldo Marcos a retirar', moeda(resultadoGeral.saldoMarcos)],
+          ['Retirado Hérica no mês', `- ${moeda(resultadoGeral.retiradasHerica)}`],
+          ['Saldo Hérica a retirar', moeda(resultadoGeral.saldoHerica)],
+          ['Reservado no fundo no mês', moeda(resultadoGeral.entradasFundoMes)],
+          ['Saldo para reservar no fundo', moeda(resultadoGeral.saldoFundoMes)],
+          ['Saldo real do caixa no mês', moeda(resultadoGeral.saldoCaixaRealMes)],
+        ],
+      })
+
+      return
+    }
+
+    const tituloAba: Record<string, string> = {
+      DESPESAS: 'Despesas filtradas',
+      SOCIOS: 'Sócios / Retiradas filtradas',
+      FUNDO: 'Fundo de caixa filtrado',
+    }
+
+    abrirPdfDoFiltro({
+      titulo: tituloAba[abaPrincipal] || 'Movimentações filtradas',
+      subtitulo: 'Relatório das movimentações conforme os filtros aplicados na tela.',
+      filtros: [
+        { label: 'Busca', valor: buscaMovimento || 'Todas' },
+        { label: 'Mês', valor: filtroMesMovimento ? formatarMesVisual(filtroMesMovimento) : 'Todos' },
+        { label: 'Status', valor: filtroStatusMovimento || 'Todos' },
+        { label: 'Sócio', valor: filtroSocioMovimento || 'Todos' },
+      ],
+      cards: [
+        { label: 'Total filtrado', valor: moeda(resumoMovimentosFiltrados.total), detalhe: `${resumoMovimentosFiltrados.qtd} lançamentos` },
+        { label: 'Pagos', valor: moeda(resumoMovimentosFiltrados.pago.total), detalhe: `${resumoMovimentosFiltrados.pago.qtd} lançamentos` },
+        { label: 'Pendentes', valor: moeda(resumoMovimentosFiltrados.pendente.total), detalhe: `${resumoMovimentosFiltrados.pendente.qtd} lançamentos` },
+        { label: 'Vencidos', valor: moeda(resumoMovimentosFiltrados.vencido.total), detalhe: `${resumoMovimentosFiltrados.vencido.qtd} lançamentos` },
+      ],
+      cabecalhos: [
+        'Tipo',
+        'Categoria',
+        'Descrição',
+        'Sócio',
+        'Valor',
+        'Mês',
+        'Vencimento',
+        'Pagamento',
+        'Status',
+        'Forma',
+      ],
+      linhas: movimentacoesFiltradas.map((item) => [
+        labelTipo(item.tipo),
+        item.categoria || '-',
+        item.descricao || '-',
+        item.socio || '-',
+        moeda(item.valor),
+        item.mes_referencia || '-',
+        normalizarData(item.data_vencimento) || '-',
+        normalizarData(item.data_pagamento) || '-',
+        statusMovimento(item),
+        item.forma_pagamento || '-',
+      ]),
+    })
+  }
+
   function renderFormularioMovimento(titulo: string, subtitulo: string) {
     const mostrarSocio = ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'APORTE_SOCIO'].includes(formMovimento.tipo)
 
@@ -1821,6 +2204,14 @@ export default function FinanceiroPage() {
             className="bg-white border border-gray-200 text-gray-800 px-5 py-3 rounded-xl font-bold hover:bg-gray-100 shadow-sm"
           >
             ↻ Atualizar dados
+          </button>
+
+          <button
+            type="button"
+            onClick={exportarPdfDoFiltro}
+            className="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold hover:bg-slate-800 shadow-sm"
+          >
+            🧾 PDF do filtro
           </button>
 
           {abaPrincipal === 'PROCESSOS' && (
