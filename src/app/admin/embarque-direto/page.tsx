@@ -10,7 +10,7 @@ export default function AdminEmbarqueDiretoPage() {
   const [busca, setBusca] = useState('')
   const [statusFiltro, setStatusFiltro] = useState('TODOS')
   const [convertendo, setConvertendo] = useState<string | null>(null)
-  const [excluindo, setExcluindo] = useState<string | null>(null)
+  const [removendo, setRemovendo] = useState<string | null>(null)
 
   useEffect(() => {
     carregar()
@@ -22,11 +22,14 @@ export default function AdminEmbarqueDiretoPage() {
     const { data: solicitacoesData, error } = await supabase
       .from('embarque_direto')
       .select('*')
-      .neq('status', 'EXCLUIDO')
+      .or('status.is.null,status.neq.EXCLUIDO')
       .order('id', { ascending: false })
 
     if (error) {
       console.log(error)
+      alert('Erro ao carregar solicitações: ' + error.message)
+      setLoading(false)
+      return
     }
 
     const ids = (solicitacoesData || []).map((s) => s.id)
@@ -97,41 +100,33 @@ export default function AdminEmbarqueDiretoPage() {
     carregar()
   }
 
-  async function excluirSolicitacao(item: any) {
+  async function removerDaLista(item: any) {
     const confirmar = confirm(
       `Remover esta solicitação da lista?\n\n` +
         `Cliente: ${item.cliente_final || '-'}\n` +
         `Solicitante: ${item.solicitante_email || '-'}\n` +
-        `AWB / Referência: ${item.awb || '-'}\n\n` +
-        `A solicitação será marcada como EXCLUÍDA e não aparecerá mais na tela. Isso evita erro de bloqueio do Supabase/RLS e mantém segurança do histórico.`
+        `AWB/Referência: ${item.awb || '-'}\n\n` +
+        `Ela não será exibida na tela, mas continuará no banco com status EXCLUIDO.`
     )
 
     if (!confirmar) return
 
-    setExcluindo(item.id)
+    setRemovendo(item.id)
 
-    // Soft delete: remove da lista sem depender de DELETE físico no banco.
-    // O DELETE físico pode ser bloqueado por RLS, FK ou políticas do Supabase.
     const { error } = await supabase
       .from('embarque_direto')
-      .update({
-        status: 'EXCLUIDO',
-        atualizado_em: new Date().toISOString(),
-      })
+      .update({ status: 'EXCLUIDO' })
       .eq('id', item.id)
 
-    setExcluindo(null)
-
     if (error) {
+      setRemovendo(null)
       alert('Erro ao remover solicitação da lista: ' + error.message)
       return
     }
 
     setSolicitacoes((lista) => lista.filter((s) => s.id !== item.id))
     setDocumentos((lista) => lista.filter((doc) => doc.embarque_direto_id !== item.id))
-
-    alert('Solicitação removida da lista com sucesso.')
-    carregar()
+    setRemovendo(null)
   }
 
   async function converterEmEmbarque(item: any) {
@@ -353,11 +348,11 @@ Instruções: ${item.instrucoes || '-'}
                       </button>
 
                       <button
-                        onClick={() => excluirSolicitacao(item)}
-                        disabled={excluindo === item.id || convertendo === item.id}
+                        onClick={() => removerDaLista(item)}
+                        disabled={removendo === item.id}
                         className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
                       >
-                        {excluindo === item.id ? 'Removendo...' : 'Remover da lista'}
+                        {removendo === item.id ? 'Removendo...' : 'Remover da lista'}
                       </button>
                     </div>
                   </div>
