@@ -6,20 +6,6 @@ import { supabase } from '@/lib/supabaseClient'
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
 
-const MESES_UNICOS = [
-  { key: 'janeiro', label: 'Jan' },
-  { key: 'fevereiro', label: 'Fev' },
-  { key: 'março', label: 'Mar' },
-  { key: 'abril', label: 'Abr' },
-  { key: 'maio', label: 'Mai' },
-  { key: 'junho', label: 'Jun' },
-  { key: 'julho', label: 'Jul' },
-  { key: 'agosto', label: 'Ago' },
-  { key: 'setembro', label: 'Set' },
-  { key: 'outubro', label: 'Out' },
-  { key: 'novembro', label: 'Nov' },
-  { key: 'dezembro', label: 'Dez' },
-]
 
 export default function ParceirosPage() {
   const [registros, setRegistros] = useState<any[]>([])
@@ -34,7 +20,6 @@ export default function ParceirosPage() {
   const [aba, setAba] = useState('TODOS')
   const [pagina, setPagina] = useState(1)
   const [periodo, setPeriodo] = useState('TODOS')
-  const [modoGrafico, setModoGrafico] = useState('PAGO')
 
   const [form, setForm] = useState({
     parceiro: '',
@@ -679,40 +664,6 @@ export default function ParceirosPage() {
     return [...parceirosResumo].slice(0, 5)
   }, [parceirosResumo])
 
-  const graficoMensal = useMemo(() => {
-    const mapa: Record<string, number> = {}
-
-    MESES_UNICOS.forEach((mes) => {
-      mapa[mes.key] = 0
-    })
-
-    dadosParceiroPeriodo.forEach((item) => {
-      if (modoGrafico === 'PAGO' && status(item) !== 'PAGO') return
-      if (modoGrafico === 'PENDENTE' && status(item) === 'PAGO') return
-
-      const mes = normalizarMes(item.mes_pgto) || 'sem_mes'
-      if (mes === 'sem_mes') return
-
-      mapa[mes] = (mapa[mes] || 0) + Number(item.debito_terceiro || 0)
-    })
-
-    const lista = MESES_UNICOS.map((mes) => ({
-      ...mes,
-      valor: mapa[mes.key] || 0,
-    }))
-
-    const maior = Math.max(...lista.map((item) => item.valor), 1)
-
-    return lista.map((item) => ({
-      ...item,
-      altura: item.valor > 0 ? Math.max(10, (item.valor / maior) * 105) : 4,
-    }))
-  }, [dadosParceiroPeriodo, modoGrafico])
-
-  const totalGrafico = useMemo(() => {
-    return graficoMensal.reduce((acc, item) => acc + Number(item.valor || 0), 0)
-  }, [graficoMensal])
-
   const filtrados = useMemo(() => {
     const termo = normalizarBusca(busca)
 
@@ -966,100 +917,16 @@ export default function ParceirosPage() {
             </p>
           </section>
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-black">
-                    Evolução de pagamentos (por mês)
-                  </h3>
-                  <p className="text-sm text-slate-500">
-                    Valores filtrados por mês
-                  </p>
-                </div>
-
-                <select
-                  value={modoGrafico}
-                  onChange={(e) => setModoGrafico(e.target.value)}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold"
-                >
-                  <option value="PAGO">Exibir: Pagos</option>
-                  <option value="PENDENTE">Exibir: Pendentes</option>
-                  <option value="TODOS">Exibir: Todos</option>
-                </select>
-              </div>
-
-              {totalGrafico > 0 ? (
-                <div className="mt-4 h-[145px] border-t border-slate-100 pt-4">
-                  <div className="flex h-full items-end gap-3">
-                    {graficoMensal.map((item) => (
-                      <div key={item.key} className="flex flex-1 flex-col items-center justify-end gap-2">
-                        <span className="min-h-[16px] text-[11px] font-black text-slate-800">
-                          {item.valor > 0 ? moeda(item.valor).replace('R$', '').trim() : '-'}
-                        </span>
-
-                        <div
-                          className={`w-full max-w-[34px] rounded-t-lg shadow-sm ${modoGrafico === 'PENDENTE' ? 'bg-orange-400' : modoGrafico === 'TODOS' ? 'bg-slate-500' : 'bg-blue-500'}`}
-                          style={{ height: `${item.valor > 0 ? item.altura : 4}px` }}
-                          title={`${item.label}: ${moeda(item.valor)}`}
-                        />
-
-                        <span className="text-xs font-bold text-slate-500">{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 flex h-[145px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center">
-                  <div>
-                    <p className="text-sm font-black text-slate-700">Sem valores para exibir neste gráfico</p>
-                    <p className="mt-1 text-xs text-slate-500">Altere o período ou o filtro Pagos/Pendentes.</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-black">
-                Ranking de parceiros
-                <span className="font-normal text-slate-500"> (por valor total)</span>
-              </h3>
-              <p className="mb-4 text-sm text-slate-500">
-                Top 5 parceiros por valor total
-              </p>
-
-              <div className="space-y-3">
-                {ranking.map((item: any, index: number) => (
-                  <div
-                    key={item.nome}
-                    className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 px-3 py-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${
-                          index === 0
-                            ? 'bg-yellow-100 text-yellow-700'
-                            : index === 1
-                            ? 'bg-slate-100 text-slate-600'
-                            : index === 2
-                            ? 'bg-orange-100 text-orange-700'
-                            : 'bg-slate-50 text-slate-600'
-                        }`}
-                      >
-                        {index < 3 ? '🏅' : index + 1}
-                      </span>
-
-                      <div>
-                        <p className="font-black text-slate-900">{item.nome}</p>
-                        <p className="text-xs text-slate-500">{item.qtd} processos</p>
-                      </div>
-                    </div>
-
-                    <p className="text-base font-black text-slate-950">
-                      {moeda(item.total)}
-                    </p>
-                  </div>
-                ))}
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-lg font-black">
+                  Ranking de parceiros
+                  <span className="font-normal text-slate-500"> (por valor total)</span>
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Top 5 parceiros por valor total. O gráfico mensal foi removido para dar mais espaço aos processos.
+                </p>
               </div>
 
               <button
@@ -1068,10 +935,51 @@ export default function ParceirosPage() {
                   setParceiroSelecionado('')
                   setPagina(1)
                 }}
-                className="mt-4 w-full rounded-xl border border-slate-200 py-3 text-sm font-black text-blue-600 hover:bg-blue-50"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-blue-600 hover:bg-blue-50 md:w-auto"
               >
                 Ver ranking completo
               </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {ranking.map((item: any, index: number) => (
+                <button
+                  key={item.nome}
+                  type="button"
+                  onClick={() => {
+                    setParceiroSelecionado(item.nome)
+                    setPagina(1)
+                    setBusca('')
+                    setAba('TODOS')
+                  }}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 px-4 py-3 text-left hover:border-blue-200 hover:bg-blue-50"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${
+                        index === 0
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : index === 1
+                          ? 'bg-slate-100 text-slate-600'
+                          : index === 2
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      {index < 3 ? '🏅' : index + 1}
+                    </span>
+
+                    <div className="min-w-0">
+                      <p className="truncate font-black text-slate-900">{item.nome}</p>
+                      <p className="text-xs text-slate-500">{item.qtd} processos</p>
+                    </div>
+                  </div>
+
+                  <p className="whitespace-nowrap text-sm font-black text-slate-950">
+                    {moeda(item.total)}
+                  </p>
+                </button>
+              ))}
             </div>
           </section>
 
