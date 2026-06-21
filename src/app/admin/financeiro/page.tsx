@@ -1747,8 +1747,8 @@ export default function FinanceiroPage() {
     })
   }, [extratoAnual, buscaExtrato, tipoExtrato, filtroStatusExtrato, filtroSocioExtrato])
 
-  const resumoExtrato = useMemo(() => {
-    const pagos = extratoFiltrado.filter((item) => item.status === 'PAGO')
+  function calcularResumoExtratoFinanceiro(lista: any[]) {
+    const pagos = lista.filter((item) => item.status === 'PAGO')
     const entradas = pagos.reduce((acc, item) => acc + Number(item.entrada || 0), 0)
     const saidas = pagos.reduce((acc, item) => acc + Number(item.saida || 0), 0)
     const valorRecebido = pagos
@@ -1775,23 +1775,85 @@ export default function FinanceiroPage() {
     const saidasFundo = pagos
       .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA')
       .reduce((acc, item) => acc + Number(item.saida || 0), 0)
+
+    const saldoMovimentado = entradas - saidas
     const saldoGerencial = profitHC - despesas + entradasNaoOperacionais + aportes - retiradasMarcos - retiradasHerica - saidasFundo
+    const resultadoOperacional = profitHC - despesas
+    const lucroDistribuivel = Math.max(resultadoOperacional, 0)
+    const caixaMinimoRecomendado = lucroDistribuivel * 0.5
+    const direitoMarcos = lucroDistribuivel * 0.25
+    const direitoHerica = lucroDistribuivel * 0.25
+    const saldoMarcos = direitoMarcos - retiradasMarcos
+    const saldoHerica = direitoHerica - retiradasHerica
+    const retiradasTotal = retiradasMarcos + retiradasHerica
+    const faltaReporCaixa = Math.max(caixaMinimoRecomendado - saldoGerencial, 0)
+    const caixaAcimaDoMinimo = Math.max(saldoGerencial - caixaMinimoRecomendado, 0)
+    const saldoPositivoSocios = Math.max(saldoMarcos, 0) + Math.max(saldoHerica, 0)
+    const podeRetirarAgora = faltaReporCaixa > 0 ? 0 : Math.min(caixaAcimaDoMinimo, saldoPositivoSocios)
+    const gastoLivrePermitido = Math.max(caixaAcimaDoMinimo - podeRetirarAgora, 0)
+    const percentualCaixa = caixaMinimoRecomendado > 0
+      ? Math.min(Math.max((saldoGerencial / caixaMinimoRecomendado) * 100, 0), 100)
+      : saldoGerencial > 0 ? 100 : 0
+
+    let statusDono = 'CONTROLADO'
+    let mensagemDono = 'Caixa dentro da regra. Manter controle antes de novas retiradas.'
+    let acaoRecomendada = 'Manter a regra 50% caixa / 25% Marcos / 25% Hérica.'
+
+    if (saldoGerencial < 0) {
+      statusDono = 'CRÍTICO'
+      mensagemDono = 'Caixa gerencial negativo. Bloquear gastos extras e retiradas.'
+      acaoRecomendada = 'Repor caixa, revisar despesas e não realizar retiradas.'
+    } else if (faltaReporCaixa > 0) {
+      statusDono = 'ATENÇÃO'
+      mensagemDono = 'Caixa abaixo do mínimo recomendado pela regra dos 50%.'
+      acaoRecomendada = 'Economizar primeiro até recompor o caixa mínimo.'
+    } else if (podeRetirarAgora > 0) {
+      statusDono = 'SAUDÁVEL'
+      mensagemDono = 'Existe caixa acima da reserva e saldo positivo para distribuição.'
+      acaoRecomendada = 'Retirada permitida somente até o limite calculado.'
+    }
 
     return {
-      qtd: extratoFiltrado.length,
+      qtd: lista.length,
       entradas,
       saidas,
-      saldoMovimentado: entradas - saidas,
+      saldoMovimentado,
       valorRecebido,
       profitHC,
       despesas,
       retiradasMarcos,
       retiradasHerica,
+      retiradasTotal,
       aportes,
       entradasNaoOperacionais,
       saidasFundo,
       saldoGerencial,
+      caixaGerencialAtual: saldoGerencial,
+      resultadoOperacional,
+      lucroDistribuivel,
+      caixaMinimoRecomendado,
+      direitoMarcos,
+      direitoHerica,
+      saldoMarcos,
+      saldoHerica,
+      faltaReporCaixa,
+      caixaAcimaDoMinimo,
+      saldoPositivoSocios,
+      podeRetirarAgora,
+      gastoLivrePermitido,
+      percentualCaixa,
+      statusDono,
+      mensagemDono,
+      acaoRecomendada,
     }
+  }
+
+  const resumoExtratoGeralAno = useMemo(() => {
+    return calcularResumoExtratoFinanceiro(extratoAnual)
+  }, [extratoAnual])
+
+  const resumoExtrato = useMemo(() => {
+    return calcularResumoExtratoFinanceiro(extratoFiltrado)
   }, [extratoFiltrado])
 
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
@@ -2139,10 +2201,14 @@ export default function FinanceiroPage() {
           { label: 'Sócio', valor: textoFiltroMultiplo(filtroSocioExtrato, SOCIOS_OPCOES, 'Todos') },
         ],
         cards: [
-          { label: 'Entradas pagas', valor: moeda(resumoExtrato.entradas), detalhe: `${resumoExtrato.qtd} registros filtrados` },
-          { label: 'Saídas pagas', valor: moeda(resumoExtrato.saidas), detalhe: 'Despesas, retiradas e saídas' },
-          { label: 'Profit HC', valor: moeda(resumoExtrato.profitHC), detalhe: `${moeda(resumoExtrato.valorRecebido)} recebido` },
-          { label: 'Saldo gerencial', valor: moeda(resumoExtrato.saldoGerencial), detalhe: 'Profit - despesas + não operacional - retiradas' },
+          { label: 'Caixa gerencial atual', valor: moeda(resumoExtratoGeralAno.caixaGerencialAtual), detalhe: resumoExtratoGeralAno.mensagemDono },
+          { label: 'Caixa mínimo recomendado', valor: moeda(resumoExtratoGeralAno.caixaMinimoRecomendado), detalhe: '50% do lucro operacional positivo' },
+          { label: 'Precisa economizar/repor', valor: moeda(resumoExtratoGeralAno.faltaReporCaixa), detalhe: resumoExtratoGeralAno.acaoRecomendada },
+          { label: 'Pode retirar agora', valor: moeda(resumoExtratoGeralAno.podeRetirarAgora), detalhe: 'Limite seguro total dos sócios' },
+          { label: 'Pode gastar livre', valor: moeda(resumoExtratoGeralAno.gastoLivrePermitido), detalhe: 'Após caixa mínimo e retiradas permitidas' },
+          { label: 'Profit HC', valor: moeda(resumoExtratoGeralAno.profitHC), detalhe: `${moeda(resumoExtratoGeralAno.valorRecebido)} recebido` },
+          { label: 'Despesas', valor: moeda(resumoExtratoGeralAno.despesas), detalhe: 'Despesas pagas no ano' },
+          { label: 'Status', valor: resumoExtratoGeralAno.statusDono, detalhe: 'Regra 50% / 25% / 25%' },
         ],
         cabecalhos: [
           'Data',
@@ -2525,15 +2591,36 @@ export default function FinanceiroPage() {
 
 
   function renderExtratoGeral() {
+    const resumoDono = resumoExtratoGeralAno
+    const statusClasse =
+      resumoDono.statusDono === 'CRÍTICO'
+        ? 'bg-red-50 text-red-700 border-red-200'
+        : resumoDono.statusDono === 'ATENÇÃO'
+          ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+          : resumoDono.statusDono === 'SAUDÁVEL'
+            ? 'bg-green-50 text-green-700 border-green-200'
+            : 'bg-blue-50 text-blue-700 border-blue-200'
+
+    const barraCaixaClasse =
+      resumoDono.faltaReporCaixa > 0
+        ? 'bg-yellow-400'
+        : resumoDono.caixaGerencialAtual < 0
+          ? 'bg-red-500'
+          : 'bg-green-500'
+
     return (
       <section className="space-y-5">
         <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
           <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <h2 className="text-xl font-black text-gray-950">Extrato Geral do Ano</h2>
+              <h2 className="text-xl font-black text-gray-950">Visão do Dono</h2>
               <p className="text-sm text-gray-500">
-                Visão anual de processos recebidos, despesas, retiradas dos sócios, aportes e movimentações do fundo de caixa.
+                Decisão financeira do ano selecionado com a regra 50% caixa, 25% Marcos e 25% Hérica.
               </p>
+            </div>
+
+            <div className={`rounded-full border px-4 py-2 text-sm font-black ${statusClasse}`}>
+              Status: {resumoDono.statusDono}
             </div>
           </div>
 
@@ -2584,25 +2671,163 @@ export default function FinanceiroPage() {
             </button>
           </div>
 
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-            <FiltroResumoCard titulo="Entradas pagas" valor={moeda(resumoExtrato.entradas)} detalhe={`${resumoExtrato.qtd} registros filtrados`} classe="bg-white text-green-700 border-green-100" />
-            <FiltroResumoCard titulo="Saídas pagas" valor={moeda(resumoExtrato.saidas)} detalhe="Despesas, retiradas e saídas" classe="bg-white text-red-700 border-red-100" />
-            <FiltroResumoCard titulo="Saldo movimentado" valor={moeda(resumoExtrato.saldoMovimentado)} detalhe="Entradas - saídas do extrato" classe={resumoExtrato.saldoMovimentado >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
-            <FiltroResumoCard titulo="Saldo gerencial" valor={moeda(resumoExtrato.saldoGerencial)} detalhe="Profit - despesas + não operacional - retiradas" classe={resumoExtrato.saldoGerencial >= 0 ? 'bg-white text-blue-700 border-blue-100' : 'bg-white text-red-700 border-red-100'} />
+          <section className="rounded-3xl border border-slate-800 bg-slate-950 p-5 text-white mb-5 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-200">Decisão de caixa</p>
+                <h3 className="mt-2 text-2xl font-black">Quanto tenho, posso retirar e posso gastar?</h3>
+                <p className="mt-2 text-sm font-semibold text-slate-300">
+                  Estes números usam todos os lançamentos pagos de {anoExtrato}. Os filtros abaixo servem para consultar a tabela, sem distorcer a decisão do caixa.
+                </p>
+              </div>
+
+              <div className={`rounded-2xl border px-4 py-3 text-sm font-black ${statusClasse}`}>
+                {resumoDono.mensagemDono}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              <DonoResumoCard
+                titulo="Tenho em caixa gerencial"
+                valor={moeda(resumoDono.caixaGerencialAtual)}
+                detalhe="Profit - despesas + entradas não operacionais + aportes - retiradas - saídas do fundo"
+                classe={resumoDono.caixaGerencialAtual >= 0 ? 'bg-white text-slate-950 border-white' : 'bg-red-50 text-red-700 border-red-200'}
+                destaque
+              />
+
+              <DonoResumoCard
+                titulo="Caixa mínimo pela regra"
+                valor={moeda(resumoDono.caixaMinimoRecomendado)}
+                detalhe="50% do lucro operacional positivo"
+                classe="bg-blue-50 text-blue-700 border-blue-200"
+              />
+
+              <DonoResumoCard
+                titulo="Tenho que economizar/repor"
+                valor={moeda(resumoDono.faltaReporCaixa)}
+                detalhe={resumoDono.faltaReporCaixa > 0 ? 'Antes de qualquer retirada ou gasto livre' : 'Caixa mínimo já coberto'}
+                classe={resumoDono.faltaReporCaixa > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}
+              />
+
+              <DonoResumoCard
+                titulo="Posso retirar agora"
+                valor={moeda(resumoDono.podeRetirarAgora)}
+                detalhe={resumoDono.podeRetirarAgora > 0 ? 'Limite seguro total dos sócios' : 'Retirada bloqueada pela regra atual'}
+                classe={resumoDono.podeRetirarAgora > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
+              />
+
+              <DonoResumoCard
+                titulo="Posso gastar livre"
+                valor={moeda(resumoDono.gastoLivrePermitido)}
+                detalhe="Sobra após caixa mínimo e retiradas permitidas"
+                classe={resumoDono.gastoLivrePermitido > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
+              />
+
+              <DonoResumoCard
+                titulo="Ação recomendada"
+                valor={resumoDono.statusDono}
+                detalhe={resumoDono.acaoRecomendada}
+                classe={statusClasse}
+              />
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <p className="text-sm font-black text-slate-200">Cobertura do caixa mínimo</p>
+                <p className="text-sm font-black text-white">{resumoDono.percentualCaixa.toFixed(0)}%</p>
+              </div>
+              <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
+                <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${resumoDono.percentualCaixa}%` }} />
+              </div>
+              <p className="mt-2 text-xs font-bold text-slate-400">
+                Mínimo recomendado: {moeda(resumoDono.caixaMinimoRecomendado)} | Caixa atual: {moeda(resumoDono.caixaGerencialAtual)}
+              </p>
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-5">
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <h3 className="text-lg font-black text-gray-950">Distribuição dos sócios</h3>
+                <p className="text-sm font-semibold text-gray-500">Retiradas são abatimento da parte de cada sócio, não despesa operacional.</p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-[720px] w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-500">
+                    <tr>
+                      <Th>Sócio</Th>
+                      <Th>Direito 25%</Th>
+                      <Th>Já retirou</Th>
+                      <Th>Saldo pela regra</Th>
+                      <Th>Situação</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-100">
+                      <Td>Marcos</Td>
+                      <Td>{moeda(resumoDono.direitoMarcos)}</Td>
+                      <Td><span className="font-black text-red-700">{moeda(resumoDono.retiradasMarcos)}</span></Td>
+                      <Td><span className={resumoDono.saldoMarcos >= 0 ? 'font-black text-green-700' : 'font-black text-red-700'}>{moeda(resumoDono.saldoMarcos)}</span></Td>
+                      <Td><Badge texto={resumoDono.saldoMarcos >= 0 ? 'PODE TER SALDO' : 'ADIANTADO'} classe={resumoDono.saldoMarcos >= 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'} /></Td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <Td>Hérica</Td>
+                      <Td>{moeda(resumoDono.direitoHerica)}</Td>
+                      <Td><span className="font-black text-red-700">{moeda(resumoDono.retiradasHerica)}</span></Td>
+                      <Td><span className={resumoDono.saldoHerica >= 0 ? 'font-black text-green-700' : 'font-black text-red-700'}>{moeda(resumoDono.saldoHerica)}</span></Td>
+                      <Td><Badge texto={resumoDono.saldoHerica >= 0 ? 'PODE TER SALDO' : 'ADIANTADO'} classe={resumoDono.saldoHerica >= 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'} /></Td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <h3 className="text-lg font-black text-gray-950">Regra de decisão</h3>
+                <p className="text-sm font-semibold text-gray-500">Resposta direta para retirada, gasto e economia.</p>
+              </div>
+
+              <div className="space-y-3">
+                <DecisionRow label="Tenho caixa?" valor={moeda(resumoDono.caixaGerencialAtual)} destaque />
+                <DecisionRow label="Posso retirar?" valor={resumoDono.podeRetirarAgora > 0 ? `Sim, até ${moeda(resumoDono.podeRetirarAgora)}` : 'Não'} perigo={resumoDono.podeRetirarAgora <= 0} />
+                <DecisionRow label="Posso gastar livre?" valor={resumoDono.gastoLivrePermitido > 0 ? `Sim, até ${moeda(resumoDono.gastoLivrePermitido)}` : 'Não'} perigo={resumoDono.gastoLivrePermitido <= 0} />
+                <DecisionRow label="Quanto preciso economizar?" valor={moeda(resumoDono.faltaReporCaixa)} perigo={resumoDono.faltaReporCaixa > 0} sucesso={resumoDono.faltaReporCaixa <= 0} />
+                <DecisionRow label="Lucro operacional" valor={moeda(resumoDono.resultadoOperacional)} destaque />
+                <DecisionRow label="Ação" valor={resumoDono.acaoRecomendada} />
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-gray-200 bg-gray-50 p-4 mb-5">
+            <div className="mb-3">
+              <h3 className="text-lg font-black text-gray-950">Resumo do filtro aplicado</h3>
+              <p className="text-sm font-semibold text-gray-500">
+                Esta parte muda com busca, tipo, status e sócio. Use para auditoria do extrato, não para decidir retirada.
+              </p>
+            </div>
+
+            <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
+              <FiltroResumoCard titulo="Entradas pagas" valor={moeda(resumoExtrato.entradas)} detalhe={`${resumoExtrato.qtd} registros filtrados`} classe="bg-white text-green-700 border-green-100" />
+              <FiltroResumoCard titulo="Saídas pagas" valor={moeda(resumoExtrato.saidas)} detalhe="Despesas, retiradas e saídas" classe="bg-white text-red-700 border-red-100" />
+              <FiltroResumoCard titulo="Saldo movimentado" valor={moeda(resumoExtrato.saldoMovimentado)} detalhe="Entradas - saídas brutas" classe={resumoExtrato.saldoMovimentado >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+              <FiltroResumoCard titulo="Saldo gerencial do filtro" valor={moeda(resumoExtrato.saldoGerencial)} detalhe="Profit - despesas + não operacional - retiradas" classe={resumoExtrato.saldoGerencial >= 0 ? 'bg-white text-blue-700 border-blue-100' : 'bg-white text-red-700 border-red-100'} />
+            </section>
+
+            <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <FiltroResumoCard titulo="Recebido clientes" valor={moeda(resumoExtrato.valorRecebido)} detalhe="Processos pagos" classe="bg-white text-blue-700 border-blue-100" />
+              <FiltroResumoCard titulo="Profit HC" valor={moeda(resumoExtrato.profitHC)} detalhe="Dos processos pagos" classe="bg-white text-green-700 border-green-100" />
+              <FiltroResumoCard titulo="Despesas" valor={moeda(resumoExtrato.despesas)} detalhe="Despesas pagas" classe="bg-white text-red-700 border-red-100" />
+              <FiltroResumoCard titulo="Retiradas total" valor={moeda(resumoExtrato.retiradasTotal)} detalhe="Marcos + Hérica" classe="bg-white text-slate-700 border-slate-100" />
+            </section>
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-            <FiltroResumoCard titulo="Recebido clientes" valor={moeda(resumoExtrato.valorRecebido)} detalhe="Processos pagos" classe="bg-white text-blue-700 border-blue-100" />
-            <FiltroResumoCard titulo="Profit HC" valor={moeda(resumoExtrato.profitHC)} detalhe="Dos processos pagos" classe="bg-white text-green-700 border-green-100" />
-            <FiltroResumoCard titulo="Despesas" valor={moeda(resumoExtrato.despesas)} detalhe="Despesas pagas" classe="bg-white text-red-700 border-red-100" />
-            <FiltroResumoCard titulo="Entradas não operacionais" valor={moeda(resumoExtrato.entradasNaoOperacionais)} detalhe="Venda de ativo, ajustes etc." classe="bg-white text-purple-700 border-purple-100" />
-          </section>
-
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-            <FiltroResumoCard titulo="Retiradas Marcos" valor={moeda(resumoExtrato.retiradasMarcos)} detalhe="Pagas no ano/filtro" classe="bg-white text-slate-700 border-slate-100" />
-            <FiltroResumoCard titulo="Retiradas Hérica" valor={moeda(resumoExtrato.retiradasHerica)} detalhe="Pagas no ano/filtro" classe="bg-white text-slate-700 border-slate-100" />
-            <FiltroResumoCard titulo="Aportes" valor={moeda(resumoExtrato.aportes)} detalhe="Entradas de sócios" classe="bg-white text-green-700 border-green-100" />
-            <FiltroResumoCard titulo="Saídas do fundo" valor={moeda(resumoExtrato.saidasFundo)} detalhe="Uso do caixa/fundo" classe="bg-white text-orange-700 border-orange-100" />
+            <FiltroResumoCard titulo="Entradas não operacionais" valor={moeda(resumoDono.entradasNaoOperacionais)} detalhe="Venda de ativo, ajustes etc." classe="bg-white text-purple-700 border-purple-100" />
+            <FiltroResumoCard titulo="Aportes" valor={moeda(resumoDono.aportes)} detalhe="Entradas de sócios" classe="bg-white text-green-700 border-green-100" />
+            <FiltroResumoCard titulo="Saídas do fundo" valor={moeda(resumoDono.saidasFundo)} detalhe="Uso do caixa/fundo" classe="bg-white text-orange-700 border-orange-100" />
+            <FiltroResumoCard titulo="Recebido de clientes" valor={moeda(resumoDono.valorRecebido)} detalhe="Fluxo bruto dos processos" classe="bg-white text-blue-700 border-blue-100" />
           </section>
 
           <div className="overflow-x-auto">
@@ -3166,6 +3391,34 @@ function FiltroResumoCard({ titulo, valor, detalhe, classe }: any) {
       <p className="text-xs font-black tracking-wide opacity-80">{titulo}</p>
       <p className="mt-2 text-xl font-black">{valor}</p>
       <p className="mt-1 text-xs font-bold opacity-70">{detalhe}</p>
+    </div>
+  )
+}
+
+
+function DonoResumoCard({ titulo, valor, detalhe, classe, destaque }: any) {
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${classe} ${destaque ? 'xl:col-span-1' : ''}`}>
+      <p className="text-xs font-black uppercase tracking-wide opacity-75">{titulo}</p>
+      <p className="mt-2 text-2xl font-black leading-tight">{valor}</p>
+      <p className="mt-2 text-xs font-bold opacity-75 leading-snug">{detalhe}</p>
+    </div>
+  )
+}
+
+function DecisionRow({ label, valor, destaque, perigo, sucesso }: any) {
+  return (
+    <div className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 ${
+      destaque
+        ? 'bg-gray-50 border-gray-200'
+        : perigo
+          ? 'bg-red-50 border-red-100'
+          : sucesso
+            ? 'bg-green-50 border-green-100'
+            : 'bg-white border-gray-100'
+    }`}>
+      <p className="text-sm font-black text-gray-600">{label}</p>
+      <p className={`text-right text-sm font-black ${perigo ? 'text-red-700' : sucesso ? 'text-green-700' : 'text-gray-950'}`}>{valor}</p>
     </div>
   )
 }
