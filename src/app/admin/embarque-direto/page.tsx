@@ -22,6 +22,7 @@ export default function AdminEmbarqueDiretoPage() {
     const { data: solicitacoesData, error } = await supabase
       .from('embarque_direto')
       .select('*')
+      .neq('status', 'EXCLUIDO')
       .order('id', { ascending: false })
 
     if (error) {
@@ -57,6 +58,8 @@ export default function AdminEmbarqueDiretoPage() {
 
   const filtradas = useMemo(() => {
     return solicitacoes.filter((item) => {
+      if (item.status === 'EXCLUIDO') return false
+
       const texto = `
         ${item.cliente_final || ''}
         ${item.solicitante_email || ''}
@@ -96,50 +99,38 @@ export default function AdminEmbarqueDiretoPage() {
 
   async function excluirSolicitacao(item: any) {
     const confirmar = confirm(
-      `Excluir definitivamente esta solicitação?\n\n` +
+      `Remover esta solicitação da lista?\n\n` +
         `Cliente: ${item.cliente_final || '-'}\n` +
         `Solicitante: ${item.solicitante_email || '-'}\n` +
         `AWB / Referência: ${item.awb || '-'}\n\n` +
-        `Esta ação remove a solicitação da lista. Use Recusar apenas quando quiser manter histórico.`
+        `A solicitação será marcada como EXCLUÍDA e não aparecerá mais na tela. Isso evita erro de bloqueio do Supabase/RLS e mantém segurança do histórico.`
     )
 
     if (!confirmar) return
 
     setExcluindo(item.id)
 
-    const docs = docsDaSolicitacao(item.id)
-    const caminhos = docs
-      .map((doc) => doc.caminho)
-      .filter((caminho) => caminho && typeof caminho === 'string')
-
-    if (caminhos.length > 0) {
-      await supabase.storage.from('documentos').remove(caminhos)
-    }
-
-    const { error: docsError } = await supabase
-      .from('embarque_direto_documentos')
-      .delete()
-      .eq('embarque_direto_id', item.id)
-
-    if (docsError) {
-      setExcluindo(null)
-      alert('Erro ao excluir documentos da solicitação: ' + docsError.message)
-      return
-    }
-
+    // Soft delete: remove da lista sem depender de DELETE físico no banco.
+    // O DELETE físico pode ser bloqueado por RLS, FK ou políticas do Supabase.
     const { error } = await supabase
       .from('embarque_direto')
-      .delete()
+      .update({
+        status: 'EXCLUIDO',
+        atualizado_em: new Date().toISOString(),
+      })
       .eq('id', item.id)
 
     setExcluindo(null)
 
     if (error) {
-      alert('Erro ao excluir solicitação: ' + error.message)
+      alert('Erro ao remover solicitação da lista: ' + error.message)
       return
     }
 
-    alert('Solicitação excluída com sucesso.')
+    setSolicitacoes((lista) => lista.filter((s) => s.id !== item.id))
+    setDocumentos((lista) => lista.filter((doc) => doc.embarque_direto_id !== item.id))
+
+    alert('Solicitação removida da lista com sucesso.')
     carregar()
   }
 
@@ -366,7 +357,7 @@ Instruções: ${item.instrucoes || '-'}
                         disabled={excluindo === item.id || convertendo === item.id}
                         className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
                       >
-                        {excluindo === item.id ? 'Excluindo...' : 'Excluir solicitação'}
+                        {excluindo === item.id ? 'Removendo...' : 'Remover da lista'}
                       </button>
                     </div>
                   </div>
