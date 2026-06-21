@@ -4,12 +4,19 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 
+const TABELAS_OPCIONAIS = ['chamados_suporte', 'suporte']
+
 export default function IntelligencePage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [faturas, setFaturas] = useState<any[]>([])
   const [chamados, setChamados] = useState<any[]>([])
+  const [financeiroEmbarques, setFinanceiroEmbarques] = useState<any[]>([])
+  const [financeiroMovimentacoes, setFinanceiroMovimentacoes] = useState<any[]>([])
+  const [avisos, setAvisos] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [periodoTipo, setPeriodoTipo] = useState<'MES' | 'ANO' | 'TUDO'>('MES')
+  const [mesFiltro, setMesFiltro] = useState(new Date().toISOString().slice(0, 7))
 
   useEffect(() => {
     carregar()
@@ -17,156 +24,675 @@ export default function IntelligencePage() {
 
   async function carregar() {
     setLoading(true)
+    const erros: string[] = []
 
-    const [{ data: emb }, { data: cot }, { data: fat }, { data: cha }] =
-      await Promise.all([
-        supabase.from('embarques').select('*'),
-        supabase.from('cotacoes').select('*'),
-        supabase.from('faturas').select('*'),
-        supabase.from('chamados_suporte').select('*'),
-      ])
+    async function buscarTabela(tabela: string, silenciosa = false) {
+      const { data, error } = await supabase.from(tabela).select('*')
 
-    setEmbarques(emb || [])
-    setCotacoes(cot || [])
-    setFaturas(fat || [])
-    setChamados(cha || [])
+      if (error) {
+        if (!silenciosa) erros.push(`${tabela}: ${error.message}`)
+        return []
+      }
+
+      return data || []
+    }
+
+    const [emb, cot, fat, fin, mov] = await Promise.all([
+      buscarTabela('embarques'),
+      buscarTabela('cotacoes'),
+      buscarTabela('faturas'),
+      buscarTabela('financeiro_embarques'),
+      buscarTabela('financeiro_movimentacoes'),
+    ])
+
+    let chamadosEncontrados: any[] = []
+
+    for (const tabela of TABELAS_OPCIONAIS) {
+      const dados = await buscarTabela(tabela, true)
+      if (dados.length > 0) {
+        chamadosEncontrados = dados
+        break
+      }
+    }
+
+    setEmbarques(emb)
+    setCotacoes(cot)
+    setFaturas(fat)
+    setFinanceiroEmbarques(fin)
+    setFinanceiroMovimentacoes(mov)
+    setChamados(chamadosEncontrados)
+    setAvisos(erros)
     setLoading(false)
   }
 
-  function num(v: any) {
-    return Number(v || 0)
-  }
+  function numero(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return 0
+    if (typeof valor === 'number') return valor
 
-  function money(v: number) {
-    return `USD ${v.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`
-  }
-
-  const dados = useMemo(() => {
-    const receita = faturas.reduce((t, f) => t + num(f.valor_venda), 0)
-    const compra = faturas.reduce((t, f) => t + num(f.valor_compra), 0)
-    const profit = faturas.reduce(
-      (t, f) => t + num(f.profit || num(f.valor_venda) - num(f.valor_compra)),
-      0
+    return (
+      Number(
+        String(valor)
+          .replace(/[R$USD\s]/gi, '')
+          .replace(/\./g, '')
+          .replace(',', '.')
+      ) || 0
     )
+  }
 
-    const margem = receita > 0 ? (profit / receita) * 100 : 0
-    const ticket = faturas.length > 0 ? receita / faturas.length : 0
+  function moeda(valor: any) {
+    return Number(valor || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+  }
 
-    const faturasRecebidas = faturas.filter(
-      (f) => f.recibo_pdf || f.data_pagamento
-    ).length
+  function percentual(valor: any) {
+    return `${Number(valor || 0).toLocaleString('pt-BR', {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })}%`
+  }
 
-    const faturasVencidas = faturas.filter((f) => {
-      if (!f.vencimento || f.recibo_pdf || f.data_pagamento) return false
-      return new Date(f.vencimento) < new Date()
-    }).length
+  function normalizarTexto(valor: any) {
+    return String(valor || '').trim()
+  }
 
-    const embarquesSemAwb = embarques.filter((e) => {
-      const awb = String(e.awb || '').toLowerCase()
-      return !awb || awb.includes('aguardando')
-    }).length
+  function normalizarBusca(valor: any) {
+    return normalizarTexto(valor)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+  }
 
-    const cotacoesAprovadas = cotacoes.filter((c) => {
-      const st = String(c.status_comercial || c.status || '').toLowerCase()
-      return st.includes('aprov') || st.includes('fech')
-    }).length
+  function normalizarData(valor: any) {
+    if (!valor) return ''
 
-    const chamadosAbertos = chamados.filter((c) => {
-      const st = String(c.status || '').toLowerCase()
-      return !st.includes('fechado') && !st.includes('resolvido')
-    }).length
+    if (valor instanceof Date && !isNaN(valor.getTime())) {
+      return valor.toISOString().slice(0, 10)
+    }
+
+    if (typeof valor === 'number') {
+      const data = new Date((valor - 25569) * 86400 * 1000)
+      return data.toISOString().slice(0, 10)
+    }
+
+    const texto = String(valor).trim()
+    if (!texto || texto === '0') return ''
+    if (/^\d{4}-\d{2}-\d{2}/.test(texto)) return texto.slice(0, 10)
+
+    const partes = texto.split('/')
+    if (partes.length === 3) {
+      const [dia, mes, ano] = partes
+      return `${ano.padStart(4, '20')}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
+    }
+
+    return ''
+  }
+
+  function mesDaData(valor: any) {
+    const data = normalizarData(valor)
+    return data ? data.slice(0, 7) : ''
+  }
+
+  function datasPeriodo() {
+    const ano = mesFiltro.slice(0, 4)
+    const mes = mesFiltro.slice(5, 7)
+    const ultimoDiaMes = new Date(Number(ano), Number(mes), 0).getDate()
+
+    if (periodoTipo === 'ANO') {
+      return {
+        inicio: `${ano}-01-01`,
+        fim: `${ano}-12-31`,
+        label: `Ano ${ano}`,
+      }
+    }
+
+    if (periodoTipo === 'TUDO') {
+      return {
+        inicio: '',
+        fim: '',
+        label: 'Todo o histórico',
+      }
+    }
 
     return {
-      receita,
-      compra,
-      profit,
-      margem,
-      ticket,
-      faturasRecebidas,
+      inicio: `${ano}-${mes}-01`,
+      fim: `${ano}-${mes}-${String(ultimoDiaMes).padStart(2, '0')}`,
+      label: `${formatarMes(mesFiltro)}`,
+    }
+  }
+
+  function estaNoPeriodoPorMes(mesBase: any) {
+    const mes = String(mesBase || '')
+    if (periodoTipo === 'TUDO') return true
+    if (!mes) return true
+    if (periodoTipo === 'ANO') return mes.startsWith(mesFiltro.slice(0, 4))
+    return mes === mesFiltro
+  }
+
+  function estaNoPeriodoPorData(dataBase: any) {
+    const data = normalizarData(dataBase)
+    if (periodoTipo === 'TUDO') return true
+    if (!data) return true
+    if (periodoTipo === 'ANO') return data.startsWith(mesFiltro.slice(0, 4))
+    return data.startsWith(mesFiltro)
+  }
+
+  function mesFinanceiro(item: any) {
+    return (
+      item.mes_profit ||
+      item.mes ||
+      mesDaData(item.recebimento) ||
+      mesDaData(item.vencimento_cobranca) ||
+      mesDaData(item.created_at) ||
+      ''
+    )
+  }
+
+  function mesMovimento(item: any) {
+    return item.mes_referencia || mesDaData(item.data_pagamento) || mesDaData(item.data_vencimento) || mesDaData(item.created_at) || ''
+  }
+
+  function mesFatura(item: any) {
+    return mesDaData(item.data_pagamento) || mesDaData(item.recebimento) || mesDaData(item.vencimento) || mesDaData(item.created_at) || ''
+  }
+
+  function mesEmbarque(item: any) {
+    return mesDaData(item.created_at) || mesDaData(item.data_envio) || mesDaData(item.ultima_atualizacao) || mesDaData(item.data_prevista) || ''
+  }
+
+  function mesCotacao(item: any) {
+    return mesDaData(item.created_at) || mesDaData(item.atualizado_em) || mesDaData(item.data_cotacao) || ''
+  }
+
+  function statusCobranca(item: any) {
+    if (normalizarData(item.recebimento) || normalizarData(item.data_pagamento)) return 'PAGO'
+
+    const vencimento = normalizarData(item.vencimento_cobranca || item.vencimento)
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    if (vencimento && vencimento < hoje) return 'ATRASADO'
+    return 'EM ABERTO'
+  }
+
+  function statusMovimento(item: any) {
+    if (item.status === 'PAGO' || normalizarData(item.data_pagamento)) return 'PAGO'
+
+    const vencimento = normalizarData(item.data_vencimento)
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    if (vencimento && vencimento < hoje) return 'VENCIDO'
+    return item.status || 'PENDENTE'
+  }
+
+  function statusFatura(item: any) {
+    if (item.recibo_pdf || item.data_pagamento || item.recebimento) return 'PAGO'
+
+    const vencimento = normalizarData(item.vencimento || item.vencimento_cobranca)
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    if (vencimento && vencimento < hoje) return 'VENCIDO'
+    return 'PENDENTE'
+  }
+
+  function custosProcesso(item: any) {
+    return numero(item.doc_dta) + numero(item.debito_terceiro) + numero(item.valor_compra)
+  }
+
+  function temCusto(item: any) {
+    return numero(item.valor_compra) > 0
+  }
+
+  function profitProcesso(item: any) {
+    if (!temCusto(item)) return 0
+    return numero(item.valor_cobranca) - custosProcesso(item)
+  }
+
+  function clienteDoProcesso(item: any) {
+    return normalizarTexto(item.cliente || item.cliente_final || item.importador || item.exportador || 'Não informado')
+  }
+
+  function transportadoraDoProcesso(item: any) {
+    return normalizarTexto(item.transportadora || item.empresa_prestadora || 'Não informado')
+  }
+
+  function servicoDoProcesso(item: any) {
+    return normalizarTexto(item.servico || item.tipo_servico || 'Não informado')
+  }
+
+  function awbDoProcesso(item: any) {
+    return normalizarTexto(item.awb || item.numero_awb || '-')
+  }
+
+  function faturaDoProcesso(item: any) {
+    return normalizarTexto(item.fatura || item.numero_fatura || '')
+  }
+
+  function diasEntre(dataA: string, dataB: string) {
+    const a = new Date(`${dataA}T00:00:00`)
+    const b = new Date(`${dataB}T00:00:00`)
+    return Math.round((b.getTime() - a.getTime()) / 86400000)
+  }
+
+  function formatarMes(valor: any) {
+    const texto = String(valor || '')
+    if (!/^\d{4}-\d{2}$/.test(texto)) return texto || '-'
+
+    const [ano, mes] = texto.split('-')
+    const nomes: Record<string, string> = {
+      '01': 'Janeiro',
+      '02': 'Fevereiro',
+      '03': 'Março',
+      '04': 'Abril',
+      '05': 'Maio',
+      '06': 'Junho',
+      '07': 'Julho',
+      '08': 'Agosto',
+      '09': 'Setembro',
+      '10': 'Outubro',
+      '11': 'Novembro',
+      '12': 'Dezembro',
+    }
+
+    return `${nomes[mes] || mes}/${ano}`
+  }
+
+  const periodo = datasPeriodo()
+  const hoje = new Date().toISOString().slice(0, 10)
+  const em7Dias = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+  const em15Dias = new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10)
+  const em30Dias = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+
+  const dadosPeriodo = useMemo(() => {
+    const fin = financeiroEmbarques.filter((item) => estaNoPeriodoPorMes(mesFinanceiro(item)))
+    const mov = financeiroMovimentacoes.filter((item) => estaNoPeriodoPorMes(mesMovimento(item)))
+    const fat = faturas.filter((item) => estaNoPeriodoPorMes(mesFatura(item)))
+    const emb = embarques.filter((item) => estaNoPeriodoPorMes(mesEmbarque(item)))
+    const cot = cotacoes.filter((item) => estaNoPeriodoPorMes(mesCotacao(item)))
+
+    return { fin, mov, fat, emb, cot }
+  }, [financeiroEmbarques, financeiroMovimentacoes, faturas, embarques, cotacoes, periodoTipo, mesFiltro])
+
+  const inteligencia = useMemo(() => {
+    const processos = dadosPeriodo.fin
+    const movimentos = dadosPeriodo.mov
+    const faturasPeriodo = dadosPeriodo.fat
+    const embarquesPeriodo = dadosPeriodo.emb
+    const cotacoesPeriodo = dadosPeriodo.cot
+
+    const pagos = processos.filter((item) => statusCobranca(item) === 'PAGO')
+    const abertos = processos.filter((item) => statusCobranca(item) === 'EM ABERTO')
+    const atrasados = processos.filter((item) => statusCobranca(item) === 'ATRASADO')
+    const pagosComCusto = pagos.filter((item) => temCusto(item))
+    const pagosSemCusto = pagos.filter((item) => !temCusto(item) && numero(item.valor_cobranca) > 0)
+
+    const receitaConfirmada = pagos.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+    const custoConfirmado = pagosComCusto.reduce((acc, item) => acc + custosProcesso(item), 0)
+    const profitConfirmado = pagosComCusto.reduce((acc, item) => acc + profitProcesso(item), 0)
+    const margemConfirmada = receitaConfirmada > 0 ? (profitConfirmado / receitaConfirmada) * 100 : 0
+    const ticketMedio = pagos.length > 0 ? receitaConfirmada / pagos.length : 0
+
+    const despesasPagas = movimentos
+      .filter((item) => item.tipo === 'DESPESA' && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const despesasPendentes = movimentos
+      .filter((item) => item.tipo === 'DESPESA' && statusMovimento(item) !== 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const retiradasSocios = movimentos
+      .filter((item) => ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const aportes = movimentos
+      .filter((item) => item.tipo === 'APORTE_SOCIO' && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const entradasFundo = movimentos
+      .filter((item) => item.tipo === 'FUNDO_CAIXA_ENTRADA' && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const saidasFundo = movimentos
+      .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA' && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const resultadoOperacional = profitConfirmado - despesasPagas
+    const lucroDistribuivel = Math.max(resultadoOperacional, 0)
+    const fundoMinimoRegra = lucroDistribuivel * 0.5
+    const parteSocio = lucroDistribuivel * 0.25
+    const saldoGerencial = resultadoOperacional + aportes + entradasFundo - retiradasSocios - saidasFundo
+    const podeGastar = Math.max(saldoGerencial - fundoMinimoRegra, 0)
+
+    const totalVencido = atrasados.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+    const totalAberto = abertos.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+
+    function totalAReceberAte(dataLimite: string) {
+      return processos
+        .filter((item) => statusCobranca(item) !== 'PAGO')
+        .filter((item) => {
+          const vencimento = normalizarData(item.vencimento_cobranca)
+          return vencimento && vencimento >= hoje && vencimento <= dataLimite
+        })
+        .reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+    }
+
+    const aReceberHoje = processos
+      .filter((item) => statusCobranca(item) !== 'PAGO')
+      .filter((item) => normalizarData(item.vencimento_cobranca) === hoje)
+      .reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+
+    const aReceber7 = totalAReceberAte(em7Dias)
+    const aReceber15 = totalAReceberAte(em15Dias)
+    const aReceber30 = totalAReceberAte(em30Dias)
+
+    const faturasVencidas = faturasPeriodo.filter((item) => statusFatura(item) === 'VENCIDO')
+    const faturasPendentes = faturasPeriodo.filter((item) => statusFatura(item) !== 'PAGO')
+
+    const embarquesSemAwb = embarquesPeriodo.filter((item) => {
+      const awb = normalizarBusca(item.awb)
+      return !awb || awb.includes('AGUARDANDO') || awb === '-'
+    })
+
+    const cotacoesAprovadas = cotacoesPeriodo.filter((item) => {
+      const status = normalizarBusca(item.status_comercial || item.status)
+      return status.includes('APROV') || status.includes('FECH') || status.includes('CONVERT')
+    })
+
+    const cotacoesSemFechamento = cotacoesPeriodo.filter((item) => {
+      const status = normalizarBusca(item.status_comercial || item.status)
+      return !status.includes('APROV') && !status.includes('FECH') && !status.includes('CONVERT')
+    })
+
+    const chamadosAbertos = chamados.filter((item) => {
+      if (!estaNoPeriodoPorData(item.created_at || item.data_abertura || item.updated_at)) return false
+      const status = normalizarBusca(item.status)
+      return !status.includes('FECHADO') && !status.includes('RESOLVIDO') && !status.includes('FINALIZADO')
+    })
+
+    return {
+      processos,
+      movimentos,
+      faturasPeriodo,
+      embarquesPeriodo,
+      cotacoesPeriodo,
+      pagos,
+      abertos,
+      atrasados,
+      pagosComCusto,
+      pagosSemCusto,
+      receitaConfirmada,
+      custoConfirmado,
+      profitConfirmado,
+      margemConfirmada,
+      ticketMedio,
+      despesasPagas,
+      despesasPendentes,
+      resultadoOperacional,
+      lucroDistribuivel,
+      fundoMinimoRegra,
+      parteSocio,
+      saldoGerencial,
+      podeGastar,
+      totalVencido,
+      totalAberto,
+      aReceberHoje,
+      aReceber7,
+      aReceber15,
+      aReceber30,
       faturasVencidas,
+      faturasPendentes,
       embarquesSemAwb,
       cotacoesAprovadas,
+      cotacoesSemFechamento,
       chamadosAbertos,
     }
-  }, [embarques, cotacoes, faturas, chamados])
+  }, [dadosPeriodo, chamados, periodoTipo, mesFiltro])
 
-  const topClientes = useMemo(() => {
-    const mapa: any = {}
+  const rankingClientes = useMemo(() => {
+    const mapa: Record<string, any> = {}
 
-    embarques.forEach((e) => {
-      const nome = e.cliente_final || e.importador || e.exportador || 'Não informado'
-      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
-      mapa[nome].total += 1
-    })
+    inteligencia.processos.forEach((item) => {
+      const nome = clienteDoProcesso(item)
 
-    faturas.forEach((f) => {
-      const emb = embarques.find((e) => e.id === f.embarque_id)
-      const nome = emb?.cliente_final || emb?.importador || emb?.exportador || 'Não informado'
-      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
-      mapa[nome].profit += num(f.profit || num(f.valor_venda) - num(f.valor_compra))
+      if (!mapa[nome]) {
+        mapa[nome] = {
+          nome,
+          processos: 0,
+          pagos: 0,
+          receita: 0,
+          custo: 0,
+          profit: 0,
+          vencido: 0,
+          emAberto: 0,
+          semCusto: 0,
+        }
+      }
+
+      mapa[nome].processos += 1
+
+      const status = statusCobranca(item)
+
+      if (status === 'PAGO') {
+        mapa[nome].pagos += 1
+        mapa[nome].receita += numero(item.valor_cobranca)
+
+        if (temCusto(item)) {
+          mapa[nome].custo += custosProcesso(item)
+          mapa[nome].profit += profitProcesso(item)
+        } else if (numero(item.valor_cobranca) > 0) {
+          mapa[nome].semCusto += 1
+        }
+      }
+
+      if (status === 'ATRASADO') mapa[nome].vencido += numero(item.valor_cobranca)
+      if (status === 'EM ABERTO') mapa[nome].emAberto += numero(item.valor_cobranca)
     })
 
     return Object.values(mapa)
-      .sort((a: any, b: any) => b.profit - a.profit || b.total - a.total)
-      .slice(0, 5) as any[]
-  }, [embarques, faturas])
+      .map((item: any) => ({
+        ...item,
+        margem: item.receita > 0 ? (item.profit / item.receita) * 100 : 0,
+      }))
+      .sort((a: any, b: any) => b.profit - a.profit || b.receita - a.receita || b.processos - a.processos)
+      .slice(0, 10)
+  }, [inteligencia.processos])
 
-  const topTransportadoras = useMemo(() => {
-    const mapa: any = {}
+  const problemasFinanceiros = useMemo(() => {
+    const itens: any[] = []
 
-    embarques.forEach((e) => {
-      const nome = e.transportadora || 'Não informado'
-      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
-      mapa[nome].total += 1
+    inteligencia.atrasados.forEach((item) => {
+      const vencimento = normalizarData(item.vencimento_cobranca)
+      const dias = vencimento ? Math.max(diasEntre(vencimento, hoje), 0) : 0
+
+      itens.push({
+        prioridade: 'Alta',
+        tipo: 'Cobrança vencida',
+        descricao: `${clienteDoProcesso(item)} • AWB ${awbDoProcesso(item)} • ${dias} dia(s) vencido`,
+        valor: numero(item.valor_cobranca),
+        acao: 'Cobrar cliente',
+        link: '/admin/financeiro',
+      })
     })
 
-    faturas.forEach((f) => {
-      const emb = embarques.find((e) => e.id === f.embarque_id)
-      const nome = emb?.transportadora || 'Não informado'
-      if (!mapa[nome]) mapa[nome] = { nome, total: 0, profit: 0 }
-      mapa[nome].profit += num(f.profit || num(f.valor_venda) - num(f.valor_compra))
+    inteligencia.pagosSemCusto.forEach((item) => {
+      itens.push({
+        prioridade: 'Alta',
+        tipo: 'Profit incompleto',
+        descricao: `${clienteDoProcesso(item)} • AWB ${awbDoProcesso(item)} • venda paga sem custo`,
+        valor: numero(item.valor_cobranca),
+        acao: 'Preencher valor de compra',
+        link: '/admin/financeiro',
+      })
+    })
+
+    inteligencia.processos
+      .filter((item) => numero(item.valor_cobranca) <= 0)
+      .forEach((item) => {
+        itens.push({
+          prioridade: 'Média',
+          tipo: 'Sem valor de cobrança',
+          descricao: `${clienteDoProcesso(item)} • AWB ${awbDoProcesso(item)}`,
+          valor: 0,
+          acao: 'Conferir faturamento',
+          link: '/admin/financeiro',
+        })
+      })
+
+    inteligencia.pagos
+      .filter((item) => !faturaDoProcesso(item))
+      .forEach((item) => {
+        itens.push({
+          prioridade: 'Média',
+          tipo: 'Pago sem fatura informada',
+          descricao: `${clienteDoProcesso(item)} • AWB ${awbDoProcesso(item)}`,
+          valor: numero(item.valor_cobranca),
+          acao: 'Informar fatura',
+          link: '/admin/financeiro',
+        })
+      })
+
+    inteligencia.pagos
+      .filter((item) => statusCobranca(item) === 'PAGO' && !item.mes_profit)
+      .forEach((item) => {
+        itens.push({
+          prioridade: 'Baixa',
+          tipo: 'Sem mês de profit',
+          descricao: `${clienteDoProcesso(item)} • AWB ${awbDoProcesso(item)}`,
+          valor: numero(item.valor_cobranca),
+          acao: 'Definir mês do profit',
+          link: '/admin/financeiro',
+        })
+      })
+
+    inteligencia.embarquesSemAwb.slice(0, 10).forEach((item) => {
+      itens.push({
+        prioridade: 'Média',
+        tipo: 'Embarque sem AWB',
+        descricao: `${item.cliente_final || item.importador || item.exportador || 'Cliente não informado'} • ${item.referencia_hc || item.referencia_cliente || 'sem referência'}`,
+        valor: 0,
+        acao: 'Atualizar embarque',
+        link: '/admin/embarques',
+      })
+    })
+
+    return itens
+      .sort((a, b) => {
+        const peso: Record<string, number> = { Alta: 3, Média: 2, Baixa: 1 }
+        return (peso[b.prioridade] || 0) - (peso[a.prioridade] || 0) || b.valor - a.valor
+      })
+      .slice(0, 15)
+  }, [inteligencia, hoje])
+
+  const previsaoRecebimento = useMemo(() => {
+    const linhas = [
+      { periodo: 'Vencido', valor: inteligencia.totalVencido, detalhe: `${inteligencia.atrasados.length} processo(s)`, cor: 'red' },
+      { periodo: 'Hoje', valor: inteligencia.aReceberHoje, detalhe: 'vence hoje', cor: 'yellow' },
+      { periodo: 'Próximos 7 dias', valor: inteligencia.aReceber7, detalhe: 'inclui hoje', cor: 'blue' },
+      { periodo: 'Próximos 15 dias', valor: inteligencia.aReceber15, detalhe: 'curto prazo', cor: 'purple' },
+      { periodo: 'Próximos 30 dias', valor: inteligencia.aReceber30, detalhe: 'previsão mensal', cor: 'green' },
+      { periodo: 'Total em aberto', valor: inteligencia.totalAberto + inteligencia.totalVencido, detalhe: `${inteligencia.abertos.length + inteligencia.atrasados.length} processo(s)`, cor: 'blue' },
+    ]
+
+    return linhas
+  }, [inteligencia])
+
+  const profitTransportadora = useMemo(() => {
+    const mapa: Record<string, any> = {}
+
+    inteligencia.pagos.forEach((item) => {
+      const nome = transportadoraDoProcesso(item)
+      if (!mapa[nome]) mapa[nome] = { nome, processos: 0, receita: 0, profit: 0, semCusto: 0 }
+
+      mapa[nome].processos += 1
+      mapa[nome].receita += numero(item.valor_cobranca)
+
+      if (temCusto(item)) mapa[nome].profit += profitProcesso(item)
+      else if (numero(item.valor_cobranca) > 0) mapa[nome].semCusto += 1
     })
 
     return Object.values(mapa)
-      .sort((a: any, b: any) => b.total - a.total)
-      .slice(0, 5) as any[]
-  }, [embarques, faturas])
+      .map((item: any) => ({ ...item, margem: item.receita > 0 ? (item.profit / item.receita) * 100 : 0 }))
+      .sort((a: any, b: any) => b.profit - a.profit || b.processos - a.processos)
+      .slice(0, 8)
+  }, [inteligencia.pagos])
 
-  const porServico = useMemo(() => {
-    const mapa: any = {}
+  const profitServico = useMemo(() => {
+    const mapa: Record<string, any> = {}
 
-    embarques.forEach((e) => {
-      const nome = e.servico || 'Não informado'
-      mapa[nome] = (mapa[nome] || 0) + 1
+    inteligencia.pagos.forEach((item) => {
+      const nome = servicoDoProcesso(item)
+      if (!mapa[nome]) mapa[nome] = { nome, processos: 0, receita: 0, profit: 0, semCusto: 0 }
+
+      mapa[nome].processos += 1
+      mapa[nome].receita += numero(item.valor_cobranca)
+
+      if (temCusto(item)) mapa[nome].profit += profitProcesso(item)
+      else if (numero(item.valor_cobranca) > 0) mapa[nome].semCusto += 1
     })
 
-    return Object.entries(mapa)
-      .map(([nome, total]: any) => ({ nome, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
-  }, [embarques])
+    return Object.values(mapa)
+      .map((item: any) => ({ ...item, margem: item.receita > 0 ? (item.profit / item.receita) * 100 : 0 }))
+      .sort((a: any, b: any) => b.profit - a.profit || b.processos - a.processos)
+      .slice(0, 8)
+  }, [inteligencia.pagos])
 
-  const porPais = useMemo(() => {
-    const mapa: any = {}
+  const funil = useMemo(() => {
+    const cotacoesCriadas = inteligencia.cotacoesPeriodo.length
+    const cotacoesAprovadas = inteligencia.cotacoesAprovadas.length
+    const embarquesCriados = inteligencia.embarquesPeriodo.length
+    const processosFinanceiros = inteligencia.processos.length
+    const processosPagos = inteligencia.pagos.length
 
-    embarques.forEach((e) => {
-      const pais = e.pais_origem || e.origem || e.destino || 'Não informado'
-      mapa[pais] = (mapa[pais] || 0) + 1
-    })
+    return {
+      cotacoesCriadas,
+      cotacoesAprovadas,
+      embarquesCriados,
+      processosFinanceiros,
+      processosPagos,
+      conversaoCotacaoEmbarque: cotacoesCriadas > 0 ? (embarquesCriados / cotacoesCriadas) * 100 : 0,
+      conversaoFinanceiroPago: processosFinanceiros > 0 ? (processosPagos / processosFinanceiros) * 100 : 0,
+    }
+  }, [inteligencia])
 
-    return Object.entries(mapa)
-      .map(([nome, total]: any) => ({ nome, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
-  }, [embarques])
+  const capacidadeDecisao = useMemo(() => {
+    if (inteligencia.saldoGerencial <= 0) {
+      return {
+        status: 'Crítico',
+        texto: 'Caixa gerencial negativo ou zerado. Prioridade é cobrar vencidos e bloquear retiradas.',
+        cor: 'red',
+      }
+    }
+
+    if (inteligencia.saldoGerencial < inteligencia.fundoMinimoRegra) {
+      return {
+        status: 'Atenção',
+        texto: `Falta ${moeda(inteligencia.fundoMinimoRegra - inteligencia.saldoGerencial)} para o caixa mínimo pela regra 50/25/25.`,
+        cor: 'yellow',
+      }
+    }
+
+    if (inteligencia.pagosSemCusto.length > 0) {
+      return {
+        status: 'Conferir profit',
+        texto: `${inteligencia.pagosSemCusto.length} processo(s) pagos estão sem custo. O profit pode estar incompleto.`,
+        cor: 'blue',
+      }
+    }
+
+    return {
+      status: 'Saudável',
+      texto: 'Caixa acima do mínimo e profit calculado para os processos pagos com custo.',
+      cor: 'green',
+    }
+  }, [inteligencia])
 
   if (loading) {
     return (
-      <main className="max-w-[1600px] mx-auto p-8 text-white">
-        Carregando Intelligence...
+      <main className="max-w-[1700px] mx-auto p-8 text-white">
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-8">
+          <h1 className="text-3xl font-black">Carregando Intelligence...</h1>
+          <p className="text-slate-400 mt-2">Buscando financeiro, embarques, faturas, cotações e chamados.</p>
+        </div>
       </main>
     )
   }
@@ -176,24 +702,40 @@ export default function IntelligencePage() {
       <div className="border border-blue-900 rounded-3xl bg-[#071225] p-5 mb-6 flex flex-col xl:flex-row justify-between gap-5">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-purple-600/20 text-purple-400 flex items-center justify-center text-3xl">
-            📊
+            🧠
           </div>
 
           <div>
-            <h1 className="text-4xl font-black">Intelligence</h1>
+            <h1 className="text-4xl font-black">Intelligence HC</h1>
             <p className="text-slate-400">
-              Análises completas do negócio em tempo real
+              Central de decisão baseada no financeiro real da operação
             </p>
           </div>
         </div>
 
-        <div className="flex gap-3 flex-wrap">
-          <button className="border border-blue-900 bg-[#020817] px-5 py-3 rounded-xl font-bold">
-            01/06/2026 - 30/06/2026
-          </button>
+        <div className="flex gap-3 flex-wrap items-center">
+          <select
+            value={periodoTipo}
+            onChange={(e) => setPeriodoTipo(e.target.value as 'MES' | 'ANO' | 'TUDO')}
+            className="border border-blue-900 bg-[#020817] px-4 py-3 rounded-xl font-bold outline-none"
+          >
+            <option value="MES">Mês</option>
+            <option value="ANO">Ano</option>
+            <option value="TUDO">Todo histórico</option>
+          </select>
 
-          <button className="border border-blue-900 bg-[#020817] px-5 py-3 rounded-xl font-bold">
-            ⚙️ Filtros
+          <input
+            type="month"
+            value={mesFiltro}
+            onChange={(e) => setMesFiltro(e.target.value)}
+            className="border border-blue-900 bg-[#020817] px-4 py-3 rounded-xl font-bold outline-none"
+          />
+
+          <button
+            onClick={carregar}
+            className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
+          >
+            ↻ Atualizar
           </button>
 
           <Link
@@ -205,186 +747,201 @@ export default function IntelligencePage() {
         </div>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-6">
-        <Kpi titulo="Receita total" valor={money(dados.receita)} detalhe="Valor vendido" icone="💰" cor="purple" />
-        <Kpi titulo="Profit total" valor={money(dados.profit)} detalhe="Venda - compra" icone="📈" cor="green" />
-        <Kpi titulo="Margem média" valor={`${dados.margem.toFixed(1)}%`} detalhe="Profit / receita" icone="🎯" cor="blue" />
-        <Kpi titulo="Embarques" valor={embarques.length} detalhe="Total cadastrados" icone="🚚" cor="orange" />
-        <Kpi titulo="Ticket médio" valor={money(dados.ticket)} detalhe="Média por fatura" icone="🧾" cor="purple" />
-      </section>
-
-      <section className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-6">
-        <Card>
-          <h2 className="text-2xl font-black mb-6">Funil comercial</h2>
-          <Funil valor={cotacoes.length} label="Cotações criadas" cor="from-purple-600 to-purple-500" largura="100%" />
-          <Funil valor={cotacoes.length} label="Cotações enviadas" cor="from-indigo-600 to-blue-500" largura="88%" />
-          <Funil valor={dados.cotacoesAprovadas} label="Cotações aprovadas" cor="from-blue-600 to-cyan-500" largura="76%" />
-          <Funil valor={embarques.length} label="Embarques criados" cor="from-green-600 to-emerald-500" largura="64%" />
-          <Funil valor={faturas.length} label="Faturas emitidas" cor="from-yellow-600 to-orange-500" largura="52%" />
-          <Funil valor={dados.faturasRecebidas} label="Faturas recebidas" cor="from-orange-600 to-red-500" largura="40%" />
-
-          <div className="mt-6 border border-blue-900 rounded-2xl p-4 bg-[#020817]">
-            <p className="text-slate-400 text-sm">Taxa de conversão geral</p>
-            <h3 className="text-3xl font-black text-blue-400">
-              {cotacoes.length > 0
-                ? `${((embarques.length / cotacoes.length) * 100).toFixed(1)}%`
-                : '0%'}
-            </h3>
-          </div>
-        </Card>
-
-        <div className="xl:col-span-2">
-          <Card>
-            <div className="flex justify-between mb-6">
-              <h2 className="text-2xl font-black">Profit por cliente</h2>
-              <span className="text-blue-400 text-sm font-bold">Top 5</span>
-            </div>
-
-            <div className="space-y-4">
-              {topClientes.length === 0 ? (
-                <p className="text-slate-500">Nenhum cliente encontrado.</p>
-              ) : (
-                topClientes.map((item, index) => (
-                  <RankingCliente
-                    key={item.nome}
-                    pos={index + 1}
-                    nome={item.nome}
-                    profit={money(item.profit)}
-                    total={`${item.total} embarque(s)`}
-                  />
-                ))
-              )}
-            </div>
-          </Card>
+      {avisos.length > 0 && (
+        <div className="border border-yellow-700 bg-yellow-900/20 rounded-2xl p-4 mb-6 text-yellow-200">
+          <strong>Atenção:</strong> algumas fontes não carregaram. A tela continua funcionando com as tabelas disponíveis.
+          <ul className="list-disc ml-5 mt-2 text-sm">
+            {avisos.map((aviso) => (
+              <li key={aviso}>{aviso}</li>
+            ))}
+          </ul>
         </div>
+      )}
 
-        <Card>
-          <h2 className="text-2xl font-black mb-6">Alertas inteligentes</h2>
-          <Alerta texto="Faturas vencidas" valor={dados.faturasVencidas} cor="red" />
-          <Alerta texto="Embarques sem AWB" valor={dados.embarquesSemAwb} cor="yellow" />
-          <Alerta texto="Cotações sem fechamento" valor={Math.max(cotacoes.length - dados.cotacoesAprovadas, 0)} cor="orange" />
-          <Alerta texto="Chamados abertos" valor={dados.chamadosAbertos} cor="red" />
-        </Card>
+      <section className="grid grid-cols-1 xl:grid-cols-5 gap-5 mb-6">
+        <Kpi titulo="A receber vencido" valor={moeda(inteligencia.totalVencido)} detalhe={`${inteligencia.atrasados.length} processo(s)`} icone="🚨" cor="red" />
+        <Kpi titulo="A receber 7 dias" valor={moeda(inteligencia.aReceber7)} detalhe="previsão curta" icone="📅" cor="blue" />
+        <Kpi titulo="Profit confirmado" valor={moeda(inteligencia.profitConfirmado)} detalhe="pago e com custo" icone="📈" cor="green" />
+        <Kpi titulo="Sem custo" valor={inteligencia.pagosSemCusto.length} detalhe="profit incompleto" icone="⚠️" cor="yellow" />
+        <Kpi titulo="Saldo gerencial" valor={moeda(inteligencia.saldoGerencial)} detalhe="visão de caixa" icone="💰" cor="purple" />
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-        <Card>
-          <h2 className="text-2xl font-black mb-6">Receita x Profit</h2>
-
-          <div className="h-64 flex items-end gap-5 border-b border-blue-900 pb-4">
-            {['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'].map((mes, i) => (
-              <div key={mes} className="flex-1 flex flex-col items-center gap-2">
-                <div className="flex items-end gap-2 h-48">
-                  <div
-                    className="w-5 rounded-t-lg bg-blue-600"
-                    style={{ height: `${35 + i * 8}%` }}
-                  />
-                  <div
-                    className="w-5 rounded-t-lg bg-purple-600"
-                    style={{ height: `${25 + i * 5}%` }}
-                  />
-                </div>
-                <span className="text-xs text-slate-400">{mes}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-3 gap-3 mt-5">
-            <MiniBox label="Receita" valor={money(dados.receita)} />
-            <MiniBox label="Profit" valor={money(dados.profit)} />
-            <MiniBox label="Margem" valor={`${dados.margem.toFixed(1)}%`} />
-          </div>
-        </Card>
-
-        <Card>
-          <h2 className="text-2xl font-black mb-6">Mapa operacional global</h2>
-
-          <MapaOperacional porPais={porPais} />
-
-          <div className="space-y-3 mt-5">
-            {porPais.map((p) => (
-              <LinhaBarra key={p.nome} nome={p.nome} valor={`${p.total} embarque(s)`} />
-            ))}
-          </div>
-        </Card>
-
-        <Card>
-          <h2 className="text-2xl font-black mb-6">Receita por serviço</h2>
-
-          <div className="flex justify-center mb-6">
-            <div className="w-44 h-44 rounded-full bg conic-gradient flex items-center justify-center">
-              <div className="w-28 h-28 rounded-full bg-[#020817] flex flex-col items-center justify-center">
-                <span className="text-slate-400 text-sm">Total</span>
-                <strong className="text-xl">{money(dados.receita)}</strong>
-              </div>
+        <Card className="xl:col-span-2">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-2xl font-black">Ação urgente hoje</h2>
+              <p className="text-slate-400 text-sm">{periodo.label} • financeiro, faturas, embarques e suporte</p>
             </div>
+
+            <Badge cor={capacidadeDecisao.cor}>{capacidadeDecisao.status}</Badge>
           </div>
 
-          <div className="space-y-3">
-            {porServico.map((s) => (
-              <LinhaBarra key={s.nome} nome={s.nome} valor={`${s.total} operação(ões)`} />
-            ))}
+          <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5 mb-5">
+            <p className="text-lg font-bold">{capacidadeDecisao.texto}</p>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <MiniDecisao label="Pode gastar livre" valor={moeda(inteligencia.podeGastar)} detalhe="após caixa mínimo" cor={inteligencia.podeGastar > 0 ? 'green' : 'red'} />
+            <MiniDecisao label="Caixa mínimo" valor={moeda(inteligencia.fundoMinimoRegra)} detalhe="50% do lucro" cor="blue" />
+            <MiniDecisao label="Lucro operacional" valor={moeda(inteligencia.resultadoOperacional)} detalhe="profit - despesas" cor={inteligencia.resultadoOperacional >= 0 ? 'green' : 'red'} />
+            <MiniDecisao label="Parte por sócio" valor={moeda(inteligencia.parteSocio)} detalhe="25% pela regra" cor="purple" />
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-2xl font-black mb-5">Alertas inteligentes</h2>
+          <Resumo label="Cobranças vencidas" valor={`${inteligencia.atrasados.length} • ${moeda(inteligencia.totalVencido)}`} cor="red" />
+          <Resumo label="Pagos sem custo" valor={inteligencia.pagosSemCusto.length} cor="yellow" />
+          <Resumo label="Faturas pendentes" valor={inteligencia.faturasPendentes.length} cor="orange" />
+          <Resumo label="Embarques sem AWB" valor={inteligencia.embarquesSemAwb.length} cor="yellow" />
+          <Resumo label="Cotações sem fechamento" valor={inteligencia.cotacoesSemFechamento.length} cor="purple" />
+          <Resumo label="Chamados abertos" valor={inteligencia.chamadosAbertos.length} cor="red" />
         </Card>
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
         <Card>
-          <h2 className="text-2xl font-black mb-6">Profit por transportadora</h2>
-
-          <div className="space-y-5">
-            {topTransportadoras.map((item) => (
-              <div key={item.nome}>
-                <div className="flex justify-between mb-2">
-                  <span className="font-bold">{item.nome}</span>
-                  <span className="text-blue-400 font-black">{item.total}</span>
-                </div>
-
-                <div className="h-4 bg-slate-900 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-purple-600 rounded-full"
-                    style={{
-                      width: `${embarques.length ? (item.total / embarques.length) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
+          <h2 className="text-2xl font-black mb-5">Previsão de recebimento</h2>
+          <div className="space-y-3">
+            {previsaoRecebimento.map((item) => (
+              <Previsao key={item.periodo} item={item} moeda={moeda} />
             ))}
           </div>
         </Card>
 
-        <Card>
-          <h2 className="text-2xl font-black mb-6">Financeiro - resumo</h2>
-          <Resumo label="A receber hoje" valor={money(0)} cor="green" />
-          <Resumo label="A receber no mês" valor={money(dados.receita)} cor="green" />
-          <Resumo label="A pagar transportadoras" valor={money(dados.compra)} cor="red" />
-          <Resumo label="Profit estimado" valor={money(dados.profit)} cor="blue" />
-          <Resumo label="Fluxo de caixa estimado" valor={money(dados.profit)} cor="purple" />
-        </Card>
+        <Card className="xl:col-span-2">
+          <div className="flex justify-between gap-4 mb-5">
+            <div>
+              <h2 className="text-2xl font-black">Processos que precisam de correção</h2>
+              <p className="text-slate-400 text-sm">Lista priorizada para limpar gargalos do financeiro</p>
+            </div>
+            <Link href="/admin/financeiro" className="text-blue-400 font-bold hover:text-blue-300 whitespace-nowrap">
+              Abrir financeiro →
+            </Link>
+          </div>
 
-        <Card>
-          <h2 className="text-2xl font-black mb-6">Performance geral</h2>
-          <Resumo label="Clientes ativos" valor={topClientes.length} cor="blue" />
-          <Resumo label="Novos clientes" valor={topClientes.length} cor="green" />
-          <Resumo label="Cotações mês" valor={cotacoes.length} cor="purple" />
-          <Resumo label="Embarques mês" valor={embarques.length} cor="yellow" />
-          <Resumo label="Faturas emitidas" valor={faturas.length} cor="blue" />
-          <Resumo label="Faturas recebidas" valor={dados.faturasRecebidas} cor="green" />
+          {problemasFinanceiros.length === 0 ? (
+            <div className="rounded-2xl border border-green-900 bg-green-900/10 p-6 text-green-300 font-bold">
+              Nenhuma pendência crítica encontrada no período.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-400 border-b border-blue-900">
+                    <Th>Prioridade</Th>
+                    <Th>Problema</Th>
+                    <Th>Descrição</Th>
+                    <Th>Valor</Th>
+                    <Th>Ação</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {problemasFinanceiros.map((item, index) => (
+                    <tr key={`${item.tipo}-${index}`} className="border-b border-blue-950 hover:bg-blue-950/20">
+                      <Td><Badge cor={item.prioridade === 'Alta' ? 'red' : item.prioridade === 'Média' ? 'yellow' : 'blue'}>{item.prioridade}</Badge></Td>
+                      <Td><strong>{item.tipo}</strong></Td>
+                      <Td>{item.descricao}</Td>
+                      <Td><strong className={item.valor > 0 ? 'text-blue-400' : 'text-slate-500'}>{moeda(item.valor)}</strong></Td>
+                      <Td><Link href={item.link} className="text-blue-400 font-bold hover:text-blue-300">{item.acao}</Link></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </section>
 
-      <style jsx>{`
-        .bg.conic-gradient {
-          background: conic-gradient(#7c3aed 0 45%, #2563eb 45% 70%, #06b6d4 70% 85%, #f97316 85% 100%);
-        }
-      `}</style>
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+        <Card className="xl:col-span-2">
+          <div className="flex justify-between mb-5 gap-4">
+            <div>
+              <h2 className="text-2xl font-black">Ranking real por cliente</h2>
+              <p className="text-slate-400 text-sm">Ordenado por profit confirmado, não apenas por quantidade</p>
+            </div>
+            <span className="text-blue-400 text-sm font-bold">Top 10</span>
+          </div>
+
+          {rankingClientes.length === 0 ? (
+            <p className="text-slate-500">Nenhum processo financeiro encontrado no período.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-400 border-b border-blue-900">
+                    <Th>Cliente</Th>
+                    <Th>Receita</Th>
+                    <Th>Custo</Th>
+                    <Th>Profit</Th>
+                    <Th>Margem</Th>
+                    <Th>Processos</Th>
+                    <Th>Vencido</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankingClientes.map((item) => (
+                    <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                      <Td><strong>{item.nome}</strong></Td>
+                      <Td>{moeda(item.receita)}</Td>
+                      <Td>{moeda(item.custo)}</Td>
+                      <Td><strong className={item.profit >= 0 ? 'text-green-400' : 'text-red-400'}>{moeda(item.profit)}</strong></Td>
+                      <Td>{percentual(item.margem)}</Td>
+                      <Td>{item.processos}</Td>
+                      <Td><strong className={item.vencido > 0 ? 'text-red-400' : 'text-slate-500'}>{moeda(item.vencido)}</strong></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <h2 className="text-2xl font-black mb-5">Resumo financeiro real</h2>
+          <Resumo label="Receita confirmada" valor={moeda(inteligencia.receitaConfirmada)} cor="green" />
+          <Resumo label="Custo confirmado" valor={moeda(inteligencia.custoConfirmado)} cor="red" />
+          <Resumo label="Profit HC" valor={moeda(inteligencia.profitConfirmado)} cor="blue" />
+          <Resumo label="Margem média" valor={percentual(inteligencia.margemConfirmada)} cor="purple" />
+          <Resumo label="Ticket médio" valor={moeda(inteligencia.ticketMedio)} cor="blue" />
+          <Resumo label="Despesas pagas" valor={moeda(inteligencia.despesasPagas)} cor="red" />
+          <Resumo label="Despesas pendentes" valor={moeda(inteligencia.despesasPendentes)} cor="yellow" />
+        </Card>
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+        <Card>
+          <h2 className="text-2xl font-black mb-5">Profit por transportadora</h2>
+          <RankingOperacional lista={profitTransportadora} moeda={moeda} percentual={percentual} vazio="Nenhuma transportadora com processo pago no período." />
+        </Card>
+
+        <Card>
+          <h2 className="text-2xl font-black mb-5">Profit por serviço</h2>
+          <RankingOperacional lista={profitServico} moeda={moeda} percentual={percentual} vazio="Nenhum serviço com processo pago no período." />
+        </Card>
+
+        <Card>
+          <h2 className="text-2xl font-black mb-5">Funil comercial real</h2>
+          <FunilLinha label="Cotações criadas" valor={funil.cotacoesCriadas} cor="purple" total={Math.max(funil.cotacoesCriadas, 1)} />
+          <FunilLinha label="Cotações aprovadas" valor={funil.cotacoesAprovadas} cor="blue" total={Math.max(funil.cotacoesCriadas, 1)} />
+          <FunilLinha label="Embarques criados" valor={funil.embarquesCriados} cor="green" total={Math.max(funil.cotacoesCriadas, funil.embarquesCriados, 1)} />
+          <FunilLinha label="Processos no financeiro" valor={funil.processosFinanceiros} cor="yellow" total={Math.max(funil.embarquesCriados, funil.processosFinanceiros, 1)} />
+          <FunilLinha label="Processos pagos" valor={funil.processosPagos} cor="orange" total={Math.max(funil.processosFinanceiros, 1)} />
+
+          <div className="grid grid-cols-2 gap-3 mt-5">
+            <MiniDecisao label="Cotação → embarque" valor={percentual(funil.conversaoCotacaoEmbarque)} detalhe="conversão" cor="blue" />
+            <MiniDecisao label="Financeiro pago" valor={percentual(funil.conversaoFinanceiroPago)} detalhe="recebimento" cor="green" />
+          </div>
+        </Card>
+      </section>
     </main>
   )
 }
 
-function Card({ children }: any) {
+function Card({ children, className = '' }: any) {
   return (
-    <div className="border border-blue-900 rounded-3xl bg-gradient-to-b from-[#071225] to-[#020817] p-6 shadow-[0_0_35px_rgba(37,99,235,0.10)]">
+    <div className={`border border-blue-900 rounded-3xl bg-gradient-to-b from-[#071225] to-[#020817] p-6 shadow-[0_0_35px_rgba(37,99,235,0.10)] ${className}`}>
       {children}
     </div>
   )
@@ -392,10 +949,12 @@ function Card({ children }: any) {
 
 function Kpi({ titulo, valor, detalhe, icone, cor }: any) {
   const cores: any = {
-    purple: 'text-purple-400 bg-purple-600/20',
-    green: 'text-green-400 bg-green-600/20',
-    blue: 'text-blue-400 bg-blue-600/20',
-    orange: 'text-orange-400 bg-orange-600/20',
+    purple: 'text-purple-400 bg-purple-600/20 border-purple-700',
+    green: 'text-green-400 bg-green-600/20 border-green-700',
+    blue: 'text-blue-400 bg-blue-600/20 border-blue-700',
+    orange: 'text-orange-400 bg-orange-600/20 border-orange-700',
+    yellow: 'text-yellow-400 bg-yellow-600/20 border-yellow-700',
+    red: 'text-red-400 bg-red-600/20 border-red-700',
   }
 
   return (
@@ -404,10 +963,10 @@ function Kpi({ titulo, valor, detalhe, icone, cor }: any) {
         <div>
           <p className="text-slate-400 text-sm font-bold uppercase">{titulo}</p>
           <h2 className="text-3xl font-black mt-3">{valor}</h2>
-          <p className="text-green-400 text-sm mt-3">↑ {detalhe}</p>
+          <p className="text-slate-400 text-sm mt-3">{detalhe}</p>
         </div>
 
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${cores[cor]}`}>
+        <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center text-2xl ${cores[cor]}`}>
           {icone}
         </div>
       </div>
@@ -415,45 +974,37 @@ function Kpi({ titulo, valor, detalhe, icone, cor }: any) {
   )
 }
 
-function Funil({ valor, label, cor, largura }: any) {
-  return (
-    <div className="flex justify-center">
-      <div
-        className={`mb-3 bg-gradient-to-r ${cor} rounded-xl px-5 py-3 flex justify-between font-black`}
-        style={{ width: largura }}
-      >
-        <span>{valor}</span>
-        <span>{label}</span>
-      </div>
-    </div>
-  )
-}
-
-function RankingCliente({ pos, nome, profit, total }: any) {
-  return (
-    <div className="border border-blue-900 bg-[#020817] rounded-2xl p-4 grid grid-cols-12 gap-3 items-center">
-      <div className="col-span-1 text-slate-500 font-black">{pos}</div>
-      <div className="col-span-5 font-bold truncate">{nome}</div>
-      <div className="col-span-3 text-slate-400 text-sm">{total}</div>
-      <div className="col-span-3 text-blue-400 font-black text-right">{profit}</div>
-    </div>
-  )
-}
-
-function Alerta({ texto, valor, cor }: any) {
+function MiniDecisao({ label, valor, detalhe, cor }: any) {
   const cores: any = {
-    red: 'text-red-400 border-red-500',
-    yellow: 'text-yellow-400 border-yellow-500',
-    orange: 'text-orange-400 border-orange-500',
+    green: 'text-green-400 border-green-900 bg-green-900/10',
+    red: 'text-red-400 border-red-900 bg-red-900/10',
+    blue: 'text-blue-400 border-blue-900 bg-blue-900/10',
+    purple: 'text-purple-400 border-purple-900 bg-purple-900/10',
+    yellow: 'text-yellow-400 border-yellow-900 bg-yellow-900/10',
   }
 
   return (
-    <div className="flex justify-between items-center border-b border-blue-900 py-4">
-      <span>{texto}</span>
-      <span className={`border rounded-full px-3 py-1 font-black ${cores[cor]}`}>
-        {valor}
-      </span>
+    <div className={`rounded-2xl border p-4 ${cores[cor] || cores.blue}`}>
+      <p className="text-slate-400 text-xs font-bold uppercase">{label}</p>
+      <h3 className="text-2xl font-black mt-2">{valor}</h3>
+      <p className="text-slate-500 text-xs mt-2">{detalhe}</p>
     </div>
+  )
+}
+
+function Badge({ children, cor }: any) {
+  const cores: any = {
+    green: 'text-green-300 border-green-700 bg-green-900/30',
+    red: 'text-red-300 border-red-700 bg-red-900/30',
+    yellow: 'text-yellow-300 border-yellow-700 bg-yellow-900/30',
+    blue: 'text-blue-300 border-blue-700 bg-blue-900/30',
+    purple: 'text-purple-300 border-purple-700 bg-purple-900/30',
+  }
+
+  return (
+    <span className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-black whitespace-nowrap ${cores[cor] || cores.blue}`}>
+      {children}
+    </span>
   )
 }
 
@@ -464,121 +1015,99 @@ function Resumo({ label, valor, cor }: any) {
     blue: 'text-blue-400',
     purple: 'text-purple-400',
     yellow: 'text-yellow-400',
+    orange: 'text-orange-400',
   }
 
   return (
     <div className="flex justify-between border-b border-blue-900 py-4 gap-4">
       <span className="text-slate-300">{label}</span>
-      <strong className={cores[cor]}>{valor}</strong>
+      <strong className={`${cores[cor] || cores.blue} text-right`}>{valor}</strong>
     </div>
   )
 }
 
-function MiniBox({ label, valor }: any) {
-  return (
-    <div className="border border-blue-900 rounded-2xl bg-[#020817] p-3">
-      <p className="text-slate-500 text-xs">{label}</p>
-      <strong>{valor}</strong>
-    </div>
-  )
-}
-
-function MapaOperacional({ porPais }: any) {
-  const pontos: any = {
-    'BELO HORIZONTE': { x: 48, y: 70 },
-    BH: { x: 48, y: 70 },
-    BRASIL: { x: 47, y: 72 },
-    BRAZIL: { x: 47, y: 72 },
-    ALEMANHA: { x: 50, y: 34 },
-    GERMANY: { x: 50, y: 34 },
-    CHINA: { x: 75, y: 46 },
-    ITÁLIA: { x: 51, y: 41 },
-    ITALIA: { x: 51, y: 41 },
-    ITALY: { x: 51, y: 41 },
-    EUA: { x: 23, y: 42 },
-    USA: { x: 23, y: 42 },
-    'ESTADOS UNIDOS': { x: 23, y: 42 },
-    ESTADOS_UNIDOS: { x: 23, y: 42 },
-    PORTUGAL: { x: 45, y: 42 },
-    ESPANHA: { x: 46, y: 43 },
-    SPAIN: { x: 46, y: 43 },
-    FRANÇA: { x: 48, y: 39 },
-    FRANCA: { x: 48, y: 39 },
-    FRANCE: { x: 48, y: 39 },
-    'REINO UNIDO': { x: 47, y: 35 },
-    UK: { x: 47, y: 35 },
-    JAPÃO: { x: 84, y: 44 },
-    JAPAO: { x: 84, y: 44 },
-    JAPAN: { x: 84, y: 44 },
-    ÍNDIA: { x: 68, y: 52 },
-    INDIA: { x: 68, y: 52 },
-    MÉXICO: { x: 25, y: 50 },
-    MEXICO: { x: 25, y: 50 },
-    ARGENTINA: { x: 45, y: 82 },
-    CHILE: { x: 40, y: 80 },
+function Previsao({ item, moeda }: any) {
+  const cores: any = {
+    red: 'border-red-900 bg-red-900/10 text-red-300',
+    yellow: 'border-yellow-900 bg-yellow-900/10 text-yellow-300',
+    blue: 'border-blue-900 bg-blue-900/10 text-blue-300',
+    purple: 'border-purple-900 bg-purple-900/10 text-purple-300',
+    green: 'border-green-900 bg-green-900/10 text-green-300',
   }
 
-  const origem = pontos.BRASIL
+  return (
+    <div className={`rounded-2xl border p-4 flex justify-between gap-4 ${cores[item.cor] || cores.blue}`}>
+      <div>
+        <p className="font-black">{item.periodo}</p>
+        <p className="text-slate-500 text-xs mt-1">{item.detalhe}</p>
+      </div>
+      <strong className="text-right text-lg">{moeda(item.valor)}</strong>
+    </div>
+  )
+}
 
-  const destinos = porPais
-    .map((p: any) => {
-      const nome = String(p.nome || '').toUpperCase().trim()
-      const ponto = pontos[nome] || null
-      return ponto ? { ...ponto, nome: p.nome, total: p.total } : null
-    })
-    .filter(Boolean)
+function FunilLinha({ label, valor, cor, total }: any) {
+  const cores: any = {
+    purple: 'bg-purple-600',
+    blue: 'bg-blue-600',
+    green: 'bg-green-600',
+    yellow: 'bg-yellow-600',
+    orange: 'bg-orange-600',
+  }
+
+  const width = total > 0 ? Math.max(8, Math.min(100, (Number(valor || 0) / total) * 100)) : 0
 
   return (
-    <div className="border border-blue-900 rounded-2xl bg-[#020817] h-64 relative overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(37,99,235,0.22),transparent_45%)]" />
-
-      <svg viewBox="0 0 100 60" className="absolute inset-0 w-full h-full opacity-90">
-        <path d="M15 20 C20 12, 32 10, 39 16 C45 21, 38 28, 30 27 C22 26, 12 29, 15 20Z" fill="#0f2a4d" stroke="#1d4ed8" strokeWidth="0.25" />
-        <path d="M43 16 C50 8, 62 11, 66 20 C70 28, 62 36, 53 33 C45 30, 38 24, 43 16Z" fill="#12365f" stroke="#1d4ed8" strokeWidth="0.25" />
-        <path d="M67 24 C76 18, 89 22, 91 34 C93 45, 82 51, 72 47 C64 44, 60 31, 67 24Z" fill="#12365f" stroke="#1d4ed8" strokeWidth="0.25" />
-        <path d="M42 40 C50 38, 57 45, 55 53 C53 60, 43 59, 39 52 C36 46, 36 42, 42 40Z" fill="#0f2a4d" stroke="#1d4ed8" strokeWidth="0.25" />
-        <path d="M24 42 C32 41, 38 47, 36 55 C34 62, 24 60, 20 53 C16 47, 18 43, 24 42Z" fill="#0f2a4d" stroke="#1d4ed8" strokeWidth="0.25" />
-
-        {destinos.map((d: any) => (
-          <g key={d.nome}>
-            <path
-              d={`M${origem.x} ${origem.y} Q ${(origem.x + d.x) / 2} ${Math.min(origem.y, d.y) - 18}, ${d.x} ${d.y}`}
-              fill="none"
-              stroke="#38bdf8"
-              strokeWidth="0.35"
-              strokeDasharray="1 1"
-              opacity="0.75"
-            />
-            <circle cx={d.x} cy={d.y} r={Math.min(2.8 + Number(d.total || 0) * 0.35, 5)} fill="#a855f7" opacity="0.95" />
-            <circle cx={d.x} cy={d.y} r={Math.min(4 + Number(d.total || 0) * 0.5, 8)} fill="none" stroke="#a855f7" strokeWidth="0.35" opacity="0.6" />
-            <text x={d.x + 2} y={d.y - 1} fill="#cbd5e1" fontSize="2.6" fontWeight="700">
-              {d.total}
-            </text>
-          </g>
-        ))}
-
-        <circle cx={origem.x} cy={origem.y} r="4" fill="#22c55e" />
-        <circle cx={origem.x} cy={origem.y} r="7" fill="none" stroke="#22c55e" strokeWidth="0.4" opacity="0.7" />
-      </svg>
-
-      <div className="absolute bottom-4 left-4">
-        <p className="text-slate-400 text-xs">Mapa operacional HC</p>
-        <p className="text-white font-black">Rotas internacionais dos embarques</p>
+    <div className="mb-4">
+      <div className="flex justify-between gap-4 mb-2">
+        <span className="font-bold text-slate-300">{label}</span>
+        <strong>{valor}</strong>
       </div>
-
-      <div className="absolute top-4 right-4 border border-blue-900 bg-[#071225]/90 rounded-xl px-4 py-3">
-        <p className="text-slate-400 text-xs">Origem base</p>
-        <p className="text-green-400 font-black">Brasil</p>
+      <div className="h-3 rounded-full bg-slate-900 overflow-hidden">
+        <div className={`h-full rounded-full ${cores[cor] || cores.blue}`} style={{ width: `${width}%` }} />
       </div>
     </div>
   )
 }
 
-function LinhaBarra({ nome, valor }: any) {
+function RankingOperacional({ lista, moeda, percentual, vazio }: any) {
+  if (!lista || lista.length === 0) {
+    return <p className="text-slate-500">{vazio}</p>
+  }
+
+  const maiorProfit = Math.max(...lista.map((item: any) => Math.abs(Number(item.profit || 0))), 1)
+
   return (
-    <div className="flex justify-between gap-3 border-b border-blue-900 pb-2">
-      <span className="font-bold truncate">{nome}</span>
-      <span className="text-blue-400 font-black whitespace-nowrap">{valor}</span>
+    <div className="space-y-5">
+      {lista.map((item: any) => {
+        const width = Math.max(5, Math.min(100, (Math.abs(Number(item.profit || 0)) / maiorProfit) * 100))
+
+        return (
+          <div key={item.nome}>
+            <div className="flex justify-between gap-4 mb-2">
+              <div className="min-w-0">
+                <p className="font-black truncate">{item.nome}</p>
+                <p className="text-slate-500 text-xs">
+                  {item.processos} processo(s) • margem {percentual(item.margem)}
+                  {item.semCusto > 0 ? ` • ${item.semCusto} sem custo` : ''}
+                </p>
+              </div>
+              <strong className={item.profit >= 0 ? 'text-green-400' : 'text-red-400'}>{moeda(item.profit)}</strong>
+            </div>
+            <div className="h-3 rounded-full bg-slate-900 overflow-hidden">
+              <div className="h-full rounded-full bg-blue-600" style={{ width: `${width}%` }} />
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
+}
+
+function Th({ children }: any) {
+  return <th className="px-3 py-3 text-left font-black whitespace-nowrap">{children}</th>
+}
+
+function Td({ children }: any) {
+  return <td className="px-3 py-3 align-top whitespace-nowrap">{children}</td>
 }
