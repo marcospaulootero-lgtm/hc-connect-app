@@ -131,6 +131,7 @@ export default function FinanceiroPage() {
   const [aba, setAba] = useState('EM ABERTO')
   const [pagina, setPagina] = useState(1)
   const [paginaMovimentos, setPaginaMovimentos] = useState(1)
+  const [paginaExtrato, setPaginaExtrato] = useState(1)
 
   const [busca, setBusca] = useState('')
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
@@ -142,6 +143,10 @@ export default function FinanceiroPage() {
   const [filtroStatusMovimento, setFiltroStatusMovimento] = useState('')
   const [filtroSocioMovimento, setFiltroSocioMovimento] = useState('')
   const [mesResultado, setMesResultado] = useState(new Date().toISOString().slice(0, 7))
+
+  const [anoExtrato, setAnoExtrato] = useState(String(new Date().getFullYear()))
+  const [buscaExtrato, setBuscaExtrato] = useState('')
+  const [tipoExtrato, setTipoExtrato] = useState('')
 
   const [form, setForm] = useState<FormState>(formVazio)
   const [formMovimento, setFormMovimento] = useState<MovimentacaoFormState>(movimentacaoVazia)
@@ -297,9 +302,16 @@ export default function FinanceiroPage() {
 
   function limparFiltrosMovimentos() {
     setBuscaMovimento('')
+    setFiltroMesMovimento('')
     setFiltroStatusMovimento('')
     setFiltroSocioMovimento('')
     setPaginaMovimentos(1)
+  }
+
+  function limparFiltrosExtrato() {
+    setBuscaExtrato('')
+    setTipoExtrato('')
+    setPaginaExtrato(1)
   }
 
   async function carregarDados() {
@@ -1550,6 +1562,178 @@ export default function FinanceiroPage() {
     }
   }, [lancamentos, movimentacoes, mesResultado])
 
+
+  const resumoFundoFiltro = useMemo(() => {
+    const movimentosFundo = movimentacoes.filter((item) => {
+      const tipoFundo = ['FUNDO_CAIXA_ENTRADA', 'FUNDO_CAIXA_SAIDA', 'AJUSTE_CAIXA'].includes(item.tipo)
+      const passaMes = !filtroMesMovimento || item.mes_referencia === filtroMesMovimento
+      return tipoFundo && passaMes && statusMovimento(item) === 'PAGO'
+    })
+
+    const entradas = movimentosFundo
+      .filter((item) => item.tipo === 'FUNDO_CAIXA_ENTRADA')
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const saidas = movimentosFundo
+      .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA')
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const ajustes = movimentosFundo
+      .filter((item) => item.tipo === 'AJUSTE_CAIXA')
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    return {
+      entradas,
+      saidas,
+      ajustes,
+      saldoPeriodo: entradas - saidas + ajustes,
+    }
+  }, [movimentacoes, filtroMesMovimento])
+
+  const extratoAnual = useMemo(() => {
+    const ano = String(anoExtrato || new Date().getFullYear())
+
+    const linhasProcessos = lancamentos
+      .filter((item) => {
+        if (statusCobranca(item) !== 'PAGO') return false
+        const mesBase = item.mes_profit || mesDaData(item.recebimento) || mesDaData(item.vencimento_cobranca)
+        return String(mesBase || '').startsWith(ano)
+      })
+      .map((item) => {
+        const data = normalizarData(item.recebimento) || normalizarData(item.vencimento_cobranca) || `${item.mes_profit || ano + '-01'}-01`
+        const possuiCusto = Number(item.valor_compra || 0) > 0
+        const profit = possuiCusto ? calcularProfit(item) : 0
+
+        return {
+          id: `processo-${item.id}`,
+          origem: 'PROCESSO',
+          data,
+          mes: (item.mes_profit || mesDaData(item.recebimento) || mesDaData(item.vencimento_cobranca) || '').slice(0, 7),
+          tipo: 'RECEBIMENTO_PROCESSO',
+          tipoLabel: 'Recebimento de processo',
+          categoria: item.servico || 'Processo faturado',
+          descricao: `${item.cliente || 'Cliente'}${item.awb ? ` - AWB ${item.awb}` : ''}${item.fatura ? ` - Fatura ${item.fatura}` : ''}`,
+          socio: '',
+          entrada: Number(item.valor_cobranca || 0),
+          saida: 0,
+          profit,
+          status: statusCobranca(item),
+          forma_pagamento: '',
+          impacta_resultado: true,
+          impacta_caixa: true,
+          naoOperacional: false,
+        }
+      })
+
+    const linhasMovimentos = movimentacoes
+      .filter((item) => String(item.mes_referencia || '').startsWith(ano))
+      .map((item) => {
+        const valor = Number(item.valor || 0)
+        const status = statusMovimento(item)
+        let entrada = 0
+        let saida = 0
+
+        if (item.tipo === 'APORTE_SOCIO' || item.tipo === 'FUNDO_CAIXA_ENTRADA') entrada = valor
+        else if (['DESPESA', 'RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'FUNDO_CAIXA_SAIDA'].includes(item.tipo)) saida = valor
+        else if (item.tipo === 'AJUSTE_CAIXA') {
+          if (valor >= 0) entrada = valor
+          else saida = Math.abs(valor)
+        }
+
+        return {
+          id: `mov-${item.id}`,
+          origem: 'MOVIMENTACAO',
+          data: normalizarData(item.data_pagamento) || normalizarData(item.data_vencimento) || `${item.mes_referencia || ano + '-01'}-01`,
+          mes: item.mes_referencia || '',
+          tipo: item.tipo,
+          tipoLabel: labelTipo(item.tipo),
+          categoria: item.categoria || '-',
+          descricao: item.descricao || '-',
+          socio: item.socio || '',
+          entrada: status === 'PAGO' ? entrada : 0,
+          saida: status === 'PAGO' ? saida : 0,
+          profit: 0,
+          status,
+          forma_pagamento: item.forma_pagamento || '',
+          impacta_resultado: item.impacta_resultado ?? false,
+          impacta_caixa: item.impacta_caixa ?? true,
+          naoOperacional: item.tipo === 'FUNDO_CAIXA_ENTRADA' && !ehReservaOperacionalFundo(item),
+        }
+      })
+
+    return [...linhasProcessos, ...linhasMovimentos].sort((a, b) => {
+      const dataA = a.data || '1900-01-01'
+      const dataB = b.data || '1900-01-01'
+      return dataB.localeCompare(dataA)
+    })
+  }, [anoExtrato, lancamentos, movimentacoes])
+
+  const extratoFiltrado = useMemo(() => {
+    const termo = normalizarBusca(buscaExtrato)
+
+    return extratoAnual.filter((item) => {
+      const texto = normalizarBusca(`
+        ${item.tipoLabel || ''}
+        ${item.categoria || ''}
+        ${item.descricao || ''}
+        ${item.socio || ''}
+        ${item.forma_pagamento || ''}
+      `)
+
+      const passaBusca = !termo || texto.includes(termo)
+      const passaTipo = !tipoExtrato || item.tipo === tipoExtrato
+
+      return passaBusca && passaTipo
+    })
+  }, [extratoAnual, buscaExtrato, tipoExtrato])
+
+  const resumoExtrato = useMemo(() => {
+    const pagos = extratoFiltrado.filter((item) => item.status === 'PAGO')
+    const entradas = pagos.reduce((acc, item) => acc + Number(item.entrada || 0), 0)
+    const saidas = pagos.reduce((acc, item) => acc + Number(item.saida || 0), 0)
+    const valorRecebido = pagos
+      .filter((item) => item.tipo === 'RECEBIMENTO_PROCESSO')
+      .reduce((acc, item) => acc + Number(item.entrada || 0), 0)
+    const profitHC = pagos
+      .filter((item) => item.tipo === 'RECEBIMENTO_PROCESSO')
+      .reduce((acc, item) => acc + Number(item.profit || 0), 0)
+    const despesas = pagos
+      .filter((item) => item.tipo === 'DESPESA')
+      .reduce((acc, item) => acc + Number(item.saida || 0), 0)
+    const retiradasMarcos = pagos
+      .filter((item) => ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) && item.socio === 'MARCOS')
+      .reduce((acc, item) => acc + Number(item.saida || 0), 0)
+    const retiradasHerica = pagos
+      .filter((item) => ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) && item.socio === 'HERICA')
+      .reduce((acc, item) => acc + Number(item.saida || 0), 0)
+    const aportes = pagos
+      .filter((item) => item.tipo === 'APORTE_SOCIO')
+      .reduce((acc, item) => acc + Number(item.entrada || 0), 0)
+    const entradasNaoOperacionais = pagos
+      .filter((item) => item.naoOperacional)
+      .reduce((acc, item) => acc + Number(item.entrada || 0), 0)
+    const saidasFundo = pagos
+      .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA')
+      .reduce((acc, item) => acc + Number(item.saida || 0), 0)
+    const saldoGerencial = profitHC - despesas + entradasNaoOperacionais + aportes - retiradasMarcos - retiradasHerica - saidasFundo
+
+    return {
+      qtd: extratoFiltrado.length,
+      entradas,
+      saidas,
+      saldoMovimentado: entradas - saidas,
+      valorRecebido,
+      profitHC,
+      despesas,
+      retiradasMarcos,
+      retiradasHerica,
+      aportes,
+      entradasNaoOperacionais,
+      saidasFundo,
+      saldoGerencial,
+    }
+  }, [extratoFiltrado])
+
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
   const filtradosPaginados = useMemo(() => {
@@ -1564,6 +1748,13 @@ export default function FinanceiroPage() {
     return movimentacoesFiltradas.slice(inicio, inicio + PAGE_SIZE)
   }, [movimentacoesFiltradas, paginaMovimentos])
 
+  const totalPaginasExtrato = Math.max(1, Math.ceil(extratoFiltrado.length / PAGE_SIZE))
+
+  const extratoPaginado = useMemo(() => {
+    const inicio = (paginaExtrato - 1) * PAGE_SIZE
+    return extratoFiltrado.slice(inicio, inicio + PAGE_SIZE)
+  }, [extratoFiltrado, paginaExtrato])
+
   function mudarAba(novaAba: string) {
     setAba(novaAba)
     setPagina(1)
@@ -1572,6 +1763,7 @@ export default function FinanceiroPage() {
   function mudarAbaPrincipal(novaAba: string) {
     setAbaPrincipal(novaAba)
     setPaginaMovimentos(1)
+    setPaginaExtrato(1)
 
     if (novaAba === 'DESPESAS') prepararDespesa()
     if (novaAba === 'SOCIOS') prepararSocio()
@@ -1870,6 +2062,50 @@ export default function FinanceiroPage() {
             statusCobranca(item),
           ]
         }),
+      })
+
+      return
+    }
+
+    if (abaPrincipal === 'EXTRATO') {
+      abrirPdfDoFiltro({
+        titulo: `Extrato geral ${anoExtrato}`,
+        subtitulo: 'Visão anual das movimentações lançadas no financeiro, incluindo processos recebidos, despesas, retiradas, aportes e fundo de caixa.',
+        filtros: [
+          { label: 'Ano', valor: anoExtrato },
+          { label: 'Busca', valor: buscaExtrato || 'Todas' },
+          { label: 'Tipo', valor: tipoExtrato ? (tipoExtrato === 'RECEBIMENTO_PROCESSO' ? 'Recebimento de processo' : labelTipo(tipoExtrato)) : 'Todos' },
+        ],
+        cards: [
+          { label: 'Entradas pagas', valor: moeda(resumoExtrato.entradas), detalhe: `${resumoExtrato.qtd} registros filtrados` },
+          { label: 'Saídas pagas', valor: moeda(resumoExtrato.saidas), detalhe: 'Despesas, retiradas e saídas' },
+          { label: 'Profit HC', valor: moeda(resumoExtrato.profitHC), detalhe: `${moeda(resumoExtrato.valorRecebido)} recebido` },
+          { label: 'Saldo gerencial', valor: moeda(resumoExtrato.saldoGerencial), detalhe: 'Profit - despesas + não operacional - retiradas' },
+        ],
+        cabecalhos: [
+          'Data',
+          'Mês',
+          'Tipo',
+          'Categoria',
+          'Descrição',
+          'Sócio',
+          'Entrada',
+          'Saída',
+          'Status',
+          'Forma',
+        ],
+        linhas: extratoFiltrado.map((item) => [
+          normalizarData(item.data) || '-',
+          item.mes || '-',
+          item.tipoLabel || item.tipo,
+          item.categoria || '-',
+          item.descricao || '-',
+          item.socio || '-',
+          item.entrada > 0 ? moeda(item.entrada) : '-',
+          item.saida > 0 ? moeda(item.saida) : '-',
+          item.status || '-',
+          item.forma_pagamento || '-',
+        ]),
       })
 
       return
@@ -2229,6 +2465,126 @@ export default function FinanceiroPage() {
     )
   }
 
+
+  function renderExtratoGeral() {
+    return (
+      <section className="space-y-5">
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+          <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-gray-950">Extrato Geral do Ano</h2>
+              <p className="text-sm text-gray-500">
+                Visão anual de processos recebidos, despesas, retiradas dos sócios, aportes e movimentações do fundo de caixa.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
+            <input
+              type="number"
+              min="2020"
+              max="2100"
+              value={anoExtrato}
+              onChange={(e) => { setAnoExtrato(e.target.value); setPaginaExtrato(1) }}
+              className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Ano"
+            />
+
+            <input
+              value={buscaExtrato}
+              onChange={(e) => { setBuscaExtrato(e.target.value); setPaginaExtrato(1) }}
+              placeholder="Buscar descrição, categoria, sócio..."
+              className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <select
+              value={tipoExtrato}
+              onChange={(e) => { setTipoExtrato(e.target.value); setPaginaExtrato(1) }}
+              className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+            >
+              <option value="">Todos os tipos</option>
+              <option value="RECEBIMENTO_PROCESSO">Recebimentos de processos</option>
+              <option value="DESPESA">Despesas</option>
+              <option value="RETIRADA_SOCIO">Retiradas de sócio</option>
+              <option value="REEMBOLSO_SOCIO">Reembolsos de sócio</option>
+              <option value="APORTE_SOCIO">Aportes</option>
+              <option value="FUNDO_CAIXA_ENTRADA">Entradas no fundo</option>
+              <option value="FUNDO_CAIXA_SAIDA">Saídas do fundo</option>
+              <option value="AJUSTE_CAIXA">Ajustes de caixa</option>
+            </select>
+
+            <button type="button" onClick={limparFiltrosExtrato} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
+              ⌁ Limpar filtros
+            </button>
+          </div>
+
+          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+            <FiltroResumoCard titulo="Entradas pagas" valor={moeda(resumoExtrato.entradas)} detalhe={`${resumoExtrato.qtd} registros filtrados`} classe="bg-white text-green-700 border-green-100" />
+            <FiltroResumoCard titulo="Saídas pagas" valor={moeda(resumoExtrato.saidas)} detalhe="Despesas, retiradas e saídas" classe="bg-white text-red-700 border-red-100" />
+            <FiltroResumoCard titulo="Saldo movimentado" valor={moeda(resumoExtrato.saldoMovimentado)} detalhe="Entradas - saídas do extrato" classe={resumoExtrato.saldoMovimentado >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+            <FiltroResumoCard titulo="Saldo gerencial" valor={moeda(resumoExtrato.saldoGerencial)} detalhe="Profit - despesas + não operacional - retiradas" classe={resumoExtrato.saldoGerencial >= 0 ? 'bg-white text-blue-700 border-blue-100' : 'bg-white text-red-700 border-red-100'} />
+          </section>
+
+          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+            <FiltroResumoCard titulo="Recebido clientes" valor={moeda(resumoExtrato.valorRecebido)} detalhe="Processos pagos" classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Profit HC" valor={moeda(resumoExtrato.profitHC)} detalhe="Dos processos pagos" classe="bg-white text-green-700 border-green-100" />
+            <FiltroResumoCard titulo="Despesas" valor={moeda(resumoExtrato.despesas)} detalhe="Despesas pagas" classe="bg-white text-red-700 border-red-100" />
+            <FiltroResumoCard titulo="Entradas não operacionais" valor={moeda(resumoExtrato.entradasNaoOperacionais)} detalhe="Venda de ativo, ajustes etc." classe="bg-white text-purple-700 border-purple-100" />
+          </section>
+
+          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+            <FiltroResumoCard titulo="Retiradas Marcos" valor={moeda(resumoExtrato.retiradasMarcos)} detalhe="Pagas no ano/filtro" classe="bg-white text-slate-700 border-slate-100" />
+            <FiltroResumoCard titulo="Retiradas Hérica" valor={moeda(resumoExtrato.retiradasHerica)} detalhe="Pagas no ano/filtro" classe="bg-white text-slate-700 border-slate-100" />
+            <FiltroResumoCard titulo="Aportes" valor={moeda(resumoExtrato.aportes)} detalhe="Entradas de sócios" classe="bg-white text-green-700 border-green-100" />
+            <FiltroResumoCard titulo="Saídas do fundo" valor={moeda(resumoExtrato.saidasFundo)} detalhe="Uso do caixa/fundo" classe="bg-white text-orange-700 border-orange-100" />
+          </section>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[1500px] w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500">
+                <tr>
+                  <Th>Data</Th>
+                  <Th>Mês</Th>
+                  <Th>Tipo</Th>
+                  <Th>Categoria</Th>
+                  <Th>Descrição</Th>
+                  <Th>Sócio</Th>
+                  <Th>Entrada</Th>
+                  <Th>Saída</Th>
+                  <Th>Status</Th>
+                  <Th>Forma</Th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {extratoPaginado.length === 0 ? (
+                  <tr><td colSpan={10} className="p-6 text-center text-gray-500">Nenhuma movimentação encontrada no ano/filtro.</td></tr>
+                ) : (
+                  extratoPaginado.map((item) => (
+                    <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <Td>{normalizarData(item.data) || '-'}</Td>
+                      <Td>{item.mes || '-'}</Td>
+                      <Td>{item.tipoLabel || item.tipo}</Td>
+                      <Td>{item.categoria || '-'}</Td>
+                      <Td>{item.descricao}</Td>
+                      <Td>{item.socio || '-'}</Td>
+                      <Td>{item.entrada > 0 ? <span className="font-black text-green-700">{moeda(item.entrada)}</span> : '-'}</Td>
+                      <Td>{item.saida > 0 ? <span className="font-black text-red-700">{moeda(item.saida)}</span> : '-'}</Td>
+                      <Td><Badge texto={item.status || '-'} classe={badgeStatus(item.status || 'PENDENTE')} /></Td>
+                      <Td>{item.forma_pagamento || '-'}</Td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Paginacao pagina={paginaExtrato} totalPaginas={totalPaginasExtrato} onAnterior={() => setPaginaExtrato((p) => Math.max(1, p - 1))} onProxima={() => setPaginaExtrato((p) => Math.min(totalPaginasExtrato, p + 1))} />
+        </section>
+      </section>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 p-6 text-gray-900">
       <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -2303,6 +2659,7 @@ export default function FinanceiroPage() {
         <TabButton ativo={abaPrincipal === 'SOCIOS'} onClick={() => mudarAbaPrincipal('SOCIOS')}>Sócios / Retiradas</TabButton>
         <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Fundo de Caixa</TabButton>
         <TabButton ativo={abaPrincipal === 'RESULTADO'} onClick={() => mudarAbaPrincipal('RESULTADO')}>Resultado Geral</TabButton>
+        <TabButton ativo={abaPrincipal === 'EXTRATO'} onClick={() => mudarAbaPrincipal('EXTRATO')}>Extrato Geral</TabButton>
       </section>
 
       {abaPrincipal === 'PROCESSOS' && (
@@ -2592,15 +2949,15 @@ export default function FinanceiroPage() {
             />
             <BigCard
               titulo="ENTRADAS NO MÊS"
-              valor={moeda(resultadoGeral.entradasFundoMes)}
-              subtitulo={`Mês ${mesResultado}`}
+              valor={moeda(resumoFundoFiltro.entradas)}
+              subtitulo={filtroMesMovimento ? formatarMesVisual(filtroMesMovimento) : 'Todos os meses'}
               icone="⬆️"
               classe="bg-green-50 border-green-200 text-green-700"
             />
             <BigCard
               titulo="SAÍDAS NO MÊS"
-              valor={moeda(resultadoGeral.saidasFundoMes)}
-              subtitulo={`Mês ${mesResultado}`}
+              valor={moeda(resumoFundoFiltro.saidas)}
+              subtitulo={filtroMesMovimento ? formatarMesVisual(filtroMesMovimento) : 'Todos os meses'}
               icone="⬇️"
               classe="bg-red-50 border-red-200 text-red-700"
             />
@@ -2610,6 +2967,8 @@ export default function FinanceiroPage() {
           {renderTabelaMovimentos()}
         </>
       )}
+
+      {abaPrincipal === 'EXTRATO' && renderExtratoGeral()}
 
       {abaPrincipal === 'RESULTADO' && (
         <section className="space-y-5">
