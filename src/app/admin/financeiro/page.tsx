@@ -123,6 +123,7 @@ export default function FinanceiroPage() {
   const [salvando, setSalvando] = useState(false)
   const [salvandoMovimento, setSalvandoMovimento] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [gerandoFechamento, setGerandoFechamento] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [editandoMovimentoId, setEditandoMovimentoId] = useState<string | null>(null)
 
@@ -1099,6 +1100,96 @@ export default function FinanceiroPage() {
       impacta_caixa: true,
     })
     setEditandoMovimentoId(null)
+  }
+
+
+  async function gerarFechamentoMensal() {
+    if (!mesResultado) {
+      alert('Selecione o mês do resultado antes de gerar o fechamento.')
+      return
+    }
+
+    if (resultadoGeral.resultadoOperacional <= 0) {
+      alert('Este mês não possui lucro líquido positivo para distribuir. Confira Profit HC e despesas pagas antes de fechar.')
+      return
+    }
+
+    const valorReserva = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
+
+    if (valorReserva <= 0) {
+      alert('O fundo de caixa deste mês já está reservado ou foi reservado acima dos 50%.')
+      return
+    }
+
+    const descricaoFechamento = `Fechamento mensal - reserva 50% ${mesResultado}`
+    const fechamentoJaLancado = movimentacoes.find((item) => {
+      const descricao = normalizarBusca(item.descricao || '')
+
+      return (
+        item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
+        item.mes_referencia === mesResultado &&
+        descricao.includes('FECHAMENTO MENSAL') &&
+        descricao.includes('RESERVA 50')
+      )
+    })
+
+    if (fechamentoJaLancado) {
+      alert('Já existe um fechamento mensal lançado para este mês. Se precisar corrigir, exclua ou edite o lançamento no Fundo de Caixa.')
+      return
+    }
+
+    const mensagem =
+      `Gerar fechamento de ${mesResultado}?\n\n` +
+      `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
+      `Fundo de caixa 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}\n` +
+      `Já reservado no fundo: ${moeda(resultadoGeral.entradasFundoMes)}\n` +
+      `Valor que será lançado agora: ${moeda(valorReserva)}\n\n` +
+      `Parte Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}\n` +
+      `Parte Hérica 25%: ${moeda(resultadoGeral.parteHerica)}`
+
+    if (!confirm(mensagem)) return
+
+    setGerandoFechamento(true)
+
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    const { error } = await supabase.from('financeiro_movimentacoes').insert({
+      tipo: 'FUNDO_CAIXA_ENTRADA',
+      categoria: 'Fechamento mensal',
+      descricao: descricaoFechamento,
+      valor: valorReserva,
+      data_vencimento: hoje,
+      data_pagamento: hoje,
+      mes_referencia: mesResultado,
+      status: 'PAGO',
+      socio: null,
+      forma_pagamento: 'Fechamento automático',
+      impacta_resultado: false,
+      impacta_caixa: true,
+      observacoes:
+        `Fechamento gerado pelo Resultado Geral. ` +
+        `Profit HC recebido: ${moeda(resultadoGeral.profitRecebido)}. ` +
+        `Despesas pagas: ${moeda(resultadoGeral.despesasPagas)}. ` +
+        `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}. ` +
+        `Fundo 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}. ` +
+        `Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}. ` +
+        `Hérica 25%: ${moeda(resultadoGeral.parteHerica)}. ` +
+        `Retirado Marcos: ${moeda(resultadoGeral.retiradasMarcos)}. ` +
+        `Retirado Hérica: ${moeda(resultadoGeral.retiradasHerica)}.`,
+      comprovante_url: '',
+    })
+
+    if (error) {
+      alert('Erro ao gerar fechamento mensal: ' + error.message)
+      setGerandoFechamento(false)
+      return
+    }
+
+    await carregarMovimentacoes()
+    setFiltroMesMovimento(mesResultado)
+    setGerandoFechamento(false)
+
+    alert('Fechamento mensal gerado com sucesso. A reserva de 50% foi lançada no Fundo de Caixa.')
   }
 
   const transportadoras = useMemo(() => {
@@ -2097,14 +2188,25 @@ export default function FinanceiroPage() {
               </p>
             </div>
 
-            <div>
-              <label className="text-sm font-semibold text-gray-600">Mês do resultado</label>
-              <input
-                type="month"
-                value={mesResultado}
-                onChange={(e) => setMesResultado(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+            <div className="flex flex-col md:flex-row md:items-end gap-3">
+              <div>
+                <label className="text-sm font-semibold text-gray-600">Mês do resultado</label>
+                <input
+                  type="month"
+                  value={mesResultado}
+                  onChange={(e) => setMesResultado(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={gerarFechamentoMensal}
+                disabled={gerandoFechamento || resultadoGeral.saldoFundoMes <= 0 || resultadoGeral.resultadoOperacional <= 0}
+                className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
+              >
+                {gerandoFechamento ? 'Gerando...' : 'Gerar fechamento do mês'}
+              </button>
             </div>
           </div>
 
