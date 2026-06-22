@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
 
 const LOTE_SUPABASE = 1000
+const STORAGE_FILTROS_FATURAS_ADMIN = 'hc_admin_faturas_filtros_v1'
 
 type Embarque = {
   id: string
@@ -115,6 +116,7 @@ export default function FaturasPage() {
   const [filtroStatusEmbarque, setFiltroStatusEmbarque] = useState('TODOS')
   const [filtroPagamento, setFiltroPagamento] = useState('TODOS')
   const [filtroArquivamento, setFiltroArquivamento] = useState('ATIVAS')
+  const [filtrosCarregados, setFiltrosCarregados] = useState(false)
 
   const [embarqueSelecionado, setEmbarqueSelecionado] = useState<Embarque | null>(null)
   const [numeroFatura, setNumeroFatura] = useState('')
@@ -125,6 +127,52 @@ export default function FaturasPage() {
   useEffect(() => {
     carregar()
   }, [])
+
+  useEffect(() => {
+    try {
+      const filtrosSalvos = localStorage.getItem(STORAGE_FILTROS_FATURAS_ADMIN)
+
+      if (filtrosSalvos) {
+        const filtros = JSON.parse(filtrosSalvos)
+
+        setBusca(filtros.busca || '')
+        setFiltroDocumento(filtros.filtroDocumento || 'TODOS')
+        setFiltroStatusEmbarque(filtros.filtroStatusEmbarque || 'TODOS')
+        setFiltroPagamento(filtros.filtroPagamento || 'TODOS')
+        setFiltroArquivamento(filtros.filtroArquivamento || 'ATIVAS')
+      }
+    } catch (error) {
+      console.log('Não foi possível carregar filtros salvos:', error)
+    } finally {
+      setFiltrosCarregados(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!filtrosCarregados) return
+
+    try {
+      localStorage.setItem(
+        STORAGE_FILTROS_FATURAS_ADMIN,
+        JSON.stringify({
+          busca,
+          filtroDocumento,
+          filtroStatusEmbarque,
+          filtroPagamento,
+          filtroArquivamento,
+        })
+      )
+    } catch (error) {
+      console.log('Não foi possível salvar filtros:', error)
+    }
+  }, [
+    busca,
+    filtroDocumento,
+    filtroStatusEmbarque,
+    filtroPagamento,
+    filtroArquivamento,
+    filtrosCarregados,
+  ])
 
   async function carregar() {
     const { data: embarquesData, error: erroEmbarques } = await supabase
@@ -671,6 +719,33 @@ export default function FaturasPage() {
     if (inputArquivo) inputArquivo.value = ''
   }
 
+  function limparFiltros() {
+    setBusca('')
+    setFiltroDocumento('TODOS')
+    setFiltroStatusEmbarque('TODOS')
+    setFiltroPagamento('TODOS')
+    setFiltroArquivamento('ATIVAS')
+    setPacoteAbertoId(null)
+  }
+
+  function aplicarFiltroRapido(opcoes: {
+    documento?: string
+    statusEmbarque?: string
+    pagamento?: string
+    arquivamento?: string
+  }) {
+    setBusca('')
+    setFiltroDocumento(opcoes.documento || 'TODOS')
+    setFiltroStatusEmbarque(opcoes.statusEmbarque || 'TODOS')
+    setFiltroPagamento(opcoes.pagamento || 'TODOS')
+    setFiltroArquivamento(opcoes.arquivamento || 'ATIVAS')
+    setPacoteAbertoId(null)
+
+    setTimeout(() => {
+      document.getElementById('tabela_faturas')?.scrollIntoView({ behavior: 'smooth' })
+    }, 50)
+  }
+
   async function salvarFatura() {
     if (!embarqueSelecionado) return alert('Selecione um embarque.')
 
@@ -904,11 +979,50 @@ export default function FaturasPage() {
       </div>
 
       <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
-        <Card titulo="Com fatura" valor={totalComFatura} detalhe="PDF anexado" icone="🧾" />
-        <Card titulo="Sem fatura" valor={totalSemFatura} detalhe="Pendente de anexo" icone="📄" />
-        <Card titulo="Visíveis" valor={totalVisiveis} detalhe="Cliente pode acessar" icone="👁️" />
-        <Card titulo="Com recibo" valor={totalRecibos} detalhe="Recibo anexado" icone="✅" />
-        <Card titulo="Arquivadas" valor={totalFaturasArquivadas} detalhe="Ocultas do admin" icone="🗄️" />
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
       </section>
 
       {embarqueSelecionado && (
@@ -987,7 +1101,7 @@ export default function FaturasPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3 w-full lg:max-w-[1250px]">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
             <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
               <option value="TODOS">Documentos: todos</option>
               <option value="COM_FATURA">Com fatura</option>
@@ -1033,6 +1147,14 @@ export default function FaturasPage() {
               placeholder="Buscar por AWB, cliente, fatura..."
               className="w-full xl:col-span-2"
             />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
           </div>
         </div>
 
@@ -1363,18 +1485,34 @@ function InfoPacote({ label, valor, destaque = false }: any) {
   )
 }
 
-function Card({ titulo, valor, detalhe, icone }: any) {
-  return (
-    <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6">
-      <div className="flex justify-between items-start gap-4">
-        <div>
-          <p className="text-slate-300 font-bold">{titulo}</p>
-          <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
-          <p className="text-slate-400 mt-2">{detalhe}</p>
-        </div>
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
 
-        <div className="text-4xl">{icone}</div>
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
       </div>
+
+      <div className="text-4xl">{icone}</div>
     </div>
   )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
 }
