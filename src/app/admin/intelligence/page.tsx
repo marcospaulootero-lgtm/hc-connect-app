@@ -225,6 +225,21 @@ export default function IntelligencePage() {
     return item.status || 'PENDENTE'
   }
 
+  function ehReservaOperacionalFundo(item: any) {
+    const tipo = String(item.tipo || '')
+    const categoria = normalizarBusca(item.categoria || '')
+    const descricao = normalizarBusca(item.descricao || '')
+
+    if (tipo !== 'FUNDO_CAIXA_ENTRADA') return false
+
+    return (
+      categoria.includes('FECHAMENTO MENSAL') ||
+      categoria.includes('RESERVA 50') ||
+      descricao.includes('FECHAMENTO MENSAL') ||
+      descricao.includes('RESERVA 50')
+    )
+  }
+
   function statusFatura(item: any) {
     if (item.recibo_pdf || item.data_pagamento || item.recebimento) return 'PAGO'
 
@@ -348,20 +363,32 @@ export default function IntelligencePage() {
       .filter((item) => item.tipo === 'APORTE_SOCIO' && statusMovimento(item) === 'PAGO')
       .reduce((acc, item) => acc + numero(item.valor), 0)
 
-    const entradasFundo = movimentos
-      .filter((item) => item.tipo === 'FUNDO_CAIXA_ENTRADA' && statusMovimento(item) === 'PAGO')
+    const reservasFundo = movimentos
+      .filter((item) => ehReservaOperacionalFundo(item) && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const entradasNaoOperacionais = movimentos
+      .filter((item) => item.tipo === 'FUNDO_CAIXA_ENTRADA' && statusMovimento(item) === 'PAGO' && !ehReservaOperacionalFundo(item))
       .reduce((acc, item) => acc + numero(item.valor), 0)
 
     const saidasFundo = movimentos
       .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA' && statusMovimento(item) === 'PAGO')
       .reduce((acc, item) => acc + numero(item.valor), 0)
 
+    const terceirosProtegidos = pagos.reduce((acc, item) => acc + numero(item.debito_terceiro), 0)
+    const custosOperacionaisProtegidos = pagos.reduce((acc, item) => acc + numero(item.doc_dta) + numero(item.valor_compra), 0)
+    const caixaProtegido = terceirosProtegidos + custosOperacionaisProtegidos
+
     const resultadoOperacional = profitConfirmado - despesasPagas
     const lucroDistribuivel = Math.max(resultadoOperacional, 0)
     const fundoMinimoRegra = lucroDistribuivel * 0.5
     const parteSocio = lucroDistribuivel * 0.25
-    const saldoGerencial = resultadoOperacional + aportes + entradasFundo - retiradasSocios - saidasFundo
-    const podeGastar = Math.max(saldoGerencial - fundoMinimoRegra, 0)
+    const saldoGerencial = resultadoOperacional + aportes + entradasNaoOperacionais - retiradasSocios - saidasFundo
+    const caixaLivreHC = saldoGerencial
+    const usoCaixaProtegido = Math.max(caixaLivreHC * -1, 0)
+    const faltaReservaHC = Math.max(fundoMinimoRegra - Math.max(caixaLivreHC, 0), 0)
+    const precisaRepor = usoCaixaProtegido + faltaReservaHC
+    const podeGastar = precisaRepor > 0 ? 0 : Math.max(caixaLivreHC - fundoMinimoRegra, 0)
 
     const totalVencido = atrasados.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
     const totalAberto = abertos.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
@@ -431,6 +458,15 @@ export default function IntelligencePage() {
       lucroDistribuivel,
       fundoMinimoRegra,
       parteSocio,
+      reservasFundo,
+      entradasNaoOperacionais,
+      terceirosProtegidos,
+      custosOperacionaisProtegidos,
+      caixaProtegido,
+      caixaLivreHC,
+      usoCaixaProtegido,
+      faltaReservaHC,
+      precisaRepor,
       saldoGerencial,
       podeGastar,
       totalVencido,
@@ -499,6 +535,17 @@ export default function IntelligencePage() {
 
   const problemasFinanceiros = useMemo(() => {
     const itens: any[] = []
+
+    if (inteligencia.usoCaixaProtegido > 0) {
+      itens.push({
+        prioridade: 'Alta',
+        tipo: 'Caixa protegido usado',
+        descricao: 'Retiradas/gastos passaram do caixa livre da HC. O dinheiro de terceiros/custos pode ter sido usado.',
+        valor: inteligencia.usoCaixaProtegido,
+        acao: 'Bloquear retiradas',
+        link: '/admin/financeiro',
+      })
+    }
 
     inteligencia.atrasados.forEach((item) => {
       const vencimento = normalizarData(item.vencimento_cobranca)
@@ -655,18 +702,18 @@ export default function IntelligencePage() {
   }, [inteligencia])
 
   const capacidadeDecisao = useMemo(() => {
-    if (inteligencia.saldoGerencial <= 0) {
+    if (inteligencia.usoCaixaProtegido > 0) {
       return {
         status: 'Crítico',
-        texto: 'Caixa gerencial negativo ou zerado. Prioridade é cobrar vencidos e bloquear retiradas.',
+        texto: `O caixa livre da HC ficou negativo. Você precisa repor ${moeda(inteligencia.usoCaixaProtegido)} de caixa protegido antes de qualquer retirada.`,
         cor: 'red',
       }
     }
 
-    if (inteligencia.saldoGerencial < inteligencia.fundoMinimoRegra) {
+    if (inteligencia.faltaReservaHC > 0) {
       return {
         status: 'Atenção',
-        texto: `Falta ${moeda(inteligencia.fundoMinimoRegra - inteligencia.saldoGerencial)} para o caixa mínimo pela regra 50/25/25.`,
+        texto: `Falta ${moeda(inteligencia.faltaReservaHC)} para completar o caixa mínimo pela regra 50/25/25.`,
         cor: 'yellow',
       }
     }
@@ -681,7 +728,7 @@ export default function IntelligencePage() {
 
     return {
       status: 'Saudável',
-      texto: 'Caixa acima do mínimo e profit calculado para os processos pagos com custo.',
+      texto: 'Caixa livre da HC acima do mínimo, sem uso de dinheiro protegido no período.',
       cor: 'green',
     }
   }, [inteligencia])
@@ -708,7 +755,7 @@ export default function IntelligencePage() {
           <div>
             <h1 className="text-4xl font-black">Intelligence HC</h1>
             <p className="text-slate-400">
-              Central de decisão baseada no financeiro real da operação
+              Central de decisão com caixa livre, caixa protegido, cobrança e profit real
             </p>
           </div>
         </div>
@@ -760,10 +807,10 @@ export default function IntelligencePage() {
 
       <section className="grid grid-cols-1 xl:grid-cols-5 gap-5 mb-6">
         <Kpi titulo="A receber vencido" valor={moeda(inteligencia.totalVencido)} detalhe={`${inteligencia.atrasados.length} processo(s)`} icone="🚨" cor="red" />
-        <Kpi titulo="A receber 7 dias" valor={moeda(inteligencia.aReceber7)} detalhe="previsão curta" icone="📅" cor="blue" />
+        <Kpi titulo="Terceiros protegidos" valor={moeda(inteligencia.terceirosProtegidos)} detalhe="não pertence à HC" icone="🔒" cor="orange" />
         <Kpi titulo="Profit confirmado" valor={moeda(inteligencia.profitConfirmado)} detalhe="pago e com custo" icone="📈" cor="green" />
-        <Kpi titulo="Sem custo" valor={inteligencia.pagosSemCusto.length} detalhe="profit incompleto" icone="⚠️" cor="yellow" />
-        <Kpi titulo="Saldo gerencial" valor={moeda(inteligencia.saldoGerencial)} detalhe="visão de caixa" icone="💰" cor="purple" />
+        <Kpi titulo="Uso caixa protegido" valor={moeda(inteligencia.usoCaixaProtegido)} detalhe="deve repor primeiro" icone="⛔" cor="red" />
+        <Kpi titulo="Caixa livre HC" valor={moeda(inteligencia.caixaLivreHC)} detalhe="após retiradas" icone="💰" cor={inteligencia.caixaLivreHC >= 0 ? 'purple' : 'red'} />
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
@@ -782,16 +829,17 @@ export default function IntelligencePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <MiniDecisao label="Pode gastar livre" valor={moeda(inteligencia.podeGastar)} detalhe="após caixa mínimo" cor={inteligencia.podeGastar > 0 ? 'green' : 'red'} />
-            <MiniDecisao label="Caixa mínimo" valor={moeda(inteligencia.fundoMinimoRegra)} detalhe="50% do lucro" cor="blue" />
-            <MiniDecisao label="Lucro operacional" valor={moeda(inteligencia.resultadoOperacional)} detalhe="profit - despesas" cor={inteligencia.resultadoOperacional >= 0 ? 'green' : 'red'} />
-            <MiniDecisao label="Parte por sócio" valor={moeda(inteligencia.parteSocio)} detalhe="25% pela regra" cor="purple" />
+            <MiniDecisao label="Caixa livre HC" valor={moeda(inteligencia.caixaLivreHC)} detalhe="dinheiro realmente da empresa" cor={inteligencia.caixaLivreHC >= 0 ? 'green' : 'red'} />
+            <MiniDecisao label="Terceiros protegidos" valor={moeda(inteligencia.terceirosProtegidos)} detalhe="não pode retirar" cor="yellow" />
+            <MiniDecisao label="Precisa repor" valor={moeda(inteligencia.precisaRepor)} detalhe="protegido + caixa mínimo" cor={inteligencia.precisaRepor > 0 ? 'red' : 'green'} />
+            <MiniDecisao label="Pode gastar livre" valor={moeda(inteligencia.podeGastar)} detalhe="após protegido e caixa mínimo" cor={inteligencia.podeGastar > 0 ? 'green' : 'red'} />
           </div>
         </Card>
 
         <Card>
           <h2 className="text-2xl font-black mb-5">Alertas inteligentes</h2>
           <Resumo label="Cobranças vencidas" valor={`${inteligencia.atrasados.length} • ${moeda(inteligencia.totalVencido)}`} cor="red" />
+          <Resumo label="Uso de caixa protegido" valor={moeda(inteligencia.usoCaixaProtegido)} cor={inteligencia.usoCaixaProtegido > 0 ? 'red' : 'green'} />
           <Resumo label="Pagos sem custo" valor={inteligencia.pagosSemCusto.length} cor="yellow" />
           <Resumo label="Faturas pendentes" valor={inteligencia.faturasPendentes.length} cor="orange" />
           <Resumo label="Embarques sem AWB" valor={inteligencia.embarquesSemAwb.length} cor="yellow" />
@@ -901,8 +949,12 @@ export default function IntelligencePage() {
         <Card>
           <h2 className="text-2xl font-black mb-5">Resumo financeiro real</h2>
           <Resumo label="Receita confirmada" valor={moeda(inteligencia.receitaConfirmada)} cor="green" />
+          <Resumo label="Terceiros a pagar/proteger" valor={moeda(inteligencia.terceirosProtegidos)} cor="orange" />
+          <Resumo label="Caixa protegido total" valor={moeda(inteligencia.caixaProtegido)} cor="yellow" />
           <Resumo label="Custo confirmado" valor={moeda(inteligencia.custoConfirmado)} cor="red" />
           <Resumo label="Profit HC" valor={moeda(inteligencia.profitConfirmado)} cor="blue" />
+          <Resumo label="Caixa livre HC" valor={moeda(inteligencia.caixaLivreHC)} cor={inteligencia.caixaLivreHC >= 0 ? 'green' : 'red'} />
+          <Resumo label="Precisa repor" valor={moeda(inteligencia.precisaRepor)} cor={inteligencia.precisaRepor > 0 ? 'red' : 'green'} />
           <Resumo label="Margem média" valor={percentual(inteligencia.margemConfirmada)} cor="purple" />
           <Resumo label="Ticket médio" valor={moeda(inteligencia.ticketMedio)} cor="blue" />
           <Resumo label="Despesas pagas" valor={moeda(inteligencia.despesasPagas)} cor="red" />

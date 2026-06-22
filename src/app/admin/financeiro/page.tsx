@@ -1675,6 +1675,8 @@ export default function FinanceiroPage() {
           entrada: Number(item.valor_cobranca || 0),
           saida: 0,
           profit,
+          terceiros: Number(item.debito_terceiro || 0),
+          custosProtegidos: Number(item.doc_dta || 0) + Number(item.valor_compra || 0),
           status: statusCobranca(item),
           forma_pagamento: '',
           impacta_resultado: true,
@@ -1711,6 +1713,8 @@ export default function FinanceiroPage() {
           entrada: status === 'PAGO' ? entrada : 0,
           saida: status === 'PAGO' ? saida : 0,
           profit: 0,
+          terceiros: 0,
+          custosProtegidos: 0,
           status,
           forma_pagamento: item.forma_pagamento || '',
           impacta_resultado: item.impacta_resultado ?? false,
@@ -1776,8 +1780,19 @@ export default function FinanceiroPage() {
       .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA')
       .reduce((acc, item) => acc + Number(item.saida || 0), 0)
 
+    const terceirosProtegidos = pagos
+      .filter((item) => item.tipo === 'RECEBIMENTO_PROCESSO')
+      .reduce((acc, item) => acc + Number(item.terceiros || 0), 0)
+
+    const custosOperacionaisProtegidos = pagos
+      .filter((item) => item.tipo === 'RECEBIMENTO_PROCESSO')
+      .reduce((acc, item) => acc + Number(item.custosProtegidos || 0), 0)
+
+    const caixaProtegido = terceirosProtegidos + custosOperacionaisProtegidos
     const saldoMovimentado = entradas - saidas
     const saldoGerencial = profitHC - despesas + entradasNaoOperacionais + aportes - retiradasMarcos - retiradasHerica - saidasFundo
+    const caixaLivreHC = saldoGerencial
+    const usoCaixaProtegido = Math.max(caixaLivreHC * -1, 0)
     const resultadoOperacional = profitHC - despesas
     const lucroDistribuivel = Math.max(resultadoOperacional, 0)
     const caixaMinimoRecomendado = lucroDistribuivel * 0.5
@@ -1786,26 +1801,27 @@ export default function FinanceiroPage() {
     const saldoMarcos = direitoMarcos - retiradasMarcos
     const saldoHerica = direitoHerica - retiradasHerica
     const retiradasTotal = retiradasMarcos + retiradasHerica
-    const faltaReporCaixa = Math.max(caixaMinimoRecomendado - saldoGerencial, 0)
-    const caixaAcimaDoMinimo = Math.max(saldoGerencial - caixaMinimoRecomendado, 0)
+    const faltaReservaHC = Math.max(caixaMinimoRecomendado - Math.max(caixaLivreHC, 0), 0)
+    const faltaReporCaixa = usoCaixaProtegido + faltaReservaHC
+    const caixaAcimaDoMinimo = Math.max(caixaLivreHC - caixaMinimoRecomendado, 0)
     const saldoPositivoSocios = Math.max(saldoMarcos, 0) + Math.max(saldoHerica, 0)
     const podeRetirarAgora = faltaReporCaixa > 0 ? 0 : Math.min(caixaAcimaDoMinimo, saldoPositivoSocios)
     const gastoLivrePermitido = Math.max(caixaAcimaDoMinimo - podeRetirarAgora, 0)
     const percentualCaixa = caixaMinimoRecomendado > 0
-      ? Math.min(Math.max((saldoGerencial / caixaMinimoRecomendado) * 100, 0), 100)
-      : saldoGerencial > 0 ? 100 : 0
+      ? Math.min(Math.max((Math.max(caixaLivreHC, 0) / caixaMinimoRecomendado) * 100, 0), 100)
+      : caixaLivreHC > 0 ? 100 : 0
 
     let statusDono = 'CONTROLADO'
     let mensagemDono = 'Caixa dentro da regra. Manter controle antes de novas retiradas.'
     let acaoRecomendada = 'Manter a regra 50% caixa / 25% Marcos / 25% Hérica.'
 
-    if (saldoGerencial < 0) {
+    if (usoCaixaProtegido > 0) {
       statusDono = 'CRÍTICO'
-      mensagemDono = 'Caixa gerencial negativo. Bloquear gastos extras e retiradas.'
-      acaoRecomendada = 'Repor caixa, revisar despesas e não realizar retiradas.'
-    } else if (faltaReporCaixa > 0) {
+      mensagemDono = 'A HC usou caixa protegido de terceiros/custos. Bloquear retiradas agora.'
+      acaoRecomendada = 'Repor primeiro o dinheiro protegido, depois recompor o caixa mínimo.'
+    } else if (faltaReservaHC > 0) {
       statusDono = 'ATENÇÃO'
-      mensagemDono = 'Caixa abaixo do mínimo recomendado pela regra dos 50%.'
+      mensagemDono = 'Caixa livre da HC existe, mas ainda está abaixo do mínimo recomendado.'
       acaoRecomendada = 'Economizar primeiro até recompor o caixa mínimo.'
     } else if (podeRetirarAgora > 0) {
       statusDono = 'SAUDÁVEL'
@@ -1827,8 +1843,14 @@ export default function FinanceiroPage() {
       aportes,
       entradasNaoOperacionais,
       saidasFundo,
+      terceirosProtegidos,
+      custosOperacionaisProtegidos,
+      caixaProtegido,
+      caixaLivreHC,
+      usoCaixaProtegido,
+      faltaReservaHC,
       saldoGerencial,
-      caixaGerencialAtual: saldoGerencial,
+      caixaGerencialAtual: caixaLivreHC,
       resultadoOperacional,
       lucroDistribuivel,
       caixaMinimoRecomendado,
@@ -2201,7 +2223,10 @@ export default function FinanceiroPage() {
           { label: 'Sócio', valor: textoFiltroMultiplo(filtroSocioExtrato, SOCIOS_OPCOES, 'Todos') },
         ],
         cards: [
-          { label: 'Caixa gerencial atual', valor: moeda(resumoExtratoGeralAno.caixaGerencialAtual), detalhe: resumoExtratoGeralAno.mensagemDono },
+          { label: 'Caixa livre HC', valor: moeda(resumoExtratoGeralAno.caixaLivreHC), detalhe: resumoExtratoGeralAno.mensagemDono },
+          { label: 'Caixa protegido', valor: moeda(resumoExtratoGeralAno.caixaProtegido), detalhe: 'Terceiros + custos operacionais dos processos pagos' },
+          { label: 'Terceiros a pagar/proteger', valor: moeda(resumoExtratoGeralAno.terceirosProtegidos), detalhe: 'Dinheiro que não pertence à HC' },
+          { label: 'Uso de caixa protegido', valor: moeda(resumoExtratoGeralAno.usoCaixaProtegido), detalhe: 'Quando o caixa livre da HC fica negativo' },
           { label: 'Caixa mínimo recomendado', valor: moeda(resumoExtratoGeralAno.caixaMinimoRecomendado), detalhe: '50% do lucro operacional positivo' },
           { label: 'Precisa economizar/repor', valor: moeda(resumoExtratoGeralAno.faltaReporCaixa), detalhe: resumoExtratoGeralAno.acaoRecomendada },
           { label: 'Pode retirar agora', valor: moeda(resumoExtratoGeralAno.podeRetirarAgora), detalhe: 'Limite seguro total dos sócios' },
@@ -2615,7 +2640,7 @@ export default function FinanceiroPage() {
             <div>
               <h2 className="text-xl font-black text-gray-950">Visão do Dono</h2>
               <p className="text-sm text-gray-500">
-                Decisão financeira do ano selecionado com a regra 50% caixa, 25% Marcos e 25% Hérica.
+                Decisão financeira do ano selecionado separando dinheiro da HC, terceiros e caixa mínimo.
               </p>
             </div>
 
@@ -2675,9 +2700,9 @@ export default function FinanceiroPage() {
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-200">Decisão de caixa</p>
-                <h3 className="mt-2 text-2xl font-black">Quanto tenho, posso retirar e posso gastar?</h3>
+                <h3 className="mt-2 text-2xl font-black">Quanto é da HC, quanto é protegido e posso retirar?</h3>
                 <p className="mt-2 text-sm font-semibold text-slate-300">
-                  Estes números usam todos os lançamentos pagos de {anoExtrato}. Os filtros abaixo servem para consultar a tabela, sem distorcer a decisão do caixa.
+                  Estes números usam todos os lançamentos pagos de {anoExtrato}. Primeiro separe terceiros/custos protegidos, depois caixa mínimo e só então retiradas.
                 </p>
               </div>
 
@@ -2688,11 +2713,25 @@ export default function FinanceiroPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               <DonoResumoCard
-                titulo="Tenho em caixa gerencial"
-                valor={moeda(resumoDono.caixaGerencialAtual)}
-                detalhe="Profit - despesas + entradas não operacionais + aportes - retiradas - saídas do fundo"
-                classe={resumoDono.caixaGerencialAtual >= 0 ? 'bg-white text-slate-950 border-white' : 'bg-red-50 text-red-700 border-red-200'}
+                titulo="Caixa livre da HC"
+                valor={moeda(resumoDono.caixaLivreHC)}
+                detalhe="Profit HC - despesas + aportes/entradas livres - retiradas - saídas do fundo"
+                classe={resumoDono.caixaLivreHC >= 0 ? 'bg-white text-slate-950 border-white' : 'bg-red-50 text-red-700 border-red-200'}
                 destaque
+              />
+
+              <DonoResumoCard
+                titulo="Terceiros a pagar/proteger"
+                valor={moeda(resumoDono.terceirosProtegidos)}
+                detalhe="Valor de terceiros nos processos pagos. Não é dinheiro da HC."
+                classe="bg-orange-50 text-orange-700 border-orange-200"
+              />
+
+              <DonoResumoCard
+                titulo="Uso de caixa protegido"
+                valor={moeda(resumoDono.usoCaixaProtegido)}
+                detalhe={resumoDono.usoCaixaProtegido > 0 ? 'Retiradas/gastos passaram do caixa livre da HC' : 'Nenhum uso de dinheiro protegido detectado'}
+                classe={resumoDono.usoCaixaProtegido > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}
               />
 
               <DonoResumoCard
@@ -2705,7 +2744,7 @@ export default function FinanceiroPage() {
               <DonoResumoCard
                 titulo="Tenho que economizar/repor"
                 valor={moeda(resumoDono.faltaReporCaixa)}
-                detalhe={resumoDono.faltaReporCaixa > 0 ? 'Antes de qualquer retirada ou gasto livre' : 'Caixa mínimo já coberto'}
+                detalhe={resumoDono.faltaReporCaixa > 0 ? 'Repor protegido + completar caixa mínimo' : 'Caixa mínimo e protegido sob controle'}
                 classe={resumoDono.faltaReporCaixa > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}
               />
 
@@ -2719,8 +2758,15 @@ export default function FinanceiroPage() {
               <DonoResumoCard
                 titulo="Posso gastar livre"
                 valor={moeda(resumoDono.gastoLivrePermitido)}
-                detalhe="Sobra após caixa mínimo e retiradas permitidas"
+                detalhe="Sobra após protegido, caixa mínimo e retiradas permitidas"
                 classe={resumoDono.gastoLivrePermitido > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
+              />
+
+              <DonoResumoCard
+                titulo="Caixa protegido total"
+                valor={moeda(resumoDono.caixaProtegido)}
+                detalhe="Terceiros + compra/DTA/DOC/impostos dos processos pagos"
+                classe="bg-slate-50 text-slate-700 border-slate-200"
               />
 
               <DonoResumoCard
@@ -2740,7 +2786,7 @@ export default function FinanceiroPage() {
                 <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${resumoDono.percentualCaixa}%` }} />
               </div>
               <p className="mt-2 text-xs font-bold text-slate-400">
-                Mínimo recomendado: {moeda(resumoDono.caixaMinimoRecomendado)} | Caixa atual: {moeda(resumoDono.caixaGerencialAtual)}
+                Mínimo recomendado: {moeda(resumoDono.caixaMinimoRecomendado)} | Caixa livre HC: {moeda(resumoDono.caixaLivreHC)} | Protegido: {moeda(resumoDono.caixaProtegido)}
               </p>
             </div>
           </section>
@@ -2790,7 +2836,9 @@ export default function FinanceiroPage() {
               </div>
 
               <div className="space-y-3">
-                <DecisionRow label="Tenho caixa?" valor={moeda(resumoDono.caixaGerencialAtual)} destaque />
+                <DecisionRow label="Caixa livre da HC" valor={moeda(resumoDono.caixaLivreHC)} destaque />
+                <DecisionRow label="Dinheiro de terceiros protegido" valor={moeda(resumoDono.terceirosProtegidos)} destaque />
+                <DecisionRow label="Usei dinheiro protegido?" valor={resumoDono.usoCaixaProtegido > 0 ? `Sim, ${moeda(resumoDono.usoCaixaProtegido)}` : 'Não'} perigo={resumoDono.usoCaixaProtegido > 0} sucesso={resumoDono.usoCaixaProtegido <= 0} />
                 <DecisionRow label="Posso retirar?" valor={resumoDono.podeRetirarAgora > 0 ? `Sim, até ${moeda(resumoDono.podeRetirarAgora)}` : 'Não'} perigo={resumoDono.podeRetirarAgora <= 0} />
                 <DecisionRow label="Posso gastar livre?" valor={resumoDono.gastoLivrePermitido > 0 ? `Sim, até ${moeda(resumoDono.gastoLivrePermitido)}` : 'Não'} perigo={resumoDono.gastoLivrePermitido <= 0} />
                 <DecisionRow label="Quanto preciso economizar?" valor={moeda(resumoDono.faltaReporCaixa)} perigo={resumoDono.faltaReporCaixa > 0} sucesso={resumoDono.faltaReporCaixa <= 0} />
@@ -2818,6 +2866,7 @@ export default function FinanceiroPage() {
             <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
               <FiltroResumoCard titulo="Recebido clientes" valor={moeda(resumoExtrato.valorRecebido)} detalhe="Processos pagos" classe="bg-white text-blue-700 border-blue-100" />
               <FiltroResumoCard titulo="Profit HC" valor={moeda(resumoExtrato.profitHC)} detalhe="Dos processos pagos" classe="bg-white text-green-700 border-green-100" />
+              <FiltroResumoCard titulo="Terceiros protegidos" valor={moeda(resumoExtrato.terceirosProtegidos)} detalhe="Dinheiro que não é da HC" classe="bg-white text-orange-700 border-orange-100" />
               <FiltroResumoCard titulo="Despesas" valor={moeda(resumoExtrato.despesas)} detalhe="Despesas pagas" classe="bg-white text-red-700 border-red-100" />
               <FiltroResumoCard titulo="Retiradas total" valor={moeda(resumoExtrato.retiradasTotal)} detalhe="Marcos + Hérica" classe="bg-white text-slate-700 border-slate-100" />
             </section>
@@ -2996,7 +3045,7 @@ export default function FinanceiroPage() {
               <InputMoney label="Valor faturado ao cliente R$" value={form.valor_cobranca} onChange={(v) => setForm({ ...form, valor_cobranca: v })} />
               <InputMoney label="DTA / DOC / Impostos R$" value={form.doc_dta} onChange={(v) => setForm({ ...form, doc_dta: v })} />
 
-              <InputMoney label="Custos terceiros R$" value={form.debito_terceiro} onChange={(v) => setForm({ ...form, debito_terceiro: v })} />
+              <InputMoney label="Terceiros a pagar R$" value={form.debito_terceiro} onChange={(v) => setForm({ ...form, debito_terceiro: v })} />
               <InputMoney label="Valor compra R$" value={form.valor_compra} onChange={(v) => setForm({ ...form, valor_compra: v })} />
               <Input type="date" label="Vencimento cliente" value={form.vencimento_cobranca} onChange={(v) => setForm({ ...form, vencimento_cobranca: v })} />
               <Input type="date" label="Recebimento cliente" value={form.recebimento} onChange={(v) => setForm({ ...form, recebimento: v })} />
