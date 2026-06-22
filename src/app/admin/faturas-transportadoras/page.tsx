@@ -60,6 +60,7 @@ export default function FaturasTransportadorasPage() {
   const [faturas, setFaturas] = useState<FaturaTransportadora[]>([])
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
+  const [importando, setImportando] = useState(false)
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
@@ -178,6 +179,348 @@ export default function FaturasTransportadorasPage() {
     if (status.includes('CONTEST')) return 'bg-purple-600/20 text-purple-300 border-purple-500'
     return 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
   }
+
+
+  function normalizarBusca(valor: any) {
+    return String(valor || '')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+  }
+
+  function pegarCampoExcel(linha: any, nomes: string[]) {
+    for (const nome of nomes) {
+      if (linha[nome] !== undefined && linha[nome] !== null && linha[nome] !== '') {
+        return linha[nome]
+      }
+    }
+
+    const chaves = Object.keys(linha || {})
+
+    for (const nome of nomes) {
+      const nomeNormalizado = normalizarBusca(nome)
+      const chaveEncontrada = chaves.find((chave) => normalizarBusca(chave) === nomeNormalizado)
+
+      if (
+        chaveEncontrada &&
+        linha[chaveEncontrada] !== undefined &&
+        linha[chaveEncontrada] !== null &&
+        linha[chaveEncontrada] !== ''
+      ) {
+        return linha[chaveEncontrada]
+      }
+    }
+
+    const nomesNormalizados = nomes.map(normalizarBusca)
+
+    for (const chave of chaves) {
+      const chaveNormalizada = normalizarBusca(chave)
+
+      if (
+        nomesNormalizados.some(
+          (nome) => chaveNormalizada.includes(nome) || nome.includes(chaveNormalizada)
+        ) &&
+        linha[chave] !== undefined &&
+        linha[chave] !== null &&
+        linha[chave] !== ''
+      ) {
+        return linha[chave]
+      }
+    }
+
+    return ''
+  }
+
+  function normalizarDataExcel(valor: any) {
+    if (!valor) return null
+
+    if (valor instanceof Date && !isNaN(valor.getTime())) {
+      return valor.toISOString().slice(0, 10)
+    }
+
+    if (typeof valor === 'number') {
+      const data = new Date((valor - 25569) * 86400 * 1000)
+      if (!isNaN(data.getTime())) return data.toISOString().slice(0, 10)
+    }
+
+    const texto = String(valor).trim()
+    if (!texto) return null
+    if (/^\d{4}-\d{2}-\d{2}/.test(texto)) return texto.slice(0, 10)
+
+    const partesBarra = texto.split('/')
+    if (partesBarra.length === 3) {
+      const [dia, mes, ano] = partesBarra
+      const anoFinal = ano.length === 2 ? `20${ano}` : ano
+      return `${anoFinal.padStart(4, '20')}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
+    }
+
+    const dataTentativa = new Date(texto)
+    if (!isNaN(dataTentativa.getTime())) {
+      return dataTentativa.toISOString().slice(0, 10)
+    }
+
+    return null
+  }
+
+  function normalizarTransportadora(valor: any) {
+    const texto = normalizarBusca(valor)
+
+    if (texto.includes('FEDEX') || texto.includes('FED EX')) return 'FedEx'
+    if (texto.includes('DHL')) return 'DHL'
+
+    return ''
+  }
+
+  function normalizarSituacaoExcel(valor: any, vencimento?: string | null) {
+    const texto = normalizarBusca(valor)
+
+    if (texto.includes('PAGO') || texto.includes('PAGA')) return 'PAGA'
+    if (texto.includes('CANCEL')) return 'FATURA CANCELADA'
+    if (texto.includes('CONTEST')) return 'CONTESTADA'
+    if (texto.includes('ATRAS') || texto.includes('VENCIDA')) return 'VENCIDA'
+    if (texto.includes('ABERTO') || texto.includes('OUTSTANDING')) return 'EM ABERTO'
+
+    if (vencimento && vencimento < hojeISO()) return 'VENCIDA'
+
+    return 'EM ABERTO'
+  }
+
+  function chaveFaturaTransportadora(transportadora: any, numeroFatura: any) {
+    return `${normalizarBusca(transportadora)}|${normalizarBusca(numeroFatura)}`
+  }
+
+  function observacoesImportacao(linha: any) {
+    const partes = [
+      ['Dias restantes', pegarCampoExcel(linha, ['DIAS RESTANTES', 'DIAS_RESTANTES'])],
+      ['Data pagamento', pegarCampoExcel(linha, ['DATA DE PAGAMENTO', 'DATA PAGAMENTO', 'PAGAMENTO'])],
+      ['Utilizado para', pegarCampoExcel(linha, ['UTILIZADO PARA', 'UTILIZADO_PARA'])],
+      ['Status recebimento', pegarCampoExcel(linha, ['STATUS_RECEBIMENTO_FATURA', 'STATUS RECEBIMENTO FATURA', 'STATUS_RECEBIMENTO', 'STATUS RECEBIME'])],
+      ['Status contestação', pegarCampoExcel(linha, ['STATUS DE CONTESTAÇÃO', 'STATUS CONTESTACAO', 'STATUS DE COR', 'STATUS_DE_CONTESTACAO'])],
+      ['Observação', pegarCampoExcel(linha, ['OBSERVAÇÕES', 'OBSERVACOES', 'OBSERVAÇÃO', 'OBSERVACAO'])],
+    ]
+      .filter(([, valor]) => valor !== undefined && valor !== null && String(valor).trim() !== '')
+      .map(([titulo, valor]) => `${titulo}: ${valor}`)
+
+    return partes.join(' | ')
+  }
+
+  async function importarExcel(event: React.ChangeEvent<HTMLInputElement>) {
+    const arquivo = event.target.files?.[0]
+    if (!arquivo) return
+
+    if (!confirm('Importar este Excel para Faturas DHL/FedEx?')) {
+      event.target.value = ''
+      return
+    }
+
+    setImportando(true)
+
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await arquivo.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+      const registros = linhas
+        .map((linha) => {
+          const numeroFatura = String(
+            pegarCampoExcel(linha, [
+              'NUMERO DA FATURA',
+              'NÚMERO DA FATURA',
+              'NUMERO_FATURA',
+              'Nº FATURA',
+              'N° FATURA',
+              'FATURA',
+              'Fatura Fiscal Nº',
+              'FATURA FISCAL Nº',
+              'INVOICE',
+            ]) || ''
+          ).trim()
+
+          const transportadora =
+            normalizarTransportadora(
+              pegarCampoExcel(linha, [
+                'FEDEX / DHL',
+                'FEDEX/DHL',
+                'DHL / FEDEX',
+                'TRANSPORTADORA',
+                'EMPRESA',
+                'CARRIER',
+              ])
+            ) || 'DHL'
+
+          const emissao = normalizarDataExcel(
+            pegarCampoExcel(linha, [
+              'EMISSÃO',
+              'EMISSAO',
+              'DATA DE EMISSÃO',
+              'DATA DE EMISSAO',
+              'DATA EMISSÃO',
+              'DATA EMISSAO',
+            ])
+          )
+
+          const vencimento = normalizarDataExcel(
+            pegarCampoExcel(linha, [
+              'DATA DE VENCIMENTO',
+              'DATA VENCIMENTO',
+              'DATA DE VENCIMEN',
+              'VENCIMENTO',
+              'VENCIMENTO_CLIENTE',
+            ])
+          )
+
+          const valor = numero(
+            pegarCampoExcel(linha, [
+              'VALOR',
+              'VALOR DA FATURA',
+              'TOTAL',
+              'TOTAL FATURA',
+            ])
+          )
+
+          const totalAtualizado =
+            numero(
+              pegarCampoExcel(linha, [
+                'TOTAL ATUALIZADO',
+                'TOTAL_ATUALIZADO',
+                'TOTAL AJUSTADO',
+              ])
+            ) || valor
+
+          const valorContestado = numero(
+            pegarCampoExcel(linha, [
+              'VALOR CONTESTADO',
+              'VALOR_CONTES',
+              'VALOR CONTEST',
+              'VALOR_CONTESTADO',
+            ])
+          )
+
+          const pagoAjustado = numero(
+            pegarCampoExcel(linha, [
+              'PAGO / AJUST.',
+              'PAGO/AJUST.',
+              'PAGO AJUST.',
+              'PAGO AJUSTADO',
+              'PAGO_AJUSTADO',
+              'PAGO AJUST',
+            ])
+          )
+
+          const saldoInformado = numero(
+            pegarCampoExcel(linha, [
+              'SALDO',
+              'DIFERENCA_FATURA',
+              'DIFERENÇA_FATURA',
+              'DIFERENCA_FA',
+              'DIFERENÇA_FA',
+            ])
+          )
+
+          const statusPlanilha = pegarCampoExcel(linha, [
+            'STATUS DA FATURA',
+            'STATUS_DA_FATURA',
+            'SITUAÇÃO',
+            'SITUACAO',
+            'STATUS',
+            'DIAS RESTANTES',
+          ])
+
+          const situacao = normalizarSituacaoExcel(statusPlanilha, vencimento)
+          const saldo = saldoInformado || Math.max(totalAtualizado - pagoAjustado, 0)
+
+          return {
+            transportadora,
+            conta: String(pegarCampoExcel(linha, ['CONTA', 'CONTA ENTIDADE', 'ACCOUNT']) || '').trim() || null,
+            numero_fatura: numeroFatura || null,
+            emissao,
+            vencimento,
+            situacao,
+            total: totalAtualizado,
+            valor_contestado: valorContestado,
+            pago_ajustado: pagoAjustado,
+            saldo,
+            moeda: String(pegarCampoExcel(linha, ['MOEDA', 'CURRENCY']) || 'BRL').trim() || 'BRL',
+            observacoes: observacoesImportacao(linha) || null,
+            atualizado_em: new Date().toISOString(),
+          }
+        })
+        .filter((item) => item.numero_fatura || item.total > 0)
+
+      if (registros.length === 0) {
+        alert('Nenhuma fatura válida encontrada no Excel.')
+        setImportando(false)
+        event.target.value = ''
+        return
+      }
+
+      const faturasAtuaisPorChave = new Map(
+        faturas
+          .filter((item) => item.numero_fatura)
+          .map((item) => [chaveFaturaTransportadora(item.transportadora, item.numero_fatura), item])
+      )
+
+      const novos: any[] = []
+      const atualizacoes: { id: string; payload: any }[] = []
+
+      registros.forEach((registro) => {
+        const chave = chaveFaturaTransportadora(registro.transportadora, registro.numero_fatura)
+        const existente = faturasAtuaisPorChave.get(chave)
+
+        if (existente) {
+          atualizacoes.push({
+            id: existente.id,
+            payload: registro,
+          })
+          return
+        }
+
+        faturasAtuaisPorChave.set(chave, registro as any)
+        novos.push(registro)
+      })
+
+      for (let i = 0; i < novos.length; i += 500) {
+        const lote = novos.slice(i, i + 500)
+        const { error } = await supabase.from('faturas_transportadoras').insert(lote)
+
+        if (error) {
+          alert('Erro ao importar lote: ' + error.message)
+          setImportando(false)
+          return
+        }
+      }
+
+      for (const item of atualizacoes) {
+        const { error } = await supabase
+          .from('faturas_transportadoras')
+          .update(item.payload)
+          .eq('id', item.id)
+
+        if (error) {
+          alert('Erro ao atualizar fatura existente: ' + error.message)
+          setImportando(false)
+          return
+        }
+      }
+
+      alert(
+        `Importação concluída.\n\n` +
+          `Novas faturas: ${novos.length}\n` +
+          `Faturas atualizadas: ${atualizacoes.length}`
+      )
+
+      await carregar()
+    } catch (error: any) {
+      alert('Erro ao importar Excel: ' + error.message)
+    }
+
+    setImportando(false)
+    event.target.value = ''
+  }
+
 
   async function salvarFatura() {
     if (!form.transportadora) return alert('Selecione a transportadora.')
@@ -468,6 +811,17 @@ export default function FaturasTransportadorasPage() {
           >
             Faturas clientes
           </Link>
+
+          <label className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold cursor-pointer">
+            {importando ? 'Importando...' : 'Importar Excel'}
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              disabled={importando}
+              onChange={importarExcel}
+            />
+          </label>
 
           <button
             onClick={carregar}
