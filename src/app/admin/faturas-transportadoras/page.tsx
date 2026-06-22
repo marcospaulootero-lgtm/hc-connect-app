@@ -292,11 +292,47 @@ export default function FaturasTransportadorasPage() {
     return `${ano}-${mes}-${dia}`
   }
 
+  function normalizarNumeroFaturaParaSistema(numeroFatura: any) {
+    const textoOriginal = String(numeroFatura || '').trim()
+    if (!textoOriginal) return ''
+
+    const somenteDigitos = textoOriginal.replace(/\D/g, '')
+
+    // DHL: usar o número da fatura/boleto com 10 dígitos. Ex.: 2542443959.
+    // FedEx: usar o número da fatura sem pontos/traços. Ex.: 5-475-48028 vira 547548028.
+    if (somenteDigitos.length === 10 || somenteDigitos.length === 9) {
+      return somenteDigitos
+    }
+
+    return textoOriginal.toUpperCase()
+  }
+
+  function identificarTransportadoraPelaFatura(numeroFatura: any) {
+    const textoOriginal = String(numeroFatura || '').trim()
+    const texto = textoOriginal.toUpperCase()
+    const somenteDigitos = textoOriginal.replace(/\D/g, '')
+
+    // Regra oficial que vamos usar no portal:
+    // DHL: número da fatura/boleto com 10 dígitos. Ex.: 2542443959.
+    // FedEx: número da fatura sem pontos/traços com 9 dígitos. Ex.: 5-475-48028 => 547548028.
+    // CLIPPER: contém "/" ou tem 6 dígitos.
+    // KPM: contém "-", desde que não seja uma fatura FedEx de 9 dígitos.
+    if (somenteDigitos.length === 10) return 'DHL'
+    if (somenteDigitos.length === 9) return 'FedEx'
+    if (texto.includes('/')) return 'CLIPPER'
+    if (somenteDigitos.length === 6) return 'CLIPPER'
+    if (texto.includes('-')) return 'KPM'
+
+    return ''
+  }
+
   function normalizarTransportadora(valor: any) {
     const texto = normalizarBusca(valor)
 
     if (texto.includes('FEDEX') || texto.includes('FED EX')) return 'FedEx'
     if (texto.includes('DHL')) return 'DHL'
+    if (texto.includes('KPM')) return 'KPM'
+    if (texto.includes('CLIPPER')) return 'CLIPPER'
 
     return ''
   }
@@ -317,7 +353,9 @@ export default function FaturasTransportadorasPage() {
   }
 
   function chaveFaturaTransportadora(transportadora: any, numeroFatura: any) {
-    return `${normalizarBusca(transportadora)}|${normalizarBusca(numeroFatura)}`
+    const transportadoraFinal = normalizarTransportadora(transportadora) || normalizarBusca(transportadora)
+    const numeroFinal = normalizarNumeroFaturaParaSistema(numeroFatura)
+    return `${transportadoraFinal}|${numeroFinal}`
   }
 
   function observacoesImportacao(linha: any) {
@@ -355,7 +393,7 @@ export default function FaturasTransportadorasPage() {
 
       const registros = linhas
         .map((linha) => {
-          const numeroFatura = String(
+          const numeroFaturaOriginal = String(
             pegarCampoExcel(linha, [
               'NUMERO DA FATURA',
               'NÚMERO DA FATURA',
@@ -369,17 +407,21 @@ export default function FaturasTransportadorasPage() {
             ]) || ''
           ).trim()
 
+          const numeroFatura = normalizarNumeroFaturaParaSistema(numeroFaturaOriginal)
+
+          const transportadoraPlanilha = normalizarTransportadora(
+            pegarCampoExcel(linha, [
+              'FEDEX / DHL',
+              'FEDEX/DHL',
+              'DHL / FEDEX',
+              'TRANSPORTADORA',
+              'EMPRESA',
+              'CARRIER',
+            ])
+          )
+
           const transportadora =
-            normalizarTransportadora(
-              pegarCampoExcel(linha, [
-                'FEDEX / DHL',
-                'FEDEX/DHL',
-                'DHL / FEDEX',
-                'TRANSPORTADORA',
-                'EMPRESA',
-                'CARRIER',
-              ])
-            ) || 'DHL'
+            transportadoraPlanilha || identificarTransportadoraPelaFatura(numeroFatura) || 'DHL'
 
           const emissao = normalizarDataExcel(
             pegarCampoExcel(linha, [
@@ -636,7 +678,7 @@ export default function FaturasTransportadorasPage() {
     const payload = {
       transportadora: form.transportadora,
       conta: form.conta || null,
-      numero_fatura: form.numero_fatura || null,
+      numero_fatura: normalizarNumeroFaturaParaSistema(form.numero_fatura) || null,
       emissao: form.emissao || null,
       vencimento: form.vencimento || null,
       data_pagamento: form.data_pagamento || null,
@@ -1037,6 +1079,8 @@ export default function FaturasTransportadorasPage() {
             >
               <option value="DHL">DHL</option>
               <option value="FedEx">FedEx</option>
+              <option value="KPM">KPM</option>
+              <option value="CLIPPER">CLIPPER</option>
             </select>
           </Campo>
 
@@ -1051,8 +1095,18 @@ export default function FaturasTransportadorasPage() {
           <Campo label="Nº fatura">
             <input
               value={form.numero_fatura}
-              onChange={(e) => setForm({ ...form, numero_fatura: e.target.value })}
-              placeholder="Ex: BHZIR..."
+              onChange={(e) => {
+                const numeroDigitado = e.target.value
+                const numeroNormalizado = normalizarNumeroFaturaParaSistema(numeroDigitado)
+                const transportadoraDetectada = identificarTransportadoraPelaFatura(numeroDigitado)
+
+                setForm({
+                  ...form,
+                  numero_fatura: numeroNormalizado,
+                  transportadora: transportadoraDetectada || form.transportadora,
+                })
+              }}
+              placeholder="DHL: 2542443959 | FedEx: 5-475-48028 ou 547548028"
             />
           </Campo>
 
@@ -1082,10 +1136,16 @@ export default function FaturasTransportadorasPage() {
 
           <Campo label="Banco utilizado">
             <input
+              list="bancos-pagamento"
               value={form.utilizado_para}
               onChange={(e) => setForm({ ...form, utilizado_para: e.target.value })}
-              placeholder="Ex: Itaú, BS2, Contabilizei"
+              placeholder="Ex: ITAU, BS2 ou CONTABILIZEI BANK"
             />
+            <datalist id="bancos-pagamento">
+              <option value="ITAU" />
+              <option value="BS2" />
+              <option value="CONTABILIZEI BANK" />
+            </datalist>
           </Campo>
 
           <Campo label="Situação">
@@ -1097,6 +1157,7 @@ export default function FaturasTransportadorasPage() {
               <option value="VENCIDA">Vencida</option>
               <option value="PAGA">Paga</option>
               <option value="CONTESTADA">Contestada</option>
+              <option value="FATURA CANCELADA">Fatura cancelada</option>
             </select>
           </Campo>
 
@@ -1181,6 +1242,8 @@ export default function FaturasTransportadorasPage() {
               <option value="TODAS">Transportadora: todas</option>
               <option value="DHL">DHL</option>
               <option value="FedEx">FedEx</option>
+              <option value="KPM">KPM</option>
+              <option value="CLIPPER">CLIPPER</option>
             </select>
 
             <select
@@ -1192,6 +1255,7 @@ export default function FaturasTransportadorasPage() {
               <option value="VENCIDA">Vencida</option>
               <option value="PAGA">Paga</option>
               <option value="CONTESTADA">Contestada</option>
+              <option value="FATURA CANCELADA">Fatura cancelada</option>
             </select>
 
             <select
