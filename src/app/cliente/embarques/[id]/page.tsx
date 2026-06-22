@@ -626,30 +626,44 @@ export default function DetalheCliente() {
                           </p>
 
                           {podeEnviar ? (
-                            <div className="flex flex-col md:flex-row gap-3">
-                              <input
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) =>
-                                  setArquivoSelecionado((prev) => ({
-                                    ...prev,
-                                    [fatura.id]: e.target.files?.[0] || null,
-                                  }))
-                                }
-                                className="w-full"
-                              />
+                            <div className="space-y-3">
+                              <div className="flex flex-col md:flex-row gap-3">
+                                <input
+                                  id={`comprovante-${fatura.id}`}
+                                  type="file"
+                                  accept=".pdf,.jpg,.jpeg,.png"
+                                  className="hidden"
+                                  onChange={(e) =>
+                                    setArquivoSelecionado((prev) => ({
+                                      ...prev,
+                                      [fatura.id]: e.target.files?.[0] || null,
+                                    }))
+                                  }
+                                />
 
-                              <button
-                                onClick={() => enviarComprovante(fatura)}
-                                disabled={!!enviandoComprovante[fatura.id]}
-                                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold whitespace-nowrap"
-                              >
-                                {enviandoComprovante[fatura.id]
-                                  ? 'Enviando...'
-                                  : comprovanteEnviado
-                                    ? 'Reenviar comprovante'
-                                    : 'Enviar comprovante'}
-                              </button>
+                                <label
+                                  htmlFor={`comprovante-${fatura.id}`}
+                                  className="flex-1 cursor-pointer border border-blue-900 bg-[#020817] hover:border-blue-500 px-5 py-3 rounded-xl text-white font-bold text-center transition"
+                                >
+                                  {arquivoSelecionado[fatura.id]?.name || 'Escolher comprovante'}
+                                </label>
+
+                                <button
+                                  onClick={() => enviarComprovante(fatura)}
+                                  disabled={!!enviandoComprovante[fatura.id]}
+                                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold whitespace-nowrap"
+                                >
+                                  {enviandoComprovante[fatura.id]
+                                    ? 'Enviando...'
+                                    : comprovanteEnviado
+                                      ? 'Reenviar comprovante'
+                                      : 'Enviar comprovante'}
+                                </button>
+                              </div>
+
+                              <p className="text-slate-500 text-xs">
+                                Clique em “Escolher comprovante” para abrir o explorador de arquivos. Não precisa arrastar o arquivo para a tela.
+                              </p>
                             </div>
                           ) : (
                             <div className="flex flex-col md:flex-row gap-3 md:items-center">
