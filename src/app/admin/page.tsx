@@ -12,6 +12,8 @@ export default function DashboardPage() {
   const [modalErrosRastreio, setModalErrosRastreio] = useState(false)
   const [carregando, setCarregando] = useState(false)
   const [agora, setAgora] = useState(new Date())
+  const [periodoGrafico, setPeriodoGrafico] = useState<'7D' | '30D' | 'MES_ATUAL' | 'MES_ANTERIOR'>('30D')
+  const [diaSelecionado, setDiaSelecionado] = useState<string | null>(null)
 
   useEffect(() => {
   const timer = setInterval(() => {
@@ -30,6 +32,10 @@ useEffect(() => {
 
   return () => clearInterval(intervaloDashboard)
 }, [])
+
+useEffect(() => {
+  setDiaSelecionado(null)
+}, [periodoGrafico])
 
   async function atualizarTodosRastreios() {
     try {
@@ -131,6 +137,65 @@ useEffect(() => {
     timeZone: 'America/Sao_Paulo',
   })
 }
+
+  function dataBaseEmbarque(item: any) {
+    return item.data_coleta || item.data_envio || item.criado_em || item.ultima_atualizacao || null
+  }
+
+  function inicioDoDia(data: Date) {
+    const d = new Date(data)
+    d.setHours(0, 0, 0, 0)
+    return d
+  }
+
+  function fimDoDia(data: Date) {
+    const d = new Date(data)
+    d.setHours(23, 59, 59, 999)
+    return d
+  }
+
+  function chaveDia(data: Date) {
+    const ano = data.getFullYear()
+    const mes = String(data.getMonth() + 1).padStart(2, '0')
+    const dia = String(data.getDate()).padStart(2, '0')
+    return `${ano}-${mes}-${dia}`
+  }
+
+  function clienteDoEmbarque(item: any) {
+    return (
+      item.importador ||
+      item.exportador ||
+      item.cliente_final ||
+      item.cliente_nome ||
+      item.empresa_nome ||
+      'Não informado'
+    )
+  }
+
+  function faixaPeriodoGrafico() {
+    const hojeBase = inicioDoDia(new Date())
+
+    if (periodoGrafico === '7D') {
+      const inicio = new Date(hojeBase)
+      inicio.setDate(inicio.getDate() - 6)
+      return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 7 dias' }
+    }
+
+    if (periodoGrafico === 'MES_ATUAL') {
+      const inicio = new Date(hojeBase.getFullYear(), hojeBase.getMonth(), 1)
+      return { inicio, fim: fimDoDia(hojeBase), label: 'Mês atual' }
+    }
+
+    if (periodoGrafico === 'MES_ANTERIOR') {
+      const inicio = new Date(hojeBase.getFullYear(), hojeBase.getMonth() - 1, 1)
+      const fim = new Date(hojeBase.getFullYear(), hojeBase.getMonth(), 0)
+      return { inicio, fim: fimDoDia(fim), label: 'Mês anterior' }
+    }
+
+    const inicio = new Date(hojeBase)
+    inicio.setDate(inicio.getDate() - 29)
+    return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 30 dias' }
+  }
 
   const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
     ? ultimoRastreio.detalhes
@@ -267,29 +332,106 @@ useEffect(() => {
     return { exportacao, importacao, outros }
   }, [embarques])
 
-  const graficoDias = useMemo(() => {
-    const dias = Array.from({ length: 30 }).map((_, index) => {
-      const data = new Date()
-      data.setDate(data.getDate() - (29 - index))
+  const ritmoOperacao = useMemo(() => {
+    const { inicio, fim, label } = faixaPeriodoGrafico()
+    const dias: any[] = []
+    const mapaDias: Record<string, any> = {}
 
-      const total = embarques.filter((e) => {
-        const dataBase = e.data_coleta || e.criado_em
-        if (!dataBase) return false
-
-        const criado = new Date(dataBase)
-        return criado.toDateString() === data.toDateString()
-      }).length
-
-      return {
-        dia: data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-        total,
+    const cursor = new Date(inicio)
+    while (cursor <= fim) {
+      const key = chaveDia(cursor)
+      const itemDia = {
+        key,
+        data: new Date(cursor),
+        dia: cursor.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        total: 0,
+        peso: 0,
+        clientes: new Set<string>(),
+        embarques: [] as any[],
       }
+
+      mapaDias[key] = itemDia
+      dias.push(itemDia)
+      cursor.setDate(cursor.getDate() + 1)
+    }
+
+    embarques.forEach((embarque) => {
+      const dataBase = dataBaseEmbarque(embarque)
+      if (!dataBase) return
+
+      const data = new Date(dataBase)
+      if (isNaN(data.getTime())) return
+
+      const dataDia = inicioDoDia(data)
+      if (dataDia < inicio || dataDia > fim) return
+
+      const key = chaveDia(dataDia)
+      const itemDia = mapaDias[key]
+      if (!itemDia) return
+
+      const cliente = clienteDoEmbarque(embarque)
+
+      itemDia.total += 1
+      itemDia.peso += Number(embarque.peso_taxado || embarque.peso_real || 0)
+      itemDia.clientes.add(cliente)
+      itemDia.embarques.push(embarque)
     })
 
-    return dias
-  }, [embarques])
+    const totalPeriodo = dias.reduce((acc, item) => acc + item.total, 0)
+    const pesoPeriodo = dias.reduce((acc, item) => acc + item.peso, 0)
+    const diasSemEmbarque = dias.filter((item) => item.total === 0).length
+    const mediaDiaria = dias.length > 0 ? totalPeriodo / dias.length : 0
+    const maiorDia = Math.max(...dias.map((item) => item.total), 1)
+    const melhorDia = [...dias].sort((a, b) => b.total - a.total)[0] || null
 
-  const maiorDia = Math.max(...graficoDias.map((d) => d.total), 1)
+    const mapaClientes: Record<string, { nome: string; total: number; peso: number }> = {}
+    dias.forEach((dia) => {
+      dia.embarques.forEach((embarque: any) => {
+        const cliente = clienteDoEmbarque(embarque)
+        if (!mapaClientes[cliente]) mapaClientes[cliente] = { nome: cliente, total: 0, peso: 0 }
+        mapaClientes[cliente].total += 1
+        mapaClientes[cliente].peso += Number(embarque.peso_taxado || embarque.peso_real || 0)
+      })
+    })
+
+    const clientesOrdenados = Object.values(mapaClientes).sort((a, b) => b.total - a.total)
+    const clienteMaisAtivo = clientesOrdenados[0] || null
+    const clientesPeriodo = clientesOrdenados.length
+    const concentracaoTopCliente = totalPeriodo > 0 && clienteMaisAtivo
+      ? (clienteMaisAtivo.total / totalPeriodo) * 100
+      : 0
+
+    const alerta =
+      totalPeriodo === 0
+        ? 'Nenhum embarque no período. Ação: revisar prospecção e clientes parados.'
+        : clientesPeriodo <= 3
+          ? 'Risco comercial: operação concentrada em poucos clientes. Ação: recuperar clientes parados e abrir novas contas.'
+          : concentracaoTopCliente >= 45
+            ? `Atenção: ${clienteMaisAtivo?.nome} concentra ${concentracaoTopCliente.toFixed(0)}% dos embarques.`
+            : diasSemEmbarque > dias.length * 0.45
+              ? 'Operação irregular: muitos dias sem embarque. Ação: aumentar recorrência dos clientes ativos.'
+              : 'Ritmo operacional saudável. Ação: manter recorrência e buscar aumento de ticket.'
+
+    return {
+      label,
+      dias,
+      totalPeriodo,
+      pesoPeriodo,
+      diasSemEmbarque,
+      mediaDiaria,
+      maiorDia,
+      melhorDia,
+      clientesPeriodo,
+      clienteMaisAtivo,
+      concentracaoTopCliente,
+      alerta,
+    }
+  }, [embarques, periodoGrafico])
+
+  const diaRitmoSelecionado = useMemo(() => {
+    if (!diaSelecionado) return null
+    return ritmoOperacao.dias.find((item) => item.key === diaSelecionado) || null
+  }, [ritmoOperacao, diaSelecionado])
 
   return (
     <main className="min-h-screen bg-[#020817] text-white">
@@ -456,29 +598,130 @@ useEffect(() => {
 
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
           <div className="card">
-            <div className="flex justify-between mb-6">
-              <h2 className="text-2xl font-black">Embarques por dia</h2>
-              <span className="text-slate-400 text-sm">Últimos 30 dias</span>
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-2xl font-black">Ritmo da operação</h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Volume por dia, concentração de clientes e pontos de ação.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <PeriodoButton ativo={periodoGrafico === '7D'} onClick={() => setPeriodoGrafico('7D')}>7 dias</PeriodoButton>
+                <PeriodoButton ativo={periodoGrafico === '30D'} onClick={() => setPeriodoGrafico('30D')}>30 dias</PeriodoButton>
+                <PeriodoButton ativo={periodoGrafico === 'MES_ATUAL'} onClick={() => setPeriodoGrafico('MES_ATUAL')}>Mês atual</PeriodoButton>
+                <PeriodoButton ativo={periodoGrafico === 'MES_ANTERIOR'} onClick={() => setPeriodoGrafico('MES_ANTERIOR')}>Mês anterior</PeriodoButton>
+              </div>
             </div>
 
             <div className="h-72 flex items-end gap-2 border-b border-blue-900 pb-4">
-              {graficoDias.map((item, index) => (
-                <div key={index} className="flex-1 flex flex-col items-center justify-end gap-2">
-                  <div
-                    className="w-full bg-blue-600 rounded-t-lg min-h-[6px]"
-                    style={{ height: `${Math.max((item.total / maiorDia) * 220, 6)}px` }}
-                    title={`${item.dia}: ${item.total}`}
-                  />
-                </div>
-              ))}
+              {ritmoOperacao.dias.map((item, index) => {
+                const ativo = diaSelecionado === item.key
+                const mostrarLabel =
+                  ritmoOperacao.dias.length <= 10 ||
+                  index === 0 ||
+                  index === ritmoOperacao.dias.length - 1 ||
+                  index % 5 === 0
+
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setDiaSelecionado(ativo ? null : item.key)}
+                    className="flex-1 h-full flex flex-col items-center justify-end gap-2 group"
+                    title={`${item.dia}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
+                  >
+                    <span className={item.total > 0 ? 'text-[10px] font-black text-blue-300 opacity-0 group-hover:opacity-100' : 'text-[10px] text-slate-700'}>
+                      {item.total || ''}
+                    </span>
+
+                    <span
+                      className={
+                        ativo
+                          ? 'w-full bg-green-500 rounded-t-lg min-h-[6px] ring-2 ring-green-300'
+                          : item.total > 0
+                            ? 'w-full bg-blue-600 hover:bg-blue-400 rounded-t-lg min-h-[6px] transition'
+                            : 'w-full bg-slate-800 hover:bg-slate-700 rounded-t-lg min-h-[6px] transition'
+                      }
+                      style={{ height: `${Math.max((item.total / ritmoOperacao.maiorDia) * 205, 6)}px` }}
+                    />
+
+                    <span className={mostrarLabel ? 'text-[10px] text-slate-500 whitespace-nowrap' : 'text-[10px] text-transparent'}>
+                      {mostrarLabel ? item.dia : '-'}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
 
-            <div className="grid grid-cols-4 gap-4 mt-6 text-center">
-              <ResumoMini titulo="Total" valor={String(embarques.length)} />
-              <ResumoMini titulo="Mês" valor={String(embarquesMes.length)} />
-              <ResumoMini titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} />
-              <ResumoMini titulo="Clientes" valor={String(clientesAtivos)} />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-center">
+              <ResumoMini titulo="Total período" valor={String(ritmoOperacao.totalPeriodo)} />
+              <ResumoMini titulo="Média diária" valor={ritmoOperacao.mediaDiaria.toFixed(1)} />
+              <ResumoMini titulo="Dias sem embarque" valor={String(ritmoOperacao.diasSemEmbarque)} />
+              <ResumoMini titulo="Peso período" valor={`${ritmoOperacao.pesoPeriodo.toFixed(2)} kg`} />
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+              <InsightBox
+                titulo="Melhor dia"
+                valor={ritmoOperacao.melhorDia ? `${ritmoOperacao.melhorDia.dia} • ${ritmoOperacao.melhorDia.total}` : '-'}
+                detalhe="Maior volume do período"
+              />
+              <InsightBox
+                titulo="Cliente mais ativo"
+                valor={ritmoOperacao.clienteMaisAtivo?.nome || '-'}
+                detalhe={ritmoOperacao.clienteMaisAtivo ? `${ritmoOperacao.clienteMaisAtivo.total} embarque(s)` : 'Sem cliente no período'}
+              />
+              <InsightBox
+                titulo="Concentração"
+                valor={`${ritmoOperacao.concentracaoTopCliente.toFixed(0)}%`}
+                detalhe={`${ritmoOperacao.clientesPeriodo} cliente(s) no período`}
+              />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-blue-300">Análise automática</p>
+              <p className="mt-2 text-sm font-bold text-slate-300">{ritmoOperacao.alerta}</p>
+            </div>
+
+            {diaRitmoSelecionado && (
+              <div className="mt-4 rounded-2xl border border-green-900 bg-green-950/10 p-4">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-green-300">Dia selecionado</p>
+                    <h3 className="text-xl font-black">
+                      {diaRitmoSelecionado.data.toLocaleDateString('pt-BR')} • {diaRitmoSelecionado.total} embarque(s)
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setDiaSelecionado(null)}
+                    className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl font-black text-sm"
+                  >
+                    Limpar seleção
+                  </button>
+                </div>
+
+                {diaRitmoSelecionado.embarques.length === 0 ? (
+                  <p className="text-slate-500">Nenhum embarque neste dia.</p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {diaRitmoSelecionado.embarques.slice(0, 8).map((item: any) => (
+                      <div key={item.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-blue-900 bg-[#020817] rounded-xl px-4 py-3">
+                        <div>
+                          <p className="font-black text-blue-400">AWB {item.awb || '-'}</p>
+                          <p className="text-slate-400 text-sm">
+                            {clienteDoEmbarque(item)} • {item.transportadora || '-'} • {item.servico || '-'}
+                          </p>
+                        </div>
+                        <StatusPillDashboard status={item.status_operacional || '-'} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="card">
@@ -934,6 +1177,32 @@ function ResumoMini({ titulo, valor }: any) {
     <div>
       <h3 className="text-2xl font-black">{valor}</h3>
       <p className="text-slate-500 text-sm">{titulo}</p>
+    </div>
+  )
+}
+
+function PeriodoButton({ ativo, onClick, children }: any) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        ativo
+          ? 'bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-sm'
+          : 'bg-[#020817] border border-blue-900 text-slate-300 hover:bg-blue-600/20 px-4 py-2 rounded-xl font-black text-sm'
+      }
+    >
+      {children}
+    </button>
+  )
+}
+
+function InsightBox({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{titulo}</p>
+      <p className="mt-2 text-lg font-black text-white leading-tight">{valor}</p>
+      <p className="mt-1 text-xs font-bold text-slate-500">{detalhe}</p>
     </div>
   )
 }
