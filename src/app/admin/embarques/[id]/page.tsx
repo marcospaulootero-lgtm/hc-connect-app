@@ -21,6 +21,9 @@ export default function DetalheEmbarquePage() {
   const [descricaoStatus, setDescricaoStatus] = useState('')
   const [salvandoStatus, setSalvandoStatus] = useState(false)
 
+  const [masterNumero, setMasterNumero] = useState('')
+  const [salvandoMaster, setSalvandoMaster] = useState(false)
+
   useEffect(() => {
     carregar()
     carregarUsuarios()
@@ -39,6 +42,7 @@ export default function DetalheEmbarquePage() {
     }
 
     setEmbarque(data)
+    setMasterNumero(data.master || '')
 
     const { data: timelineData } = await supabase
       .from('timeline_embarques')
@@ -160,6 +164,44 @@ export default function DetalheEmbarquePage() {
     setSalvandoStatus(false)
 
     await carregar()
+  }
+
+  async function salvarMaster() {
+    if (!embarque) return
+
+    const masterLimpo = masterNumero.trim()
+
+    setSalvandoMaster(true)
+
+    const dadosAtualizar: any = {
+      master: masterLimpo || null,
+      data_master: masterLimpo ? embarque.data_master || new Date().toISOString() : null,
+      ultima_atualizacao: new Date().toISOString(),
+    }
+
+    const { error } = await supabase
+      .from('embarques')
+      .update(dadosAtualizar)
+      .eq('id', embarque.id)
+
+    if (error) {
+      alert(`Erro ao salvar master: ${error.message}`)
+      console.log(error)
+      setSalvandoMaster(false)
+      return
+    }
+
+    await supabase.from('timeline_embarques').insert({
+      embarque_id: embarque.id,
+      status: 'MASTER',
+      descricao: masterLimpo
+        ? `Master informado: ${masterLimpo}`
+        : 'Master removido do embarque.',
+    })
+
+    setSalvandoMaster(false)
+    await carregar()
+    alert(masterLimpo ? 'Master salvo com sucesso.' : 'Master removido com sucesso.')
   }
 
   async function atualizarRastreio() {
@@ -465,7 +507,36 @@ export default function DetalheEmbarquePage() {
         </section>
       )}
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
+      <section className="card mb-8">
+        <div className="flex flex-col lg:flex-row justify-between gap-6">
+          <div>
+            <p className="text-blue-400 font-bold mb-2">Master do processo</p>
+            <h2 className="text-2xl font-black mb-2">Número master</h2>
+            <p className="text-slate-400">
+              Informe o master quando o processo formal sair da origem e o número for gerado.
+            </p>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-3 w-full lg:max-w-2xl">
+            <input
+              value={masterNumero}
+              onChange={(e) => setMasterNumero(e.target.value)}
+              placeholder="Digite o número master"
+              className="flex-1"
+            />
+
+            <button
+              onClick={salvarMaster}
+              disabled={salvandoMaster}
+              className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+            >
+              {salvandoMaster ? 'Salvando...' : 'Salvar master'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
         <InfoCard titulo="Cliente vinculado" valor={nomeUsuario(embarque.usuario_id)} icone="👤" />
 
         <InfoCard
@@ -486,6 +557,12 @@ export default function DetalheEmbarquePage() {
               : '-'
           }
           icone="📤"
+        />
+
+        <InfoCard
+          titulo="Master"
+          valor={embarque.master || 'Aguardando geração'}
+          icone="🧾"
         />
 
         <InfoCard
@@ -517,6 +594,7 @@ export default function DetalheEmbarquePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <CampoResumo titulo="Origem" valor={embarque.origem} />
             <CampoResumo titulo="Destino" valor={embarque.destino} />
+            <CampoResumo titulo="Master" valor={embarque.master || 'Aguardando geração'} />
             <CampoResumo titulo="Peso real" valor={embarque.peso_real ? `${embarque.peso_real} kg` : '-'} />
             <CampoResumo titulo="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
           </div>

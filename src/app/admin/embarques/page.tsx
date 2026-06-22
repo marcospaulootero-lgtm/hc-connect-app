@@ -28,6 +28,7 @@ export default function EmbarquesPage() {
     referencia_cliente: '',
     referencia_hc: '',
     awb: '',
+    master: '',
     transportadora: 'DHL',
     servico: '',
     origem: '',
@@ -228,6 +229,8 @@ export default function EmbarquesPage() {
         referencia_hc: form.referencia_hc || null,
 
         awb: form.awb,
+        master: form.master || null,
+        data_master: form.master ? new Date().toISOString() : null,
         transportadora: form.transportadora,
         servico: form.servico,
         origem: form.origem,
@@ -302,6 +305,9 @@ export default function EmbarquesPage() {
       referencia_cliente: item.referencia_cliente || '',
       referencia_hc: item.referencia_hc || '',
       awb: item.awb || '',
+      master: item.master || '',
+      master_original: item.master || '',
+      data_master: item.data_master || null,
       transportadora: item.transportadora || 'DHL',
       servico: item.servico || '',
       origem: item.origem || '',
@@ -358,6 +364,12 @@ export default function EmbarquesPage() {
       referencia_hc: editForm.referencia_hc || null,
 
       awb: editForm.awb || null,
+      master: editForm.master || null,
+      data_master: editForm.master
+        ? editForm.master !== editForm.master_original
+          ? new Date().toISOString()
+          : editForm.data_master || new Date().toISOString()
+        : null,
       transportadora: editForm.transportadora || null,
       servico: editForm.servico || null,
       origem: editForm.origem || null,
@@ -476,6 +488,7 @@ export default function EmbarquesPage() {
     return embarques.filter((item) => {
       const texto = `
         ${item.awb}
+        ${item.master}
         ${item.exportador}
         ${item.importador}
         ${item.referencia_cliente}
@@ -591,6 +604,14 @@ export default function EmbarquesPage() {
 
           <Campo label="AWB">
             <input value={form.awb} onChange={(e) => setForm({ ...form, awb: e.target.value })} />
+          </Campo>
+
+          <Campo label="Master">
+            <input
+              value={form.master}
+              onChange={(e) => setForm({ ...form, master: e.target.value })}
+              placeholder="Número master quando gerado"
+            />
           </Campo>
 
           <Campo label="Transportadora">
@@ -807,6 +828,14 @@ export default function EmbarquesPage() {
 
                     <Campo label="AWB">
                       <input value={editForm.awb} onChange={(e) => setEditForm({ ...editForm, awb: e.target.value })} />
+                    </Campo>
+
+                    <Campo label="Master">
+                      <input
+                        value={editForm.master}
+                        onChange={(e) => setEditForm({ ...editForm, master: e.target.value })}
+                        placeholder="Número master quando gerado"
+                      />
                     </Campo>
 
                     <Campo label="Status">
@@ -1040,6 +1069,7 @@ export default function EmbarquesPage() {
                 <Info label="Importador" valor={item.importador || '-'} />
                 <Info label="Ref. Cliente" valor={item.referencia_cliente || '-'} />
                 <Info label="Ref. HC" valor={item.referencia_hc || '-'} />
+                <Info label="Master" valor={item.master || 'Aguardando geração'} />
                 <Info label="Origem → Destino" valor={`${item.origem || '-'} → ${item.destino || '-'}`} />
                 <Info
                   label="Previsão"
