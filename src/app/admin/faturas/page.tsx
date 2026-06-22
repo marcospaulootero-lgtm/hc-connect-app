@@ -41,6 +41,10 @@ type Fatura = {
   arquivo_pdf: string | null
   recibo_pdf: string | null
   recibo_nome: string | null
+  comprovante_pagamento?: string | null
+  data_comprovante?: string | null
+  status_pagamento?: string | null
+  observacao_pagamento?: string | null
   criado_em: string
   visivel_cliente?: boolean | null
   observacoes?: string | null
@@ -140,6 +144,10 @@ export default function FaturasPage() {
         arquivo_pdf,
         recibo_pdf,
         recibo_nome,
+        comprovante_pagamento,
+        data_comprovante,
+        status_pagamento,
+        observacao_pagamento,
         criado_em,
         visivel_cliente,
         observacoes,
@@ -495,6 +503,49 @@ export default function FaturasPage() {
     }
   }
 
+
+  function statusComprovanteFatura(fatura?: Fatura | null) {
+    if (!fatura?.arquivo_pdf) {
+      return {
+        label: '-',
+        detalhe: 'Sem fatura',
+        classe: 'border-slate-600 bg-slate-700/20 text-slate-400',
+      }
+    }
+
+    if (!fatura.comprovante_pagamento) {
+      return {
+        label: 'Não enviado',
+        detalhe: 'Cliente ainda não anexou',
+        classe: 'border-slate-600 bg-slate-700/20 text-slate-300',
+      }
+    }
+
+    const status = String(fatura.status_pagamento || 'COMPROVANTE ENVIADO').toUpperCase()
+
+    if (status === 'PAGO') {
+      return {
+        label: 'Aprovado',
+        detalhe: fatura.data_comprovante ? `Enviado em ${dataBR(fatura.data_comprovante)}` : 'Comprovante aprovado',
+        classe: 'border-green-500 bg-green-600/20 text-green-300',
+      }
+    }
+
+    if (status === 'COMPROVANTE REJEITADO') {
+      return {
+        label: 'Rejeitado',
+        detalhe: fatura.observacao_pagamento || 'Aguardando reenvio do cliente',
+        classe: 'border-red-500 bg-red-600/20 text-red-300',
+      }
+    }
+
+    return {
+      label: 'Enviado pelo cliente',
+      detalhe: fatura.data_comprovante ? `Enviado em ${dataBR(fatura.data_comprovante)}` : 'Aguardando análise',
+      classe: 'border-yellow-500 bg-yellow-500/20 text-yellow-300',
+    }
+  }
+
   function extrairCaminhoStorage(url?: string | null) {
     if (!url) return null
     const marcador = '/storage/v1/object/public/faturas/'
@@ -518,6 +569,9 @@ export default function FaturasPage() {
         ${e.referencia_cliente || ''}
         ${e.referencia_hc || ''}
         ${fatura?.numero_fatura || ''}
+        ${fatura?.status_pagamento || ''}
+        ${fatura?.observacao_pagamento || ''}
+        ${fatura?.comprovante_pagamento ? 'comprovante enviado' : ''}
         ${documentosDoEmbarque(e.id).map(nomeDocumento).join(' ')}
       `.toLowerCase()
 
@@ -529,6 +583,8 @@ export default function FaturasPage() {
         (filtroDocumento === 'SEM_FATURA' && !fatura?.arquivo_pdf) ||
         (filtroDocumento === 'COM_RECIBO' && !!fatura?.recibo_pdf) ||
         (filtroDocumento === 'SEM_RECIBO' && !!fatura?.arquivo_pdf && !fatura?.recibo_pdf) ||
+        (filtroDocumento === 'COM_COMPROVANTE' && !!fatura?.comprovante_pagamento) ||
+        (filtroDocumento === 'SEM_COMPROVANTE' && !!fatura?.arquivo_pdf && !fatura?.comprovante_pagamento) ||
         (filtroDocumento === 'VISIVEL' && !!fatura?.visivel_cliente) ||
         (filtroDocumento === 'OCULTO' && fatura && !fatura?.visivel_cliente)
 
@@ -938,6 +994,8 @@ export default function FaturasPage() {
               <option value="SEM_FATURA">Sem fatura</option>
               <option value="COM_RECIBO">Com recibo</option>
               <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
               <option value="VISIVEL">Visível para cliente</option>
               <option value="OCULTO">Oculto do cliente</option>
             </select>
@@ -987,7 +1045,7 @@ export default function FaturasPage() {
         </div>
 
         <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[1720px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
             <thead>
               <tr>
                 <th>AWB</th>
@@ -1001,6 +1059,7 @@ export default function FaturasPage() {
                 <th>Visível</th>
                 <th>Fatura</th>
                 <th>Recibo</th>
+                <th>Comprovante</th>
                 <th>Pagamento</th>
                 <th>Ações</th>
               </tr>
@@ -1011,6 +1070,7 @@ export default function FaturasPage() {
                 const fatura = faturaDoEmbarque(embarque.id)
                 const financeiro = financeiroDoEmbarque(embarque)
                 const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
                 const documentos = documentosDoEmbarque(embarque.id)
                 const cotacoes = cotacoesDoEmbarque(embarque.id)
                 const pacoteAberto = pacoteAbertoId === embarque.id
@@ -1088,6 +1148,24 @@ export default function FaturasPage() {
                         )}
                       </td>
                       <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
                         <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
                           <span>{pagamento.label}</span>
                           {financeiro ? (
@@ -1149,8 +1227,8 @@ export default function FaturasPage() {
 
                     {pacoteAberto && (
                       <tr className="border-b border-blue-900/80 bg-[#020817]">
-                        <td colSpan={13} className="p-5">
-                          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
                             <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
                               <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
 
@@ -1181,6 +1259,28 @@ export default function FaturasPage() {
                                   valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
                                 />
                               </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
                             </div>
 
                             <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
