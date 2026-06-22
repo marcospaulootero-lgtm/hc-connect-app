@@ -312,8 +312,7 @@ async function rastrearFedEx(embarque: any, awb: string) {
     throw new Error('Nenhuma remessa FedEx encontrada.')
   }
 
-  const eventos = Array.isArray(resultado?.scanEvents) ? resultado.scanEvents : []
-const ultimoEvento = eventos[0]
+  const ultimoEvento = resultado?.scanEvents?.[0]
 
   const status =
     resultado?.latestStatusDetail?.description ||
@@ -328,15 +327,13 @@ const ultimoEvento = eventos[0]
   const descricao = traduzirDescricao(descricaoOriginal)
 
   const statusCompleto = [
-  resultado?.latestStatusDetail?.description,
-  resultado?.latestStatusDetail?.code,
-  ultimoEvento?.eventDescription,
-  ultimoEvento?.eventType,
-  ...eventos.map((item: any) => item?.eventDescription).filter(Boolean),
-  ...eventos.map((item: any) => item?.eventType).filter(Boolean),
-]
-  .filter(Boolean)
-  .join(' | ')
+    resultado?.latestStatusDetail?.description,
+    resultado?.latestStatusDetail?.code,
+    ultimoEvento?.eventDescription,
+    ultimoEvento?.eventType,
+  ]
+    .filter(Boolean)
+    .join(' | ')
 
   const local =
     ultimoEvento?.scanLocation?.city ||
@@ -381,41 +378,65 @@ function traduzirDescricao(descricao: string) {
 
   if (!original) return 'Sem descrição'
 
-  // FedEx - PT/EN
-  if (d === 'delivered' || d.includes('shipment delivered') || d.includes('envio entregue') || d === 'entregue') {
-    return 'Entregue'
+  if (
+    d.includes('shipment will be cleared and delivered by broker') ||
+    d.includes('cleared and delivered by broker') ||
+    d.includes('customs broker') ||
+    d.includes('broker')
+  ) {
+    return 'A remessa será liberada e entregue pelo despachante aduaneiro'
   }
 
   if (
-    d.includes('on fedex vehicle for delivery') ||
-    d.includes('on vehicle for delivery') ||
-    d.includes('em veiculo fedex para entrega') ||
-    d.includes('em veículo fedex para entrega') ||
+    d.includes('shipment delivered') ||
+    d === 'delivered' ||
+    d.includes('proof of delivery') ||
+    d.includes('envio entregue')
+  ) {
+    return 'Envio entregue'
+  }
+
+  if (
     d.includes('out for delivery') ||
     d.includes('with delivery courier') ||
+    d.includes('with courier') ||
     d.includes('saiu com o mensageiro para entrega') ||
     d.includes('mensageiro para entrega') ||
     d.includes('saiu para entrega')
   ) {
-    return 'Saiu para entrega'
+    return 'A remessa saiu com o mensageiro para entrega'
   }
 
   if (
-    d.includes('shipment information sent to fedex') ||
-    d.includes('shipment information received') ||
-    d.includes('shipping information received') ||
-    d.includes('informacoes de remessa enviadas para a fedex') ||
-    d.includes('informações de remessa enviadas para a fedex') ||
-    d.includes('label created') ||
-    d.includes('label generated') ||
-    d.includes('pre-shipment')
+    d.includes('clearance processing complete') ||
+    d.includes('clearance complete') ||
+    d.includes('liberacao concluida') ||
+    d.includes('liberacao aduaneira concluida')
   ) {
-    return 'Informações de remessa enviadas para a transportadora'
+    return 'Liberação aduaneira concluída'
   }
 
   if (
-    d === 'picked up' ||
-    d === 'pego' ||
+    d.includes('clearance event') ||
+    d.includes('customs status updated') ||
+    d.includes('clearance') ||
+    d.includes('customs') ||
+    d.includes('processo de liberacao') ||
+    d.includes('em processo de liberacao') ||
+    d.includes('envio em proceso de liberacao') ||
+    d.includes('envio em processo de liberacao')
+  ) {
+    return 'Envio em processo de liberação'
+  }
+
+  if (
+    d.includes('broker has been notified') ||
+    d.includes('despachante foi notificado')
+  ) {
+    return 'O despachante foi notificado para providenciar a liberação'
+  }
+
+  if (
     d.includes('shipment picked up') ||
     d.includes('picked up') ||
     d.includes('pickup') ||
@@ -423,98 +444,7 @@ function traduzirDescricao(descricao: string) {
     d.includes('envio recolhido') ||
     d.includes('remessa coletada')
   ) {
-    return 'Coletado'
-  }
-
-  if (
-    d.includes('international shipment release') ||
-    d.includes('liberacao internacional de remessas') ||
-    d.includes('liberação internacional de remessas') ||
-    d.includes('customs status updated') ||
-    d.includes('customs clearance') ||
-    d.includes('clearance event') ||
-    d.includes('clearance processing') ||
-    d.includes('clearance in progress') ||
-    d.includes('processo de liberacao alfandegaria') ||
-    d.includes('processo de liberação alfandegária') ||
-    d.includes('em processo de liberacao') ||
-    d.includes('em processo de liberação') ||
-    d.includes('envio em proceso de liberacao') ||
-    d.includes('envio em processo de liberacao') ||
-    d.includes('envio em processo de liberação')
-  ) {
-    return 'Em processo de liberação'
-  }
-
-  if (
-    d.includes('shipment will be cleared and delivered by broker') ||
-    d.includes('cleared and delivered by broker') ||
-    d.includes('customs broker') ||
-    d.includes('despachante aduaneiro') ||
-    d.includes('despachante foi notificado') ||
-    d.includes('broker has been notified')
-  ) {
-    if (d.includes('notificado') || d.includes('notified')) {
-      return 'O despachante foi notificado para providenciar a liberação'
-    }
-
-    return 'A remessa será liberada e entregue pelo despachante aduaneiro'
-  }
-
-  if (
-    d.includes('clearance processing complete') ||
-    d.includes('clearance complete') ||
-    d.includes('liberacao concluida') ||
-    d.includes('liberação concluída') ||
-    d.includes('liberacao aduaneira concluida') ||
-    d.includes('liberação aduaneira concluída')
-  ) {
-    return 'Liberação aduaneira concluída'
-  }
-
-  if (
-    d.includes('at destination sort facility') ||
-    d.includes('na instalacao de classificacao de destino') ||
-    d.includes('na instalação de classificação de destino')
-  ) {
-    return 'Na instalação de classificação de destino'
-  }
-
-  if (
-    d.includes('arrived at fedex hub') ||
-    d.includes('chegaram ao hub da fedex') ||
-    d.includes('arrived at facility') ||
-    d.includes('arrived at') ||
-    d.includes('arrived') ||
-    d.includes('chegou nas instalacoes') ||
-    d.includes('chegou nas instalações') ||
-    d.includes('chegou a unidade')
-  ) {
-    return original.match(/chegou|chegaram/i) ? original : 'Chegou à unidade da transportadora'
-  }
-
-  if (
-    d.includes('departed fedex hub') ||
-    d.includes('deixou o hub da fedex') ||
-    d.includes('left fedex origin facility') ||
-    d.includes('deixei a instalacao de origem da fedex') ||
-    d.includes('deixei a instalação de origem da fedex') ||
-    d.includes('departed from') ||
-    d.includes('departed') ||
-    d.includes('partiu de uma instalacao') ||
-    d.includes('partiu de uma instalação') ||
-    d.includes('partiu')
-  ) {
-    return original.match(/partiu|deix/i) ? original : 'Saiu da unidade da transportadora'
-  }
-
-  if (
-    d.includes('on the way') ||
-    d.includes('a caminho') ||
-    d.includes('in transit') ||
-    d.includes('transit')
-  ) {
-    return 'A caminho'
+    return 'Envio recolhido'
   }
 
   if (
@@ -523,7 +453,25 @@ function traduzirDescricao(descricao: string) {
     d.includes('processed') ||
     d.includes('processado')
   ) {
-    return original.match(/processado/i) ? original : 'Processado na unidade da transportadora'
+    return original.match(/processado/i) ? original : 'Processado na unidade DHL'
+  }
+
+  if (
+    d.includes('arrived at') ||
+    d.includes('arrived') ||
+    d.includes('chegou nas instalacoes') ||
+    d.includes('chegou a unidade')
+  ) {
+    return original.match(/chegou/i) ? original : 'Chegou nas instalações da DHL'
+  }
+
+  if (
+    d.includes('departed from') ||
+    d.includes('departed') ||
+    d.includes('partiu de uma instalacao') ||
+    d.includes('partiu')
+  ) {
+    return original.match(/partiu/i) ? original : 'A remessa partiu de uma instalação da DHL'
   }
 
   if (
@@ -534,26 +482,47 @@ function traduzirDescricao(descricao: string) {
     return 'Remessa programada para partir no próximo movimento disponível'
   }
 
+  if (
+    d.includes('shipment information received') ||
+    d.includes('shipping information received') ||
+    d.includes('label created') ||
+    d.includes('label generated') ||
+    d.includes('pre-shipment')
+  ) {
+    return 'Etiqueta criada. Aguardando coleta pela transportadora'
+  }
+
   return original
 }
 
-function normalizarStatusPorTransportadora(transportadora: string, status: string) {
-  const carrier = String(transportadora || '').toUpperCase()
-
-  if (carrier.includes('DHL')) return normalizarStatusDHL(status)
-  if (carrier.includes('FEDEX') || carrier.includes('FED EX')) return normalizarStatusFedEx(status)
-
-  return normalizarStatusGenerico(status)
-}
-
-function normalizarStatusDHL(status: string) {
+function normalizarStatus(status: string) {
   const s = removerAcentos(status)
 
-  // Ordem importante: eventos específicos antes dos genéricos.
-  // Nunca usar apenas "entregue" ou "delivered", porque a DHL usa delivered/broker em evento aduaneiro.
+  if (
+    s.includes('despachante aduaneiro') ||
+    s.includes('despachante') ||
+    s.includes('customs broker') ||
+    s.includes('cleared and delivered by broker') ||
+    s.includes('broker') ||
+    s.includes('aduaneiro')
+  ) {
+    return 'Liberado'
+  }
+
+  if (
+    s.includes('out for delivery') ||
+    s.includes('with delivery courier') ||
+    s.includes('with courier') ||
+    s.includes('saiu com o mensageiro para entrega') ||
+    s.includes('mensageiro para entrega') ||
+    s.includes('saiu para entrega')
+  ) {
+    return 'Saiu para entrega'
+  }
 
   if (
     s === 'envio entregue' ||
+    s === 'delivered' ||
     s.includes('shipment delivered') ||
     s.includes('proof of delivery') ||
     s.includes('delivered to consignee') ||
@@ -569,44 +538,30 @@ function normalizarStatusDHL(status: string) {
   }
 
   if (
-    s.includes('out for delivery') ||
-    s.includes('with delivery courier') ||
-    s.includes('with courier') ||
-    s.includes('courier for delivery') ||
-    s.includes('saiu com o mensageiro para entrega') ||
-    s.includes('mensageiro para entrega') ||
-    s.includes('saiu para entrega')
+    s.includes('shipment information received') ||
+    s.includes('shipping information received') ||
+    s.includes('label created') ||
+    s.includes('label generated') ||
+    s.includes('etiqueta') ||
+    s.includes('gerou a etiqueta') ||
+    s.includes('remessa ainda nao foi entregue') ||
+    s.includes('nao foi entregue fisicamente') ||
+    s.includes('not yet handed over') ||
+    s.includes('not yet been handed over') ||
+    s.includes('not yet received') ||
+    s.includes('has not been handed over') ||
+    s.includes('aguardando coleta') ||
+    s.includes('pre-shipment')
   ) {
-    return 'Saiu para entrega'
-  }
-
-  if (
-    s.includes('shipment will be cleared and delivered by broker') ||
-    s.includes('cleared and delivered by broker') ||
-    s.includes('customs broker') ||
-    s.includes('despachante aduaneiro') ||
-    s.includes('despachante') ||
-    s.includes('broker') ||
-    s.includes('aduaneiro')
-  ) {
-    return 'Liberado'
+    return 'Etiqueta gerada'
   }
 
   if (
     s.includes('clearance event') ||
     s.includes('customs status updated') ||
-    s.includes('customs clearance') ||
-    s.includes('customs') ||
-    s.includes('clearance processing') ||
-    s.includes('clearance process') ||
-    s.includes('clearance in progress') ||
-    s.includes('clearance') ||
-    s.includes('processo de liberacao alfandegaria') ||
-    s.includes('liberacao alfandegaria') ||
-    s.includes('em processo de liberacao') ||
-    s.includes('envio em proceso de liberacao') ||
-    s.includes('envio em processo de liberacao') ||
     s.includes('liberacao') ||
+    s.includes('clearance') ||
+    s.includes('customs') ||
     s.includes('fiscal') ||
     s.includes('desembaraco')
   ) {
@@ -623,34 +578,16 @@ function normalizarStatusDHL(status: string) {
   }
 
   if (
-    s.includes('shipment picked up') ||
     s.includes('picked up') ||
     s.includes('pickup') ||
     s.includes('collected') ||
     s.includes('coletado') ||
     s.includes('coleta realizada') ||
+    s.includes('shipment picked up') ||
     s.includes('colet') ||
-    s.includes('envio recolhido') ||
-    s.includes('remessa coletada')
+    s.includes('envio recolhido')
   ) {
     return 'Coletado'
-  }
-
-  if (
-    s.includes('shipment information received') ||
-    s.includes('shipping information received') ||
-    s.includes('label created') ||
-    s.includes('label generated') ||
-    s.includes('etiqueta') ||
-    s.includes('gerou a etiqueta') ||
-    s.includes('not yet handed over') ||
-    s.includes('not yet been handed over') ||
-    s.includes('not yet received') ||
-    s.includes('has not been handed over') ||
-    s.includes('aguardando coleta') ||
-    s.includes('pre-shipment')
-  ) {
-    return 'Etiqueta gerada'
   }
 
   if (
@@ -674,97 +611,6 @@ function normalizarStatusDHL(status: string) {
 
   return 'Etiqueta gerada'
 }
-
-function normalizarStatusFedEx(status: string) {
-  const s = removerAcentos(status)
-
-  // FedEx separado da DHL para não quebrar exportação/importação já entregue.
-  if (
-    s === 'delivered' ||
-    s === 'entregue' ||
-    s.includes('delivered') ||
-    s.includes('entregue') ||
-    s.includes('proof of delivery') ||
-    s.includes('obtain proof of delivery') ||
-    s.includes('signed for')
-  ) {
-    return 'Entregue'
-  }
-
-  if (
-    s.includes('on fedex vehicle for delivery') ||
-    s.includes('on vehicle for delivery') ||
-    s.includes('out for delivery') ||
-    s.includes('em veiculo fedex para entrega') ||
-    s.includes('em veículo fedex para entrega') ||
-    s.includes('saiu para entrega')
-  ) {
-    return 'Saiu para entrega'
-  }
-
-  if (
-    s.includes('clearance') ||
-    s.includes('customs') ||
-    s.includes('international shipment release') ||
-    s.includes('liberacao internacional de remessas') ||
-    s.includes('liberação internacional de remessas')
-  ) {
-    return 'Fiscalização'
-  }
-
-  if (
-    s.includes('picked up') ||
-    s.includes('pickup') ||
-    s.includes('pego') ||
-    s.includes('coletado') ||
-    s.includes('collected')
-  ) {
-    return 'Coletado'
-  }
-
-  if (
-    s.includes('shipment information sent to fedex') ||
-    s.includes('informacoes de remessa enviadas para a fedex') ||
-    s.includes('informações de remessa enviadas para a fedex') ||
-    s.includes('shipment information received') ||
-    s.includes('label created') ||
-    s.includes('label generated')
-  ) {
-    return 'Etiqueta gerada'
-  }
-
-  if (
-    s.includes('on the way') ||
-    s.includes('a caminho') ||
-    s.includes('in transit') ||
-    s.includes('left fedex') ||
-    s.includes('departed fedex') ||
-    s.includes('arrived at fedex') ||
-    s.includes('at destination sort facility') ||
-    s.includes('destination sort facility') ||
-    s.includes('fedex hub') ||
-    s.includes('hub') ||
-    s.includes('facility') ||
-    s.includes('instalacao') ||
-    s.includes('instalação')
-  ) {
-    return 'Em trânsito'
-  }
-
-  return 'Etiqueta gerada'
-}
-
-function normalizarStatusGenerico(status: string) {
-  const s = removerAcentos(status)
-
-  if (s.includes('delivered') || s.includes('entregue')) return 'Entregue'
-  if (s.includes('out for delivery') || s.includes('saiu para entrega')) return 'Saiu para entrega'
-  if (s.includes('clearance') || s.includes('customs') || s.includes('liberacao')) return 'Fiscalização'
-  if (s.includes('picked') || s.includes('pickup') || s.includes('colet')) return 'Coletado'
-  if (s.includes('transit') || s.includes('transito') || s.includes('processed') || s.includes('processado')) return 'Em trânsito'
-
-  return 'Etiqueta gerada'
-}
 async function salvarRastreio({
   embarque,
   awb,
@@ -774,7 +620,7 @@ async function salvarRastreio({
   local,
   dataEvento,
 }: any) {
-  const statusNormalizado = normalizarStatusPorTransportadora(transportadora, status)
+  const statusNormalizado = normalizarStatus(status)
 
   const dadosAtualizar: any = {
     status_operacional: statusNormalizado,
