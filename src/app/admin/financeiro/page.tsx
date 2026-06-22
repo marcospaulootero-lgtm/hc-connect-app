@@ -1884,6 +1884,7 @@ export default function FinanceiroPage() {
     const faltaReservaHC = Math.max(caixaMinimoRecomendado - Math.max(saldoGerencial, 0), 0)
     const necessidadeMinimaAntesRetirada = faltaReservaHC + emprestimosMensaisHC
     const faltaReporCaixa = usoCaixaProtegido + necessidadeMinimaAntesRetirada
+    const caixaNegativoRealRegularizar = faltaReporCaixa + terceirosProtegidos
     const caixaAcimaDoMinimo = Math.max(saldoGerencial - caixaMinimoRecomendado - emprestimosMensaisHC, 0)
     const saldoPositivoSocios = Math.max(saldoMarcos, 0) + Math.max(saldoHerica, 0)
 
@@ -1982,6 +1983,7 @@ export default function FinanceiroPage() {
       valorRecebidoSemCompra,
       maiorErroFinanceiro,
       faltaReporCaixa,
+      caixaNegativoRealRegularizar,
       caixaAcimaDoMinimo,
       saldoPositivoSocios,
       podeRetirarAgora,
@@ -2813,10 +2815,10 @@ export default function FinanceiroPage() {
               />
 
               <DonoResumoCard
-                titulo="Preciso repor antes de retirar"
-                valor={moeda(resumoDono.faltaReporCaixa)}
-                detalhe="Caixa mínimo + empréstimos do mês + estouros que precisam ser corrigidos."
-                classe={resumoDono.faltaReporCaixa > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}
+                titulo="Caixa negativo real para regularizar"
+                valor={moeda(resumoDono.caixaNegativoRealRegularizar)}
+                detalhe={`Inclui ${moeda(resumoDono.faltaReporCaixa)} para recompor + ${moeda(resumoDono.terceirosProtegidos)} de terceiros.`}
+                classe={resumoDono.caixaNegativoRealRegularizar > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}
                 destaque
               />
 
@@ -2859,7 +2861,7 @@ export default function FinanceiroPage() {
                 <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${resumoDono.percentualCaixa}%` }} />
               </div>
               <p className="mt-2 text-xs font-bold text-slate-400">
-                Caixa mínimo: {moeda(resumoDono.caixaMinimoRecomendado)} | Empréstimos do mês: {moeda(resumoDono.emprestimosMensaisHC)} | Necessidade mínima: {moeda(resumoDono.baseMinimaComEmprestimos)}
+                Caixa mínimo: {moeda(resumoDono.caixaMinimoRecomendado)} | Empréstimos do mês: {moeda(resumoDono.emprestimosMensaisHC)} | Regularização real: {moeda(resumoDono.caixaNegativoRealRegularizar)}
               </p>
             </div>
           </section>
@@ -2880,7 +2882,7 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
             <ErroCard
               titulo="Retiradas acima do permitido"
               valor={moeda(resumoDono.excessoRetiradasSocios)}
@@ -2893,6 +2895,13 @@ export default function FinanceiroPage() {
               valor={moeda(resumoDono.faltaReservaHC)}
               detalhe={`Mínimo obrigatório: ${moeda(resumoDono.caixaMinimoRecomendado)}`}
               ruim={resumoDono.faltaReservaHC > 0}
+            />
+
+            <ErroCard
+              titulo="Caixa negativo real"
+              valor={moeda(resumoDono.caixaNegativoRealRegularizar)}
+              detalhe="Terceiros + caixa mínimo + empréstimos para regularizar."
+              ruim={resumoDono.caixaNegativoRealRegularizar > 0}
             />
 
             <ErroCard
@@ -2923,7 +2932,7 @@ export default function FinanceiroPage() {
               <DecisionRow label="2. Proteger terceiros" valor={moeda(resumoDono.terceirosProtegidos)} destaque />
               <DecisionRow label="3. Cobrir empréstimos do mês" valor={moeda(resumoDono.emprestimosMensaisHC)} perigo={resumoDono.emprestimosMensaisHC > 0} />
               <DecisionRow label="4. Repor caixa mínimo" valor={moeda(resumoDono.faltaReservaHC)} perigo={resumoDono.faltaReservaHC > 0} sucesso={resumoDono.faltaReservaHC <= 0} />
-              <DecisionRow label="5. Nova retirada só depois de" valor={moeda(resumoDono.faltaReporCaixa)} perigo={resumoDono.faltaReporCaixa > 0} sucesso={resumoDono.faltaReporCaixa <= 0} />
+              <DecisionRow label="5. Nova retirada só depois de" valor={moeda(resumoDono.caixaNegativoRealRegularizar)} perigo={resumoDono.caixaNegativoRealRegularizar > 0} sucesso={resumoDono.caixaNegativoRealRegularizar <= 0} />
             </div>
 
             <div className="mt-5 rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
