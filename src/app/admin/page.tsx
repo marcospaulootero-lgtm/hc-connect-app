@@ -613,11 +613,11 @@ useEffect(() => {
         </section>
 
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-          <div className="card xl:col-span-2 overflow-hidden bg-gradient-to-br from-[#071225] via-[#061126] to-[#020817] shadow-[0_0_40px_rgba(37,99,235,0.12)]">
-            <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5 mb-7">
-              <div className="flex items-start gap-4">
+          <div className="card overflow-hidden bg-gradient-to-br from-[#071225] via-[#061126] to-[#020817] shadow-[0_0_28px_rgba(37,99,235,0.10)]">
+            <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 mb-4">
+              <div className="flex items-start gap-3">
                 <div className="mt-1 text-blue-500">
-                  <svg width="34" height="34" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+                  <svg width="24" height="24" viewBox="0 0 32 32" fill="none" aria-hidden="true">
                     <rect x="4" y="17" width="4" height="10" rx="1" fill="currentColor" />
                     <rect x="11" y="10" width="4" height="17" rx="1" fill="currentColor" />
                     <rect x="18" y="5" width="4" height="22" rx="1" fill="currentColor" />
@@ -626,14 +626,14 @@ useEffect(() => {
                 </div>
 
                 <div>
-                  <h2 className="text-3xl font-black tracking-tight">Ritmo da operação</h2>
-                  <p className="text-slate-400 text-base mt-2">
+                  <h2 className="text-2xl font-black tracking-tight">Ritmo da operação</h2>
+                  <p className="text-slate-400 text-sm mt-1">
                     Volume por dia, concentração de clientes e pontos de ação.
                   </p>
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-2">
                 <PeriodoButton ativo={periodoGrafico === '7D'} onClick={() => setPeriodoGrafico('7D')}>7 dias</PeriodoButton>
                 <PeriodoButton ativo={periodoGrafico === '30D'} onClick={() => setPeriodoGrafico('30D')}>30 dias</PeriodoButton>
                 <PeriodoButton ativo={periodoGrafico === 'MES_ATUAL'} onClick={() => setPeriodoGrafico('MES_ATUAL')}>Mês atual</PeriodoButton>
@@ -641,20 +641,20 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-blue-950/70 bg-[#030b1d]/70 p-5 overflow-hidden">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-sm font-bold text-blue-200">Embarques</p>
+            <div className="rounded-2xl border border-blue-950/70 bg-[#030b1d]/70 p-3 overflow-hidden">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-bold text-blue-200">Embarques</p>
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">{ritmoOperacao.label}</p>
               </div>
 
-              <div className="relative h-[315px] overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-12 w-11 flex flex-col justify-between text-sm font-bold text-blue-200/70">
+              <div className="relative h-[210px] overflow-hidden">
+                <div className="absolute left-0 top-0 bottom-9 w-8 flex flex-col justify-between text-xs font-bold text-blue-200/70">
                   {ritmoOperacao.yTicks.map((tick) => (
                     <span key={tick}>{tick}</span>
                   ))}
                 </div>
 
-                <div className="absolute left-12 right-0 top-0 bottom-12 border-l border-b border-blue-900/80">
+                <div className="absolute left-9 right-0 top-0 bottom-9 border-l border-b border-blue-900/80">
                   {ritmoOperacao.yTicks.map((tick) => (
                     <div
                       key={tick}
@@ -664,11 +664,11 @@ useEffect(() => {
                   ))}
 
                   <div
-                    className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-3 px-5"
+                    className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-2 px-3"
                     style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
                   >
                     {ritmoOperacao.dias.map((item) => {
-                      const altura = `${Math.max((item.total / ritmoOperacao.yMax) * 245, item.total > 0 ? 8 : 3)}px`
+                      const altura = `${Math.max((item.total / ritmoOperacao.yMax) * 145, item.total > 0 ? 7 : 3)}px`
                       const ativo = diaSelecionado === item.key
 
                       return (
@@ -679,17 +679,17 @@ useEffect(() => {
                           className="group relative flex h-full min-w-0 flex-col items-center justify-end"
                           title={`${item.diaSemana} ${item.diaLabel}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
                         >
-                          <span className="mb-2 text-lg font-black text-white drop-shadow opacity-100">
+                          <span className="mb-1 text-sm font-black text-white drop-shadow opacity-100">
                             {item.total}
                           </span>
 
                           <span
                             className={
                               ativo
-                                ? 'w-full max-w-[82px] rounded-t-md bg-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.40)] ring-2 ring-emerald-300 transition'
+                                ? 'w-full max-w-[44px] rounded-t-md bg-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.40)] ring-2 ring-emerald-300 transition'
                                 : item.total > 0
-                                  ? 'w-full max-w-[82px] rounded-t-md bg-gradient-to-t from-blue-700 to-blue-400 shadow-[0_0_18px_rgba(37,99,235,0.30)] transition hover:from-blue-600 hover:to-blue-300'
-                                  : 'w-full max-w-[82px] rounded-t-md bg-blue-950/80 transition hover:bg-blue-900'
+                                  ? 'w-full max-w-[44px] rounded-t-md bg-gradient-to-t from-blue-700 to-blue-400 shadow-[0_0_18px_rgba(37,99,235,0.30)] transition hover:from-blue-600 hover:to-blue-300'
+                                  : 'w-full max-w-[44px] rounded-t-md bg-blue-950/80 transition hover:bg-blue-900'
                             }
                             style={{ height: altura }}
                           />
@@ -704,37 +704,37 @@ useEffect(() => {
                 </div>
 
                 <div
-                  className="absolute left-12 right-0 bottom-0 grid gap-3 px-5 text-center"
+                  className="absolute left-9 right-0 bottom-0 grid gap-2 px-3 text-center"
                   style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
                 >
                   {ritmoOperacao.dias.map((item) => (
                     <div key={item.key} className="min-w-0">
-                      <p className="text-sm font-black text-blue-100/80 truncate">{item.diaSemana}</p>
-                      <p className="text-sm font-bold text-blue-200/60 truncate">{item.diaLabel}</p>
+                      <p className="text-[10px] font-black text-blue-100/80 truncate">{item.diaSemana}</p>
+                      <p className="text-[10px] font-bold text-blue-200/60 truncate">{item.diaLabel}</p>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 border-y border-blue-950 py-5">
+            <div className="mt-4 grid grid-cols-2 gap-3 border-y border-blue-950 py-3">
               <MetricDashboard icone="🚚" valor={String(ritmoOperacao.totalPeriodo)} titulo="Total período" detalhe="Embarques" />
               <MetricDashboard icone="📈" valor={ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} titulo="Média diária" detalhe="Embarques/dia" />
               <MetricDashboard icone="🗓️" valor={String(ritmoOperacao.diasSemEmbarque)} titulo="Dias sem embarque" detalhe="No período" />
               <MetricDashboard icone="⚖️" valor={`${ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`} titulo="Peso período" detalhe="Total embarcado" />
             </div>
 
-            <div className="mt-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
               <InsightDashboard icone="🏅" titulo="Melhor dia" valor={ritmoOperacao.melhorDiaTexto} detalhe={`${ritmoOperacao.melhorDia?.total || 0} embarque(s)`} />
               <InsightDashboard icone="👤" titulo="Cliente mais ativo" valor={ritmoOperacao.clienteMaisAtivo?.nome || '-'} detalhe={ritmoOperacao.clienteMaisAtivo ? `${ritmoOperacao.clienteMaisAtivo.total} embarque(s)` : 'Sem cliente no período'} />
               <InsightDashboard icone="🎯" titulo="Concentração" valor={`${ritmoOperacao.concentracaoTopCliente.toFixed(0)}%`} detalhe={`${ritmoOperacao.clientesPeriodo} cliente(s) no período`} />
             </div>
 
-            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817]/80 p-5 flex items-start gap-4">
-              <div className="text-3xl text-blue-400">✦</div>
+            <div className="mt-4 rounded-2xl border border-blue-900 bg-[#020817]/80 p-3 flex items-start gap-3">
+              <div className="text-xl text-blue-400">✦</div>
               <div>
                 <p className="text-sm font-black uppercase tracking-wide text-blue-400">Análise automática</p>
-                <p className="mt-2 text-sm font-semibold text-slate-200 leading-relaxed">{ritmoOperacao.analise}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-200 leading-relaxed">{ritmoOperacao.analise}</p>
               </div>
             </div>
           </div>
@@ -1203,8 +1203,8 @@ function PeriodoButton({ ativo, onClick, children }: any) {
       onClick={onClick}
       className={
         ativo
-          ? 'rounded-2xl bg-blue-600 px-7 py-4 text-base font-black text-white shadow-[0_0_18px_rgba(37,99,235,0.35)]'
-          : 'rounded-2xl border border-blue-900 bg-[#071225] px-7 py-4 text-base font-black text-slate-200 hover:bg-blue-600/20'
+          ? 'rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-[0_0_14px_rgba(37,99,235,0.30)]'
+          : 'rounded-xl border border-blue-900 bg-[#071225] px-4 py-2 text-xs font-black text-slate-200 hover:bg-blue-600/20'
       }
     >
       {children}
@@ -1214,14 +1214,14 @@ function PeriodoButton({ ativo, onClick, children }: any) {
 
 function MetricDashboard({ icone, valor, titulo, detalhe }: any) {
   return (
-    <div className="flex items-center gap-4 min-w-0">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-blue-800 bg-[#020817] text-2xl text-blue-400">
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-800 bg-[#020817] text-lg text-blue-400">
         {icone}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-3xl font-black leading-tight text-white">{valor}</p>
-        <p className="mt-1 text-base font-bold text-slate-200">{titulo}</p>
-        <p className="text-sm font-semibold text-blue-200/50">{detalhe}</p>
+        <p className="truncate text-xl font-black leading-tight text-white">{valor}</p>
+        <p className="mt-0.5 text-xs font-bold text-slate-200">{titulo}</p>
+        <p className="text-[11px] font-semibold text-blue-200/50">{detalhe}</p>
       </div>
     </div>
   )
@@ -1229,14 +1229,14 @@ function MetricDashboard({ icone, valor, titulo, detalhe }: any) {
 
 function InsightDashboard({ icone, titulo, valor, detalhe }: any) {
   return (
-    <div className="rounded-2xl border border-blue-900 bg-[#020817]/70 p-4 flex items-center gap-4 min-w-0">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-blue-800 bg-[#071225] text-2xl">
+    <div className="rounded-xl border border-blue-900 bg-[#020817]/70 p-3 flex items-center gap-3 min-w-0">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-800 bg-[#071225] text-base">
         {icone}
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-black uppercase tracking-wide text-blue-400">{titulo}</p>
-        <p className="mt-1 truncate text-xl font-black text-white">{valor}</p>
-        <p className="text-sm font-semibold text-slate-400">{detalhe}</p>
+        <p className="text-[11px] font-black uppercase tracking-wide text-blue-400">{titulo}</p>
+        <p className="mt-0.5 truncate text-sm font-black text-white">{valor}</p>
+        <p className="text-[11px] font-semibold text-slate-400">{detalhe}</p>
       </div>
     </div>
   )
