@@ -46,11 +46,25 @@ type Fatura = {
 }
 
 type FinanceiroProcesso = {
-  id: string
-  awb: string | null
-  valor_cobranca?: number | null
+  id?: string
+  awb?: string | null
+  numero_awb?: string | null
+  valor_cobranca?: number | string | null
+  valor_faturado?: number | string | null
+  valor_venda?: number | string | null
+  valor?: number | string | null
   vencimento_cobranca?: string | null
+  vencimento_cliente?: string | null
+  vencimento?: string | null
+  data_vencimento?: string | null
   recebimento?: string | null
+  recebimento_cliente?: string | null
+  data_recebimento?: string | null
+  data_pagamento?: string | null
+  cliente?: string | null
+  cliente_final?: string | null
+  fatura?: string | null
+  numero_fatura?: string | null
 }
 
 type DocumentoEmbarque = {
@@ -135,13 +149,7 @@ export default function FaturasPage() {
 
     const { data: financeiroData, error: erroFinanceiro } = await supabase
       .from('financeiro_embarques')
-      .select(`
-        id,
-        awb,
-        valor_cobranca,
-        vencimento_cobranca,
-        recebimento
-      `)
+      .select('*')
 
     if (erroFinanceiro) console.log(erroFinanceiro)
 
@@ -178,6 +186,10 @@ export default function FaturasPage() {
       .toUpperCase()
   }
 
+  function awbFinanceiro(item: FinanceiroProcesso) {
+    return normalizarAwb(item.awb || item.numero_awb || '')
+  }
+
   function faturaDoEmbarque(embarqueId: string) {
     return faturas.find((f) => f.embarque_id === embarqueId) || null
   }
@@ -187,7 +199,42 @@ export default function FaturasPage() {
     if (!awbLimpo) return null
 
     return (
-      financeiros.find((item) => normalizarAwb(item.awb) === awbLimpo) ||
+      financeiros.find((item) => awbFinanceiro(item) === awbLimpo) ||
+      null
+    )
+  }
+
+  function valorFinanceiro(item?: FinanceiroProcesso | null) {
+    if (!item) return 0
+
+    return (
+      numero(item.valor_cobranca) ||
+      numero(item.valor_faturado) ||
+      numero(item.valor_venda) ||
+      numero(item.valor)
+    )
+  }
+
+  function vencimentoFinanceiro(item?: FinanceiroProcesso | null) {
+    if (!item) return null
+
+    return (
+      item.vencimento_cobranca ||
+      item.vencimento_cliente ||
+      item.vencimento ||
+      item.data_vencimento ||
+      null
+    )
+  }
+
+  function recebimentoFinanceiro(item?: FinanceiroProcesso | null) {
+    if (!item) return null
+
+    return (
+      item.recebimento ||
+      item.recebimento_cliente ||
+      item.data_recebimento ||
+      item.data_pagamento ||
       null
     )
   }
@@ -246,11 +293,14 @@ export default function FaturasPage() {
   }
 
   function moedaFechada(embarque: Embarque, financeiro: FinanceiroProcesso | null) {
+    const valorFin = valorFinanceiro(financeiro)
+
+    if (valorFin > 0) return moeda(valorFin)
+
     const valor =
-      numero(embarque.valor_venda) ||
       numero(embarque.valor_fechado) ||
       numero(embarque.valor_cobrado_cliente) ||
-      numero(financeiro?.valor_cobranca)
+      numero(embarque.valor_venda)
 
     if (!valor) return '-'
 
@@ -304,29 +354,33 @@ export default function FaturasPage() {
       }
     }
 
-    if (financeiro.recebimento) {
+    const recebimento = recebimentoFinanceiro(financeiro)
+    const vencimento = vencimentoFinanceiro(financeiro)
+    const valor = valorFinanceiro(financeiro)
+
+    if (recebimento) {
       return {
         status: 'PAGO',
-        label: `Pago em ${dataBR(financeiro.recebimento)}`,
-        detalhe: moeda(financeiro.valor_cobranca),
+        label: `Pago em ${dataBR(recebimento)}`,
+        detalhe: moeda(valor),
         classe: 'border-green-500 bg-green-600/20 text-green-300',
       }
     }
 
-    if (financeiro.vencimento_cobranca && financeiro.vencimento_cobranca < hojeISO()) {
+    if (vencimento && vencimento < hojeISO()) {
       return {
         status: 'ATRASADO',
-        label: `Vencido desde ${dataBR(financeiro.vencimento_cobranca)}`,
-        detalhe: moeda(financeiro.valor_cobranca),
+        label: `Vencido desde ${dataBR(vencimento)}`,
+        detalhe: moeda(valor),
         classe: 'border-red-500 bg-red-600/20 text-red-300',
       }
     }
 
-    if (financeiro.vencimento_cobranca) {
+    if (vencimento) {
       return {
         status: 'EM_ABERTO',
-        label: `Em aberto até ${dataBR(financeiro.vencimento_cobranca)}`,
-        detalhe: moeda(financeiro.valor_cobranca),
+        label: `Em aberto até ${dataBR(vencimento)}`,
+        detalhe: moeda(valor),
         classe: 'border-yellow-500 bg-yellow-500/20 text-yellow-300',
       }
     }
@@ -334,7 +388,7 @@ export default function FaturasPage() {
     return {
       status: 'EM_ABERTO',
       label: 'Em aberto',
-      detalhe: moeda(financeiro.valor_cobranca),
+      detalhe: moeda(valor),
       classe: 'border-yellow-500 bg-yellow-500/20 text-yellow-300',
     }
   }
@@ -838,7 +892,7 @@ export default function FaturasPage() {
                         </div>
                       </td>
                       <td>{fatura?.numero_fatura || '-'}</td>
-                      <td>{dataBR(financeiro?.vencimento_cobranca || null)}</td>
+                      <td>{dataBR(vencimentoFinanceiro(financeiro))}</td>
                       <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
                       <td>
                         {fatura?.arquivo_pdf ? (
@@ -943,8 +997,8 @@ export default function FaturasPage() {
                                 <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
                                 <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
                                 <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
-                                <InfoPacote label="Vencimento financeiro" valor={dataBR(financeiro?.vencimento_cobranca || null)} />
-                                <InfoPacote label="Recebimento" valor={dataBR(financeiro?.recebimento || null)} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(vencimentoFinanceiro(financeiro))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(recebimentoFinanceiro(financeiro))} />
                               </div>
                             </div>
 
