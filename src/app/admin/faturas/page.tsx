@@ -47,8 +47,11 @@ type Fatura = {
 
 type FinanceiroProcesso = {
   id?: string
-  awb?: string | null
-  numero_awb?: string | null
+  embarque_id?: string | null
+  awb?: string | number | null
+  numero_awb?: string | number | null
+  hawb?: string | number | null
+  h_awb?: string | number | null
   valor_cobranca?: number | string | null
   valor_faturado?: number | string | null
   valor_venda?: number | string | null
@@ -186,20 +189,42 @@ export default function FaturasPage() {
       .toUpperCase()
   }
 
-  function awbFinanceiro(item: FinanceiroProcesso) {
-    return normalizarAwb(item.awb || item.numero_awb || '')
+  function awbsFinanceiro(item: FinanceiroProcesso) {
+    return [
+      item.awb,
+      item.numero_awb,
+      item.hawb,
+      item.h_awb,
+    ]
+      .map((valor) => normalizarAwb(valor as any))
+      .filter(Boolean)
   }
 
   function faturaDoEmbarque(embarqueId: string) {
     return faturas.find((f) => f.embarque_id === embarqueId) || null
   }
 
-  function financeiroDoAwb(awb?: string | null) {
-    const awbLimpo = normalizarAwb(awb)
+  function financeiroDoEmbarque(embarque: Embarque) {
+    if (!embarque) return null
+
+    const porEmbarqueId =
+      financeiros.find((item) => String(item.embarque_id || '') === String(embarque.id || '')) ||
+      null
+
+    if (porEmbarqueId) return porEmbarqueId
+
+    const awbLimpo = normalizarAwb(embarque.awb)
     if (!awbLimpo) return null
 
     return (
-      financeiros.find((item) => awbFinanceiro(item) === awbLimpo) ||
+      financeiros.find((item) => {
+        const awbsDiretos = awbsFinanceiro(item)
+        if (awbsDiretos.includes(awbLimpo)) return true
+
+        // Fallback: se a tabela tiver outro nome de coluna para AWB,
+        // procura um valor exatamente igual ao AWB em qualquer campo simples da linha.
+        return Object.values(item || {}).some((valor) => normalizarAwb(valor as any) === awbLimpo)
+      }) ||
       null
     )
   }
@@ -218,9 +243,10 @@ export default function FaturasPage() {
   function vencimentoFinanceiro(item?: FinanceiroProcesso | null) {
     if (!item) return null
 
+    // Em Financeiro > Processos Faturados, o campo correto é "vencimento_cliente".
     return (
-      item.vencimento_cobranca ||
       item.vencimento_cliente ||
+      item.vencimento_cobranca ||
       item.vencimento ||
       item.data_vencimento ||
       null
@@ -230,6 +256,7 @@ export default function FaturasPage() {
   function recebimentoFinanceiro(item?: FinanceiroProcesso | null) {
     if (!item) return null
 
+    // Em Financeiro > Processos Faturados, o campo correto é "recebimento".
     return (
       item.recebimento ||
       item.recebimento_cliente ||
@@ -403,7 +430,7 @@ export default function FaturasPage() {
   const embarquesFiltrados = useMemo(() => {
     return embarques.filter((e) => {
       const fatura = faturaDoEmbarque(e.id)
-      const financeiro = financeiroDoAwb(e.awb)
+      const financeiro = financeiroDoEmbarque(e)
       const pagamento = statusPagamentoFinanceiro(financeiro)
 
       const texto = `
@@ -463,8 +490,8 @@ export default function FaturasPage() {
   const pagamentosFinanceiros = embarques.map((e) => ({
     embarque: e,
     fatura: faturaDoEmbarque(e.id),
-    financeiro: financeiroDoAwb(e.awb),
-    pagamento: statusPagamentoFinanceiro(financeiroDoAwb(e.awb)),
+    financeiro: financeiroDoEmbarque(e),
+    pagamento: statusPagamentoFinanceiro(financeiroDoEmbarque(e)),
   }))
 
   const totalPagos = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'PAGO').length
@@ -852,7 +879,7 @@ export default function FaturasPage() {
             <tbody>
               {embarquesFiltrados.map((embarque) => {
                 const fatura = faturaDoEmbarque(embarque.id)
-                const financeiro = financeiroDoAwb(embarque.awb)
+                const financeiro = financeiroDoEmbarque(embarque)
                 const pagamento = statusPagamentoFinanceiro(financeiro)
                 const documentos = documentosDoEmbarque(embarque.id)
                 const cotacoes = cotacoesDoEmbarque(embarque.id)
