@@ -319,8 +319,13 @@ export default function IntelligencePage() {
     const pagosComCusto = pagos.filter((item) => temCusto(item))
     const pagosSemCusto = pagos.filter((item) => !temCusto(item))
     const semValorCobranca = dadosPeriodo.fin.filter((item) => numero(item.valor_cobranca) <= 0)
-    const faturasVencidas = dadosPeriodo.fat.filter((item) => statusFatura(item) === 'VENCIDO')
-    const faturasPendentes = dadosPeriodo.fat.filter((item) => statusFatura(item) !== 'PAGO')
+
+    // Regra HC:
+    // A tabela faturas é apenas para anexar PDF/recibo e exibir documentos ao cliente.
+    // Vencido/pendente financeiro deve vir somente da aba Financeiro,
+    // ou seja, da tabela financeiro_embarques.
+    const cobrancasVencidasFinanceiro = atrasados
+    const cobrancasEmAbertoFinanceiro = emAberto
 
     const embarquesSemAwb = dadosPeriodo.emb.filter((item) => {
       const awb = normalizarBusca(item.awb || item.numero_awb)
@@ -356,7 +361,6 @@ export default function IntelligencePage() {
       atrasados.length +
       pagosSemCusto.length +
       semValorCobranca.length +
-      faturasVencidas.length +
       embarquesSemAwb.length +
       chamadosAbertos.length
 
@@ -374,8 +378,8 @@ export default function IntelligencePage() {
       custoConfirmado,
       margemConfirmada,
       semValorCobranca,
-      faturasVencidas,
-      faturasPendentes,
+      cobrancasVencidasFinanceiro,
+      cobrancasEmAbertoFinanceiro,
       embarquesSemAwb,
       cotacoesSemFechamento,
       chamadosAbertos,
@@ -416,17 +420,6 @@ export default function IntelligencePage() {
         valor: 0,
         acao: 'Preencher valor',
         link: '/admin/financeiro',
-      })
-    })
-
-    inteligencia.faturasVencidas.forEach((item) => {
-      lista.push({
-        prioridade: 'Alta',
-        tipo: 'Fatura vencida',
-        descricao: `${texto(item.numero_fatura || item.fatura || 'Fatura sem número')} • vencimento ${normalizarData(item.vencimento) || '-'}`,
-        valor: numero(item.valor_total || item.valor || item.valor_venda),
-        acao: 'Abrir faturas',
-        link: '/admin/faturas',
       })
     })
 
@@ -902,8 +895,8 @@ export default function IntelligencePage() {
 
           <Card>
             <h2 className="text-2xl font-black mb-5">Alertas rápidos</h2>
-            <Resumo label="Faturas vencidas" valor={inteligencia.faturasVencidas.length} cor={inteligencia.faturasVencidas.length > 0 ? 'red' : 'green'} />
-            <Resumo label="Faturas pendentes" valor={inteligencia.faturasPendentes.length} cor={inteligencia.faturasPendentes.length > 0 ? 'orange' : 'green'} />
+            <Resumo label="Cobranças vencidas" valor={inteligencia.cobrancasVencidasFinanceiro.length} cor={inteligencia.cobrancasVencidasFinanceiro.length > 0 ? 'red' : 'green'} />
+            <Resumo label="Cobranças em aberto" valor={inteligencia.cobrancasEmAbertoFinanceiro.length} cor={inteligencia.cobrancasEmAbertoFinanceiro.length > 0 ? 'orange' : 'green'} />
             <Resumo label="Embarques sem AWB" valor={inteligencia.embarquesSemAwb.length} cor={inteligencia.embarquesSemAwb.length > 0 ? 'yellow' : 'green'} />
             <Resumo label="Cotações sem fechamento" valor={inteligencia.cotacoesSemFechamento.length} cor={inteligencia.cotacoesSemFechamento.length > 0 ? 'purple' : 'green'} />
             <Resumo label="Processos sem cobrança" valor={inteligencia.semValorCobranca.length} cor={inteligencia.semValorCobranca.length > 0 ? 'yellow' : 'green'} />
