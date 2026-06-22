@@ -80,6 +80,7 @@ export default function FaturasTransportadorasPage() {
   const [filtroSituacao, setFiltroSituacao] = useState('TODAS')
   const [filtroArquivadas, setFiltroArquivadas] = useState('ATIVAS')
   const [ultimaAlteracao, setUltimaAlteracao] = useState('')
+  const [selecionadas, setSelecionadas] = useState<string[]>([])
 
   useEffect(() => {
     const salvo = localStorage.getItem('hc_faturas_transportadoras_filtros')
@@ -276,6 +277,21 @@ export default function FaturasTransportadorasPage() {
     return null
   }
 
+
+  function extrairDataPagamentoTexto(valor: any) {
+    const texto = String(valor || '').trim()
+    if (!texto) return null
+
+    const match = texto.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+    if (!match) return null
+
+    const dia = match[1].padStart(2, '0')
+    const mes = match[2].padStart(2, '0')
+    const ano = match[3].length === 2 ? `20${match[3]}` : match[3]
+
+    return `${ano}-${mes}-${dia}`
+  }
+
   function normalizarTransportadora(valor: any) {
     const texto = normalizarBusca(valor)
 
@@ -386,24 +402,33 @@ export default function FaturasTransportadorasPage() {
             ])
           )
 
-          const dataPagamento = normalizarDataExcel(
-            pegarCampoExcel(linha, [
-              'DATA DE PAGAMENTO',
-              'DATA PAGAMENTO',
-              'DATA_PAGAMENTO',
-              'PAGAMENTO',
-              'PAGO EM',
-            ])
-          )
+          const diasRestantes = String(
+            pegarCampoExcel(linha, ['DIAS RESTANTES', 'DIAS_RESTANTES']) || ''
+          ).trim()
+
+          const dataPagamento =
+            normalizarDataExcel(
+              pegarCampoExcel(linha, [
+                'DATA DE PAGAMENTO',
+                'DATA PAGAMENTO',
+                'DATA_PAGAMENTO',
+                'PAGAMENTO',
+                'PAGO EM',
+                'PAGA EM',
+              ])
+            ) || extrairDataPagamentoTexto(diasRestantes)
 
           const utilizadoPara = String(
             pegarCampoExcel(linha, [
               'UTILIZADO PARA',
               'UTILIZADO_PARA',
               'BANCO UTILIZADO PARA PAGAMENTO',
+              'BANCO UTILIZADO PARA PAGTO',
               'BANCO UTILIZADO',
+              'BANCO PAGAMENTO',
               'BANCO',
               'PAGO POR',
+              'PAGAMENTO REALIZADO POR',
             ]) || ''
           ).trim()
 
@@ -454,10 +479,6 @@ export default function FaturasTransportadorasPage() {
               'DIFERENÇA_FA',
             ])
           )
-
-          const diasRestantes = String(
-            pegarCampoExcel(linha, ['DIAS RESTANTES', 'DIAS_RESTANTES']) || ''
-          ).trim()
 
           const statusRecebimento = String(
             pegarCampoExcel(linha, [
@@ -763,6 +784,49 @@ export default function FaturasTransportadorasPage() {
     carregar()
   }
 
+
+
+  function alternarSelecao(id: string, marcado: boolean) {
+    setSelecionadas((atual) =>
+      marcado ? Array.from(new Set([...atual, id])) : atual.filter((item) => item !== id)
+    )
+  }
+
+  function selecionarTodasFiltradas(marcado: boolean) {
+    if (!marcado) {
+      setSelecionadas([])
+      return
+    }
+
+    setSelecionadas(filtradas.map((item) => item.id))
+  }
+
+  async function arquivarSelecionadas(arquivar: boolean) {
+    if (selecionadas.length === 0) {
+      alert('Selecione pelo menos uma fatura.')
+      return
+    }
+
+    const acao = arquivar ? 'arquivar' : 'restaurar'
+    const confirmar = confirm(`Deseja ${acao} ${selecionadas.length} fatura(s)?`)
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('faturas_transportadoras')
+      .update({
+        arquivada: arquivar,
+        atualizado_em: new Date().toISOString(),
+      })
+      .in('id', selecionadas)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    setSelecionadas([])
+    await carregar()
+  }
   async function excluir(item: FaturaTransportadora) {
     const confirmar = confirm(`Excluir definitivamente a fatura ${item.numero_fatura}?`)
     if (!confirmar) return
@@ -853,6 +917,18 @@ export default function FaturasTransportadorasPage() {
       return passaBusca && passaTransportadora && passaSituacao && passaArquivadas
     })
   }, [faturas, busca, filtroTransportadora, filtroSituacao, filtroArquivadas])
+
+
+  const todasFiltradasSelecionadas =
+    filtradas.length > 0 && filtradas.every((item) => selecionadas.includes(item.id))
+
+  const selecionadasAtivas = faturas.filter(
+    (item) => selecionadas.includes(item.id) && !item.arquivada
+  ).length
+
+  const selecionadasArquivadas = faturas.filter(
+    (item) => selecionadas.includes(item.id) && !!item.arquivada
+  ).length
 
   const totais = useMemo(() => {
     const ativas = faturas.filter((item) => !item.arquivada)
@@ -1142,6 +1218,46 @@ export default function FaturasTransportadorasPage() {
           </div>
         </div>
 
+        {selecionadas.length > 0 && (
+          <div className="mb-5 border border-blue-900 bg-[#020817] rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <p className="font-black text-blue-300">
+                {selecionadas.length} fatura(s) selecionada(s)
+              </p>
+              <p className="text-slate-500 text-sm">
+                {selecionadasAtivas} ativa(s) • {selecionadasArquivadas} arquivada(s)
+              </p>
+            </div>
+
+            <div className="flex gap-3 flex-wrap">
+              {selecionadasAtivas > 0 && (
+                <button
+                  onClick={() => arquivarSelecionadas(true)}
+                  className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
+                >
+                  Arquivar selecionadas
+                </button>
+              )}
+
+              {selecionadasArquivadas > 0 && (
+                <button
+                  onClick={() => arquivarSelecionadas(false)}
+                  className="bg-green-700 hover:bg-green-600 px-5 py-3 rounded-xl font-bold"
+                >
+                  Restaurar selecionadas
+                </button>
+              )}
+
+              <button
+                onClick={() => setSelecionadas([])}
+                className="bg-red-700 hover:bg-red-600 px-5 py-3 rounded-xl font-bold"
+              >
+                Limpar seleção
+              </button>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-slate-400">
             Carregando faturas...
@@ -1152,9 +1268,16 @@ export default function FaturasTransportadorasPage() {
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[1720px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <table className="w-full min-w-[1820px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
               <thead>
                 <tr>
+                  <th className="w-[48px]">
+                    <input
+                      type="checkbox"
+                      checked={todasFiltradasSelecionadas}
+                      onChange={(e) => selecionarTodasFiltradas(e.target.checked)}
+                    />
+                  </th>
                   <th>Transportadora</th>
                   <th>Conta</th>
                   <th>Fatura</th>
@@ -1178,6 +1301,14 @@ export default function FaturasTransportadorasPage() {
 
                   return (
                     <tr key={item.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selecionadas.includes(item.id)}
+                          onChange={(e) => alternarSelecao(item.id, e.target.checked)}
+                        />
+                      </td>
+
                       <td className="font-black">
                         <span className={item.transportadora === 'DHL' ? 'text-yellow-300' : 'text-purple-300'}>
                           {item.transportadora}
