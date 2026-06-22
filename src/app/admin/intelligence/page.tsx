@@ -389,15 +389,19 @@ export default function IntelligencePage() {
   }
 
   function dataProcessoCarteira(item: any) {
-    // Recência comercial precisa olhar a data do PROCESSO, não a data em que o Excel foi importado.
-    // Por isso mês do processo entra antes de created_at/criado_em.
-    // Pagamento/vencimento também não são usados para recência comercial, porque cliente pode pagar hoje
-    // um processo antigo e isso não significa que ele voltou a embarcar.
+    // Recência comercial precisa olhar a data real do PROCESSO.
+    // Para os processos antigos importados, a data mais confiável costuma ser o vencimento do cliente.
+    // created_at/criado_em são só a data em que o dado entrou no sistema e ficam por último.
     return (
       normalizarData(item.data_embarque) ||
       normalizarData(item.data_envio) ||
       normalizarData(item.data_processo) ||
       normalizarData(item.data_faturamento) ||
+      normalizarData(item.vencimento_cobranca) ||
+      normalizarData(item.vencimento_cliente) ||
+      normalizarData(item.venc_cliente) ||
+      normalizarData(item.recebimento) ||
+      normalizarData(item.data_pagamento) ||
       ultimoDiaDoMes(item.mes_profit) ||
       ultimoDiaDoMes(item.mes) ||
       normalizarData(item.competencia) ||
