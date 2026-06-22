@@ -160,8 +160,20 @@ export default function IntelligencePage() {
 
     const bruto = String(valor).trim()
     if (!bruto || bruto === '0') return ''
+
+    // yyyy-mm-dd ou ISO completo
     if (/^\d{4}-\d{2}-\d{2}/.test(bruto)) return bruto.slice(0, 10)
 
+    // yyyy-mm vindo de campos como mes ou mes_profit
+    if (/^\d{4}-\d{2}$/.test(bruto)) return `${bruto}-01`
+
+    // mm/yyyy ou m/yyyy
+    if (/^\d{1,2}\/\d{4}$/.test(bruto)) {
+      const [mes, ano] = bruto.split('/')
+      return `${ano}-${mes.padStart(2, '0')}-01`
+    }
+
+    // dd/mm/yyyy
     const partes = bruto.split('/')
     if (partes.length === 3) {
       const [dia, mes, ano] = partes
@@ -287,9 +299,20 @@ export default function IntelligencePage() {
   }
 
   function statusCobranca(item: any) {
-    if (normalizarData(item.recebimento) || normalizarData(item.data_pagamento)) return 'PAGO'
+    const statusTexto = normalizarBusca(item.status_pagamento || item.status || item.pgta_terceiros)
 
-    const vencimento = normalizarData(item.vencimento_cobranca || item.vencimento)
+    if (
+      normalizarData(item.recebimento) ||
+      normalizarData(item.recebimento_cliente) ||
+      normalizarData(item.data_pagamento) ||
+      statusTexto.includes('PAGO')
+    ) {
+      return 'PAGO'
+    }
+
+    if (statusTexto.includes('VENCIDO') || statusTexto.includes('ATRASADO')) return 'ATRASADO'
+
+    const vencimento = normalizarData(item.vencimento_cobranca || item.vencimento || item.data_vencimento)
     const hoje = new Date().toISOString().slice(0, 10)
 
     if (vencimento && vencimento < hoje) return 'ATRASADO'
@@ -306,29 +329,68 @@ export default function IntelligencePage() {
     return 'PENDENTE'
   }
 
+  function valorCobrancaProcesso(item: any) {
+    return numero(item.valor_cobranca || item.valor_faturado || item.valor_venda || item.valor)
+  }
+
   function temCusto(item: any) {
-    return numero(item.valor_compra) > 0
+    return numero(item.valor_compra || item.custo_compra || item.custo) > 0
   }
 
   function custosProcesso(item: any) {
-    return numero(item.valor_compra) + numero(item.doc_dta) + numero(item.debito_terceiro)
+    return (
+      numero(item.valor_compra || item.custo_compra || item.custo) +
+      numero(item.doc_dta || item.dta_doc || item.impostos || item.taxas) +
+      numero(item.debito_terceiro || item.terceiros || item.profit_terceiros || item.valor_terceiros)
+    )
   }
 
   function profitProcesso(item: any) {
+    const profitSalvo = numero(item.profit_hc || item.profit)
+    if (temCusto(item) && profitSalvo !== 0) return profitSalvo
     if (!temCusto(item)) return 0
-    return numero(item.valor_cobranca) - custosProcesso(item)
+    return valorCobrancaProcesso(item) - custosProcesso(item)
   }
 
   function clienteProcesso(item: any) {
-    return texto(item.cliente || item.cliente_final || item.importador || item.exportador || 'Não informado')
+    return texto(
+      item.cliente ||
+      item.nome_cliente ||
+      item.razao_social ||
+      item.cliente_final ||
+      item.importador ||
+      item.exportador ||
+      'Não informado'
+    )
   }
 
   function transportadoraProcesso(item: any) {
-    return texto(item.transportadora || item.empresa_prestadora || 'Não informado')
+    return texto(item.transportadora || item.empresa_prestadora || item.carrier || 'Não informado')
   }
 
   function servicoProcesso(item: any) {
-    return texto(item.servico || item.tipo_servico || 'Não informado')
+    return texto(item.servico || item.tipo_servico || item.serviço || item.categoria || 'Não informado')
+  }
+
+  function dataProcessoCarteira(item: any) {
+    // Recência comercial precisa olhar o histórico do processo, não o filtro de mês.
+    // Usa datas reais primeiro; campos de mês entram como fallback.
+    return (
+      normalizarData(item.data_embarque) ||
+      normalizarData(item.data_envio) ||
+      normalizarData(item.data_processo) ||
+      normalizarData(item.data_faturamento) ||
+      normalizarData(item.criado_em) ||
+      normalizarData(item.created_at) ||
+      normalizarData(item.updated_at) ||
+      normalizarData(item.atualizado_em) ||
+      normalizarData(item.recebimento) ||
+      normalizarData(item.recebimento_cliente) ||
+      normalizarData(item.vencimento_cobranca) ||
+      normalizarData(item.mes_profit) ||
+      normalizarData(item.mes) ||
+      ''
+    )
   }
 
   function awbProcesso(item: any) {
@@ -368,7 +430,7 @@ export default function IntelligencePage() {
 
     const pagosComCusto = pagos.filter((item) => temCusto(item))
     const pagosSemCusto = pagos.filter((item) => !temCusto(item))
-    const semValorCobranca = dadosPeriodo.fin.filter((item) => numero(item.valor_cobranca) <= 0)
+    const semValorCobranca = dadosPeriodo.fin.filter((item) => valorCobrancaProcesso(item) <= 0)
 
     // Regra HC:
     // A tabela faturas é apenas para anexar PDF/recibo e exibir documentos ao cliente.
@@ -393,15 +455,15 @@ export default function IntelligencePage() {
       return !status.includes('FECHADO') && !status.includes('RESOLVIDO')
     })
 
-    const totalVencido = atrasados.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+    const totalVencido = atrasados.reduce((acc, item) => acc + valorCobrancaProcesso(item), 0)
     const receber7Dias = emAberto
       .filter((item) => {
         const vencimento = normalizarData(item.vencimento_cobranca)
         return vencimento && vencimento >= hoje && vencimento <= em7Dias
       })
-      .reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+      .reduce((acc, item) => acc + valorCobrancaProcesso(item), 0)
 
-    const receitaConfirmada = pagos.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
+    const receitaConfirmada = pagos.reduce((acc, item) => acc + valorCobrancaProcesso(item), 0)
     const profitConfirmado = pagosComCusto.reduce((acc, item) => acc + profitProcesso(item), 0)
     const terceirosParaConferir = pagos.reduce((acc, item) => acc + numero(item.debito_terceiro), 0)
     const custoConfirmado = pagosComCusto.reduce((acc, item) => acc + custosProcesso(item), 0)
@@ -445,7 +507,7 @@ export default function IntelligencePage() {
         prioridade: 'Alta',
         tipo: 'Cobrança vencida',
         descricao: `${clienteProcesso(item)}${awbProcesso(item) !== '-' ? ` • AWB ${awbProcesso(item)}` : ''} • ${diasAtraso(item.vencimento_cobranca)} dia(s) em atraso`,
-        valor: numero(item.valor_cobranca),
+        valor: valorCobrancaProcesso(item),
         acao: 'Abrir financeiro',
         link: '/admin/financeiro',
       })
@@ -456,7 +518,7 @@ export default function IntelligencePage() {
         prioridade: 'Alta',
         tipo: 'Pago sem custo',
         descricao: `${clienteProcesso(item)}${awbProcesso(item) !== '-' ? ` • AWB ${awbProcesso(item)}` : ''}. Profit HC não pode ser confiável.`,
-        valor: numero(item.valor_cobranca),
+        valor: valorCobrancaProcesso(item),
         acao: 'Corrigir custo',
         link: '/admin/financeiro',
       })
@@ -522,14 +584,14 @@ export default function IntelligencePage() {
       mapa[nome].processos += 1
 
       if (statusCobranca(item) === 'PAGO') {
-        mapa[nome].receita += numero(item.valor_cobranca)
+        mapa[nome].receita += valorCobrancaProcesso(item)
         mapa[nome].custo += temCusto(item) ? custosProcesso(item) : 0
         mapa[nome].profit += profitProcesso(item)
         if (!temCusto(item)) mapa[nome].semCusto += 1
       }
 
       if (statusCobranca(item) === 'ATRASADO') {
-        mapa[nome].vencido += numero(item.valor_cobranca)
+        mapa[nome].vencido += valorCobrancaProcesso(item)
       }
     })
 
@@ -546,13 +608,14 @@ export default function IntelligencePage() {
   const carteiraClientes = useMemo(() => {
     const mapa: Record<string, any> = {}
 
-    dadosPeriodo.fin.forEach((item) => {
+    // A carteira comercial SEMPRE usa o histórico completo de Processos Faturados.
+    // O filtro de mês/ano do topo serve para alertas financeiros, não para recuperar cliente parado.
+    financeiroEmbarques.forEach((item) => {
       const nome = clienteProcesso(item)
+      if (!nome || nome === 'Não informado') return
+
       const status = statusCobranca(item)
-      const dataBase = maiorData(
-        normalizarData(item.recebimento) || normalizarData(item.vencimento_cobranca),
-        normalizarData(item.created_at) || normalizarData(item.criado_em)
-      )
+      const dataBase = dataProcessoCarteira(item)
       const servico = servicoProcesso(item)
 
       if (!mapa[nome]) {
@@ -580,7 +643,7 @@ export default function IntelligencePage() {
 
       if (status === 'PAGO') {
         mapa[nome].pagos += 1
-        mapa[nome].receita += numero(item.valor_cobranca)
+        mapa[nome].receita += valorCobrancaProcesso(item)
 
         if (temCusto(item)) {
           mapa[nome].custo += custosProcesso(item)
@@ -592,7 +655,7 @@ export default function IntelligencePage() {
 
       if (status === 'ATRASADO') {
         mapa[nome].atrasados += 1
-        mapa[nome].vencido += numero(item.valor_cobranca)
+        mapa[nome].vencido += valorCobrancaProcesso(item)
       }
     })
 
@@ -612,20 +675,29 @@ export default function IntelligencePage() {
         let periodoAumento = 'Depois de conferir dados'
         let acaoTicket = 'Conferir custos, margem e histórico antes de propor aumento.'
 
+        const recuperar = diasSemEmbarque >= 45 && item.processos > 0 && diasSemEmbarque < 9999
+
         if (item.vencido > 0) {
           recomendacao = 'COBRAR / SEGURAR'
           motivo = 'Tem cobrança vencida. Antes de vender mais, proteger caixa.'
-          prioridade = 7
+          prioridade = 8
           potencialAumento = 'Não aumentar agora'
           periodoAumento = 'Depois do pagamento'
           acaoTicket = 'Cobrar pendência e só voltar a vender com condição mais segura.'
         } else if (item.semCusto > 0) {
           recomendacao = 'CORRIGIR CUSTO'
           motivo = 'Existem processos pagos sem custo. Profit e margem não são confiáveis.'
-          prioridade = 6
+          prioridade = 7
           potencialAumento = 'Indefinido'
           periodoAumento = 'Após corrigir custos'
           acaoTicket = 'Corrigir custo para saber se precisa reajustar ou manter tabela.'
+        } else if (recuperar) {
+          recomendacao = 'REATIVAR'
+          motivo = `Cliente parado há ${diasSemEmbarque} dias. Chamar antes de tentar reajustar.`
+          prioridade = diasSemEmbarque >= 90 ? 6 : 4
+          potencialAumento = 'Retomar primeiro'
+          periodoAumento = diasSemEmbarque >= 90 ? 'Chamar agora' : 'Chamar este mês'
+          acaoTicket = 'Contato de recuperação: perguntar próximos embarques e oferecer revisão de tabela/serviço.'
         } else if (item.processos >= 4 && margem > 0 && margem < 10) {
           recomendacao = 'REAJUSTAR'
           motivo = 'Volume bom, mas margem crítica. A tabela está apertada.'
@@ -663,20 +735,6 @@ export default function IntelligencePage() {
           acaoTicket = 'Aumentar escopo, não apenas preço.'
         }
 
-        const recuperar = diasSemEmbarque >= 45 && item.processos > 0
-
-        if (recuperar && item.vencido <= 0 && item.semCusto <= 0) {
-          if (diasSemEmbarque >= 120) {
-            prioridade = Math.max(prioridade, 5)
-            if (recomendacao === 'ANALISAR') recomendacao = 'REATIVAR'
-            motivo = `${motivo} Está há ${diasSemEmbarque} dias sem embarcar.`
-          } else if (diasSemEmbarque >= 60) {
-            prioridade = Math.max(prioridade, 4)
-            if (recomendacao === 'ANALISAR') recomendacao = 'REATIVAR'
-            motivo = `${motivo} Cliente esfriando: ${diasSemEmbarque} dias sem processo.`
-          }
-        }
-
         const score =
           item.profit / 1000 +
           margem * 1.5 +
@@ -712,8 +770,8 @@ export default function IntelligencePage() {
         } as ClienteCarteira
       })
       .sort((a: ClienteCarteira, b: ClienteCarteira) => b.prioridade - a.prioridade || b.profit - a.profit || b.processos - a.processos)
-      .slice(0, 30)
-  }, [dadosPeriodo])
+      .slice(0, 120)
+  }, [financeiroEmbarques])
 
   const clientesParaAumentarTicket = useMemo(() => {
     return carteiraClientes
@@ -831,7 +889,7 @@ export default function IntelligencePage() {
       }
 
       if (statusCobranca(item) === 'ATRASADO') {
-        mapa[nome].vencido += numero(item.valor_cobranca)
+        mapa[nome].vencido += valorCobrancaProcesso(item)
       }
     })
 
@@ -854,7 +912,7 @@ export default function IntelligencePage() {
       }
 
       if (statusCobranca(item) === 'ATRASADO') {
-        mapa[nome].vencido += numero(item.valor_cobranca)
+        mapa[nome].vencido += valorCobrancaProcesso(item)
       }
     })
 
@@ -977,7 +1035,7 @@ export default function IntelligencePage() {
               <div>
                 <h2 className="text-2xl font-black">Carteira de Clientes</h2>
                 <p className="text-slate-400 text-sm">
-                  Mostra onde focar, quem reajustar, quem recuperar e quem precisa de correção antes de vender mais.
+                  Carteira montada pelo histórico completo de Financeiro > Processos Faturados.
                 </p>
               </div>
               <span className="text-blue-400 text-sm font-bold">
@@ -1181,7 +1239,7 @@ export default function IntelligencePage() {
             </div>
 
             {clientesParaRecuperar.length === 0 ? (
-              <p className="text-slate-500">Nenhum cliente parado há muito tempo dentro do filtro atual.</p>
+              <p className="text-slate-500">Nenhum cliente parado há mais de 45 dias no histórico financeiro.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[960px] text-sm">
