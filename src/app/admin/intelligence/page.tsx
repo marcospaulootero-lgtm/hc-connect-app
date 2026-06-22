@@ -45,7 +45,7 @@ export default function IntelligencePage() {
   const [chamados, setChamados] = useState<any[]>([])
   const [avisos, setAvisos] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('MES')
+  const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('TUDO')
   const [mesFiltro, setMesFiltro] = useState(new Date().toISOString().slice(0, 7))
 
   useEffect(() => {
@@ -188,11 +188,13 @@ export default function IntelligencePage() {
   }
 
   function mesFinanceiro(item: any) {
+    // Para alertas financeiros, a fonte correta é a data financeira real.
+    // Prioriza recebimento/vencimento. Campos mes/mes_profit entram apenas como fallback.
     return (
-      item.mes_profit ||
-      item.mes ||
       mesDaData(item.recebimento) ||
       mesDaData(item.vencimento_cobranca) ||
+      item.mes_profit ||
+      item.mes ||
       mesDaData(item.created_at) ||
       ''
     )
@@ -712,7 +714,7 @@ export default function IntelligencePage() {
             <div>
               <h1 className="text-4xl font-black">Intelligence</h1>
               <p className="text-slate-400">
-                Tela de alertas e correções. O dinheiro principal fica no Financeiro.
+                Alertas baseados no Financeiro. Por padrão mostra todo o histórico para bater com a aba Financeiro.
               </p>
             </div>
           </div>
@@ -730,9 +732,9 @@ export default function IntelligencePage() {
               onChange={(e) => setPeriodoTipo(e.target.value as PeriodoTipo)}
               className="border border-blue-900 bg-[#020817] px-5 py-3 rounded-xl font-bold text-white"
             >
+              <option value="TUDO">Todo histórico</option>
               <option value="MES">Mês selecionado</option>
               <option value="ANO">Ano selecionado</option>
-              <option value="TUDO">Todo histórico</option>
             </select>
 
             <button
