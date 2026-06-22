@@ -1899,7 +1899,6 @@ export default function FinanceiroPage() {
       direitoHerica,
       saldoMarcos,
       saldoHerica,
-      retiradasTotal,
       totalDireitoSocios,
       excessoRetiradasMarcos,
       excessoRetiradasHerica,
