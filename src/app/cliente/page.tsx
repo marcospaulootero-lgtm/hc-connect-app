@@ -276,6 +276,7 @@ export default function ClientePage() {
       ${item.importador}
       ${item.referencia_cliente}
       ${item.referencia_hc}
+      ${item.master}
       ${item.responsavel_nome}
       ${item.responsavel_email}
     `.toLowerCase()
@@ -352,6 +353,10 @@ export default function ClientePage() {
             </p>
 
             <div className="flex gap-4 flex-wrap">
+              <a href="/cliente/embarques" className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold">
+                📦 Meus embarques
+              </a>
+
               <a href="/cliente/cotacoes" className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold">
                 Solicitar cotação
               </a>
@@ -493,7 +498,7 @@ export default function ClientePage() {
           <div className="card">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-black">Últimos embarques</h2>
-              <a href="#meus-embarques" className="text-blue-400 font-bold">
+              <a href="/cliente/embarques" className="text-blue-400 font-bold">
                 Ver todos
               </a>
             </div>
@@ -515,6 +520,10 @@ export default function ClientePage() {
 
                         <p className="text-slate-400 mt-1">
                           {item.transportadora || '-'} • {item.origem || '-'} → {item.destino || '-'}
+                        </p>
+
+                        <p className="text-slate-500 text-sm mt-1">
+                          Master: {item.master || 'Aguardando geração'}
                         </p>
 
                         <p className="text-slate-500 text-sm mt-2">
@@ -638,6 +647,7 @@ export default function ClientePage() {
 
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
                         <Info titulo="Transportadora" valor={item.transportadora} />
+                        <Info titulo="Master" valor={item.master || 'Aguardando geração'} />
                         <Info titulo="Serviço" valor={item.servico} />
                         <Info titulo="Origem" valor={item.origem} />
                         <Info titulo="Destino" valor={item.destino} />
