@@ -1035,7 +1035,7 @@ export default function IntelligencePage() {
               <div>
                 <h2 className="text-2xl font-black">Carteira de Clientes</h2>
                 <p className="text-slate-400 text-sm">
-                  Carteira montada pelo histórico completo de Financeiro > Processos Faturados.
+                  Carteira montada pelo histórico completo de Financeiro &gt; Processos Faturados.
                 </p>
               </div>
               <span className="text-blue-400 text-sm font-bold">
