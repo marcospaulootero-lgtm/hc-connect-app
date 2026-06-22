@@ -1790,9 +1790,12 @@ export default function FinanceiroPage() {
 
     const caixaProtegido = terceirosProtegidos + custosOperacionaisProtegidos
     const saldoMovimentado = entradas - saidas
+
+    // Saldo gerencial é o saldo estimado do movimento.
+    // Ele pode existir, mas não significa que é dinheiro livre da HC.
     const saldoGerencial = profitHC - despesas + entradasNaoOperacionais + aportes - retiradasMarcos - retiradasHerica - saidasFundo
-    const caixaLivreHC = saldoGerencial
-    const usoCaixaProtegido = Math.max(caixaLivreHC * -1, 0)
+    const usoCaixaProtegido = Math.max(saldoGerencial * -1, 0)
+
     const resultadoOperacional = profitHC - despesas
     const lucroDistribuivel = Math.max(resultadoOperacional, 0)
     const caixaMinimoRecomendado = lucroDistribuivel * 0.5
@@ -1801,15 +1804,49 @@ export default function FinanceiroPage() {
     const saldoMarcos = direitoMarcos - retiradasMarcos
     const saldoHerica = direitoHerica - retiradasHerica
     const retiradasTotal = retiradasMarcos + retiradasHerica
-    const faltaReservaHC = Math.max(caixaMinimoRecomendado - Math.max(caixaLivreHC, 0), 0)
+    const totalDireitoSocios = direitoMarcos + direitoHerica
+    const excessoRetiradasMarcos = Math.max(retiradasMarcos - direitoMarcos, 0)
+    const excessoRetiradasHerica = Math.max(retiradasHerica - direitoHerica, 0)
+    const excessoRetiradasSocios = excessoRetiradasMarcos + excessoRetiradasHerica
+    const entradasLivresUsadasEmExcesso = Math.min(excessoRetiradasSocios, entradasNaoOperacionais + aportes)
+
+    const processosPagos = pagos.filter((item) => item.tipo === 'RECEBIMENTO_PROCESSO')
+    const processosSemCompra = processosPagos.filter((item) => Number(item.valorCompra || 0) <= 0)
+    const qtdProcessosSemCompra = processosSemCompra.length
+    const valorRecebidoSemCompra = processosSemCompra.reduce((acc, item) => acc + Number(item.entrada || 0), 0)
+    const processosComTerceiros = processosPagos.filter((item) => Number(item.terceiros || 0) > 0).length
+
+    const faltaReservaHC = Math.max(caixaMinimoRecomendado - Math.max(saldoGerencial, 0), 0)
     const faltaReporCaixa = usoCaixaProtegido + faltaReservaHC
-    const caixaAcimaDoMinimo = Math.max(caixaLivreHC - caixaMinimoRecomendado, 0)
+    const caixaAcimaDoMinimo = Math.max(saldoGerencial - caixaMinimoRecomendado, 0)
     const saldoPositivoSocios = Math.max(saldoMarcos, 0) + Math.max(saldoHerica, 0)
-    const podeRetirarAgora = faltaReporCaixa > 0 ? 0 : Math.min(caixaAcimaDoMinimo, saldoPositivoSocios)
-    const gastoLivrePermitido = Math.max(caixaAcimaDoMinimo - podeRetirarAgora, 0)
+
+    // Caixa livre da HC só existe depois de:
+    // 1) proteger terceiros/custos, 2) recompor caixa mínimo, 3) não existir retirada acima do permitido.
+    const caixaLivreHC = excessoRetiradasSocios > 0 || faltaReporCaixa > 0
+      ? 0
+      : Math.min(caixaAcimaDoMinimo, saldoPositivoSocios || caixaAcimaDoMinimo)
+
+    const podeRetirarAgora = excessoRetiradasSocios > 0 || faltaReporCaixa > 0
+      ? 0
+      : Math.min(caixaAcimaDoMinimo, saldoPositivoSocios)
+    const gastoLivrePermitido = excessoRetiradasSocios > 0 || faltaReporCaixa > 0
+      ? 0
+      : Math.max(caixaAcimaDoMinimo - podeRetirarAgora, 0)
+
     const percentualCaixa = caixaMinimoRecomendado > 0
-      ? Math.min(Math.max((Math.max(caixaLivreHC, 0) / caixaMinimoRecomendado) * 100, 0), 100)
-      : caixaLivreHC > 0 ? 100 : 0
+      ? Math.min(Math.max((Math.max(saldoGerencial, 0) / caixaMinimoRecomendado) * 100, 0), 100)
+      : saldoGerencial > 0 ? 100 : 0
+
+    const maiorErroFinanceiro = usoCaixaProtegido > 0
+      ? 'Usou dinheiro protegido'
+      : excessoRetiradasSocios > 0
+        ? 'Retiradas acima do permitido'
+        : qtdProcessosSemCompra > 0
+          ? 'Processos pagos sem custo'
+          : faltaReservaHC > 0
+            ? 'Caixa abaixo do mínimo'
+            : 'Sem erro crítico'
 
     let statusDono = 'CONTROLADO'
     let mensagemDono = 'Caixa dentro da regra. Manter controle antes de novas retiradas.'
@@ -1817,11 +1854,15 @@ export default function FinanceiroPage() {
 
     if (usoCaixaProtegido > 0) {
       statusDono = 'CRÍTICO'
-      mensagemDono = 'A HC usou caixa protegido de terceiros/custos. Bloquear retiradas agora.'
+      mensagemDono = 'A HC usou dinheiro protegido de terceiros/custos. Bloquear retiradas agora.'
       acaoRecomendada = 'Repor primeiro o dinheiro protegido, depois recompor o caixa mínimo.'
+    } else if (excessoRetiradasSocios > 0) {
+      statusDono = 'ATENÇÃO'
+      mensagemDono = 'O caixa da HC não está livre: retiradas acima do permitido consumiram a reserva.'
+      acaoRecomendada = 'Bloquear retiradas e recompor o caixa mínimo antes de qualquer gasto livre.'
     } else if (faltaReservaHC > 0) {
       statusDono = 'ATENÇÃO'
-      mensagemDono = 'Caixa livre da HC existe, mas ainda está abaixo do mínimo recomendado.'
+      mensagemDono = 'Existe saldo gerencial, mas ele ainda não é caixa livre da HC.'
       acaoRecomendada = 'Economizar primeiro até recompor o caixa mínimo.'
     } else if (podeRetirarAgora > 0) {
       statusDono = 'SAUDÁVEL'
@@ -1850,7 +1891,7 @@ export default function FinanceiroPage() {
       usoCaixaProtegido,
       faltaReservaHC,
       saldoGerencial,
-      caixaGerencialAtual: caixaLivreHC,
+      caixaGerencialAtual: saldoGerencial,
       resultadoOperacional,
       lucroDistribuivel,
       caixaMinimoRecomendado,
@@ -1858,6 +1899,16 @@ export default function FinanceiroPage() {
       direitoHerica,
       saldoMarcos,
       saldoHerica,
+      retiradasTotal,
+      totalDireitoSocios,
+      excessoRetiradasMarcos,
+      excessoRetiradasHerica,
+      excessoRetiradasSocios,
+      entradasLivresUsadasEmExcesso,
+      processosComTerceiros,
+      qtdProcessosSemCompra,
+      valorRecebidoSemCompra,
+      maiorErroFinanceiro,
       faltaReporCaixa,
       caixaAcimaDoMinimo,
       saldoPositivoSocios,
@@ -2713,25 +2764,25 @@ export default function FinanceiroPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               <DonoResumoCard
-                titulo="Caixa livre da HC"
-                valor={moeda(resumoDono.caixaLivreHC)}
-                detalhe="Profit HC - despesas + aportes/entradas livres - retiradas - saídas do fundo"
-                classe={resumoDono.caixaLivreHC >= 0 ? 'bg-white text-slate-950 border-white' : 'bg-red-50 text-red-700 border-red-200'}
+                titulo="Saldo gerencial estimado"
+                valor={moeda(resumoDono.saldoGerencial)}
+                detalhe="O que sobrou no movimento. Não significa dinheiro livre para retirada."
+                classe={resumoDono.saldoGerencial >= 0 ? 'bg-white text-slate-950 border-white' : 'bg-red-50 text-red-700 border-red-200'}
                 destaque
               />
 
               <DonoResumoCard
-                titulo="Terceiros a pagar/proteger"
-                valor={moeda(resumoDono.terceirosProtegidos)}
-                detalhe="Valor de terceiros nos processos pagos. Não é dinheiro da HC."
-                classe="bg-orange-50 text-orange-700 border-orange-200"
+                titulo="Caixa livre da HC"
+                valor={moeda(resumoDono.caixaLivreHC)}
+                detalhe="Sobra segura depois da reserva mínima e sem retirada acima da regra."
+                classe={resumoDono.caixaLivreHC > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
               />
 
               <DonoResumoCard
-                titulo="Uso de caixa protegido"
-                valor={moeda(resumoDono.usoCaixaProtegido)}
-                detalhe={resumoDono.usoCaixaProtegido > 0 ? 'Retiradas/gastos passaram do caixa livre da HC' : 'Nenhum uso de dinheiro protegido detectado'}
-                classe={resumoDono.usoCaixaProtegido > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}
+                titulo="Retiradas acima do permitido"
+                valor={moeda(resumoDono.excessoRetiradasSocios)}
+                detalhe="Valor retirado além dos 25% de cada sócio. Esse é o principal estouro."
+                classe={resumoDono.excessoRetiradasSocios > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}
               />
 
               <DonoResumoCard
@@ -2744,8 +2795,15 @@ export default function FinanceiroPage() {
               <DonoResumoCard
                 titulo="Tenho que economizar/repor"
                 valor={moeda(resumoDono.faltaReporCaixa)}
-                detalhe={resumoDono.faltaReporCaixa > 0 ? 'Repor protegido + completar caixa mínimo' : 'Caixa mínimo e protegido sob controle'}
+                detalhe={resumoDono.faltaReporCaixa > 0 ? 'Completar caixa mínimo antes de retirar ou gastar' : 'Caixa mínimo sob controle'}
                 classe={resumoDono.faltaReporCaixa > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}
+              />
+
+              <DonoResumoCard
+                titulo="Terceiros a pagar/proteger"
+                valor={moeda(resumoDono.terceirosProtegidos)}
+                detalhe="Valor de terceiros nos processos pagos. Não é dinheiro da HC."
+                classe="bg-orange-50 text-orange-700 border-orange-200"
               />
 
               <DonoResumoCard
@@ -2758,15 +2816,8 @@ export default function FinanceiroPage() {
               <DonoResumoCard
                 titulo="Posso gastar livre"
                 valor={moeda(resumoDono.gastoLivrePermitido)}
-                detalhe="Sobra após protegido, caixa mínimo e retiradas permitidas"
+                detalhe="Sobra depois de protegido, caixa mínimo e retirada permitida"
                 classe={resumoDono.gastoLivrePermitido > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
-              />
-
-              <DonoResumoCard
-                titulo="Caixa protegido total"
-                valor={moeda(resumoDono.caixaProtegido)}
-                detalhe="Terceiros + compra/DTA/DOC/impostos dos processos pagos"
-                classe="bg-slate-50 text-slate-700 border-slate-200"
               />
 
               <DonoResumoCard
@@ -2786,7 +2837,60 @@ export default function FinanceiroPage() {
                 <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${resumoDono.percentualCaixa}%` }} />
               </div>
               <p className="mt-2 text-xs font-bold text-slate-400">
-                Mínimo recomendado: {moeda(resumoDono.caixaMinimoRecomendado)} | Caixa livre HC: {moeda(resumoDono.caixaLivreHC)} | Protegido: {moeda(resumoDono.caixaProtegido)}
+                Mínimo recomendado: {moeda(resumoDono.caixaMinimoRecomendado)} | Saldo gerencial: {moeda(resumoDono.saldoGerencial)} | Caixa livre HC: {moeda(resumoDono.caixaLivreHC)}
+              </p>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-red-100 bg-red-50 p-5 mb-5">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-black text-red-950">Onde estou errando</h3>
+                <p className="text-sm font-semibold text-red-700">
+                  Diagnóstico automático: mostra por que o caixa livre da HC virou zero ou por que a retirada está bloqueada.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-red-200 bg-white px-4 py-3">
+                <p className="text-xs font-black uppercase tracking-wide text-red-500">Maior ponto de atenção</p>
+                <p className="text-lg font-black text-red-900">{resumoDono.maiorErroFinanceiro}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <ErroCard
+                titulo="Retiradas acima do permitido"
+                valor={moeda(resumoDono.excessoRetiradasSocios)}
+                detalhe={`Marcos: ${moeda(resumoDono.excessoRetiradasMarcos)} | Hérica: ${moeda(resumoDono.excessoRetiradasHerica)}`}
+                ruim={resumoDono.excessoRetiradasSocios > 0}
+              />
+
+              <ErroCard
+                titulo="Caixa abaixo do mínimo"
+                valor={moeda(resumoDono.faltaReservaHC)}
+                detalhe={`Mínimo: ${moeda(resumoDono.caixaMinimoRecomendado)} | Saldo: ${moeda(resumoDono.saldoGerencial)}`}
+                ruim={resumoDono.faltaReservaHC > 0}
+              />
+
+              <ErroCard
+                titulo="Entradas livres consumidas"
+                valor={moeda(resumoDono.entradasLivresUsadasEmExcesso)}
+                detalhe="Entradas não operacionais/aportes usados para cobrir retirada acima da regra."
+                ruim={resumoDono.entradasLivresUsadasEmExcesso > 0}
+              />
+
+              <ErroCard
+                titulo="Processos pagos sem custo"
+                valor={resumoDono.qtdProcessosSemCompra}
+                detalhe={`${moeda(resumoDono.valorRecebidoSemCompra)} recebidos com valor de compra zerado`}
+                ruim={resumoDono.qtdProcessosSemCompra > 0}
+              />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-red-200 bg-white p-4">
+              <p className="text-sm font-black text-red-950">Leitura prática</p>
+              <p className="mt-1 text-sm font-semibold text-red-700">
+                O erro principal é decidir pelo saldo da conta. Mesmo que exista saldo gerencial, ele vira R$ 0,00 de caixa livre quando as retiradas passam do permitido e a reserva mínima não foi recomposta.
               </p>
             </div>
           </section>
@@ -2836,7 +2940,8 @@ export default function FinanceiroPage() {
               </div>
 
               <div className="space-y-3">
-                <DecisionRow label="Caixa livre da HC" valor={moeda(resumoDono.caixaLivreHC)} destaque />
+                <DecisionRow label="Saldo gerencial estimado" valor={moeda(resumoDono.saldoGerencial)} destaque />
+                <DecisionRow label="Caixa livre da HC" valor={moeda(resumoDono.caixaLivreHC)} perigo={resumoDono.caixaLivreHC <= 0} sucesso={resumoDono.caixaLivreHC > 0} />
                 <DecisionRow label="Dinheiro de terceiros protegido" valor={moeda(resumoDono.terceirosProtegidos)} destaque />
                 <DecisionRow label="Usei dinheiro protegido?" valor={resumoDono.usoCaixaProtegido > 0 ? `Sim, ${moeda(resumoDono.usoCaixaProtegido)}` : 'Não'} perigo={resumoDono.usoCaixaProtegido > 0} sucesso={resumoDono.usoCaixaProtegido <= 0} />
                 <DecisionRow label="Posso retirar?" valor={resumoDono.podeRetirarAgora > 0 ? `Sim, até ${moeda(resumoDono.podeRetirarAgora)}` : 'Não'} perigo={resumoDono.podeRetirarAgora <= 0} />
@@ -3444,6 +3549,17 @@ function FiltroResumoCard({ titulo, valor, detalhe, classe }: any) {
   )
 }
 
+
+
+function ErroCard({ titulo, valor, detalhe, ruim }: any) {
+  return (
+    <div className={`rounded-2xl border p-4 ${ruim ? 'border-red-200 bg-white text-red-900' : 'border-green-200 bg-white text-green-900'}`}>
+      <p className="text-xs font-black uppercase tracking-wide opacity-70">{titulo}</p>
+      <p className="mt-2 text-xl font-black">{valor}</p>
+      <p className="mt-1 text-xs font-bold opacity-75">{detalhe}</p>
+    </div>
+  )
+}
 
 function DonoResumoCard({ titulo, valor, detalhe, classe, destaque }: any) {
   return (
