@@ -596,7 +596,7 @@ useEffect(() => {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8 items-start">
           <div className="card">
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-6">
               <div>
@@ -614,44 +614,55 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="h-72 flex items-end gap-2 border-b border-blue-900 pb-4">
-              {ritmoOperacao.dias.map((item, index) => {
-                const ativo = diaSelecionado === item.key
-                const mostrarLabel =
-                  ritmoOperacao.dias.length <= 10 ||
-                  index === 0 ||
-                  index === ritmoOperacao.dias.length - 1 ||
-                  index % 5 === 0
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 overflow-hidden">
+              <div
+                className="grid h-48 items-end gap-1 border-b border-blue-950 pb-3 overflow-hidden"
+                style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
+              >
+                {ritmoOperacao.dias.map((item, index) => {
+                  const ativo = diaSelecionado === item.key
+                  const mostrarLabel =
+                    ritmoOperacao.dias.length <= 10 ||
+                    index === 0 ||
+                    index === ritmoOperacao.dias.length - 1 ||
+                    index % 7 === 0
 
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => setDiaSelecionado(ativo ? null : item.key)}
-                    className="flex-1 h-full flex flex-col items-center justify-end gap-2 group"
-                    title={`${item.dia}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
-                  >
-                    <span className={item.total > 0 ? 'text-[10px] font-black text-blue-300 opacity-0 group-hover:opacity-100' : 'text-[10px] text-slate-700'}>
-                      {item.total || ''}
-                    </span>
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setDiaSelecionado(ativo ? null : item.key)}
+                      className="group relative flex h-full min-w-0 flex-col items-center justify-end"
+                      title={`${item.dia}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
+                    >
+                      <span
+                        className={
+                          ativo
+                            ? 'w-full max-w-[26px] rounded-t-md bg-green-500 ring-2 ring-green-300'
+                            : item.total > 0
+                              ? 'w-full max-w-[26px] rounded-t-md bg-blue-600 transition hover:bg-blue-400'
+                              : 'w-full max-w-[26px] rounded-t-md bg-slate-800 transition hover:bg-slate-700'
+                        }
+                        style={{ height: `${Math.max((item.total / ritmoOperacao.maiorDia) * 150, 5)}px` }}
+                      />
 
-                    <span
-                      className={
-                        ativo
-                          ? 'w-full bg-green-500 rounded-t-lg min-h-[6px] ring-2 ring-green-300'
-                          : item.total > 0
-                            ? 'w-full bg-blue-600 hover:bg-blue-400 rounded-t-lg min-h-[6px] transition'
-                            : 'w-full bg-slate-800 hover:bg-slate-700 rounded-t-lg min-h-[6px] transition'
-                      }
-                      style={{ height: `${Math.max((item.total / ritmoOperacao.maiorDia) * 205, 6)}px` }}
-                    />
+                      <span className="pointer-events-none absolute -top-7 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg border border-blue-900 bg-[#071225] px-2 py-1 text-[10px] font-black text-blue-200 shadow-xl group-hover:block">
+                        {item.dia} • {item.total}
+                      </span>
 
-                    <span className={mostrarLabel ? 'text-[10px] text-slate-500 whitespace-nowrap' : 'text-[10px] text-transparent'}>
-                      {mostrarLabel ? item.dia : '-'}
-                    </span>
-                  </button>
-                )
-              })}
+                      <span className={mostrarLabel ? 'mt-2 text-[9px] text-slate-500 whitespace-nowrap' : 'mt-2 text-[9px] text-transparent'}>
+                        {mostrarLabel ? item.dia : '-'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                <span>{ritmoOperacao.dias[0]?.dia || '-'}</span>
+                <span>{ritmoOperacao.label}</span>
+                <span>{ritmoOperacao.dias[ritmoOperacao.dias.length - 1]?.dia || '-'}</span>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-center">
