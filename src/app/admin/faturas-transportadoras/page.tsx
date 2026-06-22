@@ -389,7 +389,7 @@ export default function FaturasTransportadorasPage() {
       const buffer = await arquivo.arrayBuffer()
       const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      const linhas: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false })
 
       const registros = linhas
         .map((linha) => {
@@ -448,24 +448,28 @@ export default function FaturasTransportadorasPage() {
             pegarCampoExcel(linha, ['DIAS RESTANTES', 'DIAS_RESTANTES']) || ''
           ).trim()
 
+          const campoDataPagamento = pegarCampoExcel(linha, [
+            'DATA DE PAGAMENTO',
+            'DATA PAGAMENTO',
+            'DATA_PAGAMENTO',
+            'PAGAMENTO',
+            'PAGO EM',
+            'PAGA EM',
+          ])
+
           const dataPagamento =
-            normalizarDataExcel(
-              pegarCampoExcel(linha, [
-                'DATA DE PAGAMENTO',
-                'DATA PAGAMENTO',
-                'DATA_PAGAMENTO',
-                'PAGAMENTO',
-                'PAGO EM',
-                'PAGA EM',
-              ])
-            ) || extrairDataPagamentoTexto(diasRestantes)
+            normalizarDataExcel(campoDataPagamento) ||
+            extrairDataPagamentoTexto(campoDataPagamento) ||
+            extrairDataPagamentoTexto(diasRestantes) ||
+            extrairDataPagamentoTexto(pegarCampoExcel(linha, ['STATUS DA FATURA', 'STATUS_DA_FATURA']))
 
           const utilizadoPara = String(
             pegarCampoExcel(linha, [
-              'UTILIZADO PARA',
-              'UTILIZADO_PARA',
               'BANCO UTILIZADO PARA PAGAMENTO',
               'BANCO UTILIZADO PARA PAGTO',
+              'UTILIZADO PARA',
+              'UTILIZADO_PARA',
+              'UTILIZADO',
               'BANCO UTILIZADO',
               'BANCO PAGAMENTO',
               'BANCO',
@@ -591,8 +595,18 @@ export default function FaturasTransportadorasPage() {
         return
       }
 
+      const { data: faturasExistentes, error: erroFaturasExistentes } = await supabase
+        .from('faturas_transportadoras')
+        .select('id, transportadora, numero_fatura')
+
+      if (erroFaturasExistentes) {
+        alert('Erro ao buscar faturas existentes: ' + erroFaturasExistentes.message)
+        setImportando(false)
+        return
+      }
+
       const faturasAtuaisPorChave = new Map(
-        faturas
+        ((faturasExistentes as any[]) || [])
           .filter((item) => item.numero_fatura && item.id)
           .map((item) => [chaveFaturaTransportadora(item.transportadora, item.numero_fatura), item])
       )
