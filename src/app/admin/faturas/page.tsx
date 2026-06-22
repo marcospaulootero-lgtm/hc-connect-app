@@ -871,7 +871,7 @@ export default function FaturasPage() {
           <div>
             <h2 className="text-2xl font-black">Faturas por embarque</h2>
             <p className="text-slate-400 text-sm">
-              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro > Processos Faturados.
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
             </p>
           </div>
 
