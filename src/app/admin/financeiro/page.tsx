@@ -85,8 +85,40 @@ const movimentacaoVazia: MovimentacaoFormState = {
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
 
+const EMPRESTIMOS_HC = [
+  {
+    contrato: '2925262376',
+    banco: 'Itaú',
+    valorContratado: 50956.16,
+    saldoDevedor: 45012.20,
+    valorParcela: 1654.19,
+    parcelas: '19 de 48',
+    vencimentoFinal: '06/11/2028',
+  },
+  {
+    contrato: '2715959991',
+    banco: 'Itaú',
+    valorContratado: 37252.87,
+    saldoDevedor: 36613.48,
+    valorParcela: 1008.26,
+    parcelas: '8 de 48',
+    vencimentoFinal: '08/10/2029',
+  },
+]
+
+const TOTAL_PARCELAS_EMPRESTIMOS_HC = EMPRESTIMOS_HC.reduce(
+  (acc, item) => acc + item.valorParcela,
+  0
+)
+
+const TOTAL_SALDO_DEVEDOR_EMPRESTIMOS_HC = EMPRESTIMOS_HC.reduce(
+  (acc, item) => acc + item.saldoDevedor,
+  0
+)
+
 const TIPOS_MOVIMENTACAO = [
   { value: 'DESPESA', label: 'Despesa da empresa' },
+  { value: 'PAGAMENTO_EMPRESTIMO', label: 'Pagamento de empréstimo' },
   { value: 'RETIRADA_SOCIO', label: 'Retirada de sócio' },
   { value: 'PAGAMENTO_SOCIO', label: 'Pagamento de sócio' },
   { value: 'REEMBOLSO_SOCIO', label: 'Reembolso de sócio' },
@@ -100,6 +132,7 @@ const CATEGORIAS_DESPESA = [
   'Aluguel',
   'Contador',
   'Impostos',
+  'Empréstimos',
   'Sistema',
   'Internet',
   'Telefone',
@@ -134,6 +167,7 @@ const SOCIOS_OPCOES = [
 const TIPOS_EXTRATO = [
   { value: 'RECEBIMENTO_PROCESSO', label: 'Recebimentos de processos' },
   { value: 'DESPESA', label: 'Despesas' },
+  { value: 'PAGAMENTO_EMPRESTIMO', label: 'Pagamentos de empréstimo' },
   { value: 'RETIRADA_SOCIO', label: 'Retiradas de sócio' },
   { value: 'REEMBOLSO_SOCIO', label: 'Reembolsos de sócio' },
   { value: 'APORTE_SOCIO', label: 'Aportes' },
@@ -726,10 +760,22 @@ export default function FinanceiroPage() {
       }
     }
 
+    const categoria = categoriaDespesaExcel(descricaoOriginal)
+
+    if (categoria === 'Empréstimos') {
+      return {
+        tipo: 'PAGAMENTO_EMPRESTIMO',
+        socio: null,
+        categoria,
+        impacta_resultado: true,
+        impacta_caixa: true,
+      }
+    }
+
     return {
       tipo: 'DESPESA',
       socio: null,
-      categoria: categoriaDespesaExcel(descricaoOriginal),
+      categoria,
       impacta_resultado: true,
       impacta_caixa: true,
     }
@@ -740,6 +786,7 @@ export default function FinanceiroPage() {
 
     if (descricao.includes('ALUGUEL')) return 'Aluguel'
     if (descricao.includes('CONTABILIDADE') || descricao.includes('CONTADOR')) return 'Contador'
+    if (descricao.includes('EMPRESTIMO') || descricao.includes('EMPRÉSTIMO') || descricao.includes('PRONAMPE') || descricao.includes('CREDITO') || descricao.includes('CRÉDITO')) return 'Empréstimos'
     if (
       descricao.includes('IMPOSTO') ||
       descricao.includes('DAS') ||
@@ -1419,7 +1466,7 @@ export default function FinanceiroPage() {
 
   const movimentacoesDaAba = useMemo(() => {
     if (abaPrincipal === 'DESPESAS') {
-      return movimentacoes.filter((item) => item.tipo === 'DESPESA')
+      return movimentacoes.filter((item) => ['DESPESA', 'PAGAMENTO_EMPRESTIMO'].includes(item.tipo))
     }
 
     if (abaPrincipal === 'SOCIOS') {
@@ -1517,8 +1564,16 @@ export default function FinanceiroPage() {
       .filter((item) => item.tipo === 'DESPESA' && statusMovimento(item) === 'PAGO')
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
+    const emprestimosPagos = movimentosMes
+      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO' && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
     const despesasPendentes = movimentosMes
       .filter((item) => item.tipo === 'DESPESA' && statusMovimento(item) !== 'PAGO')
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const emprestimosPendentes = movimentosMes
+      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO' && statusMovimento(item) !== 'PAGO')
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const retiradasMarcos = movimentosMes
@@ -1570,7 +1625,7 @@ export default function FinanceiroPage() {
     }, 0)
 
     const retiradasTotal = retiradasMarcos + retiradasHerica
-    const resultadoOperacional = profitRecebido - despesasPagas
+    const resultadoOperacional = profitRecebido - despesasPagas - emprestimosPagos
     const lucroDistribuivel = resultadoOperacional > 0 ? resultadoOperacional : 0
     const fundoPrevistoMes = lucroDistribuivel * 0.5
     const parteMarcos = lucroDistribuivel * 0.25
@@ -1598,7 +1653,11 @@ export default function FinanceiroPage() {
       profitRecebido,
       semCusto,
       despesasPagas,
+      emprestimosPagos,
       despesasPendentes,
+      emprestimosPendentes,
+      parcelaEmprestimosMensal: TOTAL_PARCELAS_EMPRESTIMOS_HC,
+      saldoDevedorEmprestimos: TOTAL_SALDO_DEVEDOR_EMPRESTIMOS_HC,
       retiradasMarcos,
       retiradasHerica,
       retiradasTotal,
@@ -1694,7 +1753,7 @@ export default function FinanceiroPage() {
         let saida = 0
 
         if (item.tipo === 'APORTE_SOCIO' || item.tipo === 'FUNDO_CAIXA_ENTRADA') entrada = valor
-        else if (['DESPESA', 'RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'FUNDO_CAIXA_SAIDA'].includes(item.tipo)) saida = valor
+        else if (['DESPESA', 'PAGAMENTO_EMPRESTIMO', 'RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'FUNDO_CAIXA_SAIDA'].includes(item.tipo)) saida = valor
         else if (item.tipo === 'AJUSTE_CAIXA') {
           if (valor >= 0) entrada = valor
           else saida = Math.abs(valor)
@@ -1764,6 +1823,9 @@ export default function FinanceiroPage() {
     const despesas = pagos
       .filter((item) => item.tipo === 'DESPESA')
       .reduce((acc, item) => acc + Number(item.saida || 0), 0)
+    const emprestimosPagos = pagos
+      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO')
+      .reduce((acc, item) => acc + Number(item.saida || 0), 0)
     const retiradasMarcos = pagos
       .filter((item) => ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) && item.socio === 'MARCOS')
       .reduce((acc, item) => acc + Number(item.saida || 0), 0)
@@ -1793,10 +1855,10 @@ export default function FinanceiroPage() {
 
     // Saldo gerencial é o saldo estimado do movimento.
     // Ele pode existir, mas não significa que é dinheiro livre da HC.
-    const saldoGerencial = profitHC - despesas + entradasNaoOperacionais + aportes - retiradasMarcos - retiradasHerica - saidasFundo
+    const saldoGerencial = profitHC - despesas - emprestimosPagos + entradasNaoOperacionais + aportes - retiradasMarcos - retiradasHerica - saidasFundo
     const usoCaixaProtegido = Math.max(saldoGerencial * -1, 0)
 
-    const resultadoOperacional = profitHC - despesas
+    const resultadoOperacional = profitHC - despesas - emprestimosPagos
     const lucroDistribuivel = Math.max(resultadoOperacional, 0)
     const caixaMinimoRecomendado = lucroDistribuivel * 0.5
     const direitoMarcos = lucroDistribuivel * 0.25
@@ -1816,9 +1878,13 @@ export default function FinanceiroPage() {
     const valorRecebidoSemCompra = processosSemCompra.reduce((acc, item) => acc + Number(item.entrada || 0), 0)
     const processosComTerceiros = processosPagos.filter((item) => Number(item.terceiros || 0) > 0).length
 
+    const emprestimosMensaisHC = TOTAL_PARCELAS_EMPRESTIMOS_HC
+    const saldoDevedorEmprestimosHC = TOTAL_SALDO_DEVEDOR_EMPRESTIMOS_HC
+    const qtdEmprestimosHC = EMPRESTIMOS_HC.length
     const faltaReservaHC = Math.max(caixaMinimoRecomendado - Math.max(saldoGerencial, 0), 0)
-    const faltaReporCaixa = usoCaixaProtegido + faltaReservaHC
-    const caixaAcimaDoMinimo = Math.max(saldoGerencial - caixaMinimoRecomendado, 0)
+    const necessidadeMinimaAntesRetirada = faltaReservaHC + emprestimosMensaisHC
+    const faltaReporCaixa = usoCaixaProtegido + necessidadeMinimaAntesRetirada
+    const caixaAcimaDoMinimo = Math.max(saldoGerencial - caixaMinimoRecomendado - emprestimosMensaisHC, 0)
     const saldoPositivoSocios = Math.max(saldoMarcos, 0) + Math.max(saldoHerica, 0)
 
     // Caixa livre da HC só existe depois de:
@@ -1834,8 +1900,9 @@ export default function FinanceiroPage() {
       ? 0
       : Math.max(caixaAcimaDoMinimo - podeRetirarAgora, 0)
 
-    const percentualCaixa = caixaMinimoRecomendado > 0
-      ? Math.min(Math.max((Math.max(saldoGerencial, 0) / caixaMinimoRecomendado) * 100, 0), 100)
+    const baseMinimaComEmprestimos = caixaMinimoRecomendado + emprestimosMensaisHC
+    const percentualCaixa = baseMinimaComEmprestimos > 0
+      ? Math.min(Math.max((Math.max(saldoGerencial, 0) / baseMinimaComEmprestimos) * 100, 0), 100)
       : saldoGerencial > 0 ? 100 : 0
 
     const maiorErroFinanceiro = usoCaixaProtegido > 0
@@ -1858,12 +1925,12 @@ export default function FinanceiroPage() {
       acaoRecomendada = 'Repor primeiro o dinheiro protegido, depois recompor o caixa mínimo.'
     } else if (excessoRetiradasSocios > 0) {
       statusDono = 'ATENÇÃO'
-      mensagemDono = 'O caixa da HC não está livre: retiradas acima do permitido consumiram a reserva.'
-      acaoRecomendada = 'Bloquear retiradas e recompor o caixa mínimo antes de qualquer gasto livre.'
+      mensagemDono = 'O caixa da HC não está livre: retiradas acima do permitido e empréstimos consomem a reserva.'
+      acaoRecomendada = 'Bloquear retiradas, pagar empréstimos e recompor o caixa mínimo antes de qualquer gasto livre.'
     } else if (faltaReservaHC > 0) {
       statusDono = 'ATENÇÃO'
-      mensagemDono = 'Existe saldo gerencial, mas ele ainda não é caixa livre da HC.'
-      acaoRecomendada = 'Economizar primeiro até recompor o caixa mínimo.'
+      mensagemDono = 'Existe saldo gerencial, mas ele ainda precisa cobrir caixa mínimo e empréstimos.'
+      acaoRecomendada = 'Economizar primeiro até recompor o caixa mínimo e cobrir a parcela mensal dos empréstimos.'
     } else if (podeRetirarAgora > 0) {
       statusDono = 'SAUDÁVEL'
       mensagemDono = 'Existe caixa acima da reserva e saldo positivo para distribuição.'
@@ -1878,6 +1945,12 @@ export default function FinanceiroPage() {
       valorRecebido,
       profitHC,
       despesas,
+      emprestimosPagos,
+      emprestimosMensaisHC,
+      saldoDevedorEmprestimosHC,
+      qtdEmprestimosHC,
+      necessidadeMinimaAntesRetirada,
+      baseMinimaComEmprestimos,
       retiradasMarcos,
       retiradasHerica,
       retiradasTotal,
@@ -2278,6 +2351,7 @@ export default function FinanceiroPage() {
           { label: 'Terceiros a pagar/proteger', valor: moeda(resumoExtratoGeralAno.terceirosProtegidos), detalhe: 'Dinheiro que não pertence à HC' },
           { label: 'Uso de caixa protegido', valor: moeda(resumoExtratoGeralAno.usoCaixaProtegido), detalhe: 'Quando o caixa livre da HC fica negativo' },
           { label: 'Caixa mínimo recomendado', valor: moeda(resumoExtratoGeralAno.caixaMinimoRecomendado), detalhe: '50% do lucro operacional positivo' },
+          { label: 'Empréstimos mensais', valor: moeda(resumoExtratoGeralAno.emprestimosMensaisHC), detalhe: `${resumoExtratoGeralAno.qtdEmprestimosHC} contratos ativos` },
           { label: 'Precisa economizar/repor', valor: moeda(resumoExtratoGeralAno.faltaReporCaixa), detalhe: resumoExtratoGeralAno.acaoRecomendada },
           { label: 'Pode retirar agora', valor: moeda(resumoExtratoGeralAno.podeRetirarAgora), detalhe: 'Limite seguro total dos sócios' },
           { label: 'Pode gastar livre', valor: moeda(resumoExtratoGeralAno.gastoLivrePermitido), detalhe: 'Após caixa mínimo e retiradas permitidas' },
@@ -2325,7 +2399,8 @@ export default function FinanceiroPage() {
           { label: 'Valor recebido', valor: moeda(resultadoGeral.valorRecebido), detalhe: `${resultadoGeral.processos} processos pagos` },
           { label: 'Profit HC', valor: moeda(resultadoGeral.profitRecebido), detalhe: `${resultadoGeral.semCusto} sem custo` },
           { label: 'Despesas pagas', valor: moeda(resultadoGeral.despesasPagas), detalhe: `${moeda(resultadoGeral.despesasPendentes)} pendente` },
-          { label: 'Lucro líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas' },
+          { label: 'Empréstimos pagos', valor: moeda(resultadoGeral.emprestimosPagos), detalhe: `${moeda(resultadoGeral.emprestimosPendentes)} pendente` },
+          { label: 'Lucro líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - empréstimos' },
           { label: 'Fundo 50%', valor: moeda(resultadoGeral.fundoPrevistoMes), detalhe: `${moeda(resultadoGeral.reservasFundoMes)} reservado` },
           { label: 'Parte Marcos 25%', valor: moeda(resultadoGeral.parteMarcos), detalhe: `${moeda(resultadoGeral.retiradasMarcos)} retirado` },
           { label: 'Parte Hérica 25%', valor: moeda(resultadoGeral.parteHerica), detalhe: `${moeda(resultadoGeral.retiradasHerica)} retirado` },
@@ -2335,6 +2410,7 @@ export default function FinanceiroPage() {
         linhas: [
           ['Profit HC dos processos recebidos', moeda(resultadoGeral.profitRecebido)],
           ['Despesas pagas da empresa', `- ${moeda(resultadoGeral.despesasPagas)}`],
+          ['Empréstimos pagos da HC', `- ${moeda(resultadoGeral.emprestimosPagos)}`],
           ['Lucro líquido para distribuição', moeda(resultadoGeral.resultadoOperacional)],
           ['50% para fundo de caixa', moeda(resultadoGeral.fundoPrevistoMes)],
           ['25% parte Marcos', moeda(resultadoGeral.parteMarcos)],
@@ -2792,9 +2868,16 @@ export default function FinanceiroPage() {
               />
 
               <DonoResumoCard
+                titulo="Empréstimos da HC"
+                valor={moeda(resumoDono.emprestimosMensaisHC)}
+                detalhe={`Parcela mensal fixa. Saldo devedor: ${moeda(resumoDono.saldoDevedorEmprestimosHC)}`}
+                classe="bg-purple-50 text-purple-700 border-purple-200"
+              />
+
+              <DonoResumoCard
                 titulo="Tenho que economizar/repor"
                 valor={moeda(resumoDono.faltaReporCaixa)}
-                detalhe={resumoDono.faltaReporCaixa > 0 ? 'Completar caixa mínimo antes de retirar ou gastar' : 'Caixa mínimo sob controle'}
+                detalhe={resumoDono.faltaReporCaixa > 0 ? 'Completar caixa mínimo + empréstimos antes de retirar ou gastar' : 'Caixa mínimo e empréstimos sob controle'}
                 classe={resumoDono.faltaReporCaixa > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}
               />
 
@@ -2829,14 +2912,14 @@ export default function FinanceiroPage() {
 
             <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
               <div className="flex items-center justify-between gap-3 mb-2">
-                <p className="text-sm font-black text-slate-200">Cobertura do caixa mínimo</p>
+                <p className="text-sm font-black text-slate-200">Cobertura do caixa mínimo + empréstimos</p>
                 <p className="text-sm font-black text-white">{resumoDono.percentualCaixa.toFixed(0)}%</p>
               </div>
               <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
                 <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${resumoDono.percentualCaixa}%` }} />
               </div>
               <p className="mt-2 text-xs font-bold text-slate-400">
-                Mínimo recomendado: {moeda(resumoDono.caixaMinimoRecomendado)} | Saldo gerencial: {moeda(resumoDono.saldoGerencial)} | Caixa livre HC: {moeda(resumoDono.caixaLivreHC)}
+                Mínimo recomendado: {moeda(resumoDono.caixaMinimoRecomendado)} | Empréstimos mês: {moeda(resumoDono.emprestimosMensaisHC)} | Necessidade mínima: {moeda(resumoDono.baseMinimaComEmprestimos)} | Saldo gerencial: {moeda(resumoDono.saldoGerencial)}
               </p>
             </div>
           </section>
@@ -2856,7 +2939,7 @@ export default function FinanceiroPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
               <ErroCard
                 titulo="Retiradas acima do permitido"
                 valor={moeda(resumoDono.excessoRetiradasSocios)}
@@ -2869,6 +2952,13 @@ export default function FinanceiroPage() {
                 valor={moeda(resumoDono.faltaReservaHC)}
                 detalhe={`Mínimo: ${moeda(resumoDono.caixaMinimoRecomendado)} | Saldo: ${moeda(resumoDono.saldoGerencial)}`}
                 ruim={resumoDono.faltaReservaHC > 0}
+              />
+
+              <ErroCard
+                titulo="Empréstimos fixos da HC"
+                valor={moeda(resumoDono.emprestimosMensaisHC)}
+                detalhe={`Compromisso mensal antes de retirada. Saldo devedor: ${moeda(resumoDono.saldoDevedorEmprestimosHC)}`}
+                ruim={resumoDono.emprestimosMensaisHC > 0}
               />
 
               <ErroCard
@@ -2889,7 +2979,7 @@ export default function FinanceiroPage() {
             <div className="mt-4 rounded-2xl border border-red-200 bg-white p-4">
               <p className="text-sm font-black text-red-950">Leitura prática</p>
               <p className="mt-1 text-sm font-semibold text-red-700">
-                O erro principal é decidir pelo saldo da conta. Mesmo que exista saldo gerencial, ele vira R$ 0,00 de caixa livre quando as retiradas passam do permitido e a reserva mínima não foi recomposta.
+                O erro principal é decidir pelo saldo da conta. Mesmo que exista saldo gerencial, ele vira R$ 0,00 de caixa livre quando as retiradas passam do permitido, a reserva mínima não foi recomposta e ainda existem empréstimos fixos da HC para pagar.
               </p>
             </div>
           </section>
@@ -2972,6 +3062,7 @@ export default function FinanceiroPage() {
               <FiltroResumoCard titulo="Profit HC" valor={moeda(resumoExtrato.profitHC)} detalhe="Dos processos pagos" classe="bg-white text-green-700 border-green-100" />
               <FiltroResumoCard titulo="Terceiros protegidos" valor={moeda(resumoExtrato.terceirosProtegidos)} detalhe="Dinheiro que não é da HC" classe="bg-white text-orange-700 border-orange-100" />
               <FiltroResumoCard titulo="Despesas" valor={moeda(resumoExtrato.despesas)} detalhe="Despesas pagas" classe="bg-white text-red-700 border-red-100" />
+              <FiltroResumoCard titulo="Empréstimos pagos" valor={moeda(resumoExtrato.emprestimosPagos)} detalhe={`Parcela mensal fixa: ${moeda(resumoExtrato.emprestimosMensaisHC)}`} classe="bg-white text-purple-700 border-purple-100" />
               <FiltroResumoCard titulo="Retiradas total" valor={moeda(resumoExtrato.retiradasTotal)} detalhe="Marcos + Hérica" classe="bg-white text-slate-700 border-slate-100" />
             </section>
           </section>
@@ -3467,7 +3558,8 @@ export default function FinanceiroPage() {
             <FiltroResumoCard titulo="Valor recebido" valor={moeda(resultadoGeral.valorRecebido)} detalhe={`${resultadoGeral.processos} processos pagos`} classe="bg-white text-blue-700 border-blue-100" />
             <FiltroResumoCard titulo="Profit HC recebido" valor={moeda(resultadoGeral.profitRecebido)} detalhe={resultadoGeral.semCusto > 0 ? `${resultadoGeral.semCusto} sem custo` : 'Com custo lançado'} classe="bg-white text-green-700 border-green-100" />
             <FiltroResumoCard titulo="Despesas pagas" valor={moeda(resultadoGeral.despesasPagas)} detalhe={`${moeda(resultadoGeral.despesasPendentes)} pendente`} classe="bg-white text-red-700 border-red-100" />
-            <FiltroResumoCard titulo="Lucro líquido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas pagas" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+            <FiltroResumoCard titulo="Empréstimos pagos" valor={moeda(resultadoGeral.emprestimosPagos)} detalhe={`Parcela mensal fixa: ${moeda(resultadoGeral.parcelaEmprestimosMensal)}`} classe="bg-white text-purple-700 border-purple-100" />
+            <FiltroResumoCard titulo="Lucro líquido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas - empréstimos" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
