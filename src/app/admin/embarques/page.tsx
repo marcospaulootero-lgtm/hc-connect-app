@@ -13,6 +13,7 @@ export default function EmbarquesPage() {
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
+  const [filtroArquivamento, setFiltroArquivamento] = useState('ATIVOS')
 
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
   const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
@@ -464,6 +465,49 @@ export default function EmbarquesPage() {
     carregar()
   }
 
+
+  async function alternarArquivamentoEmbarque(item: any, arquivar: boolean) {
+    const acao = arquivar ? 'arquivar' : 'restaurar'
+    const confirmar = confirm(
+      arquivar
+        ? `Deseja arquivar o embarque ${item.awb || '-'} no painel admin?`
+        : `Deseja restaurar o embarque ${item.awb || '-'} para a lista principal?`
+    )
+
+    if (!confirmar) return
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const { error } = await supabase
+      .from('embarques')
+      .update({
+        arquivado_admin: arquivar,
+        arquivado_admin_em: arquivar ? new Date().toISOString() : null,
+        arquivado_admin_por: arquivar ? user?.id || null : null,
+        ultima_atualizacao: new Date().toISOString(),
+      })
+      .eq('id', item.id)
+
+    if (error) {
+      alert(`Erro ao ${acao} embarque: ${error.message}`)
+      console.error('Erro arquivamento admin:', error)
+      return
+    }
+
+    await supabase.from('timeline_embarques').insert({
+      embarque_id: item.id,
+      status: arquivar ? 'ARQUIVADO ADMIN' : 'RESTAURADO ADMIN',
+      descricao: arquivar
+        ? 'Embarque arquivado no painel administrativo.'
+        : 'Embarque restaurado no painel administrativo.',
+    })
+
+    alert(arquivar ? 'Embarque arquivado no admin.' : 'Embarque restaurado no admin.')
+    carregar()
+  }
+
   async function excluirEmbarque(id: string) {
     const confirmar = confirm('Deseja realmente excluir este embarque?')
     if (!confirmar) return
@@ -510,16 +554,31 @@ export default function EmbarquesPage() {
       const matchStatus = !filtroStatus || item.status_operacional === filtroStatus
       const matchTransportadora =
         !filtroTransportadora || item.transportadora === filtroTransportadora
+      const matchArquivamento =
+        filtroArquivamento === 'TODOS' ||
+        (filtroArquivamento === 'ARQUIVADOS'
+          ? !!item.arquivado_admin
+          : !item.arquivado_admin)
 
-      return matchBusca && matchStatus && matchTransportadora
+      return matchBusca && matchStatus && matchTransportadora && matchArquivamento
     })
-  }, [embarques, usuarios, vinculos, busca, filtroStatus, filtroTransportadora])
+  }, [
+    embarques,
+    usuarios,
+    vinculos,
+    busca,
+    filtroStatus,
+    filtroTransportadora,
+    filtroArquivamento,
+  ])
 
-  const totalEmbarques = embarques.length
-  const totalTransito = embarques.filter((e) => e.status_operacional === 'Em trânsito').length
-  const totalFiscalizacao = embarques.filter((e) => e.status_operacional === 'Fiscalização').length
-  const totalLiberados = embarques.filter((e) => e.status_operacional === 'Liberado').length
-  const totalEntregues = embarques.filter((e) => e.status_operacional === 'Entregue').length
+  const embarquesAtivos = embarques.filter((e) => !e.arquivado_admin)
+  const totalEmbarques = embarquesAtivos.length
+  const totalTransito = embarquesAtivos.filter((e) => e.status_operacional === 'Em trânsito').length
+  const totalFiscalizacao = embarquesAtivos.filter((e) => e.status_operacional === 'Fiscalização').length
+  const totalLiberados = embarquesAtivos.filter((e) => e.status_operacional === 'Liberado').length
+  const totalEntregues = embarquesAtivos.filter((e) => e.status_operacional === 'Entregue').length
+  const totalArquivados = embarques.filter((e) => e.arquivado_admin).length
 
   return (
     <main className="w-full max-w-none p-8 text-white">
@@ -539,12 +598,13 @@ export default function EmbarquesPage() {
         </button>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+      <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
         <KpiCard titulo="Total de embarques" valor={totalEmbarques} detalhe="Processos cadastrados" icone="📦" />
         <KpiCard titulo="Em trânsito" valor={totalTransito} detalhe="Em andamento" icone="🚚" />
         <KpiCard titulo="Em fiscalização" valor={totalFiscalizacao} detalhe="Atenção operacional" icone="🛡️" />
         <KpiCard titulo="Liberados" valor={totalLiberados} detalhe="Liberados para seguir" icone="✅" />
         <KpiCard titulo="Entregues" valor={totalEntregues} detalhe="Finalizados" icone="📬" />
+        <KpiCard titulo="Arquivados" valor={totalArquivados} detalhe="Ocultos do admin" icone="🗄️" />
       </section>
 
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225] mb-8">
@@ -726,6 +786,7 @@ export default function EmbarquesPage() {
               setBusca('')
               setFiltroStatus('')
               setFiltroTransportadora('')
+              setFiltroArquivamento('ATIVOS')
             }}
             className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
           >
@@ -733,9 +794,9 @@ export default function EmbarquesPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
           <input
-            placeholder="Buscar por AWB, cliente, exportador..."
+            placeholder="Buscar por AWB, Master, cliente, exportador..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -757,6 +818,12 @@ export default function EmbarquesPage() {
             <option value="FedEx">FedEx</option>
             <option value="UPS">UPS</option>
             <option value="Outra">Outra</option>
+          </select>
+
+          <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+            <option value="ATIVOS">Ativos</option>
+            <option value="ARQUIVADOS">Arquivados</option>
+            <option value="TODOS">Todos</option>
           </select>
 
           <div className="text-slate-400 flex items-center">
@@ -782,6 +849,13 @@ export default function EmbarquesPage() {
 
                   <div className="mt-3 flex flex-wrap gap-2 items-center">
                     <StatusBadge status={item.status_operacional} />
+
+                    {item.arquivado_admin && (
+                      <span className="bg-slate-600/20 text-slate-300 border border-slate-500 px-3 py-1 rounded-full text-xs font-black">
+                        🗄️ Arquivado admin
+                      </span>
+                    )}
+
                     <span className="text-slate-400">
                       {item.transportadora || '-'} • {item.servico || '-'}
                     </span>
@@ -1120,6 +1194,17 @@ export default function EmbarquesPage() {
                     Rastrear
                   </a>
                 )}
+
+                <button
+                  onClick={() => alternarArquivamentoEmbarque(item, !item.arquivado_admin)}
+                  className={
+                    item.arquivado_admin
+                      ? 'bg-green-700 hover:bg-green-600 px-4 py-3 rounded-xl font-bold'
+                      : 'bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold'
+                  }
+                >
+                  {item.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                </button>
 
                 <button
                   onClick={() => excluirEmbarque(item.id)}

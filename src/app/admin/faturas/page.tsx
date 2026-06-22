@@ -44,6 +44,9 @@ type Fatura = {
   criado_em: string
   visivel_cliente?: boolean | null
   observacoes?: string | null
+  arquivado_admin?: boolean | null
+  arquivado_admin_em?: string | null
+  arquivado_admin_por?: string | null
   embarques?: any
 }
 
@@ -107,6 +110,7 @@ export default function FaturasPage() {
   const [filtroDocumento, setFiltroDocumento] = useState('TODOS')
   const [filtroStatusEmbarque, setFiltroStatusEmbarque] = useState('TODOS')
   const [filtroPagamento, setFiltroPagamento] = useState('TODOS')
+  const [filtroArquivamento, setFiltroArquivamento] = useState('ATIVAS')
 
   const [embarqueSelecionado, setEmbarqueSelecionado] = useState<Embarque | null>(null)
   const [numeroFatura, setNumeroFatura] = useState('')
@@ -139,6 +143,9 @@ export default function FaturasPage() {
         criado_em,
         visivel_cliente,
         observacoes,
+        arquivado_admin,
+        arquivado_admin_em,
+        arquivado_admin_por,
         embarques (
           awb,
           cliente_final,
@@ -537,7 +544,19 @@ export default function FaturasPage() {
         (filtroPagamento === 'SEM_FINANCEIRO' && pagamento.status === 'SEM_FINANCEIRO') ||
         (filtroPagamento === 'SEM_FATURA' && !fatura)
 
-      return passaBusca && passaDocumento && passaStatusEmbarque && passaPagamento
+      const passaArquivamento =
+        filtroArquivamento === 'TODAS' ||
+        (filtroArquivamento === 'ARQUIVADAS'
+          ? !!fatura?.arquivado_admin
+          : !fatura?.arquivado_admin)
+
+      return (
+        passaBusca &&
+        passaDocumento &&
+        passaStatusEmbarque &&
+        passaPagamento &&
+        passaArquivamento
+      )
     })
   }, [
     embarques,
@@ -548,12 +567,15 @@ export default function FaturasPage() {
     filtroDocumento,
     filtroStatusEmbarque,
     filtroPagamento,
+    filtroArquivamento,
   ])
 
-  const totalComFatura = faturas.filter((f) => f.arquivo_pdf).length
-  const totalVisiveis = faturas.filter((f) => f.visivel_cliente).length
-  const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
+  const faturasAtivas = faturas.filter((f) => !f.arquivado_admin)
+  const totalComFatura = faturasAtivas.filter((f) => f.arquivo_pdf).length
+  const totalVisiveis = faturasAtivas.filter((f) => f.visivel_cliente).length
+  const totalRecibos = faturasAtivas.filter((f) => f.recibo_pdf).length
   const totalSemFatura = embarques.filter((e) => !faturaDoEmbarque(e.id)?.arquivo_pdf).length
+  const totalFaturasArquivadas = faturas.filter((f) => f.arquivado_admin).length
 
   const pagamentosFinanceiros = embarques.map((e) => ({
     embarque: e,
@@ -773,6 +795,39 @@ export default function FaturasPage() {
     carregar()
   }
 
+
+  async function alternarArquivamentoFatura(fatura: Fatura, arquivar: boolean) {
+    const confirmar = confirm(
+      arquivar
+        ? `Deseja arquivar a fatura ${fatura.numero_fatura || ''} no painel admin?`
+        : `Deseja restaurar a fatura ${fatura.numero_fatura || ''} para a lista principal?`
+    )
+
+    if (!confirmar) return
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const { error } = await supabase
+      .from('faturas')
+      .update({
+        arquivado_admin: arquivar,
+        arquivado_admin_em: arquivar ? new Date().toISOString() : null,
+        arquivado_admin_por: arquivar ? user?.id || null : null,
+      })
+      .eq('id', fatura.id)
+
+    if (error) {
+      alert(error.message)
+      console.error('Erro arquivamento fatura admin:', error)
+      return
+    }
+
+    alert(arquivar ? 'Fatura arquivada no admin.' : 'Fatura restaurada no admin.')
+    carregar()
+  }
+
   return (
     <main className="w-full max-w-none p-6 lg:p-8 text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
@@ -792,11 +847,12 @@ export default function FaturasPage() {
         </button>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
         <Card titulo="Com fatura" valor={totalComFatura} detalhe="PDF anexado" icone="🧾" />
         <Card titulo="Sem fatura" valor={totalSemFatura} detalhe="Pendente de anexo" icone="📄" />
         <Card titulo="Visíveis" valor={totalVisiveis} detalhe="Cliente pode acessar" icone="👁️" />
         <Card titulo="Com recibo" valor={totalRecibos} detalhe="Recibo anexado" icone="✅" />
+        <Card titulo="Arquivadas" valor={totalFaturasArquivadas} detalhe="Ocultas do admin" icone="🗄️" />
       </section>
 
       {embarqueSelecionado && (
@@ -875,7 +931,7 @@ export default function FaturasPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 w-full lg:max-w-[1150px]">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3 w-full lg:max-w-[1250px]">
             <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
               <option value="TODOS">Documentos: todos</option>
               <option value="COM_FATURA">Com fatura</option>
@@ -905,6 +961,12 @@ export default function FaturasPage() {
               <option value="EM_ABERTO">Em aberto no financeiro</option>
               <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
               <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
             </select>
 
             <input
@@ -986,7 +1048,14 @@ export default function FaturasPage() {
                           <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
                         </div>
                       </td>
-                      <td>{fatura?.numero_fatura || '-'}</td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
                       <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
                       <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
                       <td>
@@ -1049,6 +1118,19 @@ export default function FaturasPage() {
                           {fatura && (
                             <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
                               {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFatura(fatura, !fatura.arquivado_admin)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura.arquivado_admin ? 'Restaurar' : 'Arquivar'}
                             </button>
                           )}
 
