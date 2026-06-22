@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
@@ -15,6 +15,20 @@ type Embarque = {
   transportadora: string | null
   status_operacional: string | null
   criado_em?: string | null
+  servico?: string | null
+  origem?: string | null
+  destino?: string | null
+  referencia_cliente?: string | null
+  referencia_hc?: string | null
+  valor_venda?: number | string | null
+  valor_fechado?: number | string | null
+  valor_cobrado_cliente?: number | string | null
+  moeda?: string | null
+  moeda_cobranca?: string | null
+  taxa_conversao?: number | string | null
+  spread?: number | string | null
+  peso_real?: number | string | null
+  peso_taxado?: number | string | null
 }
 
 type Fatura = {
@@ -39,6 +53,20 @@ type FinanceiroProcesso = {
   recebimento?: string | null
 }
 
+type DocumentoEmbarque = {
+  id: string
+  embarque_id: string
+  nome?: string | null
+  nome_arquivo?: string | null
+  filename?: string | null
+  tipo?: string | null
+  categoria?: string | null
+  url?: string | null
+  arquivo_url?: string | null
+  arquivo_pdf?: string | null
+  criado_em?: string | null
+}
+
 type StatusPagamentoFinanceiro = {
   status: 'PAGO' | 'ATRASADO' | 'EM_ABERTO' | 'SEM_FINANCEIRO'
   label: string
@@ -50,6 +78,8 @@ export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
   const [financeiros, setFinanceiros] = useState<FinanceiroProcesso[]>([])
+  const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<Record<string, DocumentoEmbarque[]>>({})
+  const [pacoteAbertoId, setPacoteAbertoId] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
@@ -115,9 +145,30 @@ export default function FaturasPage() {
 
     if (erroFinanceiro) console.log(erroFinanceiro)
 
+    const idsEmbarques = ((embarquesData as Embarque[]) || []).map((item) => item.id)
+    let documentosAgrupados: Record<string, DocumentoEmbarque[]> = {}
+
+    if (idsEmbarques.length > 0) {
+      const { data: documentosData, error: erroDocumentos } = await supabase
+        .from('documentos_embarques')
+        .select('*')
+        .in('embarque_id', idsEmbarques)
+
+      if (erroDocumentos) {
+        console.log('ERRO DOCUMENTOS EMBARQUES:', erroDocumentos)
+      }
+
+      ;((documentosData as DocumentoEmbarque[]) || []).forEach((doc) => {
+        if (!doc.embarque_id) return
+        if (!documentosAgrupados[doc.embarque_id]) documentosAgrupados[doc.embarque_id] = []
+        documentosAgrupados[doc.embarque_id].push(doc)
+      })
+    }
+
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
     setFinanceiros((financeiroData as FinanceiroProcesso[]) || [])
+    setDocumentosPorEmbarque(documentosAgrupados)
   }
 
   function normalizarAwb(valor?: string | null) {
@@ -167,6 +218,76 @@ export default function FaturasPage() {
       style: 'currency',
       currency: 'BRL',
     })
+  }
+
+  function numero(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return 0
+    if (typeof valor === 'number') return valor
+
+    return (
+      Number(
+        String(valor)
+          .replace(/[R$USD\s]/gi, '')
+          .replace(/\./g, '')
+          .replace(',', '.')
+      ) || 0
+    )
+  }
+
+  function texto(valor: any) {
+    return String(valor || '').trim()
+  }
+
+  function normalizarTexto(valor: any) {
+    return texto(valor)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+  }
+
+  function moedaFechada(embarque: Embarque, financeiro: FinanceiroProcesso | null) {
+    const valor =
+      numero(embarque.valor_venda) ||
+      numero(embarque.valor_fechado) ||
+      numero(embarque.valor_cobrado_cliente) ||
+      numero(financeiro?.valor_cobranca)
+
+    if (!valor) return '-'
+
+    const moedaBase = normalizarTexto(embarque.moeda_cobranca || embarque.moeda || 'BRL')
+
+    if (moedaBase === 'BRL' || !moedaBase) return moeda(valor)
+
+    return `${moedaBase} ${valor.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
+  }
+
+  function documentosDoEmbarque(embarqueId: string) {
+    return documentosPorEmbarque[embarqueId] || []
+  }
+
+  function nomeDocumento(doc: DocumentoEmbarque) {
+    return texto(doc.nome || doc.nome_arquivo || doc.filename || doc.tipo || doc.categoria || 'Documento')
+  }
+
+  function urlDocumento(doc: DocumentoEmbarque) {
+    return texto(doc.url || doc.arquivo_url || doc.arquivo_pdf)
+  }
+
+  function documentoEhCotacao(doc: DocumentoEmbarque) {
+    const base = normalizarTexto(`${nomeDocumento(doc)} ${doc.tipo || ''} ${doc.categoria || ''}`)
+    return (
+      base.includes('COTACAO') ||
+      base.includes('ORCAMENTO') ||
+      base.includes('PROPOSTA') ||
+      base.includes('QUOTE')
+    )
+  }
+
+  function cotacoesDoEmbarque(embarqueId: string) {
+    return documentosDoEmbarque(embarqueId).filter(documentoEhCotacao)
   }
 
   function hojeISO() {
@@ -237,7 +358,11 @@ export default function FaturasPage() {
         ${e.exportador || ''}
         ${e.importador || ''}
         ${e.transportadora || ''}
+        ${e.servico || ''}
+        ${e.referencia_cliente || ''}
+        ${e.referencia_hc || ''}
         ${fatura?.numero_fatura || ''}
+        ${documentosDoEmbarque(e.id).map(nomeDocumento).join(' ')}
       `.toLowerCase()
 
       const passaBusca = texto.includes(busca.toLowerCase())
@@ -269,6 +394,7 @@ export default function FaturasPage() {
     embarques,
     faturas,
     financeiros,
+    documentosPorEmbarque,
     busca,
     filtroDocumento,
     filtroStatusEmbarque,
@@ -505,7 +631,7 @@ export default function FaturasPage() {
           <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
           <h1 className="text-5xl font-black mb-2">Faturas</h1>
           <p className="text-slate-400 text-lg">
-            Anexe faturas e recibos em PDF. Pagamento e vencimento vêm do Financeiro &gt; Processos Faturados.
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
           </p>
         </div>
 
@@ -596,7 +722,7 @@ export default function FaturasPage() {
           <div>
             <h2 className="text-2xl font-black">Faturas por embarque</h2>
             <p className="text-slate-400 text-sm">
-              Esta tela gerencia PDFs. A coluna Pagamento consulta o AWB em Financeiro &gt; Processos Faturados.
+              Esta tela mostra o pacote do embarque para faturamento: valor fechado, cotação, documentos, fatura, recibo e status financeiro.
             </p>
           </div>
 
@@ -649,27 +775,16 @@ export default function FaturasPage() {
           <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
         </div>
 
-        <div className="w-full overflow-visible">
-          <table className="w-full table-fixed border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-2 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-2 [&_td]:py-4 [&_td]:align-middle [&_td]:break-words">
-            <colgroup>
-              <col className="w-[9%]" />
-              <col className="w-[12%]" />
-              <col className="w-[8%]" />
-              <col className="w-[10%]" />
-              <col className="w-[8%]" />
-              <col className="w-[8%]" />
-              <col className="w-[6%]" />
-              <col className="w-[7%]" />
-              <col className="w-[8%]" />
-              <col className="w-[12%]" />
-              <col className="w-[12%]" />
-            </colgroup>
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1720px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
             <thead>
               <tr>
                 <th>AWB</th>
                 <th>Cliente</th>
-                <th>Transportadora</th>
-                <th>Status operacional</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
                 <th>Nº Fatura</th>
                 <th>Vencimento</th>
                 <th>Visível</th>
@@ -685,79 +800,197 @@ export default function FaturasPage() {
                 const fatura = faturaDoEmbarque(embarque.id)
                 const financeiro = financeiroDoAwb(embarque.awb)
                 const pagamento = statusPagamentoFinanceiro(financeiro)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
 
                 return (
-                  <tr key={embarque.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
-                    <td className="font-black text-blue-400">{embarque.awb || '-'}</td>
-                    <td>{embarque.cliente_final || embarque.importador || '-'}</td>
-                    <td>{embarque.transportadora || '-'}</td>
-                    <td>
-                      <StatusBadge status={embarque.status_operacional || '-'} />
-                    </td>
-                    <td>{fatura?.numero_fatura || '-'}</td>
-                    <td>{dataBR(financeiro?.vencimento_cobranca || null)}</td>
-                    <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
-                    <td>
-                      {fatura?.arquivo_pdf ? (
-                        <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
-                          Abrir
-                        </Link>
-                      ) : (
-                        <span className="text-slate-500">Sem fatura</span>
-                      )}
-                    </td>
-                    <td>
-                      {fatura?.recibo_pdf ? (
-                        <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
-                          Abrir
-                        </Link>
-                      ) : fatura?.arquivo_pdf ? (
-                        <label className="inline-flex cursor-pointer rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
-                          {enviandoRecibo === embarque.id ? 'Enviando...' : 'Anexar'}
-                          <input
-                            type="file"
-                            accept="application/pdf"
-                            disabled={enviandoRecibo === embarque.id}
-                            onChange={(e) => anexarRecibo(embarque, e.target.files?.[0] || null)}
-                            className="hidden"
-                          />
-                        </label>
-                      ) : (
-                        <span className="text-slate-500">-</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
-                        <span>{pagamento.label}</span>
-                        {financeiro ? (
-                          <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
-                        ) : null}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex flex-wrap gap-1">
-                        <button onClick={() => abrirFormulario(embarque)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black">
-                          {fatura ? 'Editar' : 'Anexar'}
-                        </button>
-
-                        {fatura && (
-                          <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
-                            {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
-                          </button>
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>{fatura?.numero_fatura || '-'}</td>
+                      <td>{dataBR(financeiro?.vencimento_cobranca || null)}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                            Abrir
+                          </Link>
+                        ) : (
+                          <span className="text-slate-500">Sem fatura</span>
                         )}
-
-                        {fatura?.arquivo_pdf && (
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
+                            Abrir
+                          </Link>
+                        ) : fatura?.arquivo_pdf ? (
+                          <label className="inline-flex cursor-pointer rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
+                            {enviandoRecibo === embarque.id ? 'Enviando...' : 'Anexar'}
+                            <input
+                              type="file"
+                              accept="application/pdf"
+                              disabled={enviandoRecibo === embarque.id}
+                              onChange={(e) => anexarRecibo(embarque, e.target.files?.[0] || null)}
+                              className="hidden"
+                            />
+                          </label>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                          <span>{pagamento.label}</span>
+                          {financeiro ? (
+                            <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                          ) : null}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
                           <button
-                            onClick={() => removerFatura(embarque)}
-                            disabled={removendoFatura === embarque.id}
-                            className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
                           >
-                            {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button onClick={() => abrirFormulario(embarque)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black">
+                            {fatura ? 'Editar' : 'Anexar'}
+                          </button>
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={13} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(financeiro?.vencimento_cobranca || null)} />
+                                <InfoPacote label="Recebimento" valor={dataBR(financeiro?.recebimento || null)} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -780,6 +1013,17 @@ function ResumoFiltro({ titulo, valor, detalhe }: any) {
       <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
       <p className="mt-2 text-2xl font-black text-white">{valor}</p>
       <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
     </div>
   )
 }
