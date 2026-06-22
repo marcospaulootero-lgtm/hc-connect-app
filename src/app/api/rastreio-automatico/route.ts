@@ -364,7 +364,36 @@ async function rastrearFedEx(embarque: any, awb: string) {
 function normalizarStatus(status: string) {
   const s = String(status || '').toLowerCase()
 
-  if (s.includes('delivered') || s.includes('entregue')) {
+  // DHL pode retornar: "A remessa será liberada e entregue pelo despachante aduaneiro".
+  // Isso NÃO é entrega final ao destinatário; é transferência/liberação para o despachante.
+  // Esta regra precisa vir antes de qualquer validação de entregue.
+  if (
+    s.includes('despachante aduaneiro') ||
+    s.includes('despachante') ||
+    s.includes('customs broker') ||
+    s.includes('broker') ||
+    s.includes('aduaneiro')
+  ) {
+    return 'Liberado'
+  }
+
+  // Entrega final somente quando a transportadora indicar POD/entrega concluída.
+  // Não usamos apenas "entregue", porque a DHL usa essa palavra em eventos de despachante.
+  if (
+    s.includes('proof of delivery') ||
+    s.includes('shipment delivered') ||
+    s.includes('delivered to consignee') ||
+    s.includes('delivered to recipient') ||
+    s.includes('signed for') ||
+    s.includes('delivery completed') ||
+    s.includes('entrega realizada') ||
+    s.includes('entrega concluída') ||
+    s.includes('entrega concluida') ||
+    s.includes('entregue ao destinatário') ||
+    s.includes('entregue ao destinatario') ||
+    s.includes('recebedor') ||
+    s.includes('comprovante de entrega')
+  ) {
     return 'Entregue'
   }
 
@@ -376,6 +405,7 @@ function normalizarStatus(status: string) {
     s.includes('etiqueta') ||
     s.includes('gerou a etiqueta') ||
     s.includes('remessa ainda não foi entregue') ||
+    s.includes('remessa ainda nao foi entregue') ||
     s.includes('não foi entregue fisicamente') ||
     s.includes('nao foi entregue fisicamente') ||
     s.includes('not yet handed over') ||
@@ -395,7 +425,9 @@ function normalizarStatus(status: string) {
     s.includes('liberacao') ||
     s.includes('clearance') ||
     s.includes('customs') ||
-    s.includes('fiscal')
+    s.includes('fiscal') ||
+    s.includes('desembaraço') ||
+    s.includes('desembaraco')
   ) {
     return 'Fiscalização'
   }
@@ -416,7 +448,8 @@ function normalizarStatus(status: string) {
     s.includes('collected') ||
     s.includes('coletado') ||
     s.includes('coleta realizada') ||
-    s.includes('shipment picked up')
+    s.includes('shipment picked up') ||
+    s.includes('colet')
   ) {
     return 'Coletado'
   }
@@ -426,9 +459,12 @@ function normalizarStatus(status: string) {
     s.includes('trânsito') ||
     s.includes('transito') ||
     s.includes('processed') ||
+    s.includes('processado') ||
     s.includes('depart') ||
+    s.includes('partiu') ||
     s.includes('arrived') ||
     s.includes('arrival') ||
+    s.includes('chegou') ||
     s.includes('movement') ||
     s.includes('facility') ||
     s.includes('sort facility') ||
@@ -439,7 +475,6 @@ function normalizarStatus(status: string) {
 
   return 'Etiqueta gerada'
 }
-
 async function salvarRastreio({
   embarque,
   awb,

@@ -310,15 +310,68 @@ function encontrarDataColetaFedEx(eventos: any[]) {
 function normalizarStatus(status: string) {
   const s = String(status || '').toLowerCase()
 
-  if (s.includes('delivered') || s.includes('entregue')) return 'Entregue'
+  // DHL pode retornar: "A remessa será liberada e entregue pelo despachante aduaneiro".
+  // Isso NÃO é entrega final ao destinatário; é transferência/liberação para o despachante.
+  // Esta regra precisa vir antes de qualquer validação de entregue.
+  if (
+    s.includes('despachante aduaneiro') ||
+    s.includes('despachante') ||
+    s.includes('customs broker') ||
+    s.includes('broker') ||
+    s.includes('aduaneiro')
+  ) {
+    return 'Liberado'
+  }
+
+  // Entrega final somente quando a transportadora indicar POD/entrega concluída.
+  // Não usamos apenas "entregue", porque a DHL usa essa palavra em eventos de despachante.
+  if (
+    s.includes('proof of delivery') ||
+    s.includes('shipment delivered') ||
+    s.includes('delivered to consignee') ||
+    s.includes('delivered to recipient') ||
+    s.includes('signed for') ||
+    s.includes('delivery completed') ||
+    s.includes('entrega realizada') ||
+    s.includes('entrega concluída') ||
+    s.includes('entrega concluida') ||
+    s.includes('entregue ao destinatário') ||
+    s.includes('entregue ao destinatario') ||
+    s.includes('recebedor') ||
+    s.includes('comprovante de entrega')
+  ) {
+    return 'Entregue'
+  }
 
   if (
+    s.includes('shipment information received') ||
+    s.includes('shipping information received') ||
+    s.includes('label created') ||
+    s.includes('label generated') ||
+    s.includes('etiqueta') ||
+    s.includes('gerou a etiqueta') ||
+    s.includes('remessa ainda não foi entregue') ||
+    s.includes('remessa ainda nao foi entregue') ||
+    s.includes('não foi entregue fisicamente') ||
+    s.includes('nao foi entregue fisicamente') ||
+    s.includes('not yet handed over') ||
+    s.includes('not yet been handed over') ||
+    s.includes('not yet received') ||
+    s.includes('has not been handed over') ||
+    s.includes('aguardando coleta') ||
+    s.includes('pre-shipment')
+  ) {
+    return 'Etiqueta gerada'
+  }
+
+  if (
+    s.includes('clearance event') ||
+    s.includes('customs status updated') ||
     s.includes('liberação') ||
     s.includes('liberacao') ||
     s.includes('clearance') ||
     s.includes('customs') ||
     s.includes('fiscal') ||
-    s.includes('despachante') ||
     s.includes('desembaraço') ||
     s.includes('desembaraco')
   ) {
@@ -326,6 +379,8 @@ function normalizarStatus(status: string) {
   }
 
   if (
+    s.includes('available for delivery') ||
+    s.includes('out for delivery') ||
     s.includes('released') ||
     s.includes('liberado') ||
     s.includes('liberada')
@@ -334,9 +389,12 @@ function normalizarStatus(status: string) {
   }
 
   if (
-    s.includes('picked') ||
-    s.includes('pickup') ||
     s.includes('picked up') ||
+    s.includes('pickup') ||
+    s.includes('collected') ||
+    s.includes('coletado') ||
+    s.includes('coleta realizada') ||
+    s.includes('shipment picked up') ||
     s.includes('colet')
   ) {
     return 'Coletado'
@@ -348,15 +406,21 @@ function normalizarStatus(status: string) {
     s.includes('transito') ||
     s.includes('processed') ||
     s.includes('processado') ||
+    s.includes('depart') ||
+    s.includes('partiu') ||
+    s.includes('arrived') ||
+    s.includes('arrival') ||
     s.includes('chegou') ||
-    s.includes('partiu')
+    s.includes('movement') ||
+    s.includes('facility') ||
+    s.includes('sort facility') ||
+    s.includes('hub')
   ) {
     return 'Em trânsito'
   }
 
-  return 'Em trânsito'
+  return 'Etiqueta gerada'
 }
-
 async function salvarRastreio({
   embarque,
   awb,
