@@ -27,6 +27,10 @@ type Fatura = {
   recibo_pdf: string | null
   recibo_nome?: string | null
   data_pagamento?: string | null
+  comprovante_pagamento?: string | null
+  data_comprovante?: string | null
+  status_pagamento?: string | null
+  observacao_pagamento?: string | null
   criado_em: string
 }
 
@@ -37,6 +41,8 @@ export default function DetalheCliente() {
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [timeline, setTimeline] = useState<TimelineItem[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
+  const [arquivoSelecionado, setArquivoSelecionado] = useState<Record<string, File | null>>({})
+  const [enviandoComprovante, setEnviandoComprovante] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     carregar()
@@ -99,7 +105,19 @@ export default function DetalheCliente() {
 
     const { data: faturasData, error: erroFaturas } = await supabase
       .from('faturas')
-      .select('id, vencimento, arquivo_pdf, recibo_pdf, recibo_nome, data_pagamento, criado_em')
+      .select(`
+        id,
+        vencimento,
+        arquivo_pdf,
+        recibo_pdf,
+        recibo_nome,
+        data_pagamento,
+        comprovante_pagamento,
+        data_comprovante,
+        status_pagamento,
+        observacao_pagamento,
+        criado_em
+      `)
       .eq('embarque_id', params.id)
       .eq('visivel_cliente', true)
       .order('criado_em', { ascending: false })
@@ -109,6 +127,70 @@ export default function DetalheCliente() {
     }
 
     setFaturas(faturasData || [])
+  }
+
+  async function enviarComprovante(fatura: Fatura) {
+    const arquivo = arquivoSelecionado[fatura.id]
+
+    if (!arquivo) {
+      alert('Selecione o comprovante de pagamento.')
+      return
+    }
+
+    const tiposPermitidos = ['application/pdf', 'image/jpeg', 'image/png']
+
+    if (!tiposPermitidos.includes(arquivo.type)) {
+      alert('Envie apenas PDF, JPG ou PNG.')
+      return
+    }
+
+    setEnviandoComprovante((prev) => ({ ...prev, [fatura.id]: true }))
+
+    try {
+      const extensao = arquivo.name.split('.').pop() || 'pdf'
+      const nomeArquivo = `comprovantes/${fatura.id}/${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2)}.${extensao}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('documentos')
+        .upload(nomeArquivo, arquivo, {
+          cacheControl: '3600',
+          upsert: true,
+        })
+
+      if (uploadError) {
+        console.log('ERRO UPLOAD COMPROVANTE:', uploadError)
+        alert('Erro ao enviar comprovante.')
+        return
+      }
+
+      const { data: publicUrl } = supabase.storage
+        .from('documentos')
+        .getPublicUrl(nomeArquivo)
+
+      const { error: updateError } = await supabase
+        .from('faturas')
+        .update({
+          comprovante_pagamento: publicUrl.publicUrl,
+          data_comprovante: new Date().toISOString(),
+          status_pagamento: 'COMPROVANTE ENVIADO',
+          observacao_pagamento: null,
+        })
+        .eq('id', fatura.id)
+
+      if (updateError) {
+        console.log('ERRO SALVAR COMPROVANTE:', updateError)
+        alert('Comprovante enviado, mas houve erro ao salvar na fatura.')
+        return
+      }
+
+      alert('Comprovante enviado com sucesso.')
+      setArquivoSelecionado((prev) => ({ ...prev, [fatura.id]: null }))
+      await carregar()
+    } finally {
+      setEnviandoComprovante((prev) => ({ ...prev, [fatura.id]: false }))
+    }
   }
 
   function linkRastreio() {
@@ -218,6 +300,19 @@ export default function DetalheCliente() {
   function dataHoraBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleString('pt-BR')
+  }
+
+  function statusPagamentoTexto(fatura: Fatura) {
+    if (fatura.data_pagamento) return `Pago em ${dataBR(fatura.data_pagamento)}`
+    if (fatura.status_pagamento) return fatura.status_pagamento
+    if (fatura.comprovante_pagamento) return 'COMPROVANTE ENVIADO'
+    return 'Pendente'
+  }
+
+  function podeEnviarComprovante(fatura: Fatura) {
+    const status = String(fatura.status_pagamento || '').toUpperCase()
+
+    return !fatura.comprovante_pagamento || status === 'COMPROVANTE REJEITADO'
   }
 
   if (!embarque) {
@@ -475,35 +570,104 @@ export default function DetalheCliente() {
                 {faturas.length === 0 ? (
                   <p className="text-slate-500">Nenhuma fatura disponível.</p>
                 ) : (
-                  faturas.map((fatura) => (
-                    <div key={fatura.id} className="flex items-center justify-between gap-4 border border-blue-900 rounded-2xl p-5 bg-[#020817]">
-                      <div>
-                        <h3 className="font-bold">Fatura vinculada ao AWB {embarque.awb || '-'}</h3>
-                        <p className="text-slate-500 text-sm mt-1">Vencimento: {dataBR(fatura.vencimento)}</p>
-                        <p className="text-slate-500 text-sm mt-1">
-                          Pagamento: {fatura.data_pagamento ? `Pago em ${dataBR(fatura.data_pagamento)}` : 'Pendente'}
-                        </p>
-                      </div>
+                  faturas.map((fatura) => {
+                    const comprovanteEnviado = !!fatura.comprovante_pagamento
+                    const podeEnviar = podeEnviarComprovante(fatura)
 
-                      <div className="flex gap-2 flex-wrap justify-end">
-                        {fatura.arquivo_pdf ? (
-                          <a href={fatura.arquivo_pdf} target="_blank" rel="noopener noreferrer" className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap">
-                            Baixar fatura
-                          </a>
-                        ) : (
-                          <span className="text-slate-500 text-sm">PDF indisponível</span>
-                        )}
+                    return (
+                      <div key={fatura.id} className="border border-blue-900 rounded-2xl p-5 bg-[#020817]">
+                        <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
+                          <div>
+                            <h3 className="font-bold">Fatura vinculada ao AWB {embarque.awb || '-'}</h3>
+                            <p className="text-slate-500 text-sm mt-1">Vencimento: {dataBR(fatura.vencimento)}</p>
+                            <p className="text-slate-500 text-sm mt-1">
+                              Pagamento: {statusPagamentoTexto(fatura)}
+                            </p>
+                            <p className="text-slate-500 text-sm mt-1">
+                              Comprovante enviado em: {dataHoraBR(fatura.data_comprovante)}
+                            </p>
 
-                        {fatura.recibo_pdf ? (
-                          <a href={fatura.recibo_pdf} target="_blank" rel="noopener noreferrer" className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap">
-                            Baixar recibo
-                          </a>
-                        ) : (
-                          <span className="text-slate-500 text-sm">Recibo indisponível</span>
-                        )}
+                            {fatura.observacao_pagamento && (
+                              <p className="text-yellow-300 text-sm mt-2">
+                                Observação HC: {fatura.observacao_pagamento}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex gap-2 flex-wrap justify-end">
+                            {fatura.arquivo_pdf ? (
+                              <a href={fatura.arquivo_pdf} target="_blank" rel="noopener noreferrer" className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap">
+                                Baixar fatura
+                              </a>
+                            ) : (
+                              <span className="text-slate-500 text-sm">PDF indisponível</span>
+                            )}
+
+                            {fatura.recibo_pdf ? (
+                              <a href={fatura.recibo_pdf} target="_blank" rel="noopener noreferrer" className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap">
+                                Baixar recibo
+                              </a>
+                            ) : (
+                              <span className="text-slate-500 text-sm">Recibo indisponível</span>
+                            )}
+
+                            {fatura.comprovante_pagamento && (
+                              <a href={fatura.comprovante_pagamento} target="_blank" rel="noopener noreferrer" className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap">
+                                Ver comprovante
+                              </a>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-5 border border-blue-950 bg-[#071225] rounded-2xl p-5">
+                          <h4 className="font-black mb-2">Comprovante de pagamento</h4>
+                          <p className="text-slate-400 text-sm mb-4">
+                            Envie aqui o comprovante referente a esta fatura. Formatos aceitos: PDF, JPG ou PNG.
+                          </p>
+
+                          {podeEnviar ? (
+                            <div className="flex flex-col md:flex-row gap-3">
+                              <input
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png"
+                                onChange={(e) =>
+                                  setArquivoSelecionado((prev) => ({
+                                    ...prev,
+                                    [fatura.id]: e.target.files?.[0] || null,
+                                  }))
+                                }
+                                className="w-full"
+                              />
+
+                              <button
+                                onClick={() => enviarComprovante(fatura)}
+                                disabled={!!enviandoComprovante[fatura.id]}
+                                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold whitespace-nowrap"
+                              >
+                                {enviandoComprovante[fatura.id]
+                                  ? 'Enviando...'
+                                  : comprovanteEnviado
+                                    ? 'Reenviar comprovante'
+                                    : 'Enviar comprovante'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col md:flex-row gap-3 md:items-center">
+                              <span className="bg-yellow-600/20 border border-yellow-500 text-yellow-300 px-4 py-3 rounded-xl text-sm font-bold">
+                                Comprovante enviado para análise da HC.
+                              </span>
+
+                              {fatura.comprovante_pagamento && (
+                                <a href={fatura.comprovante_pagamento} target="_blank" rel="noopener noreferrer" className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl text-white text-sm font-bold text-center">
+                                  Ver comprovante enviado
+                                </a>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </section>
