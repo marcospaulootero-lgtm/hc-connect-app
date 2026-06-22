@@ -459,28 +459,37 @@ export default function FaturasTransportadorasPage() {
 
       const faturasAtuaisPorChave = new Map(
         faturas
-          .filter((item) => item.numero_fatura)
+          .filter((item) => item.numero_fatura && item.id)
           .map((item) => [chaveFaturaTransportadora(item.transportadora, item.numero_fatura), item])
       )
 
-      const novos: any[] = []
-      const atualizacoes: { id: string; payload: any }[] = []
+      const novosPorChave = new Map<string, any>()
+      const atualizacoesPorChave = new Map<string, { id: string; payload: any }>()
+      let duplicadasNoExcel = 0
 
       registros.forEach((registro) => {
         const chave = chaveFaturaTransportadora(registro.transportadora, registro.numero_fatura)
-        const existente = faturasAtuaisPorChave.get(chave)
+        const existenteNoBanco = faturasAtuaisPorChave.get(chave)
 
-        if (existente) {
-          atualizacoes.push({
-            id: existente.id,
+        if (existenteNoBanco?.id) {
+          atualizacoesPorChave.set(chave, {
+            id: existenteNoBanco.id,
             payload: registro,
           })
           return
         }
 
-        faturasAtuaisPorChave.set(chave, registro as any)
-        novos.push(registro)
+        if (novosPorChave.has(chave)) {
+          duplicadasNoExcel += 1
+        }
+
+        // Se a mesma fatura vier repetida no Excel, mantém uma linha só.
+        // A última ocorrência ganha, evitando tentar atualizar id "undefined".
+        novosPorChave.set(chave, registro)
       })
+
+      const novos = Array.from(novosPorChave.values())
+      const atualizacoes = Array.from(atualizacoesPorChave.values())
 
       for (let i = 0; i < novos.length; i += 500) {
         const lote = novos.slice(i, i + 500)
@@ -509,8 +518,12 @@ export default function FaturasTransportadorasPage() {
       alert(
         `Importação concluída.\n\n` +
           `Novas faturas: ${novos.length}\n` +
-          `Faturas atualizadas: ${atualizacoes.length}`
+          `Faturas atualizadas: ${atualizacoes.length}` +
+          (duplicadasNoExcel > 0
+            ? `\nDuplicadas no Excel ignoradas/mescladas: ${duplicadasNoExcel}`
+            : '')
       )
+
 
       await carregar()
     } catch (error: any) {
