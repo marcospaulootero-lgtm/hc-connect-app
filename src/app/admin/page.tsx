@@ -12,7 +12,7 @@ export default function DashboardPage() {
   const [modalErrosRastreio, setModalErrosRastreio] = useState(false)
   const [carregando, setCarregando] = useState(false)
   const [agora, setAgora] = useState(new Date())
-  const [periodoGrafico, setPeriodoGrafico] = useState<'7D' | '30D' | 'MES_ATUAL' | 'MES_ANTERIOR'>('30D')
+  const [periodoGrafico, setPeriodoGrafico] = useState<'7D' | '30D' | 'MES_ATUAL' | 'MES_ANTERIOR'>('7D')
   const [diaSelecionado, setDiaSelecionado] = useState<string | null>(null)
 
   useEffect(() => {
@@ -161,6 +161,15 @@ useEffect(() => {
     return `${ano}-${mes}-${dia}`
   }
 
+  function diaSemanaCurto(data: Date) {
+    const dias = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
+    return dias[data.getDay()] || '-'
+  }
+
+  function formatarDataGrafico(data: Date) {
+    return data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  }
+
   function clienteDoEmbarque(item: any) {
     return (
       item.importador ||
@@ -175,10 +184,10 @@ useEffect(() => {
   function faixaPeriodoGrafico() {
     const hojeBase = inicioDoDia(new Date())
 
-    if (periodoGrafico === '7D') {
+    if (periodoGrafico === '30D') {
       const inicio = new Date(hojeBase)
-      inicio.setDate(inicio.getDate() - 6)
-      return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 7 dias' }
+      inicio.setDate(inicio.getDate() - 29)
+      return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 30 dias' }
     }
 
     if (periodoGrafico === 'MES_ATUAL') {
@@ -193,8 +202,8 @@ useEffect(() => {
     }
 
     const inicio = new Date(hojeBase)
-    inicio.setDate(inicio.getDate() - 29)
-    return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 30 dias' }
+    inicio.setDate(inicio.getDate() - 6)
+    return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 7 dias' }
   }
 
   const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
@@ -339,58 +348,63 @@ useEffect(() => {
 
     const cursor = new Date(inicio)
     while (cursor <= fim) {
-      const key = chaveDia(cursor)
-      const itemDia = {
+      const data = new Date(cursor)
+      const key = chaveDia(data)
+
+      const linha = {
         key,
-        data: new Date(cursor),
-        dia: cursor.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        data,
+        diaSemana: diaSemanaCurto(data),
+        diaLabel: formatarDataGrafico(data),
         total: 0,
         peso: 0,
         clientes: new Set<string>(),
         embarques: [] as any[],
       }
 
-      mapaDias[key] = itemDia
-      dias.push(itemDia)
+      mapaDias[key] = linha
+      dias.push(linha)
       cursor.setDate(cursor.getDate() + 1)
     }
 
     embarques.forEach((embarque) => {
-      const dataBase = dataBaseEmbarque(embarque)
-      if (!dataBase) return
+      const base = dataBaseEmbarque(embarque)
+      if (!base) return
 
-      const data = new Date(dataBase)
+      const data = new Date(base)
       if (isNaN(data.getTime())) return
 
       const dataDia = inicioDoDia(data)
       if (dataDia < inicio || dataDia > fim) return
 
       const key = chaveDia(dataDia)
-      const itemDia = mapaDias[key]
-      if (!itemDia) return
+      const linha = mapaDias[key]
+      if (!linha) return
 
       const cliente = clienteDoEmbarque(embarque)
-
-      itemDia.total += 1
-      itemDia.peso += Number(embarque.peso_taxado || embarque.peso_real || 0)
-      itemDia.clientes.add(cliente)
-      itemDia.embarques.push(embarque)
+      linha.total += 1
+      linha.peso += Number(embarque.peso_taxado || embarque.peso_real || 0)
+      linha.clientes.add(cliente)
+      linha.embarques.push(embarque)
     })
 
     const totalPeriodo = dias.reduce((acc, item) => acc + item.total, 0)
     const pesoPeriodo = dias.reduce((acc, item) => acc + item.peso, 0)
-    const diasSemEmbarque = dias.filter((item) => item.total === 0).length
     const mediaDiaria = dias.length > 0 ? totalPeriodo / dias.length : 0
+    const diasSemEmbarque = dias.filter((item) => item.total === 0).length
     const maiorDia = Math.max(...dias.map((item) => item.total), 1)
+    const yMax = Math.max(5, Math.ceil(maiorDia / 5) * 5)
+    const yTicks = Array.from({ length: Math.floor(yMax / 5) + 1 }, (_, index) => yMax - index * 5)
     const melhorDia = [...dias].sort((a, b) => b.total - a.total)[0] || null
 
     const mapaClientes: Record<string, { nome: string; total: number; peso: number }> = {}
+
     dias.forEach((dia) => {
       dia.embarques.forEach((embarque: any) => {
-        const cliente = clienteDoEmbarque(embarque)
-        if (!mapaClientes[cliente]) mapaClientes[cliente] = { nome: cliente, total: 0, peso: 0 }
-        mapaClientes[cliente].total += 1
-        mapaClientes[cliente].peso += Number(embarque.peso_taxado || embarque.peso_real || 0)
+        const nome = clienteDoEmbarque(embarque)
+        if (!mapaClientes[nome]) mapaClientes[nome] = { nome, total: 0, peso: 0 }
+        mapaClientes[nome].total += 1
+        mapaClientes[nome].peso += Number(embarque.peso_taxado || embarque.peso_real || 0)
       })
     })
 
@@ -401,37 +415,39 @@ useEffect(() => {
       ? (clienteMaisAtivo.total / totalPeriodo) * 100
       : 0
 
-    const alerta =
+    const melhorDiaTexto = melhorDia && melhorDia.total > 0
+      ? `${melhorDia.diaLabel} (${melhorDia.diaSemana})`
+      : '-'
+
+    const analise =
       totalPeriodo === 0
-        ? 'Nenhum embarque no período. Ação: revisar prospecção e clientes parados.'
+        ? 'Nenhum embarque no período. Ação: revisar clientes parados, cotações abertas e prospecção.'
         : clientesPeriodo <= 3
-          ? 'Risco comercial: operação concentrada em poucos clientes. Ação: recuperar clientes parados e abrir novas contas.'
-          : concentracaoTopCliente >= 45
-            ? `Atenção: ${clienteMaisAtivo?.nome} concentra ${concentracaoTopCliente.toFixed(0)}% dos embarques.`
+          ? 'Operação concentrada em poucos clientes. Ação: recuperar clientes parados e aumentar recorrência.'
+          : concentracaoTopCliente >= 40
+            ? `Atenção: ${clienteMaisAtivo?.nome} concentra ${concentracaoTopCliente.toFixed(0)}% dos embarques. Monitore dependência comercial.`
             : diasSemEmbarque > dias.length * 0.45
               ? 'Operação irregular: muitos dias sem embarque. Ação: aumentar recorrência dos clientes ativos.'
-              : 'Ritmo operacional saudável. Ação: manter recorrência e buscar aumento de ticket.'
+              : `Volume dentro da média esperada. Pico em ${melhorDiaTexto}. Monitore capacidade para manter SLA.`
 
     return {
       label,
       dias,
       totalPeriodo,
       pesoPeriodo,
-      diasSemEmbarque,
       mediaDiaria,
+      diasSemEmbarque,
       maiorDia,
+      yMax,
+      yTicks,
       melhorDia,
+      melhorDiaTexto,
       clientesPeriodo,
       clienteMaisAtivo,
       concentracaoTopCliente,
-      alerta,
+      analise,
     }
   }, [embarques, periodoGrafico])
-
-  const diaRitmoSelecionado = useMemo(() => {
-    if (!diaSelecionado) return null
-    return ritmoOperacao.dias.find((item) => item.key === diaSelecionado) || null
-  }, [ritmoOperacao, diaSelecionado])
 
   return (
     <main className="min-h-screen bg-[#020817] text-white">
@@ -596,17 +612,28 @@ useEffect(() => {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8 items-start">
-          <div className="card">
-            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-2xl font-black">Ritmo da operação</h2>
-                <p className="text-slate-400 text-sm mt-1">
-                  Volume por dia, concentração de clientes e pontos de ação.
-                </p>
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+          <div className="card xl:col-span-2 overflow-hidden bg-gradient-to-br from-[#071225] via-[#061126] to-[#020817] shadow-[0_0_40px_rgba(37,99,235,0.12)]">
+            <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5 mb-7">
+              <div className="flex items-start gap-4">
+                <div className="mt-1 text-blue-500">
+                  <svg width="34" height="34" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+                    <rect x="4" y="17" width="4" height="10" rx="1" fill="currentColor" />
+                    <rect x="11" y="10" width="4" height="17" rx="1" fill="currentColor" />
+                    <rect x="18" y="5" width="4" height="22" rx="1" fill="currentColor" />
+                    <rect x="25" y="14" width="4" height="13" rx="1" fill="currentColor" />
+                  </svg>
+                </div>
+
+                <div>
+                  <h2 className="text-3xl font-black tracking-tight">Ritmo da operação</h2>
+                  <p className="text-slate-400 text-base mt-2">
+                    Volume por dia, concentração de clientes e pontos de ação.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 <PeriodoButton ativo={periodoGrafico === '7D'} onClick={() => setPeriodoGrafico('7D')}>7 dias</PeriodoButton>
                 <PeriodoButton ativo={periodoGrafico === '30D'} onClick={() => setPeriodoGrafico('30D')}>30 dias</PeriodoButton>
                 <PeriodoButton ativo={periodoGrafico === 'MES_ATUAL'} onClick={() => setPeriodoGrafico('MES_ATUAL')}>Mês atual</PeriodoButton>
@@ -614,125 +641,102 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 overflow-hidden">
-              <div
-                className="grid h-48 items-end gap-1 border-b border-blue-950 pb-3 overflow-hidden"
-                style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
-              >
-                {ritmoOperacao.dias.map((item, index) => {
-                  const ativo = diaSelecionado === item.key
-                  const mostrarLabel =
-                    ritmoOperacao.dias.length <= 10 ||
-                    index === 0 ||
-                    index === ritmoOperacao.dias.length - 1 ||
-                    index % 7 === 0
-
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => setDiaSelecionado(ativo ? null : item.key)}
-                      className="group relative flex h-full min-w-0 flex-col items-center justify-end"
-                      title={`${item.dia}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
-                    >
-                      <span
-                        className={
-                          ativo
-                            ? 'w-full max-w-[26px] rounded-t-md bg-green-500 ring-2 ring-green-300'
-                            : item.total > 0
-                              ? 'w-full max-w-[26px] rounded-t-md bg-blue-600 transition hover:bg-blue-400'
-                              : 'w-full max-w-[26px] rounded-t-md bg-slate-800 transition hover:bg-slate-700'
-                        }
-                        style={{ height: `${Math.max((item.total / ritmoOperacao.maiorDia) * 150, 5)}px` }}
-                      />
-
-                      <span className="pointer-events-none absolute -top-7 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg border border-blue-900 bg-[#071225] px-2 py-1 text-[10px] font-black text-blue-200 shadow-xl group-hover:block">
-                        {item.dia} • {item.total}
-                      </span>
-
-                      <span className={mostrarLabel ? 'mt-2 text-[9px] text-slate-500 whitespace-nowrap' : 'mt-2 text-[9px] text-transparent'}>
-                        {mostrarLabel ? item.dia : '-'}
-                      </span>
-                    </button>
-                  )
-                })}
+            <div className="rounded-3xl border border-blue-950/70 bg-[#030b1d]/70 p-5 overflow-hidden">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-blue-200">Embarques</p>
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">{ritmoOperacao.label}</p>
               </div>
 
-              <div className="mt-3 flex items-center justify-between text-[11px] font-bold text-slate-500">
-                <span>{ritmoOperacao.dias[0]?.dia || '-'}</span>
-                <span>{ritmoOperacao.label}</span>
-                <span>{ritmoOperacao.dias[ritmoOperacao.dias.length - 1]?.dia || '-'}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-center">
-              <ResumoMini titulo="Total período" valor={String(ritmoOperacao.totalPeriodo)} />
-              <ResumoMini titulo="Média diária" valor={ritmoOperacao.mediaDiaria.toFixed(1)} />
-              <ResumoMini titulo="Dias sem embarque" valor={String(ritmoOperacao.diasSemEmbarque)} />
-              <ResumoMini titulo="Peso período" valor={`${ritmoOperacao.pesoPeriodo.toFixed(2)} kg`} />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-              <InsightBox
-                titulo="Melhor dia"
-                valor={ritmoOperacao.melhorDia ? `${ritmoOperacao.melhorDia.dia} • ${ritmoOperacao.melhorDia.total}` : '-'}
-                detalhe="Maior volume do período"
-              />
-              <InsightBox
-                titulo="Cliente mais ativo"
-                valor={ritmoOperacao.clienteMaisAtivo?.nome || '-'}
-                detalhe={ritmoOperacao.clienteMaisAtivo ? `${ritmoOperacao.clienteMaisAtivo.total} embarque(s)` : 'Sem cliente no período'}
-              />
-              <InsightBox
-                titulo="Concentração"
-                valor={`${ritmoOperacao.concentracaoTopCliente.toFixed(0)}%`}
-                detalhe={`${ritmoOperacao.clientesPeriodo} cliente(s) no período`}
-              />
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-blue-900 bg-[#020817] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-blue-300">Análise automática</p>
-              <p className="mt-2 text-sm font-bold text-slate-300">{ritmoOperacao.alerta}</p>
-            </div>
-
-            {diaRitmoSelecionado && (
-              <div className="mt-4 rounded-2xl border border-green-900 bg-green-950/10 p-4">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-green-300">Dia selecionado</p>
-                    <h3 className="text-xl font-black">
-                      {diaRitmoSelecionado.data.toLocaleDateString('pt-BR')} • {diaRitmoSelecionado.total} embarque(s)
-                    </h3>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setDiaSelecionado(null)}
-                    className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl font-black text-sm"
-                  >
-                    Limpar seleção
-                  </button>
+              <div className="relative h-[315px] overflow-hidden">
+                <div className="absolute left-0 top-0 bottom-12 w-11 flex flex-col justify-between text-sm font-bold text-blue-200/70">
+                  {ritmoOperacao.yTicks.map((tick) => (
+                    <span key={tick}>{tick}</span>
+                  ))}
                 </div>
 
-                {diaRitmoSelecionado.embarques.length === 0 ? (
-                  <p className="text-slate-500">Nenhum embarque neste dia.</p>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {diaRitmoSelecionado.embarques.slice(0, 8).map((item: any) => (
-                      <div key={item.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-blue-900 bg-[#020817] rounded-xl px-4 py-3">
-                        <div>
-                          <p className="font-black text-blue-400">AWB {item.awb || '-'}</p>
-                          <p className="text-slate-400 text-sm">
-                            {clienteDoEmbarque(item)} • {item.transportadora || '-'} • {item.servico || '-'}
-                          </p>
-                        </div>
-                        <StatusPillDashboard status={item.status_operacional || '-'} />
-                      </div>
-                    ))}
+                <div className="absolute left-12 right-0 top-0 bottom-12 border-l border-b border-blue-900/80">
+                  {ritmoOperacao.yTicks.map((tick) => (
+                    <div
+                      key={tick}
+                      className="absolute left-0 right-0 border-t border-dashed border-blue-700/35"
+                      style={{ top: `${((ritmoOperacao.yMax - tick) / ritmoOperacao.yMax) * 100}%` }}
+                    />
+                  ))}
+
+                  <div
+                    className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-3 px-5"
+                    style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
+                  >
+                    {ritmoOperacao.dias.map((item) => {
+                      const altura = `${Math.max((item.total / ritmoOperacao.yMax) * 245, item.total > 0 ? 8 : 3)}px`
+                      const ativo = diaSelecionado === item.key
+
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => setDiaSelecionado(ativo ? null : item.key)}
+                          className="group relative flex h-full min-w-0 flex-col items-center justify-end"
+                          title={`${item.diaSemana} ${item.diaLabel}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
+                        >
+                          <span className="mb-2 text-lg font-black text-white drop-shadow opacity-100">
+                            {item.total}
+                          </span>
+
+                          <span
+                            className={
+                              ativo
+                                ? 'w-full max-w-[82px] rounded-t-md bg-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.40)] ring-2 ring-emerald-300 transition'
+                                : item.total > 0
+                                  ? 'w-full max-w-[82px] rounded-t-md bg-gradient-to-t from-blue-700 to-blue-400 shadow-[0_0_18px_rgba(37,99,235,0.30)] transition hover:from-blue-600 hover:to-blue-300'
+                                  : 'w-full max-w-[82px] rounded-t-md bg-blue-950/80 transition hover:bg-blue-900'
+                            }
+                            style={{ height: altura }}
+                          />
+
+                          <span className="pointer-events-none absolute -top-10 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-blue-800 bg-[#071225] px-3 py-2 text-xs font-black text-blue-100 shadow-2xl group-hover:block">
+                            {item.diaSemana} {item.diaLabel} • {item.total} embarque(s)
+                          </span>
+                        </button>
+                      )
+                    })}
                   </div>
-                )}
+                </div>
+
+                <div
+                  className="absolute left-12 right-0 bottom-0 grid gap-3 px-5 text-center"
+                  style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
+                >
+                  {ritmoOperacao.dias.map((item) => (
+                    <div key={item.key} className="min-w-0">
+                      <p className="text-sm font-black text-blue-100/80 truncate">{item.diaSemana}</p>
+                      <p className="text-sm font-bold text-blue-200/60 truncate">{item.diaLabel}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 border-y border-blue-950 py-5">
+              <MetricDashboard icone="🚚" valor={String(ritmoOperacao.totalPeriodo)} titulo="Total período" detalhe="Embarques" />
+              <MetricDashboard icone="📈" valor={ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} titulo="Média diária" detalhe="Embarques/dia" />
+              <MetricDashboard icone="🗓️" valor={String(ritmoOperacao.diasSemEmbarque)} titulo="Dias sem embarque" detalhe="No período" />
+              <MetricDashboard icone="⚖️" valor={`${ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`} titulo="Peso período" detalhe="Total embarcado" />
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
+              <InsightDashboard icone="🏅" titulo="Melhor dia" valor={ritmoOperacao.melhorDiaTexto} detalhe={`${ritmoOperacao.melhorDia?.total || 0} embarque(s)`} />
+              <InsightDashboard icone="👤" titulo="Cliente mais ativo" valor={ritmoOperacao.clienteMaisAtivo?.nome || '-'} detalhe={ritmoOperacao.clienteMaisAtivo ? `${ritmoOperacao.clienteMaisAtivo.total} embarque(s)` : 'Sem cliente no período'} />
+              <InsightDashboard icone="🎯" titulo="Concentração" valor={`${ritmoOperacao.concentracaoTopCliente.toFixed(0)}%`} detalhe={`${ritmoOperacao.clientesPeriodo} cliente(s) no período`} />
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817]/80 p-5 flex items-start gap-4">
+              <div className="text-3xl text-blue-400">✦</div>
+              <div>
+                <p className="text-sm font-black uppercase tracking-wide text-blue-400">Análise automática</p>
+                <p className="mt-2 text-sm font-semibold text-slate-200 leading-relaxed">{ritmoOperacao.analise}</p>
+              </div>
+            </div>
           </div>
 
           <div className="card">
@@ -1199,8 +1203,8 @@ function PeriodoButton({ ativo, onClick, children }: any) {
       onClick={onClick}
       className={
         ativo
-          ? 'bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-sm'
-          : 'bg-[#020817] border border-blue-900 text-slate-300 hover:bg-blue-600/20 px-4 py-2 rounded-xl font-black text-sm'
+          ? 'rounded-2xl bg-blue-600 px-7 py-4 text-base font-black text-white shadow-[0_0_18px_rgba(37,99,235,0.35)]'
+          : 'rounded-2xl border border-blue-900 bg-[#071225] px-7 py-4 text-base font-black text-slate-200 hover:bg-blue-600/20'
       }
     >
       {children}
@@ -1208,12 +1212,32 @@ function PeriodoButton({ ativo, onClick, children }: any) {
   )
 }
 
-function InsightBox({ titulo, valor, detalhe }: any) {
+function MetricDashboard({ icone, valor, titulo, detalhe }: any) {
   return (
-    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
-      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{titulo}</p>
-      <p className="mt-2 text-lg font-black text-white leading-tight">{valor}</p>
-      <p className="mt-1 text-xs font-bold text-slate-500">{detalhe}</p>
+    <div className="flex items-center gap-4 min-w-0">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-blue-800 bg-[#020817] text-2xl text-blue-400">
+        {icone}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-3xl font-black leading-tight text-white">{valor}</p>
+        <p className="mt-1 text-base font-bold text-slate-200">{titulo}</p>
+        <p className="text-sm font-semibold text-blue-200/50">{detalhe}</p>
+      </div>
+    </div>
+  )
+}
+
+function InsightDashboard({ icone, titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817]/70 p-4 flex items-center gap-4 min-w-0">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-blue-800 bg-[#071225] text-2xl">
+        {icone}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-black uppercase tracking-wide text-blue-400">{titulo}</p>
+        <p className="mt-1 truncate text-xl font-black text-white">{valor}</p>
+        <p className="text-sm font-semibold text-slate-400">{detalhe}</p>
+      </div>
     </div>
   )
 }
