@@ -151,6 +151,7 @@ const STATUS_PROCESSOS = [
   { value: 'EM ABERTO', label: 'Em aberto' },
   { value: 'ATRASADO', label: 'Atrasado' },
   { value: 'PAGO', label: 'Pago' },
+  { value: 'AGUARDANDO_CUSTO', label: 'Aguardando custo' },
 ]
 
 const STATUS_MOVIMENTOS = [
@@ -320,6 +321,10 @@ export default function FinanceiroPage() {
     return 'EM ABERTO'
   }
 
+  function aguardandoCustoProcesso(item: any) {
+    return Number(item.valor_compra || 0) <= 0
+  }
+
   function statusMovimento(item: any) {
     if (item.status === 'PAGO' || temDataValida(item.data_pagamento)) return 'PAGO'
 
@@ -335,6 +340,7 @@ export default function FinanceiroPage() {
   function badgeStatus(status: string) {
     if (status === 'PAGO') return 'bg-green-100 text-green-700 border-green-300'
     if (status === 'ATRASADO' || status === 'VENCIDO') return 'bg-red-100 text-red-700 border-red-300'
+    if (status === 'AGUARDANDO_CUSTO') return 'bg-orange-100 text-orange-700 border-orange-300'
     return 'bg-yellow-100 text-yellow-700 border-yellow-300'
   }
 
@@ -1342,6 +1348,7 @@ export default function FinanceiroPage() {
     const emAberto = lancamentos.filter((item) => statusCobranca(item) === 'EM ABERTO')
     const atrasado = lancamentos.filter((item) => statusCobranca(item) === 'ATRASADO')
     const pago = lancamentos.filter((item) => statusCobranca(item) === 'PAGO')
+    const aguardandoCusto = lancamentos.filter((item) => aguardandoCustoProcesso(item))
 
     function total(lista: any[]) {
       return lista.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
@@ -1351,6 +1358,7 @@ export default function FinanceiroPage() {
       emAberto: { qtd: emAberto.length, total: total(emAberto) },
       atrasado: { qtd: atrasado.length, total: total(atrasado) },
       pago: { qtd: pago.length, total: total(pago) },
+      aguardandoCusto: { qtd: aguardandoCusto.length, total: total(aguardandoCusto) },
       todos: { qtd: lancamentos.length, total: total(lancamentos) },
     }
   }, [lancamentos])
@@ -1370,8 +1378,14 @@ export default function FinanceiroPage() {
 
       const passaBusca = !termo || texto.includes(termo)
       const statusAtual = statusCobranca(item)
+      const processoSemCusto = aguardandoCustoProcesso(item)
       const passaAba = aba === 'TODOS' ? true : statusAtual === aba
-      const passaStatusMultiplo = filtraMultipla(filtroStatusProcessos, statusAtual)
+      const passaStatusMultiplo =
+        filtroStatusProcessos.length === 0 ||
+        filtroStatusProcessos.some((status) => {
+          if (status === 'AGUARDANDO_CUSTO') return processoSemCusto
+          return statusAtual === status
+        })
       const passaTransportadora = filtraMultipla(filtroTransportadora, item.transportadora)
       const passaDespachante = filtraMultipla(filtroDespachante, item.despachante)
       const passaServico = filtraMultipla(filtroServico, item.servico)
@@ -1421,9 +1435,7 @@ export default function FinanceiroPage() {
       return possuiCusto ? acc + calcularProfit(item) : acc
     }, 0)
 
-    const aguardandoCusto = filtrados.filter(
-      (item) => Number(item.valor_compra || 0) <= 0
-    ).length
+    const aguardandoCusto = filtrados.filter((item) => aguardandoCustoProcesso(item)).length
 
     const emAberto = filtrados.filter(
       (item) => statusCobranca(item) === 'EM ABERTO'
@@ -1556,7 +1568,7 @@ export default function FinanceiroPage() {
       return possuiCusto ? acc + calcularProfit(item) : acc
     }, 0)
 
-    const semCusto = processosPagosMes.filter((item) => Number(item.valor_compra || 0) <= 0).length
+    const semCusto = processosPagosMes.filter((item) => aguardandoCustoProcesso(item)).length
 
     const movimentosMes = movimentacoes.filter((item) => item.mes_referencia === mesResultado)
 
@@ -2026,6 +2038,13 @@ export default function FinanceiroPage() {
 
   function mudarAba(novaAba: string) {
     setAba(novaAba)
+    setFiltroStatusProcessos([])
+    setPagina(1)
+  }
+
+  function filtrarAguardandoCusto() {
+    setAba('TODOS')
+    setFiltroStatusProcessos(['AGUARDANDO_CUSTO'])
     setPagina(1)
   }
 
@@ -3079,11 +3098,12 @@ export default function FinanceiroPage() {
             />
           </section>
 
-          <section className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
-            <ResumoCard ativo={aba === 'EM ABERTO'} titulo="Em aberto" quantidade={resumo.emAberto.qtd} valor={moeda(resumo.emAberto.total)} cor="yellow" onClick={() => mudarAba('EM ABERTO')} />
-            <ResumoCard ativo={aba === 'ATRASADO'} titulo="Atrasados" quantidade={resumo.atrasado.qtd} valor={moeda(resumo.atrasado.total)} cor="red" onClick={() => mudarAba('ATRASADO')} />
-            <ResumoCard ativo={aba === 'PAGO'} titulo="Pagos" quantidade={resumo.pago.qtd} valor={moeda(resumo.pago.total)} cor="green" onClick={() => mudarAba('PAGO')} />
-            <ResumoCard ativo={aba === 'TODOS'} titulo="Todos" quantidade={resumo.todos.qtd} valor={moeda(resumo.todos.total)} cor="blue" onClick={() => mudarAba('TODOS')} />
+          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-5">
+            <ResumoCard ativo={aba === 'EM ABERTO' && filtroStatusProcessos.length === 0} titulo="Em aberto" quantidade={resumo.emAberto.qtd} valor={moeda(resumo.emAberto.total)} cor="yellow" onClick={() => mudarAba('EM ABERTO')} />
+            <ResumoCard ativo={aba === 'ATRASADO' && filtroStatusProcessos.length === 0} titulo="Atrasados" quantidade={resumo.atrasado.qtd} valor={moeda(resumo.atrasado.total)} cor="red" onClick={() => mudarAba('ATRASADO')} />
+            <ResumoCard ativo={aba === 'PAGO' && filtroStatusProcessos.length === 0} titulo="Pagos" quantidade={resumo.pago.qtd} valor={moeda(resumo.pago.total)} cor="green" onClick={() => mudarAba('PAGO')} />
+            <ResumoCard ativo={filtroStatusProcessos.includes('AGUARDANDO_CUSTO')} titulo="Aguardando custo" quantidade={resumo.aguardandoCusto.qtd} valor={moeda(resumo.aguardandoCusto.total)} cor="orange" onClick={filtrarAguardandoCusto} />
+            <ResumoCard ativo={aba === 'TODOS' && filtroStatusProcessos.length === 0} titulo="Todos" quantidade={resumo.todos.qtd} valor={moeda(resumo.todos.total)} cor="blue" onClick={() => mudarAba('TODOS')} />
           </section>
 
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-6">
@@ -3245,7 +3265,7 @@ export default function FinanceiroPage() {
                 />
               </div>
 
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-3">
                 <FiltroMiniStatus
                   titulo="Em aberto"
                   quantidade={resumoFiltrado.emAberto.qtd}
@@ -3265,6 +3285,13 @@ export default function FinanceiroPage() {
                   quantidade={resumoFiltrado.pago.qtd}
                   valor={moeda(resumoFiltrado.pago.total)}
                   classe="bg-green-50 text-green-700 border-green-200"
+                />
+
+                <FiltroMiniStatus
+                  titulo="Aguardando custo"
+                  quantidade={resumoFiltrado.aguardandoCusto}
+                  valor="sem custo lançado"
+                  classe="bg-orange-50 text-orange-700 border-orange-200"
                 />
               </div>
             </section>
@@ -3299,7 +3326,7 @@ export default function FinanceiroPage() {
                   ) : (
                     filtradosPaginados.map((item) => {
                       const cobranca = statusCobranca(item)
-                      const possuiCusto = Number(item.valor_compra || 0) > 0
+                      const possuiCusto = !aguardandoCustoProcesso(item)
                       const profit = possuiCusto ? calcularProfit(item) : null
 
                       return (
@@ -3575,6 +3602,7 @@ function ResumoCard({ titulo, quantidade, valor, ativo, onClick, cor }: any) {
     red: 'bg-red-500',
     green: 'bg-green-500',
     blue: 'bg-blue-500',
+    orange: 'bg-orange-500',
   }
 
   return (
