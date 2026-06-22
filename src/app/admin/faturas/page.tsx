@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
 
 const LOTE_SUPABASE = 1000
+const PAGE_SIZE_FATURAS = 25
 const STORAGE_FILTROS_FATURAS_ADMIN = 'hc_admin_faturas_filtros_v1'
 
 type Embarque = {
@@ -110,6 +111,8 @@ export default function FaturasPage() {
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [paginaTabela, setPaginaTabela] = useState(1)
 
   const [busca, setBusca] = useState('')
   const [filtroDocumento, setFiltroDocumento] = useState('TODOS')
@@ -174,10 +177,40 @@ export default function FaturasPage() {
     filtrosCarregados,
   ])
 
+  useEffect(() => {
+    setPaginaTabela(1)
+  }, [busca, filtroDocumento, filtroStatusEmbarque, filtroPagamento, filtroArquivamento])
+
   async function carregar() {
+    setLoading(true)
+
     const { data: embarquesData, error: erroEmbarques } = await supabase
       .from('embarques')
-      .select('*')
+      .select(`
+        id,
+        awb,
+        usuario_id,
+        cliente_final,
+        exportador,
+        importador,
+        transportadora,
+        status_operacional,
+        criado_em,
+        servico,
+        origem,
+        destino,
+        referencia_cliente,
+        referencia_hc,
+        valor_venda,
+        valor_fechado,
+        valor_cobrado_cliente,
+        moeda,
+        moeda_cobranca,
+        taxa_conversao,
+        spread,
+        peso_real,
+        peso_taxado
+      `)
       .order('criado_em', { ascending: false })
 
     if (erroEmbarques) console.log(erroEmbarques)
@@ -233,7 +266,30 @@ export default function FaturasPage() {
 
         return supabase
           .from('financeiro_embarques')
-          .select('*')
+          .select(`
+            id,
+            embarque_id,
+            awb,
+            numero_awb,
+            hawb,
+            h_awb,
+            valor_cobranca,
+            valor_faturado,
+            valor_venda,
+            valor,
+            vencimento_cobranca,
+            vencimento_cliente,
+            vencimento,
+            data_vencimento,
+            recebimento,
+            recebimento_cliente,
+            data_recebimento,
+            data_pagamento,
+            cliente,
+            cliente_final,
+            fatura,
+            numero_fatura
+          `)
           .range(inicio, fim)
       })
 
@@ -253,7 +309,7 @@ export default function FaturasPage() {
     if (idsEmbarques.length > 0) {
       const { data: documentosData, error: erroDocumentos } = await supabase
         .from('documentos_embarques')
-        .select('*')
+        .select('id, embarque_id, nome, nome_arquivo, filename, tipo, categoria, url, arquivo_url, arquivo_pdf, criado_em')
         .in('embarque_id', idsEmbarques)
 
       if (erroDocumentos) {
@@ -271,6 +327,7 @@ export default function FaturasPage() {
     setFaturas((faturasData as Fatura[]) || [])
     setFinanceiros((financeiroData as FinanceiroProcesso[]) || [])
     setDocumentosPorEmbarque(documentosAgrupados)
+    setLoading(false)
   }
 
   function normalizarAwb(valor?: any) {
@@ -290,46 +347,54 @@ export default function FaturasPage() {
       .filter(Boolean)
   }
 
+  const faturasPorEmbarque = useMemo(() => {
+    const mapa = new Map<string, Fatura>()
+
+    faturas.forEach((fatura) => {
+      if (fatura.embarque_id) mapa.set(String(fatura.embarque_id), fatura)
+    })
+
+    return mapa
+  }, [faturas])
+
+  const financeiroPorEmbarqueId = useMemo(() => {
+    const mapa = new Map<string, FinanceiroProcesso>()
+
+    financeiros.forEach((item) => {
+      if (item.embarque_id && !mapa.has(String(item.embarque_id))) {
+        mapa.set(String(item.embarque_id), item)
+      }
+    })
+
+    return mapa
+  }, [financeiros])
+
+  const financeiroPorAwb = useMemo(() => {
+    const mapa = new Map<string, FinanceiroProcesso>()
+
+    financeiros.forEach((item) => {
+      awbsFinanceiro(item).forEach((awb) => {
+        if (awb && !mapa.has(awb)) mapa.set(awb, item)
+      })
+    })
+
+    return mapa
+  }, [financeiros])
+
   function faturaDoEmbarque(embarqueId: string) {
-    return faturas.find((f) => f.embarque_id === embarqueId) || null
+    return faturasPorEmbarque.get(String(embarqueId)) || null
   }
 
   function financeiroDoEmbarque(embarque: Embarque) {
     if (!embarque) return null
 
-    // Regra principal correta: se existir embarque_id no financeiro, usa ele.
-    const porEmbarqueId =
-      financeiros.find((item) => String(item.embarque_id || '') === String(embarque.id || '')) ||
-      null
-
+    const porEmbarqueId = financeiroPorEmbarqueId.get(String(embarque.id || '')) || null
     if (porEmbarqueId) return porEmbarqueId
 
-    // Fallback: enquanto financeiro_embarques ainda não tiver embarque_id em todos os registros,
-    // procura pelo AWB de forma forte, inclusive se vier com pontuação, texto, aspas ou outro nome de coluna.
     const awbLimpo = normalizarAwb(embarque.awb)
     if (!awbLimpo) return null
 
-    return (
-      financeiros.find((item) => {
-        const awbsDiretos = awbsFinanceiro(item)
-
-        if (awbsDiretos.includes(awbLimpo)) return true
-
-        return Object.values(item || {}).some((valor) => {
-          const valorNormalizado = normalizarAwb(valor as any)
-          if (!valorNormalizado) return false
-
-          if (valorNormalizado === awbLimpo) return true
-
-          // Ex.: campo vindo como "AWB 9284060166" ou "9284060166 / 123".
-          if (awbLimpo.length >= 8 && valorNormalizado.includes(awbLimpo)) return true
-          if (valorNormalizado.length >= 8 && awbLimpo.includes(valorNormalizado)) return true
-
-          return false
-        })
-      }) ||
-      null
-    )
+    return financeiroPorAwb.get(awbLimpo) || null
   }
 
   function valorFinanceiro(item?: FinanceiroProcesso | null) {
@@ -664,8 +729,9 @@ export default function FaturasPage() {
     })
   }, [
     embarques,
-    faturas,
-    financeiros,
+    faturasPorEmbarque,
+    financeiroPorEmbarqueId,
+    financeiroPorAwb,
     documentosPorEmbarque,
     busca,
     filtroDocumento,
@@ -674,25 +740,37 @@ export default function FaturasPage() {
     filtroArquivamento,
   ])
 
-  const faturasAtivas = faturas.filter((f) => !f.arquivado_admin)
+  const faturasAtivas = useMemo(() => faturas.filter((f) => !f.arquivado_admin), [faturas])
   const totalComFatura = faturasAtivas.filter((f) => f.arquivo_pdf).length
   const totalVisiveis = faturasAtivas.filter((f) => f.visivel_cliente).length
   const totalRecibos = faturasAtivas.filter((f) => f.recibo_pdf).length
   const totalSemFatura = embarques.filter((e) => !faturaDoEmbarque(e.id)?.arquivo_pdf).length
   const totalFaturasArquivadas = faturas.filter((f) => f.arquivado_admin).length
 
-  const pagamentosFinanceiros = embarques.map((e) => ({
-    embarque: e,
-    fatura: faturaDoEmbarque(e.id),
-    financeiro: financeiroDoEmbarque(e),
-    pagamento: statusPagamentoFinanceiro(financeiroDoEmbarque(e)),
-  }))
+  const pagamentosFinanceiros = useMemo(() => {
+    return embarques.map((e) => {
+      const financeiro = financeiroDoEmbarque(e)
+
+      return {
+        embarque: e,
+        fatura: faturaDoEmbarque(e.id),
+        financeiro,
+        pagamento: statusPagamentoFinanceiro(financeiro),
+      }
+    })
+  }, [embarques, faturasPorEmbarque, financeiroPorEmbarqueId, financeiroPorAwb])
 
   const totalPagos = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'PAGO').length
   const totalAtrasados = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'ATRASADO').length
   const totalEmAberto = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'EM_ABERTO').length
   const totalSemFinanceiro = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'SEM_FINANCEIRO').length
   const statusDisponiveis = statusOperacionaisDisponiveis()
+
+  const totalPaginasTabela = Math.max(1, Math.ceil(embarquesFiltrados.length / PAGE_SIZE_FATURAS))
+  const paginaTabelaSegura = Math.min(paginaTabela, totalPaginasTabela)
+  const inicioTabela = (paginaTabelaSegura - 1) * PAGE_SIZE_FATURAS
+  const fimTabela = inicioTabela + PAGE_SIZE_FATURAS
+  const embarquesPaginados = embarquesFiltrados.slice(inicioTabela, fimTabela)
 
   function abrirFormulario(embarque: Embarque) {
     const fatura = faturaDoEmbarque(embarque.id)
@@ -1159,12 +1237,50 @@ export default function FaturasPage() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe={loading ? 'carregando base' : 'resultado do filtro'} />
           <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
           <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
           <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
           <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
         </div>
+
+        {loading && (
+          <div className="mb-6 rounded-2xl border border-blue-900 bg-[#020817] p-5 text-slate-300">
+            Carregando faturas, financeiro e documentos...
+          </div>
+        )}
+
+        {!loading && embarquesFiltrados.length > PAGE_SIZE_FATURAS && (
+          <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+            <p className="text-slate-400 text-sm">
+              Mostrando {inicioTabela + 1} a {Math.min(fimTabela, embarquesFiltrados.length)} de {embarquesFiltrados.length} embarque(s).
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPaginaTabela((atual) => Math.max(1, atual - 1))}
+                disabled={paginaTabelaSegura <= 1}
+                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 px-4 py-2 rounded-xl font-bold"
+              >
+                Anterior
+              </button>
+
+              <span className="border border-blue-900 bg-[#071225] px-4 py-2 rounded-xl font-black">
+                {paginaTabelaSegura}/{totalPaginasTabela}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setPaginaTabela((atual) => Math.min(totalPaginasTabela, atual + 1))}
+                disabled={paginaTabelaSegura >= totalPaginasTabela}
+                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 px-4 py-2 rounded-xl font-bold"
+              >
+                Próxima
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="w-full overflow-x-auto">
           <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
@@ -1188,7 +1304,7 @@ export default function FaturasPage() {
             </thead>
 
             <tbody>
-              {embarquesFiltrados.map((embarque) => {
+              {embarquesPaginados.map((embarque) => {
                 const fatura = faturaDoEmbarque(embarque.id)
                 const financeiro = financeiroDoEmbarque(embarque)
                 const pagamento = statusPagamentoFinanceiro(financeiro)
@@ -1452,6 +1568,34 @@ export default function FaturasPage() {
               })}
             </tbody>
           </table>
+
+          {!loading && embarquesFiltrados.length > PAGE_SIZE_FATURAS && (
+            <div className="mt-4 flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+              <p className="text-slate-400 text-sm">
+                Página {paginaTabelaSegura} de {totalPaginasTabela}.
+              </p>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaginaTabela((atual) => Math.max(1, atual - 1))}
+                  disabled={paginaTabelaSegura <= 1}
+                  className="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 px-4 py-2 rounded-xl font-bold"
+                >
+                  Anterior
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaginaTabela((atual) => Math.min(totalPaginasTabela, atual + 1))}
+                  disabled={paginaTabelaSegura >= totalPaginasTabela}
+                  className="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 px-4 py-2 rounded-xl font-bold"
+                >
+                  Próxima
+                </button>
+              </div>
+            </div>
+          )}
 
           {embarquesFiltrados.length === 0 && (
             <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
