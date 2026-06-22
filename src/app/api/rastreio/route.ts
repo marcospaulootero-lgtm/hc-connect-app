@@ -100,12 +100,14 @@ async function rastrearDHL(embarque: any, awb: string) {
   const eventoAtual = eventos[0]
   const dataColeta = encontrarDataColetaDHL(eventos)
 
-  const descricao =
+  const descricaoOriginal =
     shipment?.status?.description ||
     eventoAtual?.description ||
     shipment?.status?.status ||
     shipment?.status?.statusCode ||
     'Sem descrição'
+
+  const descricao = traduzirDescricao(descricaoOriginal)
 
   const local =
     shipment?.status?.location?.address?.addressLocality ||
@@ -121,7 +123,9 @@ async function rastrearDHL(embarque: any, awb: string) {
     embarque,
     awb,
     transportadora: 'DHL',
-    status: descricao,
+    status: [descricaoOriginal, eventoAtual?.description, eventoAtual?.status, eventoAtual?.statusCode]
+      .filter(Boolean)
+      .join(' | ') || descricao,
     descricao,
     local,
     dataEvento,
@@ -233,10 +237,12 @@ async function rastrearFedEx(embarque: any, awb: string) {
     ultimoEvento?.eventDescription ||
     'Status FedEx não informado'
 
-  const descricao =
+  const descricaoOriginal =
     ultimoEvento?.eventDescription ||
     resultado?.latestStatusDetail?.description ||
     'Sem descrição'
+
+  const descricao = traduzirDescricao(descricaoOriginal)
 
   const local =
     ultimoEvento?.scanLocation?.city ||
@@ -307,37 +313,173 @@ function encontrarDataColetaFedEx(eventos: any[]) {
   return eventoColeta?.date || null
 }
 
-function normalizarStatus(status: string) {
-  const s = String(status || '').toLowerCase()
+function removerAcentos(texto: string) {
+  return String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
 
-  // DHL pode retornar: "A remessa será liberada e entregue pelo despachante aduaneiro".
-  // Isso NÃO é entrega final ao destinatário; é transferência/liberação para o despachante.
-  // Esta regra precisa vir antes de qualquer validação de entregue.
+function traduzirDescricao(descricao: string) {
+  const original = String(descricao || '').trim()
+  const d = removerAcentos(original)
+
+  if (!original) return 'Sem descrição'
+
+  if (
+    d.includes('shipment will be cleared and delivered by broker') ||
+    d.includes('cleared and delivered by broker') ||
+    d.includes('customs broker') ||
+    d.includes('broker')
+  ) {
+    return 'A remessa será liberada e entregue pelo despachante aduaneiro'
+  }
+
+  if (
+    d.includes('shipment delivered') ||
+    d === 'delivered' ||
+    d.includes('proof of delivery') ||
+    d.includes('envio entregue')
+  ) {
+    return 'Envio entregue'
+  }
+
+  if (
+    d.includes('out for delivery') ||
+    d.includes('with delivery courier') ||
+    d.includes('with courier') ||
+    d.includes('saiu com o mensageiro para entrega') ||
+    d.includes('mensageiro para entrega') ||
+    d.includes('saiu para entrega')
+  ) {
+    return 'A remessa saiu com o mensageiro para entrega'
+  }
+
+  if (
+    d.includes('clearance processing complete') ||
+    d.includes('clearance complete') ||
+    d.includes('liberacao concluida') ||
+    d.includes('liberacao aduaneira concluida')
+  ) {
+    return 'Liberação aduaneira concluída'
+  }
+
+  if (
+    d.includes('clearance event') ||
+    d.includes('customs status updated') ||
+    d.includes('clearance') ||
+    d.includes('customs') ||
+    d.includes('processo de liberacao') ||
+    d.includes('em processo de liberacao') ||
+    d.includes('envio em proceso de liberacao') ||
+    d.includes('envio em processo de liberacao')
+  ) {
+    return 'Envio em processo de liberação'
+  }
+
+  if (
+    d.includes('broker has been notified') ||
+    d.includes('despachante foi notificado')
+  ) {
+    return 'O despachante foi notificado para providenciar a liberação'
+  }
+
+  if (
+    d.includes('shipment picked up') ||
+    d.includes('picked up') ||
+    d.includes('pickup') ||
+    d.includes('collected') ||
+    d.includes('envio recolhido') ||
+    d.includes('remessa coletada')
+  ) {
+    return 'Envio recolhido'
+  }
+
+  if (
+    d.includes('processed at') ||
+    d.includes('processed in') ||
+    d.includes('processed') ||
+    d.includes('processado')
+  ) {
+    return original.match(/processado/i) ? original : 'Processado na unidade DHL'
+  }
+
+  if (
+    d.includes('arrived at') ||
+    d.includes('arrived') ||
+    d.includes('chegou nas instalacoes') ||
+    d.includes('chegou a unidade')
+  ) {
+    return original.match(/chegou/i) ? original : 'Chegou nas instalações da DHL'
+  }
+
+  if (
+    d.includes('departed from') ||
+    d.includes('departed') ||
+    d.includes('partiu de uma instalacao') ||
+    d.includes('partiu')
+  ) {
+    return original.match(/partiu/i) ? original : 'A remessa partiu de uma instalação da DHL'
+  }
+
+  if (
+    d.includes('shipment is scheduled to depart') ||
+    d.includes('scheduled to depart') ||
+    d.includes('programada para partir')
+  ) {
+    return 'Remessa programada para partir no próximo movimento disponível'
+  }
+
+  if (
+    d.includes('shipment information received') ||
+    d.includes('shipping information received') ||
+    d.includes('label created') ||
+    d.includes('label generated') ||
+    d.includes('pre-shipment')
+  ) {
+    return 'Etiqueta criada. Aguardando coleta pela transportadora'
+  }
+
+  return original
+}
+
+function normalizarStatus(status: string) {
+  const s = removerAcentos(status)
+
   if (
     s.includes('despachante aduaneiro') ||
     s.includes('despachante') ||
     s.includes('customs broker') ||
+    s.includes('cleared and delivered by broker') ||
     s.includes('broker') ||
     s.includes('aduaneiro')
   ) {
     return 'Liberado'
   }
 
-  // Entrega final somente quando a transportadora indicar POD/entrega concluída.
-  // Não usamos apenas "entregue", porque a DHL usa essa palavra em eventos de despachante.
   if (
-    s.includes('proof of delivery') ||
+    s.includes('out for delivery') ||
+    s.includes('with delivery courier') ||
+    s.includes('with courier') ||
+    s.includes('saiu com o mensageiro para entrega') ||
+    s.includes('mensageiro para entrega') ||
+    s.includes('saiu para entrega')
+  ) {
+    return 'Saiu para entrega'
+  }
+
+  if (
+    s === 'envio entregue' ||
+    s === 'delivered' ||
     s.includes('shipment delivered') ||
+    s.includes('proof of delivery') ||
     s.includes('delivered to consignee') ||
     s.includes('delivered to recipient') ||
     s.includes('signed for') ||
     s.includes('delivery completed') ||
     s.includes('entrega realizada') ||
-    s.includes('entrega concluída') ||
     s.includes('entrega concluida') ||
-    s.includes('entregue ao destinatário') ||
     s.includes('entregue ao destinatario') ||
-    s.includes('recebedor') ||
     s.includes('comprovante de entrega')
   ) {
     return 'Entregue'
@@ -350,9 +492,7 @@ function normalizarStatus(status: string) {
     s.includes('label generated') ||
     s.includes('etiqueta') ||
     s.includes('gerou a etiqueta') ||
-    s.includes('remessa ainda não foi entregue') ||
     s.includes('remessa ainda nao foi entregue') ||
-    s.includes('não foi entregue fisicamente') ||
     s.includes('nao foi entregue fisicamente') ||
     s.includes('not yet handed over') ||
     s.includes('not yet been handed over') ||
@@ -367,12 +507,10 @@ function normalizarStatus(status: string) {
   if (
     s.includes('clearance event') ||
     s.includes('customs status updated') ||
-    s.includes('liberação') ||
     s.includes('liberacao') ||
     s.includes('clearance') ||
     s.includes('customs') ||
     s.includes('fiscal') ||
-    s.includes('desembaraço') ||
     s.includes('desembaraco')
   ) {
     return 'Fiscalização'
@@ -380,7 +518,6 @@ function normalizarStatus(status: string) {
 
   if (
     s.includes('available for delivery') ||
-    s.includes('out for delivery') ||
     s.includes('released') ||
     s.includes('liberado') ||
     s.includes('liberada')
@@ -395,14 +532,14 @@ function normalizarStatus(status: string) {
     s.includes('coletado') ||
     s.includes('coleta realizada') ||
     s.includes('shipment picked up') ||
-    s.includes('colet')
+    s.includes('colet') ||
+    s.includes('envio recolhido')
   ) {
     return 'Coletado'
   }
 
   if (
     s.includes('transit') ||
-    s.includes('trânsito') ||
     s.includes('transito') ||
     s.includes('processed') ||
     s.includes('processado') ||
@@ -414,7 +551,8 @@ function normalizarStatus(status: string) {
     s.includes('movement') ||
     s.includes('facility') ||
     s.includes('sort facility') ||
-    s.includes('hub')
+    s.includes('hub') ||
+    s.includes('instalacoes da dhl')
   ) {
     return 'Em trânsito'
   }
@@ -440,6 +578,8 @@ async function salvarRastreio({
 
   if (statusNormalizado === 'Entregue') {
     dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
+  } else {
+    dadosAtualizar.data_entrega = null
   }
 
   if (dataColeta && !embarque.data_coleta) {
