@@ -17,6 +17,25 @@ type Problema = {
   link: string
 }
 
+type ClienteCarteira = {
+  nome: string
+  processos: number
+  pagos: number
+  receita: number
+  custo: number
+  profit: number
+  margem: number
+  ticketMedio: number
+  vencido: number
+  semCusto: number
+  ultimoProcesso: string
+  servicoPrincipal: string
+  recomendacao: string
+  motivo: string
+  prioridade: number
+  score: number
+}
+
 export default function IntelligencePage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
@@ -480,6 +499,141 @@ export default function IntelligencePage() {
       .slice(0, 10)
   }, [dadosPeriodo])
 
+
+  const carteiraClientes = useMemo(() => {
+    const mapa: Record<string, any> = {}
+
+    dadosPeriodo.fin.forEach((item) => {
+      const nome = clienteProcesso(item)
+      const status = statusCobranca(item)
+      const mesBase = mesFinanceiro(item)
+      const dataBase = normalizarData(item.recebimento) || normalizarData(item.vencimento_cobranca) || normalizarData(item.created_at) || ''
+      const servico = servicoProcesso(item)
+
+      if (!mapa[nome]) {
+        mapa[nome] = {
+          nome,
+          processos: 0,
+          pagos: 0,
+          receita: 0,
+          custo: 0,
+          profit: 0,
+          vencido: 0,
+          atrasados: 0,
+          semCusto: 0,
+          ultimoProcesso: '',
+          servicos: {},
+        }
+      }
+
+      mapa[nome].processos += 1
+      mapa[nome].servicos[servico] = (mapa[nome].servicos[servico] || 0) + 1
+
+      if (dataBase && (!mapa[nome].ultimoProcesso || dataBase > mapa[nome].ultimoProcesso)) {
+        mapa[nome].ultimoProcesso = dataBase
+      } else if (!mapa[nome].ultimoProcesso && mesBase) {
+        mapa[nome].ultimoProcesso = mesBase
+      }
+
+      if (status === 'PAGO') {
+        mapa[nome].pagos += 1
+        mapa[nome].receita += numero(item.valor_cobranca)
+
+        if (temCusto(item)) {
+          mapa[nome].custo += custosProcesso(item)
+          mapa[nome].profit += profitProcesso(item)
+        } else {
+          mapa[nome].semCusto += 1
+        }
+      }
+
+      if (status === 'ATRASADO') {
+        mapa[nome].atrasados += 1
+        mapa[nome].vencido += numero(item.valor_cobranca)
+      }
+    })
+
+    return Object.values(mapa)
+      .map((item: any) => {
+        const margem = item.receita > 0 ? (item.profit / item.receita) * 100 : 0
+        const ticketMedio = item.pagos > 0 ? item.receita / item.pagos : 0
+        const servicoPrincipal = Object.entries(item.servicos || {})
+          .sort((a: any, b: any) => Number(b[1]) - Number(a[1]))[0]?.[0] || '-'
+
+        let recomendacao = 'ANALISAR'
+        let motivo = 'Pouco dado financeiro confiável para decidir.'
+        let prioridade = 1
+
+        if (item.vencido > 0) {
+          recomendacao = 'COBRAR / SEGURAR'
+          motivo = 'Tem cobrança vencida. Antes de vender mais, proteger caixa.'
+          prioridade = 6
+        } else if (item.semCusto > 0) {
+          recomendacao = 'CORRIGIR CUSTO'
+          motivo = 'Existem processos pagos sem custo. Profit e margem não são confiáveis.'
+          prioridade = 5
+        } else if (item.processos >= 4 && margem > 0 && margem < 15) {
+          recomendacao = 'REAJUSTAR'
+          motivo = 'Tem volume, mas margem baixa. Revisar tabela ou taxa mínima.'
+          prioridade = 4
+        } else if (item.pagos >= 3 && ticketMedio > 0 && ticketMedio < 1500) {
+          recomendacao = 'AUMENTAR TICKET'
+          motivo = 'Ticket médio baixo. Oferecer pacote, taxa mínima ou serviço adicional.'
+          prioridade = 3
+        } else if (item.profit > 0 && margem >= 25) {
+          recomendacao = 'FOCAR'
+          motivo = 'Cliente saudável: bom profit e boa margem.'
+          prioridade = 2
+        } else if (item.profit > 0) {
+          recomendacao = 'MANTER / CRESCER'
+          motivo = 'Cliente positivo. Buscar mais serviços sem reduzir margem.'
+          prioridade = 2
+        }
+
+        const score =
+          item.profit / 1000 +
+          margem * 1.5 +
+          item.pagos * 4 -
+          item.vencido / 500 -
+          item.semCusto * 20 -
+          item.atrasados * 15
+
+        return {
+          nome: item.nome,
+          processos: item.processos,
+          pagos: item.pagos,
+          receita: item.receita,
+          custo: item.custo,
+          profit: item.profit,
+          margem,
+          ticketMedio,
+          vencido: item.vencido,
+          semCusto: item.semCusto,
+          ultimoProcesso: item.ultimoProcesso,
+          servicoPrincipal,
+          recomendacao,
+          motivo,
+          prioridade,
+          score,
+        } as ClienteCarteira
+      })
+      .sort((a: ClienteCarteira, b: ClienteCarteira) => b.prioridade - a.prioridade || b.profit - a.profit || b.processos - a.processos)
+      .slice(0, 20)
+  }, [dadosPeriodo])
+
+  const resumoCarteira = useMemo(() => {
+    const receita = carteiraClientes.reduce((acc, item) => acc + item.receita, 0)
+    const pagos = carteiraClientes.reduce((acc, item) => acc + item.pagos, 0)
+    const ticketMedio = pagos > 0 ? receita / pagos : 0
+
+    return {
+      focar: carteiraClientes.filter((item) => ['FOCAR', 'MANTER / CRESCER'].includes(item.recomendacao)).length,
+      reajustar: carteiraClientes.filter((item) => ['REAJUSTAR', 'AUMENTAR TICKET'].includes(item.recomendacao)).length,
+      risco: carteiraClientes.filter((item) => ['COBRAR / SEGURAR', 'CORRIGIR CUSTO'].includes(item.recomendacao)).length,
+      ticketMedio,
+    }
+  }, [carteiraClientes])
+
   const rankingTransportadoras = useMemo(() => {
     const mapa: Record<string, any> = {}
 
@@ -624,6 +778,80 @@ export default function IntelligencePage() {
           <Kpi titulo="A receber 7 dias" valor={moeda(inteligencia.receber7Dias)} detalhe="Previsão curta" icone="📅" cor="blue" />
           <Kpi titulo="Pagos sem custo" valor={inteligencia.pagosSemCusto.length} detalhe="Profit não confiável" icone="🧩" cor={inteligencia.pagosSemCusto.length > 0 ? 'yellow' : 'green'} />
           <Kpi titulo="Chamados abertos" valor={inteligencia.chamadosAbertos.length} detalhe="Suporte pendente" icone="💬" cor={inteligencia.chamadosAbertos.length > 0 ? 'orange' : 'green'} />
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-4 gap-5 mb-6">
+          <Kpi titulo="Clientes para focar" valor={resumoCarteira.focar} detalhe="Bom profit ou crescimento" icone="🎯" cor="green" />
+          <Kpi titulo="Reajustar ticket" valor={resumoCarteira.reajustar} detalhe="Margem ou ticket baixo" icone="📈" cor={resumoCarteira.reajustar > 0 ? 'yellow' : 'green'} />
+          <Kpi titulo="Clientes com risco" valor={resumoCarteira.risco} detalhe="Cobrança ou custo pendente" icone="⚠️" cor={resumoCarteira.risco > 0 ? 'red' : 'green'} />
+          <Kpi titulo="Ticket médio" valor={moeda(resumoCarteira.ticketMedio)} detalhe="Receita / processos pagos" icone="🧾" cor="blue" />
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+          <Card className="xl:col-span-2">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+              <div>
+                <h2 className="text-2xl font-black">Carteira de Clientes</h2>
+                <p className="text-slate-400 text-sm">
+                  Mostra onde focar, quem reajustar e quem precisa de correção antes de vender mais.
+                </p>
+              </div>
+              <span className="text-blue-400 text-sm font-bold">Score por profit, margem, ticket, vencidos e custos</span>
+            </div>
+
+            {carteiraClientes.length === 0 ? (
+              <p className="text-slate-500">Nenhum cliente com dados financeiros no período.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1120px] text-sm">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-blue-900">
+                      <Th>Cliente</Th>
+                      <Th>Recomendação</Th>
+                      <Th>Processos</Th>
+                      <Th>Receita</Th>
+                      <Th>Profit HC</Th>
+                      <Th>Margem</Th>
+                      <Th>Ticket médio</Th>
+                      <Th>Vencido</Th>
+                      <Th>Serviço principal</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {carteiraClientes.map((item) => (
+                      <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                        <Td>
+                          <strong>{item.nome}</strong>
+                          <p className="text-xs text-slate-500 mt-1">{item.motivo}</p>
+                        </Td>
+                        <Td><BadgeRecomendacao recomendacao={item.recomendacao} /></Td>
+                        <Td>{item.processos}</Td>
+                        <Td><strong className="text-blue-400">{moeda(item.receita)}</strong></Td>
+                        <Td><strong className={item.profit >= 0 ? 'text-green-400' : 'text-red-400'}>{moeda(item.profit)}</strong></Td>
+                        <Td><strong className={item.margem >= 15 ? 'text-green-400' : item.margem > 0 ? 'text-yellow-400' : 'text-red-400'}>{percentual(item.margem)}</strong></Td>
+                        <Td><strong>{moeda(item.ticketMedio)}</strong></Td>
+                        <Td><strong className={item.vencido > 0 ? 'text-red-400' : 'text-slate-500'}>{moeda(item.vencido)}</strong></Td>
+                        <Td>{item.servicoPrincipal}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <h2 className="text-2xl font-black mb-5">Como aumentar o ticket</h2>
+            <Resumo label="1. Aplicar taxa mínima" valor="Processo pequeno" cor="blue" />
+            <Resumo label="2. Reajustar margem baixa" valor="< 15%" cor="yellow" />
+            <Resumo label="3. Vender serviço adicional" valor="Gestão / relatório" cor="green" />
+            <Resumo label="4. Subir nível do cliente" valor="Courier → formal" cor="purple" />
+            <Resumo label="5. Cobrar antes se tiver risco" valor="Protege caixa" cor="red" />
+
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-300">
+              <strong className="text-white">Regra prática:</strong> cliente com volume e margem baixa não é cliente ruim; é cliente que precisa de tabela nova, taxa mínima ou escopo mais claro.
+            </div>
+          </Card>
         </section>
 
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
@@ -817,6 +1045,25 @@ function Badge({ children, cor }: any) {
   }
 
   return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${cores[cor] || cores.blue}`}>{children}</span>
+}
+
+
+function BadgeRecomendacao({ recomendacao }: any) {
+  const cores: Record<string, string> = {
+    'FOCAR': 'border-green-500 text-green-400 bg-green-950/30',
+    'MANTER / CRESCER': 'border-blue-500 text-blue-400 bg-blue-950/30',
+    'AUMENTAR TICKET': 'border-yellow-500 text-yellow-400 bg-yellow-950/30',
+    'REAJUSTAR': 'border-orange-500 text-orange-400 bg-orange-950/30',
+    'COBRAR / SEGURAR': 'border-red-500 text-red-400 bg-red-950/30',
+    'CORRIGIR CUSTO': 'border-red-500 text-red-400 bg-red-950/30',
+    'ANALISAR': 'border-slate-500 text-slate-300 bg-slate-900/50',
+  }
+
+  return (
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black whitespace-nowrap ${cores[recomendacao] || cores.ANALISAR}`}>
+      {recomendacao}
+    </span>
+  )
 }
 
 function Th({ children }: any) {
