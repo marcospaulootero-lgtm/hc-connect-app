@@ -54,6 +54,12 @@ export default function IntelligencePage() {
   const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('TUDO')
   const [mesFiltro, setMesFiltro] = useState(new Date().toISOString().slice(0, 7))
 
+  const [buscaCliente, setBuscaCliente] = useState('')
+  const [filtroRecomendacao, setFiltroRecomendacao] = useState('TODOS')
+  const [filtroServicoCliente, setFiltroServicoCliente] = useState('TODOS')
+  const [filtroAcaoCliente, setFiltroAcaoCliente] = useState('TODOS')
+  const [filtroRecenciaCliente, setFiltroRecenciaCliente] = useState('TODOS')
+
   useEffect(() => {
     carregar()
   }, [])
@@ -746,6 +752,71 @@ export default function IntelligencePage() {
     }
   }, [carteiraClientes, clientesParaAumentarTicket, clientesParaRecuperar])
 
+  const servicosCarteira = useMemo(() => {
+    return Array.from(
+      new Set(
+        carteiraClientes
+          .map((item) => item.servicoPrincipal)
+          .filter((item) => item && item !== '-')
+      )
+    ).sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
+  }, [carteiraClientes])
+
+  const carteiraClientesFiltrada = useMemo(() => {
+    const termo = normalizarBusca(buscaCliente)
+
+    return carteiraClientes.filter((item) => {
+      const textoCliente = normalizarBusca(`
+        ${item.nome}
+        ${item.recomendacao}
+        ${item.motivo}
+        ${item.servicoPrincipal}
+        ${item.periodoAumento}
+        ${item.acaoTicket}
+      `)
+
+      const passaBusca = !termo || textoCliente.includes(termo)
+
+      const passaRecomendacao =
+        filtroRecomendacao === 'TODOS' || item.recomendacao === filtroRecomendacao
+
+      const passaServico =
+        filtroServicoCliente === 'TODOS' || item.servicoPrincipal === filtroServicoCliente
+
+      const passaAcao =
+        filtroAcaoCliente === 'TODOS' ||
+        (filtroAcaoCliente === 'FOCAR' && ['FOCAR', 'MANTER / CRESCER'].includes(item.recomendacao)) ||
+        (filtroAcaoCliente === 'AUMENTAR_TICKET' && ['REAJUSTAR', 'AUMENTAR TICKET'].includes(item.recomendacao)) ||
+        (filtroAcaoCliente === 'RECUPERAR' && item.recuperar) ||
+        (filtroAcaoCliente === 'RISCO' && ['COBRAR / SEGURAR', 'CORRIGIR CUSTO'].includes(item.recomendacao)) ||
+        (filtroAcaoCliente === 'SEM_CUSTO' && item.semCusto > 0) ||
+        (filtroAcaoCliente === 'COBRANCA' && item.vencido > 0)
+
+      const passaRecencia =
+        filtroRecenciaCliente === 'TODOS' ||
+        (filtroRecenciaCliente === 'ATIVOS' && item.diasSemEmbarque < 45) ||
+        (filtroRecenciaCliente === 'PARADOS_45' && item.diasSemEmbarque >= 45) ||
+        (filtroRecenciaCliente === 'PARADOS_90' && item.diasSemEmbarque >= 90)
+
+      return passaBusca && passaRecomendacao && passaServico && passaAcao && passaRecencia
+    })
+  }, [
+    carteiraClientes,
+    buscaCliente,
+    filtroRecomendacao,
+    filtroServicoCliente,
+    filtroAcaoCliente,
+    filtroRecenciaCliente,
+  ])
+
+  function limparFiltrosCarteira() {
+    setBuscaCliente('')
+    setFiltroRecomendacao('TODOS')
+    setFiltroServicoCliente('TODOS')
+    setFiltroAcaoCliente('TODOS')
+    setFiltroRecenciaCliente('TODOS')
+  }
+
   const rankingTransportadoras = useMemo(() => {
     const mapa: Record<string, any> = {}
 
@@ -909,11 +980,85 @@ export default function IntelligencePage() {
                   Mostra onde focar, quem reajustar, quem recuperar e quem precisa de correção antes de vender mais.
                 </p>
               </div>
-              <span className="text-blue-400 text-sm font-bold">Score por profit, margem, ticket, vencidos, custos e recência</span>
+              <span className="text-blue-400 text-sm font-bold">
+                {carteiraClientesFiltrada.length} de {carteiraClientes.length} cliente(s)
+              </span>
             </div>
 
-            {carteiraClientes.length === 0 ? (
-              <p className="text-slate-500">Nenhum cliente com dados financeiros no período.</p>
+            <div className="mb-5 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+              <div className="mb-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <div>
+                  <p className="font-black text-white">Filtros da carteira</p>
+                  <p className="text-slate-500 text-sm">Filtre por ação comercial, recomendação, serviço, recência ou nome do cliente.</p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={limparFiltrosCarteira}
+                  className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold text-sm"
+                >
+                  Limpar filtros
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+                <input
+                  value={buscaCliente}
+                  onChange={(e) => setBuscaCliente(e.target.value)}
+                  placeholder="Buscar cliente, serviço ou motivo..."
+                  className="w-full"
+                />
+
+                <select value={filtroAcaoCliente} onChange={(e) => setFiltroAcaoCliente(e.target.value)}>
+                  <option value="TODOS">Ação: todas</option>
+                  <option value="FOCAR">Focar / crescer</option>
+                  <option value="AUMENTAR_TICKET">Aumentar ticket</option>
+                  <option value="RECUPERAR">Recuperar cliente</option>
+                  <option value="RISCO">Risco / corrigir</option>
+                  <option value="SEM_CUSTO">Com custo pendente</option>
+                  <option value="COBRANCA">Com cobrança vencida</option>
+                </select>
+
+                <select value={filtroRecomendacao} onChange={(e) => setFiltroRecomendacao(e.target.value)}>
+                  <option value="TODOS">Recomendação: todas</option>
+                  <option value="FOCAR">FOCAR</option>
+                  <option value="MANTER / CRESCER">MANTER / CRESCER</option>
+                  <option value="REAJUSTAR">REAJUSTAR</option>
+                  <option value="AUMENTAR TICKET">AUMENTAR TICKET</option>
+                  <option value="COBRAR / SEGURAR">COBRAR / SEGURAR</option>
+                  <option value="CORRIGIR CUSTO">CORRIGIR CUSTO</option>
+                  <option value="REATIVAR">REATIVAR</option>
+                  <option value="ANALISAR">ANALISAR</option>
+                </select>
+
+                <select value={filtroRecenciaCliente} onChange={(e) => setFiltroRecenciaCliente(e.target.value)}>
+                  <option value="TODOS">Recência: todos</option>
+                  <option value="ATIVOS">Ativos (&lt; 45 dias)</option>
+                  <option value="PARADOS_45">Parados +45 dias</option>
+                  <option value="PARADOS_90">Parados +90 dias</option>
+                </select>
+
+                <select value={filtroServicoCliente} onChange={(e) => setFiltroServicoCliente(e.target.value)}>
+                  <option value="TODOS">Serviço: todos</option>
+                  {servicosCarteira.map((servico) => (
+                    <option key={servico} value={servico}>
+                      {servico}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={() => setFiltroAcaoCliente('AUMENTAR_TICKET')} className="rounded-full border border-yellow-600 px-3 py-2 text-xs font-black text-yellow-300 hover:bg-yellow-600/10">Aumentar ticket</button>
+                <button type="button" onClick={() => setFiltroAcaoCliente('RECUPERAR')} className="rounded-full border border-cyan-600 px-3 py-2 text-xs font-black text-cyan-300 hover:bg-cyan-600/10">Recuperar</button>
+                <button type="button" onClick={() => setFiltroAcaoCliente('FOCAR')} className="rounded-full border border-green-600 px-3 py-2 text-xs font-black text-green-300 hover:bg-green-600/10">Focar</button>
+                <button type="button" onClick={() => setFiltroAcaoCliente('RISCO')} className="rounded-full border border-red-600 px-3 py-2 text-xs font-black text-red-300 hover:bg-red-600/10">Corrigir risco</button>
+                <button type="button" onClick={() => setFiltroRecenciaCliente('PARADOS_45')} className="rounded-full border border-orange-600 px-3 py-2 text-xs font-black text-orange-300 hover:bg-orange-600/10">Parados +45 dias</button>
+              </div>
+            </div>
+
+            {carteiraClientesFiltrada.length === 0 ? (
+              <p className="text-slate-500">Nenhum cliente encontrado com os filtros atuais.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1320px] text-sm">
@@ -932,7 +1077,7 @@ export default function IntelligencePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {carteiraClientes.map((item) => (
+                    {carteiraClientesFiltrada.map((item) => (
                       <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
                         <Td>
                           <strong>{item.nome}</strong>
