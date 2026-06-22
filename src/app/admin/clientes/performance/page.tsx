@@ -4,48 +4,50 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 const LOTE_SUPABASE = 1000
-const STORAGE_KEY = 'hc_admin_clientes_performance_filtros_v2'
+const STORAGE_KEY = 'hc_admin_ranking_clientes_profit_hc_v3'
 
-type FiltroRanking = 'VALOR' | 'FATURADOS' | 'EMBARQUES' | 'TICKET' | 'PESO' | 'PARADOS'
+type FiltroRanking =
+  | 'PROFIT'
+  | 'FATURADOS'
+  | 'TICKET'
+  | 'MENOR_PROFIT'
+  | 'MENOR_TICKET'
+  | 'ATRASADOS'
+
 type FiltroPeriodo = 'TODOS' | 'MES_ATUAL' | 'MES_ANTERIOR' | 'ULTIMOS_90' | 'ANO_ATUAL'
 
 type ClienteRanking = {
-  clienteId: string
+  clienteKey: string
   nome: string
-  email: string
-  embarques: number
   processosFaturados: number
-  financeirosComValor: number
+  comProfitHC: number
+  aguardandoCusto: number
   pagos: number
   emAberto: number
   atrasados: number
   semDataFinanceira: number
-  entregues: number
-  ativos: number
-  fiscalizacao: number
-  valorTotal: number
-  ticketMedio: number
+  profitTotal: number
+  ticketMedioProfit: number
+  valorFaturadoTotal: number
+  custoTotal: number
   pesoTotal: number
-  ultimoEmbarqueData: string | null
+  ultimoRegistroData: string | null
   ultimoAwb: string
   ultimoStatus: string
-  awbs: string[]
   awbsFaturados: string[]
   transportadoras: string[]
   faturas: string[]
 }
 
 export default function ClientesPerformancePage() {
-  const [clientes, setClientes] = useState<any[]>([])
-  const [embarques, setEmbarques] = useState<any[]>([])
-  const [vinculos, setVinculos] = useState<any[]>([])
   const [financeiros, setFinanceiros] = useState<any[]>([])
+  const [embarques, setEmbarques] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const [busca, setBusca] = useState('')
   const [periodo, setPeriodo] = useState<FiltroPeriodo>('TODOS')
-  const [rankingPor, setRankingPor] = useState<FiltroRanking>('VALOR')
-  const [somenteComEmbarque, setSomenteComEmbarque] = useState(true)
+  const [rankingPor, setRankingPor] = useState<FiltroRanking>('PROFIT')
+  const [somenteComMovimento, setSomenteComMovimento] = useState(true)
   const [clienteAbertoId, setClienteAbertoId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -56,8 +58,9 @@ export default function ClientesPerformancePage() {
         const dados = JSON.parse(salvo)
         if (dados.busca !== undefined) setBusca(dados.busca)
         if (dados.periodo) setPeriodo(dados.periodo)
-        if (dados.rankingPor) setRankingPor(dados.rankingPor)
-        if (dados.somenteComEmbarque !== undefined) setSomenteComEmbarque(dados.somenteComEmbarque)
+        if (dados.rankingPor) setRankingPor(normalizarRankingSalvo(dados.rankingPor))
+        if (dados.somenteComMovimento !== undefined) setSomenteComMovimento(dados.somenteComMovimento)
+        if (dados.somenteComEmbarque !== undefined) setSomenteComMovimento(dados.somenteComEmbarque)
       } catch (error) {
         console.log('Erro ao carregar filtros salvos:', error)
       }
@@ -69,20 +72,34 @@ export default function ClientesPerformancePage() {
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ busca, periodo, rankingPor, somenteComEmbarque })
+      JSON.stringify({ busca, periodo, rankingPor, somenteComMovimento })
     )
-  }, [busca, periodo, rankingPor, somenteComEmbarque])
+  }, [busca, periodo, rankingPor, somenteComMovimento])
+
+  function normalizarRankingSalvo(valor: any): FiltroRanking {
+    const textoValor = String(valor || '').toUpperCase()
+
+    if (textoValor === 'VALOR') return 'PROFIT'
+    if (textoValor === 'EMBARQUES') return 'FATURADOS'
+    if (textoValor === 'PESO') return 'FATURADOS'
+    if (textoValor === 'PARADOS') return 'FATURADOS'
+
+    if (
+      textoValor === 'PROFIT' ||
+      textoValor === 'FATURADOS' ||
+      textoValor === 'TICKET' ||
+      textoValor === 'MENOR_PROFIT' ||
+      textoValor === 'MENOR_TICKET' ||
+      textoValor === 'ATRASADOS'
+    ) {
+      return textoValor as FiltroRanking
+    }
+
+    return 'PROFIT'
+  }
 
   async function carregar() {
     setLoading(true)
-
-    const { data: clientesData, error: erroClientes } = await supabase
-      .from('perfis')
-      .select('*')
-      .eq('tipo_acesso', 'cliente')
-      .order('nome')
-
-    if (erroClientes) console.log('ERRO CLIENTES:', erroClientes)
 
     const { data: embarquesData, error: erroEmbarques } = await supabase
       .from('embarques')
@@ -90,12 +107,6 @@ export default function ClientesPerformancePage() {
       .order('criado_em', { ascending: false })
 
     if (erroEmbarques) console.log('ERRO EMBARQUES:', erroEmbarques)
-
-    const { data: vinculosData, error: erroVinculos } = await supabase
-      .from('embarque_clientes')
-      .select('*')
-
-    if (erroVinculos) console.log('ERRO VÍNCULOS:', erroVinculos)
 
     let financeiroData: any[] = []
 
@@ -132,16 +143,17 @@ export default function ClientesPerformancePage() {
       financeiroData = respostas.flatMap((res) => res.data || [])
     }
 
-    setClientes(clientesData || [])
     setEmbarques(embarquesData || [])
-    setVinculos(vinculosData || [])
     setFinanceiros(financeiroData || [])
     setLoading(false)
   }
 
+  function texto(valor: any) {
+    return String(valor || '').trim()
+  }
+
   function normalizarTexto(valor: any) {
-    return String(valor || '')
-      .trim()
+    return texto(valor)
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -177,8 +189,8 @@ export default function ClientesPerformancePage() {
   function dataBR(data?: string | null) {
     if (!data) return '-'
 
-    const texto = String(data).slice(0, 10)
-    const [ano, mes, dia] = texto.split('-')
+    const textoData = String(data).slice(0, 10)
+    const [ano, mes, dia] = textoData.split('-')
 
     if (ano && mes && dia) return `${dia}/${mes}/${ano}`
 
@@ -197,18 +209,18 @@ export default function ClientesPerformancePage() {
       return data.toISOString().slice(0, 10)
     }
 
-    const texto = String(valor).trim()
-    if (!texto || texto === '0' || texto === '-') return null
+    const textoData = String(valor).trim()
+    if (!textoData || textoData === '0' || textoData === '-') return null
 
-    if (/^\d{4}-\d{2}-\d{2}/.test(texto)) return texto.slice(0, 10)
+    if (/^\d{4}-\d{2}-\d{2}/.test(textoData)) return textoData.slice(0, 10)
 
-    const partes = texto.split('/')
+    const partes = textoData.split('/')
     if (partes.length === 3) {
       const [dia, mes, ano] = partes
       return `${ano.padStart(4, '20')}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
     }
 
-    const data = new Date(texto)
+    const data = new Date(textoData)
     if (!Number.isNaN(data.getTime())) return data.toISOString().slice(0, 10)
 
     return null
@@ -263,14 +275,6 @@ export default function ClientesPerformancePage() {
     return true
   }
 
-  function dataReferenciaEmbarque(embarque: any) {
-    return normalizarData(embarque?.criado_em || embarque?.data_envio || embarque?.ultima_atualizacao)
-  }
-
-  function embarqueDentroPeriodo(embarque: any) {
-    return dentroPeriodoPorISO(dataReferenciaEmbarque(embarque))
-  }
-
   function vencimentoFinanceiro(item: any) {
     return (
       item?.vencimento_cobranca ||
@@ -292,8 +296,6 @@ export default function ClientesPerformancePage() {
   }
 
   function dataReferenciaFinanceiro(item: any) {
-    // Para informações financeiras, a base é sempre Processos Faturados.
-    // Prioridade: vencimento do cliente, recebimento e, por último, data de criação/importação.
     return normalizarData(
       vencimentoFinanceiro(item) ||
         recebimentoFinanceiro(item) ||
@@ -331,6 +333,24 @@ export default function ClientesPerformancePage() {
       .filter(Boolean)
   }
 
+  function clienteFinanceiro(item: any) {
+    return (
+      texto(item?.cliente) ||
+      texto(item?.cliente_final) ||
+      texto(item?.importador) ||
+      texto(item?.tomador) ||
+      texto(item?.pagador) ||
+      'Cliente não identificado'
+    )
+  }
+
+  function chaveClienteFinanceiro(item: any) {
+    const nome = clienteFinanceiro(item)
+    const chave = normalizarTexto(nome)
+
+    return chave || `sem-cliente-${item?.id || Math.random().toString(36).slice(2)}`
+  }
+
   function embarqueDoFinanceiro(item: any, embarquesPorId: Map<string, any>, embarquesPorAwb: Map<string, any>) {
     const embarqueId = String(item?.embarque_id || '')
     if (embarqueId && embarquesPorId.has(embarqueId)) return embarquesPorId.get(embarqueId)
@@ -344,85 +364,48 @@ export default function ClientesPerformancePage() {
     return null
   }
 
-  function valorFinanceiro(item: any) {
-    if (!item) return 0
-
-    // Regra desta tela: dinheiro SEMPRE vem de Financeiro > Processos Faturados.
+  function valorFaturadoFinanceiro(item: any) {
     return (
-      numero(item.valor_cobranca) ||
-      numero(item.valor_faturado) ||
-      numero(item.valor_venda) ||
-      numero(item.valor) ||
+      numero(item?.valor_cobranca) ||
+      numero(item?.valor_faturado) ||
+      numero(item?.valor_venda) ||
+      numero(item?.valor) ||
       0
     )
   }
 
-  function clienteIdsDoEmbarque(embarque: any) {
-    const idsVinculados = vinculos
-      .filter((v) => String(v.embarque_id) === String(embarque.id))
-      .map((v) => v.cliente_id)
-      .filter(Boolean)
-
-    if (idsVinculados.length > 0) return Array.from(new Set(idsVinculados))
-    if (embarque.usuario_id) return [embarque.usuario_id]
-
-    return [`sem-vinculo-${embarque.id}`]
+  function custoFinanceiro(item: any) {
+    return numero(item?.doc_dta) + numero(item?.debito_terceiro) + numero(item?.valor_compra)
   }
 
-  function nomeClienteFallback(embarque: any) {
-    return (
-      embarque?.cliente_final ||
-      embarque?.importador ||
-      embarque?.exportador ||
-      'Sem cliente vinculado'
-    )
+  function possuiCustoFinanceiro(item: any) {
+    return numero(item?.valor_compra) > 0
   }
 
-  function clienteFinanceiroFallback(financeiro: any) {
-    return (
-      financeiro?.cliente ||
-      financeiro?.cliente_final ||
-      financeiro?.importador ||
-      financeiro?.exportador ||
-      financeiro?.tomador ||
-      'Cliente não identificado no financeiro'
-    )
+  function profitHCFinanceiro(item: any) {
+    if (!possuiCustoFinanceiro(item)) return null
+    return valorFaturadoFinanceiro(item) - custoFinanceiro(item)
   }
 
-  function clienteIdsDoFinanceiro(financeiro: any, embarque: any, mapaClientesPorNome: Map<string, any>) {
-    if (embarque) return clienteIdsDoEmbarque(embarque)
-
-    const nome = clienteFinanceiroFallback(financeiro)
-    const chaveNome = normalizarTexto(nome)
-    const cliente = mapaClientesPorNome.get(chaveNome)
-
-    if (cliente?.id) return [cliente.id]
-
-    return [`financeiro-${chaveNome || financeiro?.id || Math.random().toString(36).slice(2)}`]
-  }
-
-  function criarRegistroCliente(clienteId: string, nome: string, email = ''): ClienteRanking {
+  function criarRegistroCliente(clienteKey: string, nome: string): ClienteRanking {
     return {
-      clienteId,
+      clienteKey,
       nome,
-      email,
-      embarques: 0,
       processosFaturados: 0,
-      financeirosComValor: 0,
+      comProfitHC: 0,
+      aguardandoCusto: 0,
       pagos: 0,
       emAberto: 0,
       atrasados: 0,
       semDataFinanceira: 0,
-      entregues: 0,
-      ativos: 0,
-      fiscalizacao: 0,
-      valorTotal: 0,
-      ticketMedio: 0,
+      profitTotal: 0,
+      ticketMedioProfit: 0,
+      valorFaturadoTotal: 0,
+      custoTotal: 0,
       pesoTotal: 0,
-      ultimoEmbarqueData: null,
+      ultimoRegistroData: null,
       ultimoAwb: '-',
       ultimoStatus: '-',
-      awbs: [],
       awbsFaturados: [],
       transportadoras: [],
       faturas: [],
@@ -430,15 +413,6 @@ export default function ClientesPerformancePage() {
   }
 
   const ranking = useMemo(() => {
-    const mapaClientes = new Map<string, any>()
-    const mapaClientesPorNome = new Map<string, any>()
-
-    clientes.forEach((cliente) => {
-      mapaClientes.set(cliente.id, cliente)
-      if (cliente.nome) mapaClientesPorNome.set(normalizarTexto(cliente.nome), cliente)
-      if (cliente.email) mapaClientesPorNome.set(normalizarTexto(cliente.email), cliente)
-    })
-
     const embarquesPorId = new Map<string, any>()
     const embarquesPorAwb = new Map<string, any>()
 
@@ -450,171 +424,143 @@ export default function ClientesPerformancePage() {
 
     const acumulado = new Map<string, ClienteRanking>()
 
-    clientes.forEach((cliente) => {
-      acumulado.set(
-        cliente.id,
-        criarRegistroCliente(cliente.id, cliente.nome || cliente.email || 'Cliente', cliente.email || '')
-      )
-    })
-
-    function garantirCliente(clienteId: string, nome: string, email = '') {
-      if (!acumulado.has(clienteId)) {
-        acumulado.set(clienteId, criarRegistroCliente(clienteId, nome, email))
+    function garantirCliente(clienteKey: string, nome: string) {
+      if (!acumulado.has(clienteKey)) {
+        acumulado.set(clienteKey, criarRegistroCliente(clienteKey, nome))
       }
 
-      return acumulado.get(clienteId)!
+      return acumulado.get(clienteKey)!
     }
 
-    // Métricas operacionais: quantidade de embarques, peso, status e último embarque.
-    // Métricas de dinheiro NÃO são calculadas aqui.
-    embarques.filter(embarqueDentroPeriodo).forEach((embarque) => {
-      const clienteIds = clienteIdsDoEmbarque(embarque)
-      const peso = numero(embarque.peso_taxado) || numero(embarque.peso_real)
-      const status = normalizarTexto(embarque.status_operacional)
-      const data = embarque.criado_em || embarque.ultima_atualizacao || embarque.data_envio || null
-
-      clienteIds.forEach((clienteId) => {
-        const cliente = mapaClientes.get(clienteId)
-        const item = garantirCliente(
-          cliente?.id || clienteId,
-          cliente?.nome || cliente?.email || nomeClienteFallback(embarque),
-          cliente?.email || ''
-        )
-
-        item.embarques += 1
-        item.pesoTotal += peso
-
-        if (status.includes('entregue') || status.includes('concluido') || status.includes('finalizado')) item.entregues += 1
-        else item.ativos += 1
-        if (status.includes('fiscalizacao')) item.fiscalizacao += 1
-
-        if (embarque.awb) item.awbs.push(String(embarque.awb))
-        if (embarque.transportadora) item.transportadoras.push(String(embarque.transportadora))
-
-        if (
-          data &&
-          (!item.ultimoEmbarqueData || new Date(data) > new Date(item.ultimoEmbarqueData))
-        ) {
-          item.ultimoEmbarqueData = data
-          item.ultimoAwb = embarque.awb || '-'
-          item.ultimoStatus = embarque.status_operacional || '-'
-        }
-      })
-    })
-
-    // Métricas financeiras: SEMPRE de financeiro_embarques / Processos Faturados.
     financeiros.filter(financeiroDentroPeriodo).forEach((financeiro) => {
+      const nome = clienteFinanceiro(financeiro)
+      const clienteKey = chaveClienteFinanceiro(financeiro)
+      const item = garantirCliente(clienteKey, nome)
+
       const embarque = embarqueDoFinanceiro(financeiro, embarquesPorId, embarquesPorAwb)
-      const clienteIds = clienteIdsDoFinanceiro(financeiro, embarque, mapaClientesPorNome)
-      const valor = valorFinanceiro(financeiro)
       const statusPagamento = statusPagamentoFinanceiro(financeiro)
+      const valorFaturado = valorFaturadoFinanceiro(financeiro)
+      const custo = custoFinanceiro(financeiro)
+      const profit = profitHCFinanceiro(financeiro)
       const awbFinanceiro = awbsFinanceiro(financeiro)[0] || normalizarAwb(embarque?.awb) || '-'
       const numeroFatura = financeiro?.fatura || financeiro?.numero_fatura || financeiro?.invoice || ''
+      const dataReferencia = dataReferenciaFinanceiro(financeiro)
+      const peso = numero(embarque?.peso_taxado) || numero(embarque?.peso_real)
 
-      clienteIds.forEach((clienteId) => {
-        const cliente = mapaClientes.get(clienteId)
-        const item = garantirCliente(
-          cliente?.id || clienteId,
-          cliente?.nome || cliente?.email || embarque?.cliente_final || clienteFinanceiroFallback(financeiro),
-          cliente?.email || ''
-        )
+      item.processosFaturados += 1
+      item.valorFaturadoTotal += valorFaturado
+      item.pesoTotal += peso
 
-        item.processosFaturados += 1
-        item.valorTotal += valor
+      if (profit === null) {
+        item.aguardandoCusto += 1
+      } else {
+        item.comProfitHC += 1
+        item.profitTotal += profit
+        item.custoTotal += custo
+      }
 
-        if (valor > 0) item.financeirosComValor += 1
-        if (statusPagamento === 'PAGO') item.pagos += 1
-        else if (statusPagamento === 'ATRASADO') item.atrasados += 1
-        else if (statusPagamento === 'EM_ABERTO') item.emAberto += 1
-        else item.semDataFinanceira += 1
+      if (statusPagamento === 'PAGO') item.pagos += 1
+      else if (statusPagamento === 'ATRASADO') item.atrasados += 1
+      else if (statusPagamento === 'EM_ABERTO') item.emAberto += 1
+      else item.semDataFinanceira += 1
 
-        if (awbFinanceiro && awbFinanceiro !== '-') item.awbsFaturados.push(String(awbFinanceiro))
-        if (numeroFatura) item.faturas.push(String(numeroFatura))
-        if (embarque?.transportadora) item.transportadoras.push(String(embarque.transportadora))
-      })
+      if (awbFinanceiro && awbFinanceiro !== '-') item.awbsFaturados.push(String(awbFinanceiro))
+      if (numeroFatura) item.faturas.push(String(numeroFatura))
+      if (financeiro?.transportadora) item.transportadoras.push(String(financeiro.transportadora))
+      if (embarque?.transportadora) item.transportadoras.push(String(embarque.transportadora))
+
+      if (
+        dataReferencia &&
+        (!item.ultimoRegistroData || new Date(dataReferencia) > new Date(item.ultimoRegistroData))
+      ) {
+        item.ultimoRegistroData = dataReferencia
+        item.ultimoAwb = awbFinanceiro || '-'
+        item.ultimoStatus = embarque?.status_operacional || statusPagamento || '-'
+      }
     })
 
     let lista = Array.from(acumulado.values()).map((item) => ({
       ...item,
-      awbs: Array.from(new Set(item.awbs)),
       awbsFaturados: Array.from(new Set(item.awbsFaturados)),
       transportadoras: Array.from(new Set(item.transportadoras)),
       faturas: Array.from(new Set(item.faturas)),
-      ticketMedio: item.financeirosComValor > 0 ? item.valorTotal / item.financeirosComValor : 0,
+      ticketMedioProfit: item.comProfitHC > 0 ? item.profitTotal / item.comProfitHC : 0,
     }))
 
-    if (somenteComEmbarque) {
-      lista = lista.filter((item) => item.embarques > 0 || item.processosFaturados > 0)
+    if (somenteComMovimento) {
+      lista = lista.filter((item) => item.processosFaturados > 0)
     }
 
     if (busca.trim()) {
       const termo = normalizarTexto(busca)
       lista = lista.filter((item) => {
-        const texto = normalizarTexto(`
+        const textoBusca = normalizarTexto(`
           ${item.nome}
-          ${item.email}
-          ${item.awbs.join(' ')}
           ${item.awbsFaturados.join(' ')}
           ${item.transportadoras.join(' ')}
           ${item.faturas.join(' ')}
         `)
 
-        return texto.includes(termo)
+        return textoBusca.includes(termo)
       })
     }
 
     lista.sort((a, b) => {
       if (rankingPor === 'FATURADOS') return b.processosFaturados - a.processosFaturados
-      if (rankingPor === 'EMBARQUES') return b.embarques - a.embarques
-      if (rankingPor === 'TICKET') return b.ticketMedio - a.ticketMedio
-      if (rankingPor === 'PESO') return b.pesoTotal - a.pesoTotal
-      if (rankingPor === 'PARADOS') {
-        const dataA = a.ultimoEmbarqueData ? new Date(a.ultimoEmbarqueData).getTime() : 0
-        const dataB = b.ultimoEmbarqueData ? new Date(b.ultimoEmbarqueData).getTime() : 0
-        return dataA - dataB
-      }
+      if (rankingPor === 'TICKET') return b.ticketMedioProfit - a.ticketMedioProfit
+      if (rankingPor === 'MENOR_PROFIT') return a.profitTotal - b.profitTotal
+      if (rankingPor === 'MENOR_TICKET') return a.ticketMedioProfit - b.ticketMedioProfit
+      if (rankingPor === 'ATRASADOS') return b.atrasados - a.atrasados
 
-      return b.valorTotal - a.valorTotal
+      return b.profitTotal - a.profitTotal
     })
 
     return lista
-  }, [clientes, embarques, vinculos, financeiros, busca, periodo, rankingPor, somenteComEmbarque])
+  }, [embarques, financeiros, busca, periodo, rankingPor, somenteComMovimento])
 
   const resumo = useMemo(() => {
     const totalClientes = ranking.length
-    const totalEmbarques = ranking.reduce((acc, item) => acc + item.embarques, 0)
     const processosFaturados = ranking.reduce((acc, item) => acc + item.processosFaturados, 0)
-    const valorTotal = ranking.reduce((acc, item) => acc + item.valorTotal, 0)
-    const financeirosComValor = ranking.reduce((acc, item) => acc + item.financeirosComValor, 0)
+    const comProfitHC = ranking.reduce((acc, item) => acc + item.comProfitHC, 0)
+    const aguardandoCusto = ranking.reduce((acc, item) => acc + item.aguardandoCusto, 0)
+    const profitTotal = ranking.reduce((acc, item) => acc + item.profitTotal, 0)
+    const valorFaturadoTotal = ranking.reduce((acc, item) => acc + item.valorFaturadoTotal, 0)
+    const custoTotal = ranking.reduce((acc, item) => acc + item.custoTotal, 0)
     const pesoTotal = ranking.reduce((acc, item) => acc + item.pesoTotal, 0)
-    const ticketMedio = financeirosComValor > 0 ? valorTotal / financeirosComValor : 0
+    const ticketMedioProfit = comProfitHC > 0 ? profitTotal / comProfitHC : 0
     const pagos = ranking.reduce((acc, item) => acc + item.pagos, 0)
     const emAberto = ranking.reduce((acc, item) => acc + item.emAberto, 0)
     const atrasados = ranking.reduce((acc, item) => acc + item.atrasados, 0)
 
+    const comMovimento = ranking.filter((item) => item.processosFaturados > 0)
+    const comTicket = ranking.filter((item) => item.comProfitHC > 0)
+
     return {
       totalClientes,
-      totalEmbarques,
       processosFaturados,
-      valorTotal,
-      financeirosComValor,
+      comProfitHC,
+      aguardandoCusto,
+      profitTotal,
+      valorFaturadoTotal,
+      custoTotal,
       pesoTotal,
-      ticketMedio,
+      ticketMedioProfit,
       pagos,
       emAberto,
       atrasados,
-      topValor: [...ranking].sort((a, b) => b.valorTotal - a.valorTotal)[0] || null,
-      topEmbarques: [...ranking].sort((a, b) => b.embarques - a.embarques)[0] || null,
+      topProfit: [...ranking].sort((a, b) => b.profitTotal - a.profitTotal)[0] || null,
       topFaturados: [...ranking].sort((a, b) => b.processosFaturados - a.processosFaturados)[0] || null,
-      topTicket: [...ranking].sort((a, b) => b.ticketMedio - a.ticketMedio)[0] || null,
+      topTicket: [...comTicket].sort((a, b) => b.ticketMedioProfit - a.ticketMedioProfit)[0] || null,
+      menorProfit: [...comMovimento].sort((a, b) => a.profitTotal - b.profitTotal)[0] || null,
+      menorTicket: [...comTicket].sort((a, b) => a.ticketMedioProfit - b.ticketMedioProfit)[0] || null,
     }
   }, [ranking])
 
   function limparFiltros() {
     setBusca('')
     setPeriodo('TODOS')
-    setRankingPor('VALOR')
-    setSomenteComEmbarque(true)
+    setRankingPor('PROFIT')
+    setSomenteComMovimento(true)
     setClienteAbertoId(null)
   }
 
@@ -623,38 +569,38 @@ export default function ClientesPerformancePage() {
       [
         'Ranking',
         'Cliente',
-        'Email',
-        'Embarques operacionais',
         'Processos faturados',
-        'Valor total BRL - Processos Faturados',
-        'Ticket medio BRL - Processos Faturados',
-        'Peso total kg',
+        'Profit HC total',
+        'Ticket medio Profit HC',
+        'Valor faturado bruto',
+        'Custos considerados',
+        'Com Profit HC',
+        'Aguardando custo',
         'Pagos',
         'Em aberto',
         'Atrasados',
-        'Ativos',
-        'Entregues',
+        'Peso total kg',
         'Ultimo AWB',
         'Ultimo status',
-        'Ultimo embarque',
+        'Ultimo registro',
       ],
       ...ranking.map((item, index) => [
         index + 1,
         item.nome,
-        item.email,
-        item.embarques,
         item.processosFaturados,
-        item.valorTotal.toFixed(2).replace('.', ','),
-        item.ticketMedio.toFixed(2).replace('.', ','),
-        item.pesoTotal.toFixed(2).replace('.', ','),
+        item.profitTotal.toFixed(2).replace('.', ','),
+        item.ticketMedioProfit.toFixed(2).replace('.', ','),
+        item.valorFaturadoTotal.toFixed(2).replace('.', ','),
+        item.custoTotal.toFixed(2).replace('.', ','),
+        item.comProfitHC,
+        item.aguardandoCusto,
         item.pagos,
         item.emAberto,
         item.atrasados,
-        item.ativos,
-        item.entregues,
+        item.pesoTotal.toFixed(2).replace('.', ','),
         item.ultimoAwb,
         item.ultimoStatus,
-        dataBR(item.ultimoEmbarqueData),
+        dataBR(item.ultimoRegistroData),
       ]),
     ]
 
@@ -670,7 +616,7 @@ export default function ClientesPerformancePage() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `ranking-clientes-financeiro-${new Date().toISOString().slice(0, 10)}.csv`
+    link.download = `ranking-clientes-profit-hc-${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -679,13 +625,13 @@ export default function ClientesPerformancePage() {
     <main className="w-full max-w-none p-6 lg:p-8 text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
         <div>
-          <p className="text-blue-400 font-bold mb-2">Clientes / Performance</p>
+          <p className="text-blue-400 font-bold mb-2">Ranking de clientes</p>
           <h1 className="text-5xl font-black mb-2">Ranking de clientes</h1>
           <p className="text-slate-400 text-lg">
-            Veja quem mais embarca, quem mais fatura, ticket médio, peso movimentado e clientes parados.
+            Veja quais clientes mais geram Profit HC, maior ticket médio, mais processos faturados e menor geração.
           </p>
-          <div className="mt-4 border border-green-500/40 bg-green-500/10 text-green-200 rounded-2xl px-5 py-4 max-w-5xl">
-            <strong>Fonte financeira oficial:</strong> Total faturado, ticket médio, pagos, em aberto e atrasados vêm sempre de <strong>Financeiro &gt; Processos Faturados</strong>. Valores preenchidos diretamente no embarque não entram nas métricas financeiras desta tela.
+          <div className="mt-4 border border-green-500/40 bg-green-500/10 text-green-200 rounded-2xl px-5 py-4 max-w-6xl">
+            <strong>Regra desta tela:</strong> agrupamento por <strong>nome do cliente em Financeiro &gt; Processos Faturados</strong>. Valores, ranking e ticket médio usam <strong>Profit HC</strong>, não o valor bruto faturado e nem o login do portal.
           </div>
         </div>
 
@@ -724,55 +670,55 @@ export default function ClientesPerformancePage() {
         <KpiCard
           titulo="Clientes analisados"
           valor={resumo.totalClientes}
-          detalhe="com filtros atuais"
+          detalhe="pela coluna cliente"
           icone="👥"
-          ativo={rankingPor === 'VALOR'}
-          onClick={() => setRankingPor('VALOR')}
+          ativo={rankingPor === 'PROFIT'}
+          onClick={() => setRankingPor('PROFIT')}
         />
 
         <KpiCard
-          titulo="Total faturado"
-          valor={moeda(resumo.valorTotal)}
+          titulo="Profit HC total"
+          valor={moeda(resumo.profitTotal)}
           detalhe="Processos Faturados"
           icone="💰"
-          ativo={rankingPor === 'VALOR'}
-          onClick={() => setRankingPor('VALOR')}
+          ativo={rankingPor === 'PROFIT'}
+          onClick={() => setRankingPor('PROFIT')}
         />
 
         <KpiCard
           titulo="Processos faturados"
           valor={resumo.processosFaturados}
-          detalhe={`${resumo.financeirosComValor} com valor`}
+          detalhe="base do ranking"
           icone="🧾"
           ativo={rankingPor === 'FATURADOS'}
           onClick={() => setRankingPor('FATURADOS')}
         />
 
         <KpiCard
-          titulo="Ticket médio"
-          valor={moeda(resumo.ticketMedio)}
-          detalhe="média por faturado com valor"
+          titulo="Ticket médio Profit"
+          valor={moeda(resumo.ticketMedioProfit)}
+          detalhe="média por processo com custo"
           icone="🎯"
           ativo={rankingPor === 'TICKET'}
           onClick={() => setRankingPor('TICKET')}
         />
 
         <KpiCard
-          titulo="Total embarques"
-          valor={resumo.totalEmbarques}
-          detalhe="base operacional"
-          icone="📦"
-          ativo={rankingPor === 'EMBARQUES'}
-          onClick={() => setRankingPor('EMBARQUES')}
+          titulo="Com Profit HC"
+          valor={resumo.comProfitHC}
+          detalhe="valor compra preenchido"
+          icone="✅"
+          ativo={rankingPor === 'PROFIT'}
+          onClick={() => setRankingPor('PROFIT')}
         />
 
         <KpiCard
-          titulo="Peso total"
-          valor={`${resumo.pesoTotal.toFixed(2)} kg`}
-          detalhe="base operacional"
-          icone="⚖️"
-          ativo={rankingPor === 'PESO'}
-          onClick={() => setRankingPor('PESO')}
+          titulo="Aguardando custo"
+          valor={resumo.aguardandoCusto}
+          detalhe="não entra no Profit"
+          icone="⏳"
+          ativo={rankingPor === 'MENOR_PROFIT'}
+          onClick={() => setRankingPor('MENOR_PROFIT')}
         />
       </section>
 
@@ -784,9 +730,9 @@ export default function ClientesPerformancePage() {
 
       <section className="grid grid-cols-1 xl:grid-cols-4 gap-5 mb-8">
         <Destaque
-          titulo="Maior faturamento"
-          cliente={resumo.topValor}
-          valor={resumo.topValor ? moeda(resumo.topValor.valorTotal) : '-'}
+          titulo="Maior Profit HC"
+          cliente={resumo.topProfit}
+          valor={resumo.topProfit ? moeda(resumo.topProfit.profitTotal) : '-'}
           detalhe="Pelo Financeiro &gt; Processos Faturados"
         />
 
@@ -794,21 +740,21 @@ export default function ClientesPerformancePage() {
           titulo="Mais processos faturados"
           cliente={resumo.topFaturados}
           valor={resumo.topFaturados ? `${resumo.topFaturados.processosFaturados} processo(s)` : '-'}
-          detalhe="Volume financeiro"
+          detalhe="Conta pela coluna cliente do financeiro"
         />
 
         <Destaque
-          titulo="Mais embarques"
-          cliente={resumo.topEmbarques}
-          valor={resumo.topEmbarques ? `${resumo.topEmbarques.embarques} processo(s)` : '-'}
-          detalhe="Volume operacional"
-        />
-
-        <Destaque
-          titulo="Melhor ticket"
+          titulo="Melhor ticket Profit"
           cliente={resumo.topTicket}
-          valor={resumo.topTicket ? moeda(resumo.topTicket.ticketMedio) : '-'}
-          detalhe="Ticket médio do financeiro"
+          valor={resumo.topTicket ? moeda(resumo.topTicket.ticketMedioProfit) : '-'}
+          detalhe="Profit médio por processo com custo"
+        />
+
+        <Destaque
+          titulo="Menor geração"
+          cliente={resumo.menorProfit}
+          valor={resumo.menorProfit ? moeda(resumo.menorProfit.profitTotal) : '-'}
+          detalhe="Menor Profit HC no filtro atual"
         />
       </section>
 
@@ -817,7 +763,7 @@ export default function ClientesPerformancePage() {
           <div>
             <h2 className="text-2xl font-black">Filtros e ranking</h2>
             <p className="text-slate-400 text-sm">
-              Período financeiro usa vencimento, recebimento ou data de criação dos registros em Processos Faturados.
+              Período usa vencimento, recebimento ou data de criação dos registros em Processos Faturados.
             </p>
           </div>
 
@@ -833,7 +779,7 @@ export default function ClientesPerformancePage() {
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar cliente, e-mail, AWB, fatura ou transportadora..."
+            placeholder="Buscar cliente, AWB, fatura ou transportadora..."
             className="xl:col-span-2"
           />
 
@@ -846,19 +792,19 @@ export default function ClientesPerformancePage() {
           </select>
 
           <select value={rankingPor} onChange={(e) => setRankingPor(e.target.value as FiltroRanking)}>
-            <option value="VALOR">Ordenar: maior faturamento</option>
+            <option value="PROFIT">Ordenar: maior Profit HC</option>
             <option value="FATURADOS">Ordenar: mais processos faturados</option>
-            <option value="EMBARQUES">Ordenar: mais embarques</option>
-            <option value="TICKET">Ordenar: maior ticket médio</option>
-            <option value="PESO">Ordenar: maior peso</option>
-            <option value="PARADOS">Ordenar: clientes parados</option>
+            <option value="TICKET">Ordenar: maior ticket Profit</option>
+            <option value="MENOR_PROFIT">Ordenar: menor Profit HC</option>
+            <option value="MENOR_TICKET">Ordenar: menor ticket Profit</option>
+            <option value="ATRASADOS">Ordenar: mais atrasados</option>
           </select>
 
           <label className="flex items-center gap-3 border border-blue-900 bg-[#020817] rounded-2xl px-4 py-3">
             <input
               type="checkbox"
-              checked={somenteComEmbarque}
-              onChange={(e) => setSomenteComEmbarque(e.target.checked)}
+              checked={somenteComMovimento}
+              onChange={(e) => setSomenteComMovimento(e.target.checked)}
             />
             <span className="font-bold text-sm">Somente com movimento</span>
           </label>
@@ -870,7 +816,7 @@ export default function ClientesPerformancePage() {
           <div>
             <h2 className="text-2xl font-black">Resultado</h2>
             <p className="text-slate-400 text-sm">
-              {ranking.length} cliente(s) encontrado(s). Ticket médio usa apenas registros com valor em Processos Faturados.
+              {ranking.length} cliente(s) encontrado(s). Ticket médio usa Profit HC e apenas processos com valor compra preenchido.
             </p>
           </div>
         </div>
@@ -890,28 +836,26 @@ export default function ClientesPerformancePage() {
                 <tr>
                   <th>#</th>
                   <th>Cliente</th>
-                  <th>Embarques</th>
                   <th>Processos faturados</th>
-                  <th>Total faturado</th>
+                  <th>Profit HC</th>
                   <th>Ticket médio</th>
                   <th>Status financeiro</th>
-                  <th>Peso</th>
-                  <th>Último embarque</th>
+                  <th>Aguardando custo</th>
+                  <th>Último registro</th>
                   <th>Ações</th>
                 </tr>
               </thead>
 
               <tbody>
                 {ranking.map((item, index) => {
-                  const aberto = clienteAbertoId === item.clienteId
+                  const aberto = clienteAbertoId === item.clienteKey
 
                   return (
-                    <tr key={item.clienteId} className="border-b border-blue-900/70 hover:bg-[#0b1730] transition">
+                    <tr key={item.clienteKey} className="border-b border-blue-900/70 hover:bg-[#0b1730] transition">
                       <td className="font-black text-blue-400">{index + 1}</td>
 
                       <td>
                         <strong className="text-white">{item.nome}</strong>
-                        <p className="text-slate-500 text-xs mt-1">{item.email || '-'}</p>
                         {item.transportadoras.length > 0 && (
                           <p className="text-slate-500 text-xs mt-1">
                             {item.transportadoras.join(', ')}
@@ -920,25 +864,22 @@ export default function ClientesPerformancePage() {
                       </td>
 
                       <td>
-                        <strong className="text-2xl text-blue-400">{item.embarques}</strong>
-                        <p className="text-slate-500 text-xs">operacional</p>
-                      </td>
-
-                      <td>
                         <strong className="text-2xl text-purple-300">{item.processosFaturados}</strong>
                         <p className="text-slate-500 text-xs">Processos Faturados</p>
                       </td>
 
                       <td>
-                        <strong className="text-green-400">{moeda(item.valorTotal)}</strong>
+                        <strong className={item.profitTotal >= 0 ? 'text-green-400' : 'text-red-400'}>
+                          {moeda(item.profitTotal)}
+                        </strong>
                         <p className="text-slate-500 text-xs">
-                          {item.financeirosComValor} com valor
+                          {item.comProfitHC} com custo
                         </p>
                       </td>
 
                       <td>
-                        <strong className="text-yellow-300">{moeda(item.ticketMedio)}</strong>
-                        <p className="text-slate-500 text-xs">média financeira</p>
+                        <strong className="text-yellow-300">{moeda(item.ticketMedioProfit)}</strong>
+                        <p className="text-slate-500 text-xs">Profit médio</p>
                       </td>
 
                       <td>
@@ -956,20 +897,22 @@ export default function ClientesPerformancePage() {
                       </td>
 
                       <td>
-                        <strong>{item.pesoTotal.toFixed(2)} kg</strong>
-                        <p className="text-slate-500 text-xs">operacional</p>
+                        <strong className={item.aguardandoCusto > 0 ? 'text-yellow-300' : 'text-slate-300'}>
+                          {item.aguardandoCusto}
+                        </strong>
+                        <p className="text-slate-500 text-xs">não entra no Profit</p>
                       </td>
 
                       <td>
                         <strong>{item.ultimoAwb}</strong>
                         <p className="text-slate-500 text-xs mt-1">{item.ultimoStatus}</p>
-                        <p className="text-slate-500 text-xs mt-1">{dataBR(item.ultimoEmbarqueData)}</p>
+                        <p className="text-slate-500 text-xs mt-1">{dataBR(item.ultimoRegistroData)}</p>
                       </td>
 
                       <td>
                         <div className="flex gap-2 flex-wrap">
                           <button
-                            onClick={() => setClienteAbertoId(aberto ? null : item.clienteId)}
+                            onClick={() => setClienteAbertoId(aberto ? null : item.clienteKey)}
                             className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl font-bold"
                           >
                             {aberto ? 'Fechar' : 'Detalhes'}
@@ -981,37 +924,18 @@ export default function ClientesPerformancePage() {
                           >
                             Financeiro
                           </a>
-
-                          <a
-                            href="/admin/embarques"
-                            className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold"
-                          >
-                            Embarques
-                          </a>
                         </div>
 
                         {aberto && (
                           <div className="mt-4 border border-blue-900 bg-[#020817] rounded-2xl p-4 min-w-[420px] space-y-4">
                             <div>
-                              <p className="text-slate-400 text-xs mb-2">AWBs operacionais</p>
-                              <p className="text-white font-bold break-words">
-                                {item.awbs.length > 0 ? item.awbs.slice(0, 30).join(', ') : '-'}
-                              </p>
-                              {item.awbs.length > 30 && (
-                                <p className="text-slate-500 text-xs mt-2">
-                                  + {item.awbs.length - 30} AWB(s)
-                                </p>
-                              )}
-                            </div>
-
-                            <div>
                               <p className="text-slate-400 text-xs mb-2">AWBs em Processos Faturados</p>
                               <p className="text-green-300 font-bold break-words">
-                                {item.awbsFaturados.length > 0 ? item.awbsFaturados.slice(0, 30).join(', ') : '-'}
+                                {item.awbsFaturados.length > 0 ? item.awbsFaturados.slice(0, 40).join(', ') : '-'}
                               </p>
-                              {item.awbsFaturados.length > 30 && (
+                              {item.awbsFaturados.length > 40 && (
                                 <p className="text-slate-500 text-xs mt-2">
-                                  + {item.awbsFaturados.length - 30} AWB(s) faturado(s)
+                                  + {item.awbsFaturados.length - 40} AWB(s) faturado(s)
                                 </p>
                               )}
                             </div>
@@ -1019,8 +943,20 @@ export default function ClientesPerformancePage() {
                             <div>
                               <p className="text-slate-400 text-xs mb-2">Nº de fatura no financeiro</p>
                               <p className="text-blue-300 font-bold break-words">
-                                {item.faturas.length > 0 ? item.faturas.slice(0, 30).join(', ') : '-'}
+                                {item.faturas.length > 0 ? item.faturas.slice(0, 40).join(', ') : '-'}
                               </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                              <div className="border border-blue-900 rounded-xl p-3">
+                                <p className="text-slate-500 text-xs">Valor faturado bruto</p>
+                                <strong>{moeda(item.valorFaturadoTotal)}</strong>
+                              </div>
+
+                              <div className="border border-blue-900 rounded-xl p-3">
+                                <p className="text-slate-500 text-xs">Custos considerados</p>
+                                <strong>{moeda(item.custoTotal)}</strong>
+                              </div>
                             </div>
                           </div>
                         )}
