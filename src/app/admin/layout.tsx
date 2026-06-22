@@ -189,14 +189,21 @@ function MenuContent({ pathname }: { pathname: string | null }) {
         />
       </MenuGroup>
 
-      <MenuGroup titulo="Dinheiro">
+      <MenuGroup titulo="Financeiro">
         <MenuItem
           href="/admin/financeiro"
-          label="Financeiro"
+          label="Painel financeiro"
           descricao="Painel do dono"
           icon="💰"
           pathname={pathname}
           destaque
+        />
+        <MenuItem
+          href="/admin/clientes/performance"
+          label="Ranking de Clientes"
+          descricao="Ticket médio e faturamento"
+          icon="🏆"
+          pathname={pathname}
         />
         <MenuItem
           href="/admin/parceiros"
