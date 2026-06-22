@@ -12,6 +12,7 @@ export default function ClientePage() {
   const [faturas, setFaturas] = useState<any[]>([])
   const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<any>({})
   const [busca, setBusca] = useState('')
+  const [filtroRapido, setFiltroRapido] = useState('TODOS')
 
   useEffect(() => {
     carregarUsuario()
@@ -217,6 +218,53 @@ export default function ClientePage() {
     return '553136436175'
   }
 
+  function passaFiltroRapido(item: any) {
+    const status = normalizarTexto(item.status_operacional)
+    const documentos = documentosPorEmbarque[item.id] || []
+
+    if (filtroRapido === 'TODOS') return true
+
+    if (filtroRapido === 'AGUARDANDO_COLETA') {
+      return status.includes('aguardando coleta') || status.includes('etiqueta gerada')
+    }
+
+    if (filtroRapido === 'EM_TRANSITO') {
+      return status.includes('em transito')
+    }
+
+    if (filtroRapido === 'FISCALIZACAO') {
+      return status.includes('fiscalizacao')
+    }
+
+    if (filtroRapido === 'LIBERADOS') {
+      return status.includes('liberado')
+    }
+
+    if (filtroRapido === 'ENTREGUES') {
+      return status.includes('entregue')
+    }
+
+    if (filtroRapido === 'DOCUMENTOS') {
+      return documentos.length > 0
+    }
+
+    return true
+  }
+
+  function nomeFiltroRapido() {
+    const nomes: Record<string, string> = {
+      TODOS: 'Todos os embarques',
+      AGUARDANDO_COLETA: 'Aguardando coleta',
+      EM_TRANSITO: 'Em trânsito',
+      FISCALIZACAO: 'Fiscalização',
+      LIBERADOS: 'Liberados',
+      ENTREGUES: 'Entregues',
+      DOCUMENTOS: 'Com documentos',
+    }
+
+    return nomes[filtroRapido] || 'Todos os embarques'
+  }
+
   const filtrados = embarques.filter((item) => {
     const texto = `
       ${item.awb}
@@ -232,7 +280,9 @@ export default function ClientePage() {
       ${item.responsavel_email}
     `.toLowerCase()
 
-    return texto.includes(busca.toLowerCase())
+    const passaBusca = texto.includes(busca.toLowerCase())
+
+    return passaBusca && passaFiltroRapido(item)
   })
 
   const documentosTotal = Object.values(documentosPorEmbarque).reduce(
@@ -341,14 +391,76 @@ export default function ClientePage() {
         </header>
 
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-5 mb-8">
-          <Kpi titulo="Embarques" valor={embarques.length} detalhe="Processos vinculados" icone="📦" cor="blue" />
-          <Kpi titulo="Aguardando coleta" valor={aguardandoColeta} detalhe="Etiqueta criada" icone="📄" cor="blue" />
-          <Kpi titulo="Em trânsito" valor={emTransito} detalhe="Em andamento" icone="🚚" cor="green" />
-          <Kpi titulo="Fiscalização" valor={fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" />
-          <Kpi titulo="Liberados" valor={liberados} detalhe="Prontos para seguir" icone="✅" cor="green" />
-          <Kpi titulo="Entregues" valor={entregues} detalhe="Concluídos" icone="📬" cor="blue" />
-          <Kpi titulo="Documentos" valor={documentosTotal} detalhe="Disponíveis" icone="📎" cor="purple" />
-          <Kpi titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" />
+          <Kpi
+            titulo="Embarques"
+            valor={embarques.length}
+            detalhe="Ver todos"
+            icone="📦"
+            cor="blue"
+            ativo={filtroRapido === 'TODOS'}
+            onClick={() => setFiltroRapido('TODOS')}
+          />
+          <Kpi
+            titulo="Aguardando coleta"
+            valor={aguardandoColeta}
+            detalhe="Filtrar etiqueta criada"
+            icone="📄"
+            cor="blue"
+            ativo={filtroRapido === 'AGUARDANDO_COLETA'}
+            onClick={() => setFiltroRapido('AGUARDANDO_COLETA')}
+          />
+          <Kpi
+            titulo="Em trânsito"
+            valor={emTransito}
+            detalhe="Filtrar em andamento"
+            icone="🚚"
+            cor="green"
+            ativo={filtroRapido === 'EM_TRANSITO'}
+            onClick={() => setFiltroRapido('EM_TRANSITO')}
+          />
+          <Kpi
+            titulo="Fiscalização"
+            valor={fiscalizacao}
+            detalhe="Filtrar fiscalização"
+            icone="🛃"
+            cor="yellow"
+            ativo={filtroRapido === 'FISCALIZACAO'}
+            onClick={() => setFiltroRapido('FISCALIZACAO')}
+          />
+          <Kpi
+            titulo="Liberados"
+            valor={liberados}
+            detalhe="Filtrar liberados"
+            icone="✅"
+            cor="green"
+            ativo={filtroRapido === 'LIBERADOS'}
+            onClick={() => setFiltroRapido('LIBERADOS')}
+          />
+          <Kpi
+            titulo="Entregues"
+            valor={entregues}
+            detalhe="Filtrar concluídos"
+            icone="📬"
+            cor="blue"
+            ativo={filtroRapido === 'ENTREGUES'}
+            onClick={() => setFiltroRapido('ENTREGUES')}
+          />
+          <Kpi
+            titulo="Documentos"
+            valor={documentosTotal}
+            detalhe="Filtrar com documentos"
+            icone="📎"
+            cor="purple"
+            ativo={filtroRapido === 'DOCUMENTOS'}
+            onClick={() => setFiltroRapido('DOCUMENTOS')}
+          />
+          <Kpi
+            titulo="Peso total"
+            valor={`${pesoTotal.toFixed(2)} kg`}
+            detalhe="Movimentado"
+            icone="⚖️"
+            cor="green"
+          />
         </section>
 
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
@@ -469,6 +581,28 @@ export default function ClientePage() {
             <p className="text-slate-400 mt-1 mb-4">
               Consulte status, rastreio, documentos, responsável HC e atualizações operacionais.
             </p>
+
+            <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3 border border-blue-900 bg-[#020817] rounded-2xl p-4">
+              <div>
+                <p className="text-slate-500 text-sm">Filtro ativo</p>
+                <p className="font-black text-blue-400">{nomeFiltroRapido()}</p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-slate-400 text-sm">
+                  {filtrados.length} de {embarques.length} embarque(s)
+                </span>
+
+                {filtroRapido !== 'TODOS' && (
+                  <button
+                    onClick={() => setFiltroRapido('TODOS')}
+                    className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold text-sm"
+                  >
+                    Limpar filtro
+                  </button>
+                )}
+              </div>
+            </div>
 
             <input
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white"
@@ -616,7 +750,7 @@ export default function ClientePage() {
   )
 }
 
-function Kpi({ titulo, valor, detalhe, icone, cor }: any) {
+function Kpi({ titulo, valor, detalhe, icone, cor, ativo = false, onClick }: any) {
   const corNumero =
     cor === 'green'
       ? 'text-emerald-400'
@@ -626,18 +760,45 @@ function Kpi({ titulo, valor, detalhe, icone, cor }: any) {
       ? 'text-purple-400'
       : 'text-blue-400'
 
-  return (
-    <div className="card">
-      <div className="flex justify-between items-start gap-4">
-        <div>
-          <p className="text-slate-400 text-sm">{titulo}</p>
-          <h2 className={`text-4xl font-black mt-4 ${corNumero}`}>{valor}</h2>
-          <p className="text-slate-500 text-sm mt-2">{detalhe}</p>
-        </div>
-
-        <span className="text-3xl">{icone}</span>
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white text-sm font-black' : 'text-slate-400 text-sm'}>
+          {titulo}
+        </p>
+        <h2 className={`text-4xl font-black mt-4 ${ativo ? 'text-white' : corNumero}`}>
+          {valor}
+        </h2>
+        <p className={ativo ? 'text-blue-100 text-sm mt-2' : 'text-slate-500 text-sm mt-2'}>
+          {detalhe}
+        </p>
       </div>
+
+      <span className="text-3xl">{icone}</span>
     </div>
+  )
+
+  if (!onClick) {
+    return <div className="card">{conteudo}</div>
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onClick()
+        setTimeout(() => {
+          document.getElementById('meus-embarques')?.scrollIntoView({ behavior: 'smooth' })
+        }, 50)
+      }}
+      className={
+        ativo
+          ? 'card w-full text-left border-blue-400 bg-blue-600/30 cursor-pointer ring-2 ring-blue-500'
+          : 'card w-full text-left cursor-pointer hover:border-blue-400 hover:bg-blue-600/10 transition'
+      }
+    >
+      {conteudo}
+    </button>
   )
 }
 
