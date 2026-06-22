@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
 
+const LOTE_SUPABASE = 1000
+
 type Embarque = {
   id: string
   awb: string
@@ -150,11 +152,37 @@ export default function FaturasPage() {
 
     if (erroFaturas) console.log(erroFaturas)
 
-    const { data: financeiroData, error: erroFinanceiro } = await supabase
+    const { count: totalFinanceiro, error: erroCountFinanceiro } = await supabase
       .from('financeiro_embarques')
-      .select('*')
+      .select('*', { count: 'exact', head: true })
 
-    if (erroFinanceiro) console.log(erroFinanceiro)
+    if (erroCountFinanceiro) console.log('ERRO COUNT FINANCEIRO:', erroCountFinanceiro)
+
+    let financeiroData: any[] = []
+
+    const total = totalFinanceiro || 0
+    const paginasFinanceiro = Math.max(1, Math.ceil(total / LOTE_SUPABASE))
+
+    if (total > 0) {
+      const consultasFinanceiro = Array.from({ length: paginasFinanceiro }, (_, index) => {
+        const inicio = index * LOTE_SUPABASE
+        const fim = inicio + LOTE_SUPABASE - 1
+
+        return supabase
+          .from('financeiro_embarques')
+          .select('*')
+          .range(inicio, fim)
+      })
+
+      const respostasFinanceiro = await Promise.all(consultasFinanceiro)
+      const erroFinanceiro = respostasFinanceiro.find((res) => res.error)
+
+      if (erroFinanceiro?.error) {
+        console.log('ERRO FINANCEIRO:', erroFinanceiro.error)
+      }
+
+      financeiroData = respostasFinanceiro.flatMap((res) => res.data || [])
+    }
 
     const idsEmbarques = ((embarquesData as Embarque[]) || []).map((item) => item.id)
     let documentosAgrupados: Record<string, DocumentoEmbarque[]> = {}
@@ -244,6 +272,7 @@ export default function FaturasPage() {
   function valorFinanceiro(item?: FinanceiroProcesso | null) {
     if (!item) return 0
 
+    // Mesmo campo usado em Financeiro > Processos Faturados.
     return (
       numero(item.valor_cobranca) ||
       numero(item.valor_faturado) ||
@@ -255,10 +284,10 @@ export default function FaturasPage() {
   function vencimentoFinanceiro(item?: FinanceiroProcesso | null) {
     if (!item) return null
 
-    // Em Financeiro > Processos Faturados, o campo correto é "vencimento_cliente".
+    // No banco, o campo da coluna "Vencimento cliente" é vencimento_cobranca.
     return (
-      item.vencimento_cliente ||
       item.vencimento_cobranca ||
+      item.vencimento_cliente ||
       item.vencimento ||
       item.data_vencimento ||
       null
@@ -268,7 +297,7 @@ export default function FaturasPage() {
   function recebimentoFinanceiro(item?: FinanceiroProcesso | null) {
     if (!item) return null
 
-    // Em Financeiro > Processos Faturados, o campo correto é "recebimento".
+    // Mesmo campo usado em Financeiro > Processos Faturados.
     return (
       item.recebimento ||
       item.recebimento_cliente ||
@@ -297,6 +326,31 @@ export default function FaturasPage() {
     if (ano && mes && dia) return `${dia}/${mes}/${ano}`
 
     return new Date(data).toLocaleDateString('pt-BR')
+  }
+
+  function normalizarData(valor: any) {
+    if (!valor) return null
+
+    if (valor instanceof Date && !isNaN(valor.getTime())) {
+      return valor.toISOString().split('T')[0]
+    }
+
+    if (typeof valor === 'number') {
+      const data = new Date((valor - 25569) * 86400 * 1000)
+      return data.toISOString().split('T')[0]
+    }
+
+    const texto = String(valor).trim()
+    if (!texto || texto === '0') return null
+    if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto
+
+    const partes = texto.split('/')
+    if (partes.length === 3) {
+      const [dia, mes, ano] = partes
+      return `${ano.padStart(4, '20')}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
+    }
+
+    return null
   }
 
   function moeda(valor?: number | string | null) {
@@ -393,10 +447,11 @@ export default function FaturasPage() {
       }
     }
 
-    const recebimento = recebimentoFinanceiro(financeiro)
-    const vencimento = vencimentoFinanceiro(financeiro)
+    const recebimento = normalizarData(recebimentoFinanceiro(financeiro))
+    const vencimento = normalizarData(vencimentoFinanceiro(financeiro))
     const valor = valorFinanceiro(financeiro)
 
+    // Igual ao Financeiro: se tem recebimento, é PAGO.
     if (recebimento) {
       return {
         status: 'PAGO',
@@ -406,6 +461,7 @@ export default function FaturasPage() {
       }
     }
 
+    // Igual ao Financeiro: sem recebimento + vencido = ATRASADO.
     if (vencimento && vencimento < hojeISO()) {
       return {
         status: 'ATRASADO',
@@ -815,7 +871,7 @@ export default function FaturasPage() {
           <div>
             <h2 className="text-2xl font-black">Faturas por embarque</h2>
             <p className="text-slate-400 text-sm">
-              Esta tela mostra o pacote do embarque para faturamento: valor fechado, cotação, documentos, fatura, recibo e status financeiro.
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro > Processos Faturados.
             </p>
           </div>
 
@@ -931,7 +987,7 @@ export default function FaturasPage() {
                         </div>
                       </td>
                       <td>{fatura?.numero_fatura || '-'}</td>
-                      <td>{dataBR(vencimentoFinanceiro(financeiro))}</td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
                       <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
                       <td>
                         {fatura?.arquivo_pdf ? (
@@ -1036,8 +1092,8 @@ export default function FaturasPage() {
                                 <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
                                 <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
                                 <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
-                                <InfoPacote label="Vencimento financeiro" valor={dataBR(vencimentoFinanceiro(financeiro))} />
-                                <InfoPacote label="Recebimento" valor={dataBR(recebimentoFinanceiro(financeiro))} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
                                 <InfoPacote
                                   label="Ligação financeira"
                                   valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
