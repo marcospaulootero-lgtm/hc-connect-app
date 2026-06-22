@@ -155,7 +155,7 @@ export default function FinanceiroPage() {
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [editandoMovimentoId, setEditandoMovimentoId] = useState<string | null>(null)
 
-  const [abaPrincipal, setAbaPrincipal] = useState('PROCESSOS')
+  const [abaPrincipal, setAbaPrincipal] = useState('EXTRATO')
   const [aba, setAba] = useState('EM ABERTO')
   const [pagina, setPagina] = useState(1)
   const [paginaMovimentos, setPaginaMovimentos] = useState(1)
@@ -1248,7 +1248,7 @@ export default function FinanceiroPage() {
       impacta_resultado: false,
       impacta_caixa: true,
       observacoes:
-        `Fechamento gerado pelo Resultado Geral. ` +
+        `Fechamento gerado pelo Resultado Mensal. ` +
         `Profit HC recebido: ${moeda(resultadoGeral.profitRecebido)}. ` +
         `Despesas pagas: ${moeda(resultadoGeral.despesasPagas)}. ` +
         `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}. ` +
@@ -2638,9 +2638,9 @@ export default function FinanceiroPage() {
         <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
           <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <h2 className="text-xl font-black text-gray-950">Visão do Dono</h2>
+              <h2 className="text-xl font-black text-gray-950">Painel do Dono</h2>
               <p className="text-sm text-gray-500">
-                Decisão financeira do ano selecionado separando dinheiro da HC, terceiros e caixa mínimo.
+                A tela principal para decidir caixa, retirada, gasto livre e dinheiro protegido.
               </p>
             </div>
 
@@ -2931,7 +2931,7 @@ export default function FinanceiroPage() {
         <div>
           <h1 className="text-2xl font-black text-gray-950">Financeiro</h1>
           <p className="text-sm text-gray-500">
-            Processos faturados, despesas, retiradas dos sócios e fundo de caixa
+            Painel do Dono, resultado mensal, terceiros, processos faturados e movimentações financeiras
           </p>
         </div>
 
@@ -2994,12 +2994,12 @@ export default function FinanceiroPage() {
       </div>
 
       <section className="mb-6 flex gap-2 overflow-x-auto pb-1">
+        <TabButton ativo={abaPrincipal === 'EXTRATO'} onClick={() => mudarAbaPrincipal('EXTRATO')}>Painel do Dono</TabButton>
+        <TabButton ativo={abaPrincipal === 'RESULTADO'} onClick={() => mudarAbaPrincipal('RESULTADO')}>Resultado Mensal</TabButton>
         <TabButton ativo={abaPrincipal === 'PROCESSOS'} onClick={() => mudarAbaPrincipal('PROCESSOS')}>Processos Faturados</TabButton>
         <TabButton ativo={abaPrincipal === 'DESPESAS'} onClick={() => mudarAbaPrincipal('DESPESAS')}>Despesas</TabButton>
-        <TabButton ativo={abaPrincipal === 'SOCIOS'} onClick={() => mudarAbaPrincipal('SOCIOS')}>Sócios / Retiradas</TabButton>
-        <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Fundo de Caixa</TabButton>
-        <TabButton ativo={abaPrincipal === 'RESULTADO'} onClick={() => mudarAbaPrincipal('RESULTADO')}>Resultado Geral</TabButton>
-        <TabButton ativo={abaPrincipal === 'EXTRATO'} onClick={() => mudarAbaPrincipal('EXTRATO')}>Extrato Geral</TabButton>
+        <TabButton ativo={abaPrincipal === 'SOCIOS'} onClick={() => mudarAbaPrincipal('SOCIOS')}>Retiradas / Sócios</TabButton>
+        <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Caixa / Fundo</TabButton>
       </section>
 
       {abaPrincipal === 'PROCESSOS' && (
@@ -3331,7 +3331,7 @@ export default function FinanceiroPage() {
         <section className="space-y-5">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <h2 className="text-xl font-black text-gray-950">Resultado Geral</h2>
+              <h2 className="text-xl font-black text-gray-950">Resultado Mensal</h2>
               <p className="text-sm text-gray-500">
                 Visão do mês pela regra: lucro líquido = Profit HC - despesas; 50% fica no caixa, 25% Marcos e 25% Hérica.
               </p>
