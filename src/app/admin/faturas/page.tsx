@@ -22,27 +22,34 @@ type Fatura = {
   embarque_id: string | null
   usuario_id: string | null
   numero_fatura: string | null
-  vencimento: string | null
   arquivo_pdf: string | null
   recibo_pdf: string | null
   recibo_nome: string | null
-  data_pagamento?: string | null
   criado_em: string
   visivel_cliente?: boolean | null
   observacoes?: string | null
   embarques?: any
 }
 
-type FinanceiroPagamento = {
+type FinanceiroProcesso = {
+  id: string
   awb: string | null
-  recebimento_cliente?: string | null
+  valor_cobranca?: number | null
+  vencimento_cobranca?: string | null
   recebimento?: string | null
+}
+
+type StatusPagamentoFinanceiro = {
+  status: 'PAGO' | 'ATRASADO' | 'EM_ABERTO' | 'SEM_FINANCEIRO'
+  label: string
+  detalhe: string
+  classe: string
 }
 
 export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
-  const [financeiros, setFinanceiros] = useState<FinanceiroPagamento[]>([])
+  const [financeiros, setFinanceiros] = useState<FinanceiroProcesso[]>([])
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
@@ -54,7 +61,6 @@ export default function FaturasPage() {
 
   const [embarqueSelecionado, setEmbarqueSelecionado] = useState<Embarque | null>(null)
   const [numeroFatura, setNumeroFatura] = useState('')
-  const [vencimento, setVencimento] = useState('')
   const [visivelCliente, setVisivelCliente] = useState(true)
   const [observacoes, setObservacoes] = useState('')
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
@@ -78,11 +84,9 @@ export default function FaturasPage() {
         embarque_id,
         usuario_id,
         numero_fatura,
-        vencimento,
         arquivo_pdf,
         recibo_pdf,
         recibo_nome,
-        data_pagamento,
         criado_em,
         visivel_cliente,
         observacoes,
@@ -101,13 +105,26 @@ export default function FaturasPage() {
 
     const { data: financeiroData, error: erroFinanceiro } = await supabase
       .from('financeiro_embarques')
-      .select('awb, recebimento_cliente, recebimento')
+      .select(`
+        id,
+        awb,
+        valor_cobranca,
+        vencimento_cobranca,
+        recebimento
+      `)
 
     if (erroFinanceiro) console.log(erroFinanceiro)
 
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
-    setFinanceiros((financeiroData as FinanceiroPagamento[]) || [])
+    setFinanceiros((financeiroData as FinanceiroProcesso[]) || [])
+  }
+
+  function normalizarAwb(valor?: string | null) {
+    return String(valor || '')
+      .replace(/\s/g, '')
+      .replace(/[.-]/g, '')
+      .toUpperCase()
   }
 
   function faturaDoEmbarque(embarqueId: string) {
@@ -115,22 +132,13 @@ export default function FaturasPage() {
   }
 
   function financeiroDoAwb(awb?: string | null) {
-    if (!awb) return null
-    const awbLimpo = String(awb).trim()
-    return financeiros.find((item) => String(item.awb || '').trim() === awbLimpo) || null
-  }
+    const awbLimpo = normalizarAwb(awb)
+    if (!awbLimpo) return null
 
-  function dataRecebimentoFinanceiro(embarque: Embarque) {
-    const financeiro = financeiroDoAwb(embarque.awb)
-    return financeiro?.recebimento_cliente || financeiro?.recebimento || null
-  }
-
-  function dataPagamento(embarque: Embarque, fatura?: Fatura | null) {
-    return fatura?.data_pagamento || dataRecebimentoFinanceiro(embarque)
-  }
-
-  function pagamentoConfirmado(embarque: Embarque, fatura?: Fatura | null) {
-    return !!dataPagamento(embarque, fatura)
+    return (
+      financeiros.find((item) => normalizarAwb(item.awb) === awbLimpo) ||
+      null
+    )
   }
 
   function statusOperacionaisDisponiveis() {
@@ -145,7 +153,69 @@ export default function FaturasPage() {
 
   function dataBR(data?: string | null) {
     if (!data) return '-'
+
+    const texto = String(data).slice(0, 10)
+    const [ano, mes, dia] = texto.split('-')
+
+    if (ano && mes && dia) return `${dia}/${mes}/${ano}`
+
     return new Date(data).toLocaleDateString('pt-BR')
+  }
+
+  function moeda(valor?: number | string | null) {
+    return Number(valor || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+  }
+
+  function hojeISO() {
+    return new Date().toISOString().slice(0, 10)
+  }
+
+  function statusPagamentoFinanceiro(financeiro: FinanceiroProcesso | null): StatusPagamentoFinanceiro {
+    if (!financeiro) {
+      return {
+        status: 'SEM_FINANCEIRO',
+        label: 'Não lançado',
+        detalhe: 'Sem registro em Processos Faturados',
+        classe: 'border-slate-600 bg-slate-700/20 text-slate-300',
+      }
+    }
+
+    if (financeiro.recebimento) {
+      return {
+        status: 'PAGO',
+        label: `Pago em ${dataBR(financeiro.recebimento)}`,
+        detalhe: moeda(financeiro.valor_cobranca),
+        classe: 'border-green-500 bg-green-600/20 text-green-300',
+      }
+    }
+
+    if (financeiro.vencimento_cobranca && financeiro.vencimento_cobranca < hojeISO()) {
+      return {
+        status: 'ATRASADO',
+        label: `Vencido desde ${dataBR(financeiro.vencimento_cobranca)}`,
+        detalhe: moeda(financeiro.valor_cobranca),
+        classe: 'border-red-500 bg-red-600/20 text-red-300',
+      }
+    }
+
+    if (financeiro.vencimento_cobranca) {
+      return {
+        status: 'EM_ABERTO',
+        label: `Em aberto até ${dataBR(financeiro.vencimento_cobranca)}`,
+        detalhe: moeda(financeiro.valor_cobranca),
+        classe: 'border-yellow-500 bg-yellow-500/20 text-yellow-300',
+      }
+    }
+
+    return {
+      status: 'EM_ABERTO',
+      label: 'Em aberto',
+      detalhe: moeda(financeiro.valor_cobranca),
+      classe: 'border-yellow-500 bg-yellow-500/20 text-yellow-300',
+    }
   }
 
   function extrairCaminhoStorage(url?: string | null) {
@@ -158,6 +228,8 @@ export default function FaturasPage() {
   const embarquesFiltrados = useMemo(() => {
     return embarques.filter((e) => {
       const fatura = faturaDoEmbarque(e.id)
+      const financeiro = financeiroDoAwb(e.awb)
+      const pagamento = statusPagamentoFinanceiro(financeiro)
 
       const texto = `
         ${e.awb || ''}
@@ -183,12 +255,12 @@ export default function FaturasPage() {
         filtroStatusEmbarque === 'TODOS' ||
         e.status_operacional === filtroStatusEmbarque
 
-      const pago = pagamentoConfirmado(e, fatura)
-
       const passaPagamento =
         filtroPagamento === 'TODOS' ||
-        (filtroPagamento === 'PAGO' && pago) ||
-        (filtroPagamento === 'PENDENTE' && fatura && !pago) ||
+        (filtroPagamento === 'PAGO' && pagamento.status === 'PAGO') ||
+        (filtroPagamento === 'ATRASADO' && pagamento.status === 'ATRASADO') ||
+        (filtroPagamento === 'EM_ABERTO' && pagamento.status === 'EM_ABERTO') ||
+        (filtroPagamento === 'SEM_FINANCEIRO' && pagamento.status === 'SEM_FINANCEIRO') ||
         (filtroPagamento === 'SEM_FATURA' && !fatura)
 
       return passaBusca && passaDocumento && passaStatusEmbarque && passaPagamento
@@ -207,11 +279,18 @@ export default function FaturasPage() {
   const totalVisiveis = faturas.filter((f) => f.visivel_cliente).length
   const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
   const totalSemFatura = embarques.filter((e) => !faturaDoEmbarque(e.id)?.arquivo_pdf).length
-  const totalPagos = embarques.filter((e) => pagamentoConfirmado(e, faturaDoEmbarque(e.id))).length
-  const totalPendentesPagamento = embarques.filter((e) => {
-    const fatura = faturaDoEmbarque(e.id)
-    return fatura && !pagamentoConfirmado(e, fatura)
-  }).length
+
+  const pagamentosFinanceiros = embarques.map((e) => ({
+    embarque: e,
+    fatura: faturaDoEmbarque(e.id),
+    financeiro: financeiroDoAwb(e.awb),
+    pagamento: statusPagamentoFinanceiro(financeiroDoAwb(e.awb)),
+  }))
+
+  const totalPagos = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'PAGO').length
+  const totalAtrasados = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'ATRASADO').length
+  const totalEmAberto = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'EM_ABERTO').length
+  const totalSemFinanceiro = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'SEM_FINANCEIRO').length
   const statusDisponiveis = statusOperacionaisDisponiveis()
 
   function abrirFormulario(embarque: Embarque) {
@@ -219,7 +298,6 @@ export default function FaturasPage() {
 
     setEmbarqueSelecionado(embarque)
     setNumeroFatura(fatura?.numero_fatura || '')
-    setVencimento(fatura?.vencimento || '')
     setVisivelCliente(fatura?.visivel_cliente ?? true)
     setObservacoes(fatura?.observacoes || '')
     setArquivoPdf(null)
@@ -232,7 +310,6 @@ export default function FaturasPage() {
   function limparFormulario() {
     setEmbarqueSelecionado(null)
     setNumeroFatura('')
-    setVencimento('')
     setVisivelCliente(true)
     setObservacoes('')
     setArquivoPdf(null)
@@ -288,7 +365,6 @@ export default function FaturasPage() {
       embarque_id: embarqueSelecionado.id,
       usuario_id: embarqueSelecionado.usuario_id || null,
       numero_fatura: numeroFatura || null,
-      vencimento: vencimento || null,
       arquivo_pdf: urlPdf,
       visivel_cliente: visivelCliente,
       observacoes: observacoes || null,
@@ -392,7 +468,6 @@ export default function FaturasPage() {
       .update({
         recibo_pdf: urlData.publicUrl,
         recibo_nome: arquivo.name,
-        data_pagamento: fatura.data_pagamento || new Date().toISOString().slice(0, 10),
       })
       .eq('id', fatura.id)
 
@@ -404,33 +479,6 @@ export default function FaturasPage() {
     }
 
     alert('Recibo anexado com sucesso.')
-    carregar()
-  }
-
-  async function alternarPagamento(fatura: Fatura) {
-    const pago = !!fatura.data_pagamento
-
-    const confirmar = confirm(
-      pago
-        ? 'Deseja reabrir este pagamento e voltar para pendente?'
-        : 'Deseja finalizar este pagamento como pago?'
-    )
-
-    if (!confirmar) return
-
-    const { error } = await supabase
-      .from('faturas')
-      .update({
-        data_pagamento: pago ? null : new Date().toISOString().slice(0, 10),
-      })
-      .eq('id', fatura.id)
-
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    alert(pago ? 'Pagamento reaberto como pendente.' : 'Pagamento finalizado como pago.')
     carregar()
   }
 
@@ -457,7 +505,7 @@ export default function FaturasPage() {
           <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
           <h1 className="text-5xl font-black mb-2">Faturas</h1>
           <p className="text-slate-400 text-lg">
-            Anexe faturas e recibos em PDF para o cliente visualizar no portal.
+            Anexe faturas e recibos em PDF. Pagamento e vencimento vêm do Financeiro &gt; Processos Faturados.
           </p>
         </div>
 
@@ -497,17 +545,11 @@ export default function FaturasPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <input
               value={numeroFatura}
               onChange={(e) => setNumeroFatura(e.target.value)}
               placeholder="Número da fatura"
-            />
-
-            <input
-              type="date"
-              value={vencimento}
-              onChange={(e) => setVencimento(e.target.value)}
             />
 
             <input
@@ -531,13 +573,17 @@ export default function FaturasPage() {
               value={observacoes}
               onChange={(e) => setObservacoes(e.target.value)}
               placeholder="Observações internas"
-              className="md:col-span-4 min-h-[90px]"
+              className="md:col-span-3 min-h-[90px]"
             />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
 
             <button
               onClick={salvarFatura}
               disabled={salvando}
-              className="md:col-span-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
             >
               {salvando ? 'Salvando...' : 'Salvar fatura'}
             </button>
@@ -550,7 +596,7 @@ export default function FaturasPage() {
           <div>
             <h2 className="text-2xl font-black">Faturas por embarque</h2>
             <p className="text-slate-400 text-sm">
-              Esta tela não altera o financeiro. Ela gerencia apenas os PDFs do cliente.
+              Esta tela gerencia PDFs. A coluna Pagamento consulta o AWB em Financeiro &gt; Processos Faturados.
             </p>
           </div>
 
@@ -580,7 +626,9 @@ export default function FaturasPage() {
             <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
               <option value="TODOS">Pagamento: todos</option>
               <option value="PAGO">Pago no financeiro</option>
-              <option value="PENDENTE">Pendente</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
               <option value="SEM_FATURA">Sem fatura</option>
             </select>
 
@@ -593,11 +641,12 @@ export default function FaturasPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
-          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="com data no financeiro" />
-          <ResumoFiltro titulo="Pendentes" valor={totalPendentesPagamento} detalhe="com fatura e sem recebimento" />
-          <ResumoFiltro titulo="Sem fatura" valor={totalSemFatura} detalhe="pendente de anexo" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
         </div>
 
         <div className="w-full overflow-visible">
@@ -612,8 +661,8 @@ export default function FaturasPage() {
               <col className="w-[6%]" />
               <col className="w-[7%]" />
               <col className="w-[8%]" />
-              <col className="w-[10%]" />
-              <col className="w-[14%]" />
+              <col className="w-[12%]" />
+              <col className="w-[12%]" />
             </colgroup>
             <thead>
               <tr>
@@ -634,8 +683,8 @@ export default function FaturasPage() {
             <tbody>
               {embarquesFiltrados.map((embarque) => {
                 const fatura = faturaDoEmbarque(embarque.id)
-                const recebimento = dataPagamento(embarque, fatura)
-                const pago = !!recebimento
+                const financeiro = financeiroDoAwb(embarque.awb)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
 
                 return (
                   <tr key={embarque.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
@@ -646,7 +695,7 @@ export default function FaturasPage() {
                       <StatusBadge status={embarque.status_operacional || '-'} />
                     </td>
                     <td>{fatura?.numero_fatura || '-'}</td>
-                    <td>{dataBR(fatura?.vencimento || null)}</td>
+                    <td>{dataBR(financeiro?.vencimento_cobranca || null)}</td>
                     <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
                     <td>
                       {fatura?.arquivo_pdf ? (
@@ -678,17 +727,12 @@ export default function FaturasPage() {
                       )}
                     </td>
                     <td>
-                      {pago ? (
-                        <span className="inline-flex rounded-full border border-green-500 bg-green-600/20 px-2 py-1 text-[11px] font-black text-green-300">
-                          Pago em {dataBR(recebimento)}
-                        </span>
-                      ) : fatura ? (
-                        <span className="inline-flex rounded-full border border-yellow-500 bg-yellow-500/20 px-2 py-1 text-[11px] font-black text-yellow-300">
-                          Pendente
-                        </span>
-                      ) : (
-                        <span className="text-slate-500">-</span>
-                      )}
+                      <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                        <span>{pagamento.label}</span>
+                        {financeiro ? (
+                          <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                        ) : null}
+                      </span>
                     </td>
                     <td>
                       <div className="flex flex-wrap gap-1">
@@ -699,16 +743,6 @@ export default function FaturasPage() {
                         {fatura && (
                           <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
                             {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
-                          </button>
-                        )}
-
-                        {fatura && (
-                          <button
-                            onClick={() => pago && !fatura.data_pagamento ? null : alternarPagamento(fatura)}
-                            disabled={pago && !fatura.data_pagamento}
-                            className={fatura.data_pagamento ? 'bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded-lg text-xs font-black' : pago ? 'bg-slate-600 px-3 py-2 rounded-lg text-xs font-black opacity-70 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black'}
-                          >
-                            {fatura.data_pagamento ? 'Reabrir' : pago ? 'Pago financeiro' : 'Finalizar'}
                           </button>
                         )}
 
