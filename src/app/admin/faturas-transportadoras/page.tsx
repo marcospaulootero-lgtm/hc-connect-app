@@ -11,6 +11,12 @@ type FaturaTransportadora = {
   numero_fatura: string | null
   emissao: string | null
   vencimento: string | null
+  data_pagamento: string | null
+  utilizado_para: string | null
+  dias_restantes: string | null
+  status_recebimento_fatura: string | null
+  status_contestacao: string | null
+  diferenca_fatura: number | null
   situacao: string | null
   total: number | null
   valor_contestado: number | null
@@ -30,6 +36,8 @@ type FormState = {
   numero_fatura: string
   emissao: string
   vencimento: string
+  data_pagamento: string
+  utilizado_para: string
   situacao: string
   total: string
   valor_contestado: string
@@ -45,6 +53,8 @@ const formVazio: FormState = {
   numero_fatura: '',
   emissao: '',
   vencimento: '',
+  data_pagamento: '',
+  utilizado_para: '',
   situacao: 'EM ABERTO',
   total: '',
   valor_contestado: '',
@@ -163,8 +173,10 @@ export default function FaturasTransportadorasPage() {
   function situacaoAutomatica(item: FaturaTransportadora) {
     const situacao = String(item.situacao || '').toUpperCase()
 
-    if (situacao.includes('PAGO') || situacao.includes('BAIXADO')) return 'PAGA'
-    if (Number(item.saldo || 0) <= 0 && Number(item.total || 0) > 0) return 'PAGA'
+    if (item.data_pagamento) return 'PAGA'
+    if (situacao.includes('PAGO') || situacao.includes('PAGA') || situacao.includes('BAIXADO')) return 'PAGA'
+    if (situacao.includes('CANCEL')) return 'FATURA CANCELADA'
+    if (situacao.includes('CONTEST')) return 'CONTESTADA'
 
     const vencimento = String(item.vencimento || '').slice(0, 10)
 
@@ -176,6 +188,7 @@ export default function FaturasTransportadorasPage() {
   function classeSituacao(status: string) {
     if (status === 'PAGA') return 'bg-green-600/20 text-green-300 border-green-500'
     if (status === 'VENCIDA') return 'bg-red-600/20 text-red-300 border-red-500'
+    if (status.includes('CANCEL')) return 'bg-slate-600/20 text-slate-300 border-slate-500'
     if (status.includes('CONTEST')) return 'bg-purple-600/20 text-purple-300 border-purple-500'
     return 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
   }
@@ -272,9 +285,10 @@ export default function FaturasTransportadorasPage() {
     return ''
   }
 
-  function normalizarSituacaoExcel(valor: any, vencimento?: string | null) {
+  function normalizarSituacaoExcel(valor: any, vencimento?: string | null, dataPagamento?: string | null) {
     const texto = normalizarBusca(valor)
 
+    if (dataPagamento) return 'PAGA'
     if (texto.includes('PAGO') || texto.includes('PAGA')) return 'PAGA'
     if (texto.includes('CANCEL')) return 'FATURA CANCELADA'
     if (texto.includes('CONTEST')) return 'CONTESTADA'
@@ -294,7 +308,7 @@ export default function FaturasTransportadorasPage() {
     const partes = [
       ['Dias restantes', pegarCampoExcel(linha, ['DIAS RESTANTES', 'DIAS_RESTANTES'])],
       ['Data pagamento', pegarCampoExcel(linha, ['DATA DE PAGAMENTO', 'DATA PAGAMENTO', 'PAGAMENTO'])],
-      ['Utilizado para', pegarCampoExcel(linha, ['UTILIZADO PARA', 'UTILIZADO_PARA'])],
+      ['Banco / utilizado para', pegarCampoExcel(linha, ['UTILIZADO PARA', 'UTILIZADO_PARA', 'BANCO UTILIZADO PARA PAGAMENTO', 'BANCO UTILIZADO', 'BANCO'])],
       ['Status recebimento', pegarCampoExcel(linha, ['STATUS_RECEBIMENTO_FATURA', 'STATUS RECEBIMENTO FATURA', 'STATUS_RECEBIMENTO', 'STATUS RECEBIME'])],
       ['Status contestação', pegarCampoExcel(linha, ['STATUS DE CONTESTAÇÃO', 'STATUS CONTESTACAO', 'STATUS DE COR', 'STATUS_DE_CONTESTACAO'])],
       ['Observação', pegarCampoExcel(linha, ['OBSERVAÇÕES', 'OBSERVACOES', 'OBSERVAÇÃO', 'OBSERVACAO'])],
@@ -372,6 +386,27 @@ export default function FaturasTransportadorasPage() {
             ])
           )
 
+          const dataPagamento = normalizarDataExcel(
+            pegarCampoExcel(linha, [
+              'DATA DE PAGAMENTO',
+              'DATA PAGAMENTO',
+              'DATA_PAGAMENTO',
+              'PAGAMENTO',
+              'PAGO EM',
+            ])
+          )
+
+          const utilizadoPara = String(
+            pegarCampoExcel(linha, [
+              'UTILIZADO PARA',
+              'UTILIZADO_PARA',
+              'BANCO UTILIZADO PARA PAGAMENTO',
+              'BANCO UTILIZADO',
+              'BANCO',
+              'PAGO POR',
+            ]) || ''
+          ).trim()
+
           const valor = numero(
             pegarCampoExcel(linha, [
               'VALOR',
@@ -420,6 +455,31 @@ export default function FaturasTransportadorasPage() {
             ])
           )
 
+          const diasRestantes = String(
+            pegarCampoExcel(linha, ['DIAS RESTANTES', 'DIAS_RESTANTES']) || ''
+          ).trim()
+
+          const statusRecebimento = String(
+            pegarCampoExcel(linha, [
+              'STATUS_RECEBIMENTO_FATURA',
+              'STATUS RECEBIMENTO FATURA',
+              'STATUS_RECEBIMENTO',
+              'STATUS RECEBIMENTO',
+            ]) || ''
+          ).trim()
+
+          const statusContestacao = String(
+            pegarCampoExcel(linha, [
+              'STATUS DE CONTESTAÇÃO',
+              'STATUS DE CONTESTACAO',
+              'STATUS CONTESTACAO',
+              'STATUS DE CORREÇÃO',
+              'STATUS DE CORRECAO',
+              'CONTESTAÇÃO',
+              'CONTESTACAO',
+            ]) || ''
+          ).trim()
+
           const statusPlanilha = pegarCampoExcel(linha, [
             'STATUS DA FATURA',
             'STATUS_DA_FATURA',
@@ -429,8 +489,13 @@ export default function FaturasTransportadorasPage() {
             'DIAS RESTANTES',
           ])
 
-          const situacao = normalizarSituacaoExcel(statusPlanilha, vencimento)
-          const saldo = saldoInformado || Math.max(totalAtualizado - pagoAjustado, 0)
+          const situacao = normalizarSituacaoExcel(statusPlanilha, vencimento, dataPagamento)
+          const faturaPagaOuCancelada = situacao === 'PAGA' || situacao.includes('CANCEL')
+          const saldo = faturaPagaOuCancelada
+            ? 0
+            : saldoInformado > 0
+              ? saldoInformado
+              : Math.max(totalAtualizado - pagoAjustado, 0)
 
           return {
             transportadora,
@@ -438,10 +503,16 @@ export default function FaturasTransportadorasPage() {
             numero_fatura: numeroFatura || null,
             emissao,
             vencimento,
+            data_pagamento: dataPagamento,
+            utilizado_para: utilizadoPara || null,
+            dias_restantes: diasRestantes || null,
+            status_recebimento_fatura: statusRecebimento || null,
+            status_contestacao: statusContestacao || null,
+            diferenca_fatura: saldoInformado,
             situacao,
             total: totalAtualizado,
             valor_contestado: valorContestado,
-            pago_ajustado: pagoAjustado,
+            pago_ajustado: faturaPagaOuCancelada ? totalAtualizado : pagoAjustado,
             saldo,
             moeda: String(pegarCampoExcel(linha, ['MOEDA', 'CURRENCY']) || 'BRL').trim() || 'BRL',
             observacoes: observacoesImportacao(linha) || null,
@@ -547,11 +618,13 @@ export default function FaturasTransportadorasPage() {
       numero_fatura: form.numero_fatura || null,
       emissao: form.emissao || null,
       vencimento: form.vencimento || null,
-      situacao: form.situacao || 'EM ABERTO',
+      data_pagamento: form.data_pagamento || null,
+      utilizado_para: form.utilizado_para || null,
+      situacao: form.data_pagamento ? 'PAGA' : form.situacao || 'EM ABERTO',
       total: numero(form.total),
       valor_contestado: numero(form.valor_contestado),
-      pago_ajustado: numero(form.pago_ajustado),
-      saldo: form.saldo ? numero(form.saldo) : numero(form.total) - numero(form.pago_ajustado),
+      pago_ajustado: form.data_pagamento ? numero(form.total) : numero(form.pago_ajustado),
+      saldo: form.data_pagamento ? 0 : form.saldo ? numero(form.saldo) : numero(form.total) - numero(form.pago_ajustado),
       moeda: form.moeda || 'BRL',
       observacoes: form.observacoes || null,
       atualizado_em: new Date().toISOString(),
@@ -599,6 +672,8 @@ export default function FaturasTransportadorasPage() {
       numero_fatura: item.numero_fatura || '',
       emissao: item.emissao ? String(item.emissao).slice(0, 10) : '',
       vencimento: item.vencimento ? String(item.vencimento).slice(0, 10) : '',
+      data_pagamento: item.data_pagamento ? String(item.data_pagamento).slice(0, 10) : '',
+      utilizado_para: item.utilizado_para || '',
       situacao: item.situacao || 'EM ABERTO',
       total: item.total ? String(item.total).replace('.', ',') : '',
       valor_contestado: item.valor_contestado ? String(item.valor_contestado).replace('.', ',') : '',
@@ -756,6 +831,9 @@ export default function FaturasTransportadorasPage() {
         ${item.conta || ''}
         ${item.numero_fatura || ''}
         ${item.situacao || ''}
+        ${item.utilizado_para || ''}
+        ${item.status_recebimento_fatura || ''}
+        ${item.status_contestacao || ''}
         ${item.moeda || ''}
         ${item.observacoes || ''}
       `.toLowerCase()
@@ -918,6 +996,22 @@ export default function FaturasTransportadorasPage() {
             />
           </Campo>
 
+          <Campo label="Data de pagamento">
+            <input
+              type="date"
+              value={form.data_pagamento}
+              onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })}
+            />
+          </Campo>
+
+          <Campo label="Banco utilizado">
+            <input
+              value={form.utilizado_para}
+              onChange={(e) => setForm({ ...form, utilizado_para: e.target.value })}
+              placeholder="Ex: Itaú, BS2, Contabilizei"
+            />
+          </Campo>
+
           <Campo label="Situação">
             <select
               value={form.situacao}
@@ -1058,7 +1152,7 @@ export default function FaturasTransportadorasPage() {
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[1420px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <table className="w-full min-w-[1720px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
               <thead>
                 <tr>
                   <th>Transportadora</th>
@@ -1066,6 +1160,8 @@ export default function FaturasTransportadorasPage() {
                   <th>Fatura</th>
                   <th>Emissão</th>
                   <th>Vencimento</th>
+                  <th>Pagamento</th>
+                  <th>Banco</th>
                   <th>Situação</th>
                   <th>Total</th>
                   <th>Contestado</th>
@@ -1094,7 +1190,15 @@ export default function FaturasTransportadorasPage() {
 
                       <td>
                         <strong className="text-blue-400">{item.numero_fatura || '-'}</strong>
-                        {item.observacoes ? (
+                        {item.status_recebimento_fatura ? (
+                          <p className="text-slate-500 text-xs mt-1 max-w-[240px] truncate">
+                            {item.status_recebimento_fatura}
+                          </p>
+                        ) : item.dias_restantes ? (
+                          <p className="text-slate-500 text-xs mt-1 max-w-[240px] truncate">
+                            {item.dias_restantes}
+                          </p>
+                        ) : item.observacoes ? (
                           <p className="text-slate-500 text-xs mt-1 max-w-[240px] truncate">
                             {item.observacoes}
                           </p>
@@ -1103,6 +1207,12 @@ export default function FaturasTransportadorasPage() {
 
                       <td>{dataBR(item.emissao)}</td>
                       <td>{dataBR(item.vencimento)}</td>
+                      <td>{dataBR(item.data_pagamento)}</td>
+                      <td>
+                        <span className="font-bold text-slate-300">
+                          {item.utilizado_para || '-'}
+                        </span>
+                      </td>
 
                       <td>
                         <span className={`border px-3 py-1 rounded-full text-xs font-black ${classeSituacao(status)}`}>
