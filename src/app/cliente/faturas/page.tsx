@@ -26,64 +26,60 @@ export default function FaturasClientePage() {
   }
 
   async function carregarFaturas(usuarioId: string) {
-  setLoading(true)
+    setLoading(true)
 
-  const { data: diretos } = await supabase
-    .from('embarques')
-    .select('id')
-    .eq('usuario_id', usuarioId)
+    const { data: diretos } = await supabase
+      .from('embarques')
+      .select('id')
+      .eq('usuario_id', usuarioId)
 
-  const { data: vinculos } = await supabase
-    .from('embarque_clientes')
-    .select('embarque_id')
-    .eq('cliente_id', usuarioId)
+    const { data: vinculos } = await supabase
+      .from('embarque_clientes')
+      .select('embarque_id')
+      .eq('cliente_id', usuarioId)
 
-  const idsDiretos = (diretos || []).map((e) => e.id)
-  const idsVinculados = (vinculos || []).map((v) => v.embarque_id)
-  const ids = Array.from(new Set([...idsDiretos, ...idsVinculados]))
+    const idsDiretos = (diretos || []).map((e) => e.id)
+    const idsVinculados = (vinculos || []).map((v) => v.embarque_id)
+    const ids = Array.from(new Set([...idsDiretos, ...idsVinculados]))
 
-  if (ids.length === 0) {
-    setFaturas([])
-    setLoading(false)
-    return
-  }
+    if (ids.length === 0) {
+      setFaturas([])
+      setLoading(false)
+      return
+    }
 
-  const { data, error } = await supabase
-    .from('faturas')
-    .select(`
-      id,
-      embarque_id,
-      usuario_id,
-      vencimento,
-      arquivo_pdf,
-      recibo_pdf,
-      recibo_nome,
-      data_pagamento,
-      valor_pago,
-      criado_em,
-      visivel_cliente,
-      embarques (
+    const { data, error } = await supabase
+      .from('faturas')
+      .select(`
         id,
-        awb,
-        cliente_final,
-        exportador,
-        importador,
-        transportadora,
-        status_operacional,
-        valor_venda
-      )
-    `)
-    .in('embarque_id', ids)
-    .eq('visivel_cliente', true)
-    .order('criado_em', { ascending: false })
+        embarque_id,
+        usuario_id,
+        arquivo_pdf,
+        recibo_pdf,
+        recibo_nome,
+        criado_em,
+        visivel_cliente,
+        embarques (
+          id,
+          awb,
+          cliente_final,
+          exportador,
+          importador,
+          transportadora,
+          status_operacional
+        )
+      `)
+      .in('embarque_id', ids)
+      .eq('visivel_cliente', true)
+      .order('criado_em', { ascending: false })
 
-  if (error) {
-    console.log('ERRO FATURAS:', error)
+    if (error) {
+      console.log('ERRO FATURAS:', error)
+    }
+
+    setFaturas(data || [])
+    setLoading(false)
   }
-
-  setFaturas(data || [])
-  setLoading(false)
-}
 
   function dadosEmbarque(fatura: any) {
     if (Array.isArray(fatura.embarques)) return fatura.embarques[0] || {}
@@ -93,20 +89,6 @@ export default function FaturasClientePage() {
   function dataBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleDateString('pt-BR')
-  }
-
-  function moeda(valor?: number | string | null, moedaBase = 'USD') {
-    if (valor === null || valor === undefined || valor === '') return '-'
-    const numero = Number(valor || 0)
-
-    if (moedaBase === 'BRL') {
-      return numero.toLocaleString('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-      })
-    }
-
-    return `${moedaBase} ${numero.toFixed(2)}`
   }
 
   const faturasFiltradas = useMemo(() => {
@@ -128,18 +110,18 @@ export default function FaturasClientePage() {
 
   const totalFaturas = faturas.length
   const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
-  const totalPendentes = faturas.filter((f) => !f.data_pagamento && !f.recibo_pdf).length
-  const totalPagas = faturas.filter((f) => f.data_pagamento || f.recibo_pdf).length
+  const totalSemRecibo = faturas.filter((f) => !f.recibo_pdf).length
+  const embarquesComFatura = new Set(faturas.map((f) => f.embarque_id).filter(Boolean)).size
 
   return (
     <main className="min-h-screen bg-[#020817] text-white p-6 lg:p-10">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
           <div>
-            <p className="text-blue-400 font-bold mb-2">Financeiro</p>
-            <h1 className="text-5xl font-black mb-2">Faturamento</h1>
+            <p className="text-blue-400 font-bold mb-2">Documentos</p>
+            <h1 className="text-5xl font-black mb-2">Faturas e recibos</h1>
             <p className="text-slate-400 text-lg">
-              Consulte suas faturas, recibos e pagamentos dos embarques.
+              Consulte os PDFs liberados pela HC para os seus embarques.
             </p>
           </div>
 
@@ -152,18 +134,18 @@ export default function FaturasClientePage() {
         </div>
 
         <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-          <Card titulo="Faturas disponíveis" valor={totalFaturas} detalhe="No portal" icone="📄" />
-          <Card titulo="Pendentes" valor={totalPendentes} detalhe="Aguardando pagamento" icone="⏳" />
-          <Card titulo="Pagas" valor={totalPagas} detalhe="Pagamento identificado" icone="✅" />
-          <Card titulo="Recibos" valor={totalRecibos} detalhe="Disponíveis para baixar" icone="🧾" />
+          <Card titulo="Faturas disponíveis" valor={totalFaturas} detalhe="PDFs liberados" icone="📄" />
+          <Card titulo="Recibos disponíveis" valor={totalRecibos} detalhe="PDFs liberados" icone="🧾" />
+          <Card titulo="Aguardando recibo" valor={totalSemRecibo} detalhe="Documento ainda não anexado" icone="⏳" />
+          <Card titulo="Embarques com fatura" valor={embarquesComFatura} detalhe="Processos relacionados" icone="📦" />
         </section>
 
         <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
           <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
             <div>
-              <h2 className="text-2xl font-black">Faturas dos embarques</h2>
+              <h2 className="text-2xl font-black">Documentos de faturamento</h2>
               <p className="text-slate-400 text-sm">
-                Baixe sua fatura e acompanhe o recibo quando o pagamento for confirmado.
+                Esta tela mostra somente faturas e recibos anexados. Valores, vencimentos e pagamentos são controlados pela HC no Financeiro.
               </p>
             </div>
 
@@ -177,7 +159,7 @@ export default function FaturasClientePage() {
 
           {loading ? (
             <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-slate-400">
-              Carregando faturas...
+              Carregando documentos...
             </div>
           ) : faturasFiltradas.length === 0 ? (
             <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-slate-400">
@@ -187,7 +169,6 @@ export default function FaturasClientePage() {
             <div className="space-y-5">
               {faturasFiltradas.map((fatura) => {
                 const embarque = dadosEmbarque(fatura)
-                const moedaBase = embarque?.moeda_cobranca || 'USD'
 
                 return (
                   <article
@@ -201,43 +182,29 @@ export default function FaturasClientePage() {
                             AWB {embarque?.awb || '-'}
                           </h3>
 
-                          <StatusFinanceiro pago={!!fatura.data_pagamento || !!fatura.recibo_pdf} />
+                          <StatusDocumento temRecibo={!!fatura.recibo_pdf} />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <Info label="Transportadora" valor={embarque?.transportadora || '-'} />
                           <Info label="Status embarque" valor={embarque?.status_operacional || '-'} />
-                          <Info label="Vencimento" valor={dataBR(fatura.vencimento)} />
+                          <Info label="Fatura publicada em" valor={dataBR(fatura.criado_em)} />
                           <Info label="Cliente final" valor={embarque?.cliente_final || '-'} />
                           <Info label="Exportador" valor={embarque?.exportador || '-'} />
                           <Info label="Importador" valor={embarque?.importador || '-'} />
                           <Info
-                            label="Valor cobrado"
-                            valor={moeda(embarque?.valor_venda || fatura.valor_pago, 'BRL')}
+                            label="Fatura PDF"
+                            valor={fatura.arquivo_pdf ? 'Disponível' : 'Indisponível'}
                           />
                           <Info
-                            label="Pagamento"
-                            valor={fatura.data_pagamento ? `Pago em ${dataBR(fatura.data_pagamento)}` : fatura.recibo_pdf ? 'Pago - recibo disponível' : 'Pendente'}
+                            label="Recibo PDF"
+                            valor={fatura.recibo_pdf ? 'Disponível' : 'Aguardando anexo'}
                           />
                           <Info
-                            label="Recibo"
-                            valor={fatura.recibo_pdf ? 'Disponível' : 'Aguardando'}
+                            label="Tipo de tela"
+                            valor="Documentos para visualização"
                           />
                         </div>
-
-                        {embarque?.valor_adicional_peso && (
-                          <div className="mt-5 border border-yellow-500/60 bg-yellow-500/10 rounded-2xl p-4">
-                            <p className="font-black text-yellow-300 mb-2">
-                              ⚠️ Divergência de peso informada
-                            </p>
-
-                            <p className="text-slate-300 text-sm">
-                              Peso alterado de {embarque.peso_inicial_taxado || '-'} kg para{' '}
-                              {embarque.peso_final_taxado || '-'} kg. Valor adicional:{' '}
-                              <strong>{moeda(embarque.valor_adicional_peso, moedaBase)}</strong>.
-                            </p>
-                          </div>
-                        )}
                       </div>
 
                       <div className="flex flex-col gap-3 min-w-[220px]">
@@ -245,6 +212,7 @@ export default function FaturasClientePage() {
                           <a
                             href={fatura.arquivo_pdf}
                             target="_blank"
+                            rel="noopener noreferrer"
                             className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold text-center"
                           >
                             Baixar fatura
@@ -259,13 +227,14 @@ export default function FaturasClientePage() {
                           <a
                             href={fatura.recibo_pdf}
                             target="_blank"
+                            rel="noopener noreferrer"
                             className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl text-white font-bold text-center"
                           >
                             Baixar recibo
                           </a>
                         ) : (
                           <span className="bg-slate-800 px-5 py-3 rounded-xl text-slate-400 font-bold text-center">
-                            Recibo pendente
+                            Recibo ainda não anexado
                           </span>
                         )}
                       </div>
@@ -306,14 +275,14 @@ function Info({ label, valor }: any) {
   )
 }
 
-function StatusFinanceiro({ pago }: any) {
-  return pago ? (
+function StatusDocumento({ temRecibo }: { temRecibo: boolean }) {
+  return temRecibo ? (
     <span className="bg-green-600/20 text-green-300 border border-green-500 px-3 py-1 rounded-full text-xs font-black">
-      ✅ Pago
+      🧾 Recibo disponível
     </span>
   ) : (
-    <span className="bg-yellow-500/20 text-yellow-300 border border-yellow-500 px-3 py-1 rounded-full text-xs font-black">
-      ⏳ Pendente
+    <span className="bg-blue-600/20 text-blue-300 border border-blue-500 px-3 py-1 rounded-full text-xs font-black">
+      📄 Fatura disponível
     </span>
   )
 }

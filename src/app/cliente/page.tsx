@@ -119,12 +119,19 @@ export default function ClientePage() {
   }
 
   async function carregarFaturas(usuarioId: string) {
-    const { data: embarquesCliente } = await supabase
+    const { data: diretos } = await supabase
       .from('embarques')
       .select('id')
       .eq('usuario_id', usuarioId)
 
-    const ids = (embarquesCliente || []).map((e) => e.id)
+    const { data: vinculos } = await supabase
+      .from('embarque_clientes')
+      .select('embarque_id')
+      .eq('cliente_id', usuarioId)
+
+    const idsDiretos = (diretos || []).map((e) => e.id)
+    const idsVinculados = (vinculos || []).map((v) => v.embarque_id)
+    const ids = Array.from(new Set([...idsDiretos, ...idsVinculados]))
 
     if (ids.length === 0) {
       setFaturas([])
@@ -133,7 +140,7 @@ export default function ClientePage() {
 
     const { data } = await supabase
       .from('faturas')
-      .select('*')
+      .select('id, embarque_id, arquivo_pdf, recibo_pdf, criado_em, visivel_cliente')
       .in('embarque_id', ids)
       .eq('visivel_cliente', true)
       .order('criado_em', { ascending: false })
@@ -267,6 +274,7 @@ export default function ClientePage() {
   const ultimosEmbarques = embarques.slice(0, 5)
   const ultimasCotacoes = cotacoes.slice(0, 4)
   const faturasDisponiveis = faturas.length
+  const recibosDisponiveis = faturas.filter((f) => f.recibo_pdf).length
 
   return (
     <main className="min-h-screen bg-[#020817] text-white p-6 xl:p-10">
@@ -303,7 +311,7 @@ export default function ClientePage() {
               </a>
 
               <a href="/cliente/faturas" className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold">
-                Faturamento
+                Faturas e recibos
               </a>
 
               <a href="/cliente/suporte" className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold">
@@ -362,7 +370,8 @@ export default function ClientePage() {
             <div className="grid grid-cols-2 gap-4">
               <Resumo titulo="Cotações" valor={cotacoes.length} />
               <Resumo titulo="Em análise" valor={cotacoesAnalise} />
-              <Resumo titulo="Faturas" valor={faturas.length} />
+              <Resumo titulo="Faturas liberadas" valor={faturasDisponiveis} />
+              <Resumo titulo="Recibos liberados" valor={recibosDisponiveis} />
               <Resumo titulo="Embarques ativos" valor={embarques.length - entregues} />
             </div>
           </div>
