@@ -372,23 +372,38 @@ export default function IntelligencePage() {
     return texto(item.servico || item.tipo_servico || item.serviço || item.categoria || 'Não informado')
   }
 
+  function ultimoDiaDoMes(valor: any) {
+    const bruto = String(valor || '').trim()
+
+    if (/^\d{4}-\d{2}$/.test(bruto)) {
+      const [ano, mes] = bruto.split('-').map(Number)
+      return new Date(ano, mes, 0).toISOString().slice(0, 10)
+    }
+
+    if (/^\d{1,2}\/\d{4}$/.test(bruto)) {
+      const [mes, ano] = bruto.split('/').map(Number)
+      return new Date(ano, mes, 0).toISOString().slice(0, 10)
+    }
+
+    return normalizarData(valor)
+  }
+
   function dataProcessoCarteira(item: any) {
-    // Recência comercial precisa olhar o histórico do processo, não o filtro de mês.
-    // Usa datas reais primeiro; campos de mês entram como fallback.
+    // Recência comercial precisa olhar a data do PROCESSO, não a data em que o Excel foi importado.
+    // Por isso mês do processo entra antes de created_at/criado_em.
+    // Pagamento/vencimento também não são usados para recência comercial, porque cliente pode pagar hoje
+    // um processo antigo e isso não significa que ele voltou a embarcar.
     return (
       normalizarData(item.data_embarque) ||
       normalizarData(item.data_envio) ||
       normalizarData(item.data_processo) ||
       normalizarData(item.data_faturamento) ||
+      ultimoDiaDoMes(item.mes_profit) ||
+      ultimoDiaDoMes(item.mes) ||
+      normalizarData(item.competencia) ||
+      normalizarData(item.mes_referencia) ||
       normalizarData(item.criado_em) ||
       normalizarData(item.created_at) ||
-      normalizarData(item.updated_at) ||
-      normalizarData(item.atualizado_em) ||
-      normalizarData(item.recebimento) ||
-      normalizarData(item.recebimento_cliente) ||
-      normalizarData(item.vencimento_cobranca) ||
-      normalizarData(item.mes_profit) ||
-      normalizarData(item.mes) ||
       ''
     )
   }
@@ -1116,7 +1131,7 @@ export default function IntelligencePage() {
             </div>
 
             {carteiraClientesFiltrada.length === 0 ? (
-              <p className="text-slate-500">Nenhum cliente encontrado com os filtros atuais.</p>
+              <p className="text-slate-500">Nenhum cliente encontrado com os filtros atuais. Verifique se o filtro de recência está ativo ou limpe os filtros.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1320px] text-sm">
