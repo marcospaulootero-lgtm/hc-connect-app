@@ -13,7 +13,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [carregando, setCarregando] = useState(true)
   const [usuario, setUsuario] = useState<any>(null)
   const [menuMobileAberto, setMenuMobileAberto] = useState(false)
-  const [menuDesktopAberto, setMenuDesktopAberto] = useState(false)
 
   useEffect(() => {
     verificarAcesso()
@@ -68,18 +67,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#020817] text-white">
-      {/* Botão flutuante mobile/tablet */}
-      <button
-        type="button"
-        onClick={() => setMenuMobileAberto(true)}
-        className="xl:hidden fixed left-0 top-24 z-40 bg-blue-600 hover:bg-blue-500 text-white rounded-r-2xl px-3 py-5 font-black shadow-[0_0_25px_rgba(37,99,235,0.45)]"
-        aria-label="Abrir menu"
-      >
-        ›
-      </button>
-
       {/* Topo mobile/tablet */}
-      <header className="xl:hidden fixed top-0 left-0 right-0 z-30 h-20 bg-[#050d1f] border-b border-blue-950 px-4 flex items-center justify-between">
+      <header className="xl:hidden fixed top-0 left-0 right-0 z-40 h-20 bg-[#050d1f] border-b border-blue-950 px-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black leading-tight">HC Connect</h1>
           <p className="text-slate-500 text-xs">Painel Administrativo</p>
@@ -88,9 +77,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={() => setMenuMobileAberto(true)}
-          className="bg-[#071225] border border-blue-900 hover:bg-blue-600 px-4 py-3 rounded-2xl font-black"
+          className="bg-blue-600 hover:bg-blue-500 px-4 py-3 rounded-2xl font-black shadow-lg"
         >
-          Menu
+          ☰ Menu
         </button>
       </header>
 
@@ -125,74 +114,40 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <MenuContent pathname={pathname} compacto={false} />
+        <MenuContent pathname={pathname} />
 
-        <UserBox usuario={usuario} sair={sair} compacto={false} />
+        <UserBox usuario={usuario} sair={sair} />
       </aside>
 
-      {/* Menu desktop recolhível */}
-      <aside
-        className={`hidden xl:flex min-h-screen bg-[#050d1f] border-r border-blue-950 flex-col fixed left-0 top-0 bottom-0 transition-all duration-300 ${
-          menuDesktopAberto ? 'w-72 p-6' : 'w-20 p-4'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => setMenuDesktopAberto((valor) => !valor)}
-          className="absolute -right-4 top-24 z-20 w-8 h-16 rounded-r-2xl bg-blue-600 hover:bg-blue-500 border border-blue-400/40 text-white font-black shadow-[0_0_25px_rgba(37,99,235,0.45)]"
-          title={menuDesktopAberto ? 'Recolher menu' : 'Abrir menu'}
-          aria-label={menuDesktopAberto ? 'Recolher menu' : 'Abrir menu'}
-        >
-          {menuDesktopAberto ? '‹' : '›'}
-        </button>
-
-        <div className={menuDesktopAberto ? 'mb-8' : 'mb-8 text-center'}>
-          {menuDesktopAberto ? (
-            <>
-              <h1 className="text-3xl font-black">HC Connect</h1>
-              <p className="text-slate-500 mt-1">Painel Administrativo</p>
-            </>
-          ) : (
-            <>
-              <h1 className="text-2xl font-black">HC</h1>
-              <p className="text-slate-600 text-[10px] mt-1">Admin</p>
-            </>
-          )}
+      {/* Menu desktop fixo */}
+      <aside className="hidden xl:flex w-72 min-h-screen bg-[#050d1f] border-r border-blue-950 p-6 flex-col fixed left-0 top-0 bottom-0">
+        <div className="mb-8">
+          <h1 className="text-3xl font-black">HC Connect</h1>
+          <p className="text-slate-500 mt-1">Painel Administrativo</p>
         </div>
 
-        <MenuContent pathname={pathname} compacto={!menuDesktopAberto} />
+        <MenuContent pathname={pathname} />
 
-        <UserBox usuario={usuario} sair={sair} compacto={!menuDesktopAberto} />
+        <UserBox usuario={usuario} sair={sair} />
       </aside>
 
-      <main
-        className={`min-h-screen pt-24 xl:pt-8 px-4 sm:px-6 xl:px-8 transition-all duration-300 ${
-          menuDesktopAberto ? 'xl:ml-72' : 'xl:ml-20'
-        }`}
-      >
+      <main className="min-h-screen pt-24 xl:pt-8 px-4 sm:px-6 xl:px-8 xl:ml-72">
         {children}
       </main>
     </div>
   )
 }
 
-function MenuContent({
-  pathname,
-  compacto,
-}: {
-  pathname: string | null
-  compacto: boolean
-}) {
+function MenuContent({ pathname }: { pathname: string | null }) {
   return (
     <nav className="space-y-6 overflow-y-auto pr-1 pb-6">
-      <MenuGroup titulo="Visão geral" compacto={compacto}>
+      <MenuGroup titulo="Visão geral">
         <MenuItem
           href="/admin"
           label="Dashboard"
           descricao="Operação do dia"
           icon="📊"
           pathname={pathname}
-          compacto={compacto}
         />
         <MenuItem
           href="/admin/intelligence"
@@ -200,18 +155,16 @@ function MenuContent({
           descricao="O que precisa de ação"
           icon="🚨"
           pathname={pathname}
-          compacto={compacto}
         />
       </MenuGroup>
 
-      <MenuGroup titulo="Operação" compacto={compacto}>
+      <MenuGroup titulo="Operação">
         <MenuItem
           href="/admin/embarques"
           label="Embarques"
           descricao="Processos e rastreios"
           icon="📦"
           pathname={pathname}
-          compacto={compacto}
         />
         <MenuItem
           href="/admin/embarque-direto"
@@ -219,7 +172,6 @@ function MenuContent({
           descricao="Criar operação rápida"
           icon="🚚"
           pathname={pathname}
-          compacto={compacto}
         />
         <MenuItem
           href="/admin/cotacoes"
@@ -227,7 +179,6 @@ function MenuContent({
           descricao="Pedidos e aprovações"
           icon="📄"
           pathname={pathname}
-          compacto={compacto}
         />
         <MenuItem
           href="/admin/faturas"
@@ -235,18 +186,16 @@ function MenuContent({
           descricao="PDFs e recibos"
           icon="🧾"
           pathname={pathname}
-          compacto={compacto}
         />
       </MenuGroup>
 
-      <MenuGroup titulo="Dinheiro" compacto={compacto}>
+      <MenuGroup titulo="Dinheiro">
         <MenuItem
           href="/admin/financeiro"
           label="Financeiro"
           descricao="Painel do dono"
           icon="💰"
           pathname={pathname}
-          compacto={compacto}
           destaque
         />
         <MenuItem
@@ -255,18 +204,16 @@ function MenuContent({
           descricao="Valores protegidos"
           icon="🔒"
           pathname={pathname}
-          compacto={compacto}
         />
       </MenuGroup>
 
-      <MenuGroup titulo="Administração" compacto={compacto}>
+      <MenuGroup titulo="Administração">
         <MenuItem
           href="/admin/usuarios"
           label="Usuários"
           descricao="Acessos e clientes"
           icon="👥"
           pathname={pathname}
-          compacto={compacto}
         />
         <MenuItem
           href="/admin/suporte"
@@ -274,36 +221,13 @@ function MenuContent({
           descricao="Chamados dos clientes"
           icon="🎧"
           pathname={pathname}
-          compacto={compacto}
         />
       </MenuGroup>
     </nav>
   )
 }
 
-function UserBox({
-  usuario,
-  sair,
-  compacto,
-}: {
-  usuario: any
-  sair: () => void
-  compacto: boolean
-}) {
-  if (compacto) {
-    return (
-      <div className="mt-auto">
-        <button
-          onClick={sair}
-          className="w-full bg-blue-600 hover:bg-blue-500 px-3 py-3 rounded-2xl font-bold"
-          title={`Sair - ${usuario?.nome || ''}`}
-        >
-          ⏻
-        </button>
-      </div>
-    )
-  }
-
+function UserBox({ usuario, sair }: { usuario: any; sair: () => void }) {
   return (
     <div className="mt-auto border border-blue-900 rounded-3xl p-5 bg-[#071225]">
       <p className="text-slate-400 text-sm">Logado como</p>
@@ -323,21 +247,15 @@ function UserBox({
 function MenuGroup({
   titulo,
   children,
-  compacto,
 }: {
   titulo: string
   children: ReactNode
-  compacto: boolean
 }) {
   return (
     <div>
-      {compacto ? (
-        <div className="h-px bg-blue-950 my-3" />
-      ) : (
-        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black mb-3 px-2">
-          {titulo}
-        </p>
-      )}
+      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-black mb-3 px-2">
+        {titulo}
+      </p>
       <div className="space-y-2">{children}</div>
     </div>
   )
@@ -349,7 +267,6 @@ function MenuItem({
   descricao,
   icon,
   pathname,
-  compacto,
   destaque = false,
 }: {
   href: string
@@ -357,48 +274,37 @@ function MenuItem({
   descricao?: string
   icon: string
   pathname: string | null
-  compacto: boolean
   destaque?: boolean
 }) {
   const ativo = pathname === href || (href !== '/admin' && pathname?.startsWith(href))
 
-  const baseCompacto =
-    'flex items-center justify-center h-12 rounded-2xl font-bold transition text-xl'
-
-  const baseAberto =
-    'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition'
-
-  const cor =
-    ativo
-      ? 'bg-blue-600 text-white shadow-[0_0_25px_rgba(37,99,235,0.35)]'
-      : destaque
-        ? 'bg-emerald-600/15 border border-emerald-700/60 text-emerald-100 hover:bg-emerald-600/25 hover:text-white'
-        : 'bg-[#071225] hover:bg-blue-600 text-slate-300 hover:text-white'
-
   return (
     <Link
       href={href}
-      title={compacto ? label : undefined}
-      className={`${compacto ? baseCompacto : baseAberto} ${cor}`}
+      className={
+        ativo
+          ? 'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold bg-blue-600 text-white shadow-[0_0_25px_rgba(37,99,235,0.35)] transition'
+          : destaque
+            ? 'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold bg-emerald-600/15 border border-emerald-700/60 text-emerald-100 hover:bg-emerald-600/25 hover:text-white transition'
+            : 'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold bg-[#071225] hover:bg-blue-600 text-slate-300 hover:text-white transition'
+      }
     >
       <span className="text-xl">{icon}</span>
 
-      {!compacto ? (
-        <span className="min-w-0">
-          <span className="block leading-tight">{label}</span>
-          {descricao ? (
-            <span
-              className={
-                ativo
-                  ? 'block text-xs text-blue-100 font-medium mt-1 truncate'
-                  : 'block text-xs text-slate-500 font-medium mt-1 truncate'
-              }
-            >
-              {descricao}
-            </span>
-          ) : null}
-        </span>
-      ) : null}
+      <span className="min-w-0">
+        <span className="block leading-tight">{label}</span>
+        {descricao ? (
+          <span
+            className={
+              ativo
+                ? 'block text-xs text-blue-100 font-medium mt-1 truncate'
+                : 'block text-xs text-slate-500 font-medium mt-1 truncate'
+            }
+          >
+            {descricao}
+          </span>
+        ) : null}
+      </span>
     </Link>
   )
 }
