@@ -34,6 +34,12 @@ type ClienteCarteira = {
   motivo: string
   prioridade: number
   score: number
+  diasSemEmbarque: number
+  mesesSemEmbarque: number
+  potencialAumento: string
+  periodoAumento: string
+  acaoTicket: string
+  recuperar: boolean
 }
 
 export default function IntelligencePage() {
@@ -185,6 +191,42 @@ export default function IntelligencePage() {
     }
 
     return `${nomes[numeroMes] || numeroMes}/${ano}`
+  }
+
+
+  function dataBR(valor: any) {
+    const data = normalizarData(valor)
+    if (!data) return '-'
+
+    const [ano, mes, dia] = data.split('-')
+    return `${dia}/${mes}/${ano}`
+  }
+
+  function diasDesde(valor: any) {
+    const data = normalizarData(valor)
+    if (!data) return 9999
+
+    const inicio = new Date(`${data}T00:00:00`)
+    const hoje = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00`)
+    const diff = hoje.getTime() - inicio.getTime()
+
+    return Math.max(0, Math.floor(diff / 86400000))
+  }
+
+  function mesesDesde(valor: any) {
+    const dias = diasDesde(valor)
+    if (dias === 9999) return 999
+    return Math.floor(dias / 30)
+  }
+
+  function maiorData(a: any, b: any) {
+    const dataA = normalizarData(a)
+    const dataB = normalizarData(b)
+
+    if (!dataA) return dataB
+    if (!dataB) return dataA
+
+    return dataA > dataB ? dataA : dataB
   }
 
   function mesFinanceiro(item: any) {
@@ -501,8 +543,10 @@ export default function IntelligencePage() {
     dadosPeriodo.fin.forEach((item) => {
       const nome = clienteProcesso(item)
       const status = statusCobranca(item)
-      const mesBase = mesFinanceiro(item)
-      const dataBase = normalizarData(item.recebimento) || normalizarData(item.vencimento_cobranca) || normalizarData(item.created_at) || ''
+      const dataBase = maiorData(
+        normalizarData(item.recebimento) || normalizarData(item.vencimento_cobranca),
+        normalizarData(item.created_at) || normalizarData(item.criado_em)
+      )
       const servico = servicoProcesso(item)
 
       if (!mapa[nome]) {
@@ -524,10 +568,8 @@ export default function IntelligencePage() {
       mapa[nome].processos += 1
       mapa[nome].servicos[servico] = (mapa[nome].servicos[servico] || 0) + 1
 
-      if (dataBase && (!mapa[nome].ultimoProcesso || dataBase > mapa[nome].ultimoProcesso)) {
-        mapa[nome].ultimoProcesso = dataBase
-      } else if (!mapa[nome].ultimoProcesso && mesBase) {
-        mapa[nome].ultimoProcesso = mesBase
+      if (dataBase) {
+        mapa[nome].ultimoProcesso = maiorData(mapa[nome].ultimoProcesso, dataBase)
       }
 
       if (status === 'PAGO') {
@@ -552,37 +594,81 @@ export default function IntelligencePage() {
       .map((item: any) => {
         const margem = item.receita > 0 ? (item.profit / item.receita) * 100 : 0
         const ticketMedio = item.pagos > 0 ? item.receita / item.pagos : 0
+        const diasSemEmbarque = diasDesde(item.ultimoProcesso)
+        const mesesSemEmbarque = mesesDesde(item.ultimoProcesso)
         const servicoPrincipal = Object.entries(item.servicos || {})
           .sort((a: any, b: any) => Number(b[1]) - Number(a[1]))[0]?.[0] || '-'
 
         let recomendacao = 'ANALISAR'
         let motivo = 'Pouco dado financeiro confiável para decidir.'
         let prioridade = 1
+        let potencialAumento = 'Analisar'
+        let periodoAumento = 'Depois de conferir dados'
+        let acaoTicket = 'Conferir custos, margem e histórico antes de propor aumento.'
 
         if (item.vencido > 0) {
           recomendacao = 'COBRAR / SEGURAR'
           motivo = 'Tem cobrança vencida. Antes de vender mais, proteger caixa.'
-          prioridade = 6
+          prioridade = 7
+          potencialAumento = 'Não aumentar agora'
+          periodoAumento = 'Depois do pagamento'
+          acaoTicket = 'Cobrar pendência e só voltar a vender com condição mais segura.'
         } else if (item.semCusto > 0) {
           recomendacao = 'CORRIGIR CUSTO'
           motivo = 'Existem processos pagos sem custo. Profit e margem não são confiáveis.'
+          prioridade = 6
+          potencialAumento = 'Indefinido'
+          periodoAumento = 'Após corrigir custos'
+          acaoTicket = 'Corrigir custo para saber se precisa reajustar ou manter tabela.'
+        } else if (item.processos >= 4 && margem > 0 && margem < 10) {
+          recomendacao = 'REAJUSTAR'
+          motivo = 'Volume bom, mas margem crítica. A tabela está apertada.'
           prioridade = 5
-        } else if (item.processos >= 4 && margem > 0 && margem < 15) {
+          potencialAumento = '15% a 25%'
+          periodoAumento = 'Na próxima cotação'
+          acaoTicket = 'Aplicar taxa mínima e rever tabela do serviço principal.'
+        } else if (item.processos >= 4 && margem >= 10 && margem < 15) {
           recomendacao = 'REAJUSTAR'
           motivo = 'Tem volume, mas margem baixa. Revisar tabela ou taxa mínima.'
           prioridade = 4
+          potencialAumento = '10% a 15%'
+          periodoAumento = 'Próximos 30 dias'
+          acaoTicket = 'Avisar reajuste por aumento de custo operacional e suporte.'
         } else if (item.pagos >= 3 && ticketMedio > 0 && ticketMedio < 1500) {
           recomendacao = 'AUMENTAR TICKET'
           motivo = 'Ticket médio baixo. Oferecer pacote, taxa mínima ou serviço adicional.'
           prioridade = 3
+          potencialAumento = 'R$ 150 a R$ 350 por processo'
+          periodoAumento = 'Próxima cotação pequena'
+          acaoTicket = 'Cobrar taxa mínima ou vender acompanhamento/documentação.'
         } else if (item.profit > 0 && margem >= 25) {
           recomendacao = 'FOCAR'
           motivo = 'Cliente saudável: bom profit e boa margem.'
           prioridade = 2
+          potencialAumento = 'Upsell, não reajuste seco'
+          periodoAumento = 'Próximo contato comercial'
+          acaoTicket = 'Oferecer formal, relatório, gestão documental ou pacote mensal.'
         } else if (item.profit > 0) {
           recomendacao = 'MANTER / CRESCER'
           motivo = 'Cliente positivo. Buscar mais serviços sem reduzir margem.'
           prioridade = 2
+          potencialAumento = '5% a 10% ou serviço adicional'
+          periodoAumento = 'Próxima renovação de tabela'
+          acaoTicket = 'Aumentar escopo, não apenas preço.'
+        }
+
+        const recuperar = diasSemEmbarque >= 45 && item.processos > 0
+
+        if (recuperar && item.vencido <= 0 && item.semCusto <= 0) {
+          if (diasSemEmbarque >= 120) {
+            prioridade = Math.max(prioridade, 5)
+            if (recomendacao === 'ANALISAR') recomendacao = 'REATIVAR'
+            motivo = `${motivo} Está há ${diasSemEmbarque} dias sem embarcar.`
+          } else if (diasSemEmbarque >= 60) {
+            prioridade = Math.max(prioridade, 4)
+            if (recomendacao === 'ANALISAR') recomendacao = 'REATIVAR'
+            motivo = `${motivo} Cliente esfriando: ${diasSemEmbarque} dias sem processo.`
+          }
         }
 
         const score =
@@ -591,7 +677,8 @@ export default function IntelligencePage() {
           item.pagos * 4 -
           item.vencido / 500 -
           item.semCusto * 20 -
-          item.atrasados * 15
+          item.atrasados * 15 -
+          Math.min(diasSemEmbarque / 10, 20)
 
         return {
           nome: item.nome,
@@ -610,11 +697,40 @@ export default function IntelligencePage() {
           motivo,
           prioridade,
           score,
+          diasSemEmbarque,
+          mesesSemEmbarque,
+          potencialAumento,
+          periodoAumento,
+          acaoTicket,
+          recuperar,
         } as ClienteCarteira
       })
       .sort((a: ClienteCarteira, b: ClienteCarteira) => b.prioridade - a.prioridade || b.profit - a.profit || b.processos - a.processos)
-      .slice(0, 20)
+      .slice(0, 30)
   }, [dadosPeriodo])
+
+  const clientesParaAumentarTicket = useMemo(() => {
+    return carteiraClientes
+      .filter((item) =>
+        ['REAJUSTAR', 'AUMENTAR TICKET', 'MANTER / CRESCER', 'FOCAR'].includes(item.recomendacao) &&
+        item.vencido <= 0 &&
+        item.semCusto <= 0 &&
+        item.receita > 0
+      )
+      .sort((a, b) => {
+        const prioridadeA = a.recomendacao === 'REAJUSTAR' ? 4 : a.recomendacao === 'AUMENTAR TICKET' ? 3 : a.recomendacao === 'MANTER / CRESCER' ? 2 : 1
+        const prioridadeB = b.recomendacao === 'REAJUSTAR' ? 4 : b.recomendacao === 'AUMENTAR TICKET' ? 3 : b.recomendacao === 'MANTER / CRESCER' ? 2 : 1
+        return prioridadeB - prioridadeA || b.processos - a.processos || b.profit - a.profit
+      })
+      .slice(0, 12)
+  }, [carteiraClientes])
+
+  const clientesParaRecuperar = useMemo(() => {
+    return carteiraClientes
+      .filter((item) => item.recuperar)
+      .sort((a, b) => b.diasSemEmbarque - a.diasSemEmbarque || b.profit - a.profit)
+      .slice(0, 12)
+  }, [carteiraClientes])
 
   const resumoCarteira = useMemo(() => {
     const receita = carteiraClientes.reduce((acc, item) => acc + item.receita, 0)
@@ -623,11 +739,12 @@ export default function IntelligencePage() {
 
     return {
       focar: carteiraClientes.filter((item) => ['FOCAR', 'MANTER / CRESCER'].includes(item.recomendacao)).length,
-      reajustar: carteiraClientes.filter((item) => ['REAJUSTAR', 'AUMENTAR TICKET'].includes(item.recomendacao)).length,
+      reajustar: clientesParaAumentarTicket.length,
+      recuperar: clientesParaRecuperar.length,
       risco: carteiraClientes.filter((item) => ['COBRAR / SEGURAR', 'CORRIGIR CUSTO'].includes(item.recomendacao)).length,
       ticketMedio,
     }
-  }, [carteiraClientes])
+  }, [carteiraClientes, clientesParaAumentarTicket, clientesParaRecuperar])
 
   const rankingTransportadoras = useMemo(() => {
     const mapa: Record<string, any> = {}
@@ -704,7 +821,7 @@ export default function IntelligencePage() {
 
   return (
     <main className="min-h-screen bg-[#020817] p-6 text-white">
-      <div className="max-w-[1700px] mx-auto">
+      <div className="w-full max-w-none">
         <section className="border border-blue-900 rounded-3xl bg-[#071225] p-5 mb-6 flex flex-col xl:flex-row justify-between gap-5">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-blue-600/20 text-blue-400 flex items-center justify-center text-3xl">
@@ -775,30 +892,31 @@ export default function IntelligencePage() {
           <Kpi titulo="Chamados abertos" valor={inteligencia.chamadosAbertos.length} detalhe="Suporte pendente" icone="💬" cor={inteligencia.chamadosAbertos.length > 0 ? 'orange' : 'green'} />
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-4 gap-5 mb-6">
+        <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-6">
           <Kpi titulo="Clientes para focar" valor={resumoCarteira.focar} detalhe="Bom profit ou crescimento" icone="🎯" cor="green" />
-          <Kpi titulo="Reajustar ticket" valor={resumoCarteira.reajustar} detalhe="Margem ou ticket baixo" icone="📈" cor={resumoCarteira.reajustar > 0 ? 'yellow' : 'green'} />
+          <Kpi titulo="Aumentar ticket" valor={resumoCarteira.reajustar} detalhe="Cliente com margem/ticket para mexer" icone="📈" cor={resumoCarteira.reajustar > 0 ? 'yellow' : 'green'} />
+          <Kpi titulo="Recuperar clientes" valor={resumoCarteira.recuperar} detalhe="Sem embarcar há muito tempo" icone="📞" cor={resumoCarteira.recuperar > 0 ? 'orange' : 'green'} />
           <Kpi titulo="Clientes com risco" valor={resumoCarteira.risco} detalhe="Cobrança ou custo pendente" icone="⚠️" cor={resumoCarteira.risco > 0 ? 'red' : 'green'} />
           <Kpi titulo="Ticket médio" valor={moeda(resumoCarteira.ticketMedio)} detalhe="Receita / processos pagos" icone="🧾" cor="blue" />
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-          <Card className="xl:col-span-2">
+        <section className="grid grid-cols-1 2xl:grid-cols-5 gap-6 mb-6">
+          <Card className="2xl:col-span-3">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
               <div>
                 <h2 className="text-2xl font-black">Carteira de Clientes</h2>
                 <p className="text-slate-400 text-sm">
-                  Mostra onde focar, quem reajustar e quem precisa de correção antes de vender mais.
+                  Mostra onde focar, quem reajustar, quem recuperar e quem precisa de correção antes de vender mais.
                 </p>
               </div>
-              <span className="text-blue-400 text-sm font-bold">Score por profit, margem, ticket, vencidos e custos</span>
+              <span className="text-blue-400 text-sm font-bold">Score por profit, margem, ticket, vencidos, custos e recência</span>
             </div>
 
             {carteiraClientes.length === 0 ? (
               <p className="text-slate-500">Nenhum cliente com dados financeiros no período.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1120px] text-sm">
+                <table className="w-full min-w-[1320px] text-sm">
                   <thead>
                     <tr className="text-slate-400 border-b border-blue-900">
                       <Th>Cliente</Th>
@@ -808,8 +926,9 @@ export default function IntelligencePage() {
                       <Th>Profit HC</Th>
                       <Th>Margem</Th>
                       <Th>Ticket médio</Th>
-                      <Th>Vencido</Th>
-                      <Th>Serviço principal</Th>
+                      <Th>Último processo</Th>
+                      <Th>Sem embarcar</Th>
+                      <Th>Quando agir</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -825,8 +944,78 @@ export default function IntelligencePage() {
                         <Td><strong className={item.profit >= 0 ? 'text-green-400' : 'text-red-400'}>{moeda(item.profit)}</strong></Td>
                         <Td><strong className={item.margem >= 15 ? 'text-green-400' : item.margem > 0 ? 'text-yellow-400' : 'text-red-400'}>{percentual(item.margem)}</strong></Td>
                         <Td><strong>{moeda(item.ticketMedio)}</strong></Td>
-                        <Td><strong className={item.vencido > 0 ? 'text-red-400' : 'text-slate-500'}>{moeda(item.vencido)}</strong></Td>
-                        <Td>{item.servicoPrincipal}</Td>
+                        <Td>{dataBR(item.ultimoProcesso)}</Td>
+                        <Td><strong className={item.diasSemEmbarque >= 60 ? 'text-orange-400' : 'text-slate-300'}>{item.diasSemEmbarque === 9999 ? '-' : `${item.diasSemEmbarque} dias`}</strong></Td>
+                        <Td>{item.periodoAumento}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
+          <Card className="2xl:col-span-2">
+            <h2 className="text-2xl font-black mb-2">Assistente para aumentar ticket</h2>
+            <p className="text-slate-400 text-sm mb-5">
+              Priorize cliente com volume, margem baixa ou ticket pequeno. Não aumente quem está vencido ou com custo pendente.
+            </p>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-yellow-700/60 bg-yellow-950/20 p-4">
+                <p className="text-yellow-300 font-black">Regra de reajuste</p>
+                <p className="text-slate-300 text-sm mt-2">
+                  Margem abaixo de 10%: reajuste na próxima cotação. Margem entre 10% e 15%: reajuste nos próximos 30 dias. Ticket abaixo de R$ 1.500: aplicar taxa mínima ou vender serviço adicional.
+                </p>
+              </div>
+
+              <Resumo label="1. Reajuste imediato" valor="Margem < 10%" cor="red" />
+              <Resumo label="2. Reajuste programado" valor="Margem 10% a 15%" cor="yellow" />
+              <Resumo label="3. Taxa mínima" valor="Ticket baixo" cor="blue" />
+              <Resumo label="4. Upsell" valor="Cliente saudável" cor="green" />
+              <Resumo label="5. Recuperação" valor="Sem embarcar +45 dias" cor="orange" />
+            </div>
+          </Card>
+        </section>
+
+        <section className="grid grid-cols-1 2xl:grid-cols-2 gap-6 mb-6">
+          <Card>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+              <div>
+                <h2 className="text-2xl font-black">Clientes para aumentar ticket</h2>
+                <p className="text-slate-400 text-sm">
+                  Lista prática de quem pode receber taxa mínima, reajuste ou venda adicional.
+                </p>
+              </div>
+              <span className="text-yellow-400 text-sm font-bold">Quando aumentar e como abordar</span>
+            </div>
+
+            {clientesParaAumentarTicket.length === 0 ? (
+              <p className="text-slate-500">Nenhum cliente pronto para aumento de ticket sem risco financeiro.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1050px] text-sm">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-blue-900">
+                      <Th>Cliente</Th>
+                      <Th>Motivo</Th>
+                      <Th>Ticket</Th>
+                      <Th>Margem</Th>
+                      <Th>Potencial</Th>
+                      <Th>Período</Th>
+                      <Th>Ação sugerida</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientesParaAumentarTicket.map((item) => (
+                      <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                        <Td><strong>{item.nome}</strong><p className="text-xs text-slate-500 mt-1">{item.servicoPrincipal}</p></Td>
+                        <Td>{item.motivo}</Td>
+                        <Td><strong>{moeda(item.ticketMedio)}</strong></Td>
+                        <Td><strong className={item.margem >= 15 ? 'text-green-400' : item.margem > 0 ? 'text-yellow-400' : 'text-red-400'}>{percentual(item.margem)}</strong></Td>
+                        <Td><strong className="text-blue-400">{item.potencialAumento}</strong></Td>
+                        <Td><strong className="text-yellow-400">{item.periodoAumento}</strong></Td>
+                        <Td>{item.acaoTicket}</Td>
                       </tr>
                     ))}
                   </tbody>
@@ -836,16 +1025,46 @@ export default function IntelligencePage() {
           </Card>
 
           <Card>
-            <h2 className="text-2xl font-black mb-5">Como aumentar o ticket</h2>
-            <Resumo label="1. Aplicar taxa mínima" valor="Processo pequeno" cor="blue" />
-            <Resumo label="2. Reajustar margem baixa" valor="< 15%" cor="yellow" />
-            <Resumo label="3. Vender serviço adicional" valor="Gestão / relatório" cor="green" />
-            <Resumo label="4. Subir nível do cliente" valor="Courier → formal" cor="purple" />
-            <Resumo label="5. Cobrar antes se tiver risco" valor="Protege caixa" cor="red" />
-
-            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-300">
-              <strong className="text-white">Regra prática:</strong> cliente com volume e margem baixa não é cliente ruim; é cliente que precisa de tabela nova, taxa mínima ou escopo mais claro.
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+              <div>
+                <h2 className="text-2xl font-black">Clientes para recuperar</h2>
+                <p className="text-slate-400 text-sm">
+                  Clientes que ficaram muito tempo sem embarcar e merecem contato comercial.
+                </p>
+              </div>
+              <span className="text-cyan-400 text-sm font-bold">Reativação da carteira</span>
             </div>
+
+            {clientesParaRecuperar.length === 0 ? (
+              <p className="text-slate-500">Nenhum cliente parado há muito tempo dentro do filtro atual.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[960px] text-sm">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-blue-900">
+                      <Th>Cliente</Th>
+                      <Th>Último embarque</Th>
+                      <Th>Tempo parado</Th>
+                      <Th>Profit histórico</Th>
+                      <Th>Serviço</Th>
+                      <Th>Ação para chamar de volta</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientesParaRecuperar.map((item) => (
+                      <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                        <Td><strong>{item.nome}</strong><p className="text-xs text-slate-500 mt-1">{item.processos} processo(s) no histórico</p></Td>
+                        <Td>{dataBR(item.ultimoProcesso)}</Td>
+                        <Td><strong className={item.diasSemEmbarque >= 90 ? 'text-red-400' : 'text-orange-400'}>{item.diasSemEmbarque} dias</strong></Td>
+                        <Td><strong className={item.profit >= 0 ? 'text-green-400' : 'text-red-400'}>{moeda(item.profit)}</strong></Td>
+                        <Td>{item.servicoPrincipal}</Td>
+                        <Td>{item.diasSemEmbarque >= 90 ? 'Chamar agora com proposta de retomada e atualização de tabela.' : 'Enviar follow-up este mês perguntando próximos embarques.'}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </section>
 
@@ -1051,6 +1270,7 @@ function BadgeRecomendacao({ recomendacao }: any) {
     'REAJUSTAR': 'border-orange-500 text-orange-400 bg-orange-950/30',
     'COBRAR / SEGURAR': 'border-red-500 text-red-400 bg-red-950/30',
     'CORRIGIR CUSTO': 'border-red-500 text-red-400 bg-red-950/30',
+    'REATIVAR': 'border-cyan-500 text-cyan-300 bg-cyan-950/30',
     'ANALISAR': 'border-slate-500 text-slate-300 bg-slate-900/50',
   }
 
