@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 const LOTE_SUPABASE = 1000
@@ -44,6 +44,10 @@ export default function ClientesPerformancePage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
+  const filtrosInicializadosRef = useRef(false)
+  const [filtrosCarregados, setFiltrosCarregados] = useState(false)
+  const [ultimaAlteracaoFiltros, setUltimaAlteracaoFiltros] = useState<string | null>(null)
+
   const [busca, setBusca] = useState('')
   const [periodo, setPeriodo] = useState<FiltroPeriodo>('TODOS')
   const [rankingPor, setRankingPor] = useState<FiltroRanking>('PROFIT')
@@ -61,20 +65,41 @@ export default function ClientesPerformancePage() {
         if (dados.rankingPor) setRankingPor(normalizarRankingSalvo(dados.rankingPor))
         if (dados.somenteComMovimento !== undefined) setSomenteComMovimento(dados.somenteComMovimento)
         if (dados.somenteComEmbarque !== undefined) setSomenteComMovimento(dados.somenteComEmbarque)
+        if (dados.ultimaAlteracaoFiltros || dados.ultimaAlteracao) {
+          setUltimaAlteracaoFiltros(dados.ultimaAlteracaoFiltros || dados.ultimaAlteracao)
+        }
       } catch (error) {
         console.log('Erro ao carregar filtros salvos:', error)
       }
     }
 
+    filtrosInicializadosRef.current = true
+    setFiltrosCarregados(true)
     carregar()
   }, [])
 
   useEffect(() => {
+    if (!filtrosCarregados) return
+
+    if (filtrosInicializadosRef.current) {
+      filtrosInicializadosRef.current = false
+      return
+    }
+
+    const agora = new Date().toISOString()
+    setUltimaAlteracaoFiltros(agora)
+
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ busca, periodo, rankingPor, somenteComMovimento })
+      JSON.stringify({
+        busca,
+        periodo,
+        rankingPor,
+        somenteComMovimento,
+        ultimaAlteracaoFiltros: agora,
+      })
     )
-  }, [busca, periodo, rankingPor, somenteComMovimento])
+  }, [busca, periodo, rankingPor, somenteComMovimento, filtrosCarregados])
 
   function normalizarRankingSalvo(valor: any): FiltroRanking {
     const textoValor = String(valor || '').toUpperCase()
@@ -195,6 +220,11 @@ export default function ClientesPerformancePage() {
     if (ano && mes && dia) return `${dia}/${mes}/${ano}`
 
     return new Date(data).toLocaleDateString('pt-BR')
+  }
+
+  function dataHoraBR(data?: string | null) {
+    if (!data) return '-'
+    return new Date(data).toLocaleString('pt-BR')
   }
 
   function normalizarData(valor: any) {
@@ -564,6 +594,17 @@ export default function ClientesPerformancePage() {
     setClienteAbertoId(null)
   }
 
+  function linkFinanceiroProcessos(buscaValor?: any) {
+    const params = new URLSearchParams()
+    params.set('aba', 'PROCESSOS')
+    params.set('status', 'TODOS')
+
+    const valor = String(buscaValor || '').trim()
+    if (valor) params.set('busca', valor)
+
+    return `/admin/financeiro?${params.toString()}`
+  }
+
   function exportarCSV() {
     const linhas = [
       [
@@ -637,7 +678,7 @@ export default function ClientesPerformancePage() {
 
         <div className="flex gap-3 flex-wrap h-fit">
           <a
-            href="/admin/financeiro"
+            href={linkFinanceiroProcessos()}
             className="bg-emerald-700 hover:bg-emerald-600 px-5 py-3 rounded-xl font-bold"
           >
             Ver financeiro
@@ -764,6 +805,9 @@ export default function ClientesPerformancePage() {
             <h2 className="text-2xl font-black">Filtros e ranking</h2>
             <p className="text-slate-400 text-sm">
               Período usa vencimento, recebimento ou data de criação dos registros em Processos Faturados.
+            </p>
+            <p className="text-blue-300 text-xs font-bold mt-2">
+              Última alteração dos filtros salva: {dataHoraBR(ultimaAlteracaoFiltros)}
             </p>
           </div>
 
@@ -919,7 +963,7 @@ export default function ClientesPerformancePage() {
                           </button>
 
                           <a
-                            href="/admin/financeiro"
+                            href={linkFinanceiroProcessos(item.ultimoAwb && item.ultimoAwb !== '-' ? item.ultimoAwb : item.nome)}
                             className="bg-emerald-700 hover:bg-emerald-600 px-4 py-2 rounded-xl font-bold"
                           >
                             Financeiro
@@ -930,9 +974,24 @@ export default function ClientesPerformancePage() {
                           <div className="mt-4 border border-blue-900 bg-[#020817] rounded-2xl p-4 min-w-[420px] space-y-4">
                             <div>
                               <p className="text-slate-400 text-xs mb-2">AWBs em Processos Faturados</p>
-                              <p className="text-green-300 font-bold break-words">
-                                {item.awbsFaturados.length > 0 ? item.awbsFaturados.slice(0, 40).join(', ') : '-'}
-                              </p>
+
+                              {item.awbsFaturados.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {item.awbsFaturados.slice(0, 40).map((awb: string) => (
+                                    <a
+                                      key={`${item.clienteKey}-${awb}`}
+                                      href={linkFinanceiroProcessos(awb)}
+                                      className="border border-green-500 bg-green-600/10 text-green-300 hover:bg-green-600 hover:text-white px-3 py-2 rounded-xl font-black text-xs transition"
+                                      title="Abrir em Financeiro > Processos Faturados"
+                                    >
+                                      {awb}
+                                    </a>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-green-300 font-bold">-</p>
+                              )}
+
                               {item.awbsFaturados.length > 40 && (
                                 <p className="text-slate-500 text-xs mt-2">
                                   + {item.awbsFaturados.length - 40} AWB(s) faturado(s)

@@ -219,7 +219,37 @@ export default function FinanceiroPage() {
 
   useEffect(() => {
     carregarDados()
+    aplicarParametrosUrl()
   }, [])
+
+  function aplicarParametrosUrl() {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const abaUrl = params.get('aba') || params.get('tab') || params.get('abaPrincipal')
+    const buscaUrl = params.get('busca') || params.get('q') || params.get('awb') || params.get('cliente')
+    const statusUrl = params.get('status')
+
+    const pediuProcessos = abaUrl ? normalizarBusca(abaUrl).includes('PROCESS') : false
+
+    if (pediuProcessos || buscaUrl) {
+      setAbaPrincipal('PROCESSOS')
+    }
+
+    if (buscaUrl) {
+      setBusca(buscaUrl.trim())
+      setAba(statusUrl || 'TODOS')
+      setFiltroStatusProcessos([])
+      setFiltroTransportadora([])
+      setFiltroDespachante([])
+      setFiltroServico([])
+      setPagina(1)
+
+      setTimeout(() => {
+        document.getElementById('processos_faturados')?.scrollIntoView({ behavior: 'smooth' })
+      }, 500)
+    }
+  }
 
   function moeda(valor: any) {
     return Number(valor || 0).toLocaleString('pt-BR', {
@@ -3158,7 +3188,7 @@ export default function FinanceiroPage() {
             </form>
           </section>
 
-          <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+          <section id="processos_faturados" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-5">
               <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviço..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
