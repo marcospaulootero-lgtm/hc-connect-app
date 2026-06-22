@@ -182,11 +182,10 @@ export default function FaturasPage() {
     setDocumentosPorEmbarque(documentosAgrupados)
   }
 
-  function normalizarAwb(valor?: string | null) {
+  function normalizarAwb(valor?: any) {
     return String(valor || '')
-      .replace(/\s/g, '')
-      .replace(/[.-]/g, '')
       .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
   }
 
   function awbsFinanceiro(item: FinanceiroProcesso) {
@@ -207,23 +206,36 @@ export default function FaturasPage() {
   function financeiroDoEmbarque(embarque: Embarque) {
     if (!embarque) return null
 
+    // Regra principal correta: se existir embarque_id no financeiro, usa ele.
     const porEmbarqueId =
       financeiros.find((item) => String(item.embarque_id || '') === String(embarque.id || '')) ||
       null
 
     if (porEmbarqueId) return porEmbarqueId
 
+    // Fallback: enquanto financeiro_embarques ainda não tiver embarque_id em todos os registros,
+    // procura pelo AWB de forma forte, inclusive se vier com pontuação, texto, aspas ou outro nome de coluna.
     const awbLimpo = normalizarAwb(embarque.awb)
     if (!awbLimpo) return null
 
     return (
       financeiros.find((item) => {
         const awbsDiretos = awbsFinanceiro(item)
+
         if (awbsDiretos.includes(awbLimpo)) return true
 
-        // Fallback: se a tabela tiver outro nome de coluna para AWB,
-        // procura um valor exatamente igual ao AWB em qualquer campo simples da linha.
-        return Object.values(item || {}).some((valor) => normalizarAwb(valor as any) === awbLimpo)
+        return Object.values(item || {}).some((valor) => {
+          const valorNormalizado = normalizarAwb(valor as any)
+          if (!valorNormalizado) return false
+
+          if (valorNormalizado === awbLimpo) return true
+
+          // Ex.: campo vindo como "AWB 9284060166" ou "9284060166 / 123".
+          if (awbLimpo.length >= 8 && valorNormalizado.includes(awbLimpo)) return true
+          if (valorNormalizado.length >= 8 && awbLimpo.includes(valorNormalizado)) return true
+
+          return false
+        })
       }) ||
       null
     )
@@ -1026,6 +1038,10 @@ export default function FaturasPage() {
                                 <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
                                 <InfoPacote label="Vencimento financeiro" valor={dataBR(vencimentoFinanceiro(financeiro))} />
                                 <InfoPacote label="Recebimento" valor={dataBR(recebimentoFinanceiro(financeiro))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
                               </div>
                             </div>
 
