@@ -3,13 +3,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
+type FiltroArquivamento = 'ATIVAS' | 'ARQUIVADAS'
+
 export default function FaturasClientePage() {
   const [faturas, setFaturas] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [usuarioId, setUsuarioId] = useState('')
+  const [filtroArquivamento, setFiltroArquivamento] = useState<FiltroArquivamento>('ATIVAS')
   const [arquivoSelecionado, setArquivoSelecionado] = useState<Record<string, File | null>>({})
   const [enviando, setEnviando] = useState<Record<string, boolean>>({})
+  const [arquivando, setArquivando] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     carregarUsuario()
@@ -52,6 +56,19 @@ export default function FaturasClientePage() {
       return
     }
 
+    const { data: arquivadasData, error: erroArquivadas } = await supabase
+      .from('faturas_arquivadas_clientes')
+      .select('fatura_id, arquivado_em')
+      .eq('cliente_id', usuarioId)
+
+    if (erroArquivadas) {
+      console.log('ERRO FATURAS ARQUIVADAS:', erroArquivadas)
+    }
+
+    const mapaArquivadas = new Map(
+      (arquivadasData || []).map((item: any) => [item.fatura_id, item.arquivado_em])
+    )
+
     const { data, error } = await supabase
       .from('faturas')
       .select(`
@@ -85,7 +102,13 @@ export default function FaturasClientePage() {
       console.log('ERRO FATURAS:', error)
     }
 
-    setFaturas(data || [])
+    const faturasComArquivamento = (data || []).map((fatura: any) => ({
+      ...fatura,
+      arquivada_cliente: mapaArquivadas.has(fatura.id),
+      arquivado_em: mapaArquivadas.get(fatura.id) || null,
+    }))
+
+    setFaturas(faturasComArquivamento)
     setLoading(false)
   }
 
@@ -153,6 +176,63 @@ export default function FaturasClientePage() {
     setEnviando((prev) => ({ ...prev, [fatura.id]: false }))
   }
 
+  async function arquivarFatura(fatura: any) {
+    if (!usuarioId) return
+
+    const confirmar = confirm(
+      'Deseja arquivar esta fatura? Ela sairá da lista principal, mas continuará disponível em Arquivadas.'
+    )
+
+    if (!confirmar) return
+
+    setArquivando((prev) => ({ ...prev, [fatura.id]: true }))
+
+    const { error } = await supabase
+      .from('faturas_arquivadas_clientes')
+      .upsert(
+        {
+          fatura_id: fatura.id,
+          cliente_id: usuarioId,
+        },
+        { onConflict: 'fatura_id,cliente_id' }
+      )
+
+    if (error) {
+      console.log('ERRO ARQUIVAR FATURA:', error)
+      alert(`Erro ao arquivar fatura: ${error.message}`)
+      setArquivando((prev) => ({ ...prev, [fatura.id]: false }))
+      return
+    }
+
+    await carregarFaturas(usuarioId)
+    setArquivando((prev) => ({ ...prev, [fatura.id]: false }))
+  }
+
+  async function restaurarFatura(fatura: any) {
+    if (!usuarioId) return
+
+    const confirmar = confirm('Deseja restaurar esta fatura para a lista principal?')
+    if (!confirmar) return
+
+    setArquivando((prev) => ({ ...prev, [fatura.id]: true }))
+
+    const { error } = await supabase
+      .from('faturas_arquivadas_clientes')
+      .delete()
+      .eq('fatura_id', fatura.id)
+      .eq('cliente_id', usuarioId)
+
+    if (error) {
+      console.log('ERRO RESTAURAR FATURA:', error)
+      alert(`Erro ao restaurar fatura: ${error.message}`)
+      setArquivando((prev) => ({ ...prev, [fatura.id]: false }))
+      return
+    }
+
+    await carregarFaturas(usuarioId)
+    setArquivando((prev) => ({ ...prev, [fatura.id]: false }))
+  }
+
   function dadosEmbarque(fatura: any) {
     if (Array.isArray(fatura.embarques)) return fatura.embarques[0] || {}
     return fatura.embarques || {}
@@ -172,6 +252,9 @@ export default function FaturasClientePage() {
     return faturas.filter((fatura) => {
       const emb = dadosEmbarque(fatura)
 
+      if (filtroArquivamento === 'ATIVAS' && fatura.arquivada_cliente) return false
+      if (filtroArquivamento === 'ARQUIVADAS' && !fatura.arquivada_cliente) return false
+
       const texto = `
         ${emb.awb || ''}
         ${emb.cliente_final || ''}
@@ -184,12 +267,16 @@ export default function FaturasClientePage() {
 
       return texto.includes(busca.toLowerCase())
     })
-  }, [faturas, busca])
+  }, [faturas, busca, filtroArquivamento])
 
-  const totalFaturas = faturas.length
-  const totalRecibos = faturas.filter((f) => f.recibo_pdf).length
-  const totalSemRecibo = faturas.filter((f) => !f.recibo_pdf).length
-  const totalComprovantes = faturas.filter((f) => f.comprovante_pagamento).length
+  const faturasAtivas = faturas.filter((f) => !f.arquivada_cliente)
+  const faturasArquivadas = faturas.filter((f) => f.arquivada_cliente)
+
+  const totalFaturas = faturasAtivas.length
+  const totalRecibos = faturasAtivas.filter((f) => f.recibo_pdf).length
+  const totalSemRecibo = faturasAtivas.filter((f) => !f.recibo_pdf).length
+  const totalComprovantes = faturasAtivas.filter((f) => f.comprovante_pagamento).length
+  const totalArquivadas = faturasArquivadas.length
 
   return (
     <main className="min-h-screen bg-[#020817] text-white p-6 lg:p-10">
@@ -199,7 +286,7 @@ export default function FaturasClientePage() {
             <p className="text-blue-400 font-bold mb-2">Documentos</p>
             <h1 className="text-5xl font-black mb-2">Faturas e recibos</h1>
             <p className="text-slate-400 text-lg">
-              Consulte os PDFs liberados pela HC e envie seu comprovante de pagamento.
+              Consulte os PDFs liberados pela HC, envie comprovantes e arquive faturas já conferidas.
             </p>
           </div>
 
@@ -211,11 +298,12 @@ export default function FaturasClientePage() {
           </a>
         </div>
 
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-          <Card titulo="Faturas disponíveis" valor={totalFaturas} detalhe="PDFs liberados" icone="📄" />
+        <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+          <Card titulo="Faturas ativas" valor={totalFaturas} detalhe="Na lista principal" icone="📄" />
           <Card titulo="Recibos disponíveis" valor={totalRecibos} detalhe="PDFs liberados" icone="🧾" />
           <Card titulo="Comprovantes enviados" valor={totalComprovantes} detalhe="Pagamentos informados" icone="📎" />
           <Card titulo="Aguardando recibo" valor={totalSemRecibo} detalhe="Documento ainda não anexado" icone="⏳" />
+          <Card titulo="Arquivadas" valor={totalArquivadas} detalhe="Faturas ocultadas" icone="🗂️" />
         </section>
 
         <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
@@ -223,16 +311,44 @@ export default function FaturasClientePage() {
             <div>
               <h2 className="text-2xl font-black">Documentos de faturamento</h2>
               <p className="text-slate-400 text-sm">
-                Baixe sua fatura, consulte o recibo e envie o comprovante de pagamento para análise da HC.
+                Baixe sua fatura, consulte o recibo, envie o comprovante e arquive documentos já tratados.
               </p>
             </div>
 
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por AWB, cliente, transportadora..."
-              className="lg:max-w-md"
-            />
+            <div className="flex flex-col md:flex-row gap-3 lg:min-w-[620px]">
+              <div className="flex bg-[#020817] border border-blue-900 rounded-xl p-1">
+                <button
+                  type="button"
+                  onClick={() => setFiltroArquivamento('ATIVAS')}
+                  className={`px-4 py-2 rounded-lg font-black text-sm ${
+                    filtroArquivamento === 'ATIVAS'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Ativas ({totalFaturas})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFiltroArquivamento('ARQUIVADAS')}
+                  className={`px-4 py-2 rounded-lg font-black text-sm ${
+                    filtroArquivamento === 'ARQUIVADAS'
+                      ? 'bg-purple-600 text-white'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Arquivadas ({totalArquivadas})
+                </button>
+              </div>
+
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar por AWB, cliente, transportadora..."
+                className="flex-1"
+              />
+            </div>
           </div>
 
           {loading ? (
@@ -241,7 +357,9 @@ export default function FaturasClientePage() {
             </div>
           ) : faturasFiltradas.length === 0 ? (
             <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-slate-400">
-              Nenhuma fatura disponível.
+              {filtroArquivamento === 'ATIVAS'
+                ? 'Nenhuma fatura ativa disponível.'
+                : 'Nenhuma fatura arquivada.'}
             </div>
           ) : (
             <div className="space-y-5">
@@ -249,6 +367,7 @@ export default function FaturasClientePage() {
                 const embarque = dadosEmbarque(fatura)
                 const jaEnviado = !!fatura.comprovante_pagamento
                 const statusPagamento = fatura.status_pagamento || 'AGUARDANDO PAGAMENTO'
+                const arquivada = !!fatura.arquivada_cliente
 
                 return (
                   <article
@@ -264,6 +383,12 @@ export default function FaturasClientePage() {
 
                           <StatusDocumento temRecibo={!!fatura.recibo_pdf} />
                           <StatusPagamento status={statusPagamento} />
+
+                          {arquivada && (
+                            <span className="bg-purple-600/20 text-purple-300 border border-purple-500 px-3 py-1 rounded-full text-xs font-black">
+                              🗂️ Arquivada
+                            </span>
+                          )}
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -278,73 +403,76 @@ export default function FaturasClientePage() {
                           <Info label="Pagamento" valor={statusPagamento} />
                           <Info label="Comprovante enviado em" valor={dataHoraBR(fatura.data_comprovante)} />
                           <Info label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+                          <Info label="Arquivada em" valor={dataHoraBR(fatura.arquivado_em)} />
                         </div>
 
-                        <div className="mt-6 border border-blue-950 bg-[#071225] rounded-2xl p-5">
-                          <h4 className="text-xl font-black mb-2">Comprovante de pagamento</h4>
-                          <p className="text-slate-400 text-sm mb-4">
-                            Envie aqui o comprovante referente a esta fatura. Formatos aceitos: PDF, JPG ou PNG.
-                          </p>
+                        {!arquivada && (
+                          <div className="mt-6 border border-blue-950 bg-[#071225] rounded-2xl p-5">
+                            <h4 className="text-xl font-black mb-2">Comprovante de pagamento</h4>
+                            <p className="text-slate-400 text-sm mb-4">
+                              Envie aqui o comprovante referente a esta fatura. Formatos aceitos: PDF, JPG ou PNG.
+                            </p>
 
-                          {jaEnviado ? (
-                            <div className="flex flex-col md:flex-row gap-3">
-                              <a
-                                href={fatura.comprovante_pagamento}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl text-white font-bold text-center"
-                              >
-                                Ver comprovante enviado
-                              </a>
+                            {jaEnviado ? (
+                              <div className="flex flex-col md:flex-row gap-3">
+                                <a
+                                  href={fatura.comprovante_pagamento}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl text-white font-bold text-center"
+                                >
+                                  Ver comprovante enviado
+                                </a>
 
-                              {statusPagamento === 'COMPROVANTE REJEITADO' && (
-                                <div className="flex flex-col md:flex-row gap-3 flex-1">
-                                  <input
-                                    type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    onChange={(e) =>
-                                      setArquivoSelecionado((prev) => ({
-                                        ...prev,
-                                        [fatura.id]: e.target.files?.[0] || null,
-                                      }))
-                                    }
-                                    className="w-full"
-                                  />
+                                {statusPagamento === 'COMPROVANTE REJEITADO' && (
+                                  <div className="flex flex-col md:flex-row gap-3 flex-1">
+                                    <input
+                                      type="file"
+                                      accept=".pdf,.jpg,.jpeg,.png"
+                                      onChange={(e) =>
+                                        setArquivoSelecionado((prev) => ({
+                                          ...prev,
+                                          [fatura.id]: e.target.files?.[0] || null,
+                                        }))
+                                      }
+                                      className="w-full"
+                                    />
 
-                                  <button
-                                    onClick={() => enviarComprovante(fatura)}
-                                    disabled={!!enviando[fatura.id]}
-                                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold"
-                                  >
-                                    {enviando[fatura.id] ? 'Enviando...' : 'Reenviar'}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex flex-col md:flex-row gap-3">
-                              <input
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) =>
-                                  setArquivoSelecionado((prev) => ({
-                                    ...prev,
-                                    [fatura.id]: e.target.files?.[0] || null,
-                                  }))
-                                }
-                                className="w-full"
-                              />
+                                    <button
+                                      onClick={() => enviarComprovante(fatura)}
+                                      disabled={!!enviando[fatura.id]}
+                                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold"
+                                    >
+                                      {enviando[fatura.id] ? 'Enviando...' : 'Reenviar'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col md:flex-row gap-3">
+                                <input
+                                  type="file"
+                                  accept=".pdf,.jpg,.jpeg,.png"
+                                  onChange={(e) =>
+                                    setArquivoSelecionado((prev) => ({
+                                      ...prev,
+                                      [fatura.id]: e.target.files?.[0] || null,
+                                    }))
+                                  }
+                                  className="w-full"
+                                />
 
-                              <button
-                                onClick={() => enviarComprovante(fatura)}
-                                disabled={!!enviando[fatura.id]}
-                                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold"
-                              >
-                                {enviando[fatura.id] ? 'Enviando...' : 'Enviar comprovante'}
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                                <button
+                                  onClick={() => enviarComprovante(fatura)}
+                                  disabled={!!enviando[fatura.id]}
+                                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold"
+                                >
+                                  {enviando[fatura.id] ? 'Enviando...' : 'Enviar comprovante'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex flex-col gap-3 min-w-[220px]">
@@ -376,6 +504,24 @@ export default function FaturasClientePage() {
                           <span className="bg-slate-800 px-5 py-3 rounded-xl text-slate-400 font-bold text-center">
                             Recibo ainda não anexado
                           </span>
+                        )}
+
+                        {arquivada ? (
+                          <button
+                            onClick={() => restaurarFatura(fatura)}
+                            disabled={!!arquivando[fatura.id]}
+                            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold text-center"
+                          >
+                            {arquivando[fatura.id] ? 'Restaurando...' : 'Restaurar'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => arquivarFatura(fatura)}
+                            disabled={!!arquivando[fatura.id]}
+                            className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold text-center"
+                          >
+                            {arquivando[fatura.id] ? 'Arquivando...' : 'Arquivar'}
+                          </button>
                         )}
                       </div>
                     </div>
