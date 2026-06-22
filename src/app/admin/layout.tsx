@@ -67,7 +67,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#020817] text-white">
-      {/* Topo mobile/tablet */}
       <header className="xl:hidden fixed top-0 left-0 right-0 z-40 h-20 bg-[#050d1f] border-b border-blue-950 px-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black leading-tight">HC Connect</h1>
@@ -83,7 +82,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </button>
       </header>
 
-      {/* Overlay mobile/tablet */}
       {menuMobileAberto ? (
         <button
           type="button"
@@ -93,7 +91,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         />
       ) : null}
 
-      {/* Menu mobile/tablet */}
       <aside
         className={`xl:hidden fixed top-0 left-0 bottom-0 z-[60] w-[86%] max-w-[360px] bg-[#050d1f] border-r border-blue-950 p-5 flex flex-col transition-transform duration-300 ${
           menuMobileAberto ? 'translate-x-0' : '-translate-x-full'
@@ -119,7 +116,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <UserBox usuario={usuario} sair={sair} />
       </aside>
 
-      {/* Menu desktop fixo */}
       <aside className="hidden xl:flex w-72 min-h-screen bg-[#050d1f] border-r border-blue-950 p-6 flex-col fixed left-0 top-0 bottom-0">
         <div className="mb-8">
           <h1 className="text-3xl font-black">HC Connect</h1>
@@ -182,9 +178,16 @@ function MenuContent({ pathname }: { pathname: string | null }) {
         />
         <MenuItem
           href="/admin/faturas"
-          label="Faturas"
+          label="Faturas clientes"
           descricao="PDFs e recibos"
           icon="🧾"
+          pathname={pathname}
+        />
+        <MenuItem
+          href="/admin/faturas-transportadoras"
+          label="Faturas DHL/FedEx"
+          descricao="Cobranças das transportadoras"
+          icon="🚛"
           pathname={pathname}
         />
       </MenuGroup>
@@ -198,6 +201,7 @@ function MenuContent({ pathname }: { pathname: string | null }) {
           pathname={pathname}
           destaque
         />
+
         <MenuItem
           href="/admin/clientes/performance"
           label="Ranking de Clientes"
@@ -205,6 +209,7 @@ function MenuContent({ pathname }: { pathname: string | null }) {
           icon="🏆"
           pathname={pathname}
         />
+
         <MenuItem
           href="/admin/parceiros"
           label="Terceiros / Parceiros"
