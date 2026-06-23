@@ -4,6 +4,49 @@ import StatusBadge from '@/components/StatusBadge'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
+
+type ServicoFinanceiroEmbarque = {
+  nome: string
+  valor: string
+}
+
+const SERVICOS_OPERACIONAIS = [
+  'IMPORTAÇÃO COURIER',
+  'EXPORTAÇÃO COURIER',
+  'IMPORTAÇÃO FORMAL',
+  'EXPORTAÇÃO FORMAL',
+  'COURIER',
+  'FORMAL',
+  'DTA',
+  'DUE / DRE',
+  'PRESTAÇÃO DE CONTAS',
+  'OUTRO',
+]
+
+const ITENS_FINANCEIROS_EMBARQUE = [
+  'PRESTAÇÃO DE CONTAS',
+  'ÁREA REMOTA',
+  'MANUSEIO FORMAL',
+  'DELIVER FEE DOC',
+  'DESCONTO',
+  'DGR',
+  'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL',
+  'DTA',
+  'OUTRAS TAXAS',
+  'DUE / DRE',
+  'FRETE',
+  'FRETE FEDEX',
+  'HANDLING',
+  'IMPOSTOS',
+  'IMPOSTOS R$',
+  'DIVERGÊNCIA DE PESO',
+  'OVERSIZE PIECE',
+  'SEGURO',
+  'TAXA DE ALTA DEMANDA',
+  'ENTREGA FORA DA ÁREA',
+  'COBERTA NÍVEL B',
+]
+
 export default function EmbarquesPage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [usuarios, setUsuarios] = useState<any[]>([])
@@ -46,10 +89,8 @@ export default function EmbarquesPage() {
 
     valor_cobrado_cliente: '',
     moeda_cobranca: 'USD',
-    taxa_conversao: '',
-    spread_percentual: '3',
+    servicos_financeiros: [] as ServicoFinanceiroEmbarque[],
 
-    
   }
 
   const [form, setForm] = useState(formInicial)
@@ -78,6 +119,66 @@ export default function EmbarquesPage() {
     }
 
     return `${moedaBase} ${numeroValor.toFixed(2)}`
+  }
+
+  function numeroFinanceiro(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return 0
+    if (typeof valor === 'number') return valor
+
+    return (
+      Number(
+        String(valor)
+          .replace(/[R$USD\s]/gi, '')
+          .replace(/\./g, '')
+          .replace(',', '.')
+      ) || 0
+    )
+  }
+
+  function servicosFinanceirosLista(lista: any): ServicoFinanceiroEmbarque[] {
+    return Array.isArray(lista)
+      ? lista.map((item) => ({
+          nome: String(item?.nome || ''),
+          valor: item?.valor === null || item?.valor === undefined ? '' : String(item.valor),
+        })).filter((item) => item.nome)
+      : []
+  }
+
+  function itemFinanceiroSelecionado(lista: any, nome: string) {
+    return servicosFinanceirosLista(lista).some((item) => item.nome === nome)
+  }
+
+  function valorItemFinanceiro(lista: any, nome: string) {
+    return servicosFinanceirosLista(lista).find((item) => item.nome === nome)?.valor || ''
+  }
+
+  function atualizarItemFinanceiro(lista: any, nome: string, marcado: boolean) {
+    const atual = servicosFinanceirosLista(lista)
+
+    if (marcado) {
+      if (atual.some((item) => item.nome === nome)) return atual
+      return [...atual, { nome, valor: '' }]
+    }
+
+    return atual.filter((item) => item.nome !== nome)
+  }
+
+  function alterarValorItemFinanceiro(lista: any, nome: string, valor: string) {
+    return servicosFinanceirosLista(lista).map((item) =>
+      item.nome === nome ? { ...item, valor } : item
+    )
+  }
+
+  function totalServicosFinanceiros(lista: any) {
+    return servicosFinanceirosLista(lista).reduce((acc, item) => {
+      const valor = numeroFinanceiro(item.valor)
+      const sinal = item.nome === 'DESCONTO' ? -1 : 1
+      return acc + valor * sinal
+    }, 0)
+  }
+
+  function quantidadeServicosFinanceiros(lista: any) {
+    return servicosFinanceirosLista(lista).length
   }
 
   function calcularDivergencia(pesoInicial: any, pesoFinal: any) {
@@ -212,6 +313,8 @@ export default function EmbarquesPage() {
     admins.find((a) => a.id === form.responsavel_id) || perfilAdmin
 
   const responsavelId = form.responsavel_id || user.id
+  const servicosFinanceiros = servicosFinanceirosLista(form.servicos_financeiros)
+  const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
 
   const { data, error } = await supabase
     .from('embarques')
@@ -244,10 +347,11 @@ export default function EmbarquesPage() {
         peso_real: numero(form.peso_real),
         peso_taxado: numero(form.peso_taxado),
 
-        valor_cobrado_cliente: numero(form.valor_cobrado_cliente),
+        valor_cobrado_cliente: totalFinanceiro || null,
         moeda_cobranca: form.moeda_cobranca || 'USD',
-        taxa_conversao: numero(form.taxa_conversao),
-        spread_percentual: numero(form.spread_percentual) || 3,
+        taxa_conversao: null,
+        spread_percentual: null,
+        servicos_financeiros: servicosFinanceiros,
 
         status_operacional: 'Aguardando coleta',
         data_envio: null,
@@ -328,10 +432,7 @@ export default function EmbarquesPage() {
         ? String(item.valor_cobrado_cliente)
         : '',
       moeda_cobranca: item.moeda_cobranca || 'USD',
-      taxa_conversao: item.taxa_conversao ? String(item.taxa_conversao) : '',
-      spread_percentual: item.spread_percentual
-        ? String(item.spread_percentual)
-        : '3',
+      servicos_financeiros: servicosFinanceirosLista(item.servicos_financeiros),
 
       peso_inicial_taxado: item.peso_inicial_taxado
         ? String(item.peso_inicial_taxado)
@@ -359,6 +460,9 @@ export default function EmbarquesPage() {
       editForm.peso_final_taxado
     )
 
+    const servicosFinanceiros = servicosFinanceirosLista(editForm.servicos_financeiros)
+    const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
+
     const dadosAtualizar: any = {
       responsavel_id: responsavel?.id || null,
       responsavel_nome: responsavel?.nome || null,
@@ -384,10 +488,11 @@ export default function EmbarquesPage() {
       peso_real: numero(editForm.peso_real),
       peso_taxado: numero(editForm.peso_taxado),
 
-      valor_cobrado_cliente: numero(editForm.valor_cobrado_cliente),
+      valor_cobrado_cliente: totalFinanceiro || null,
       moeda_cobranca: editForm.moeda_cobranca || 'USD',
-      taxa_conversao: numero(editForm.taxa_conversao),
-      spread_percentual: numero(editForm.spread_percentual) || 3,
+      taxa_conversao: null,
+      spread_percentual: null,
+      servicos_financeiros: servicosFinanceiros,
 
       peso_inicial_taxado: numero(editForm.peso_inicial_taxado),
       peso_final_taxado: numero(editForm.peso_final_taxado),
@@ -618,6 +723,7 @@ export default function EmbarquesPage() {
         ${item.responsavel_nome}
         ${item.responsavel_email}
         ${item.valor_cobrado_cliente}
+        ${Array.isArray(item.servicos_financeiros) ? item.servicos_financeiros.map((s: any) => s.nome).join(' ') : ''}
         ${item.valor_adicional_peso}
         ${nomesClientes(item.id, item.usuario_id)}
       `.toLowerCase()
@@ -794,7 +900,17 @@ export default function EmbarquesPage() {
           </Campo>
 
           <Campo label="Serviço">
-            <input value={form.servico} onChange={(e) => setForm({ ...form, servico: e.target.value })} />
+            <select
+              value={form.servico}
+              onChange={(e) => setForm({ ...form, servico: e.target.value })}
+            >
+              <option value="">Selecione o serviço</option>
+              {SERVICOS_OPERACIONAIS.map((servico) => (
+                <option key={servico} value={servico}>
+                  {servico}
+                </option>
+              ))}
+            </select>
           </Campo>
 
           <Campo label="Origem">
@@ -832,26 +948,14 @@ export default function EmbarquesPage() {
               Financeiro do Embarque
             </h3>
             <p className="text-slate-400 text-sm mt-1">
-              Esses valores serão usados automaticamente na aba Faturas quando o embarque for entregue.
+              Selecione quais serviços entram neste embarque e informe o valor de cada item. O total será gravado como valor cobrado do embarque.
             </p>
           </div>
 
-          <Campo label="Valor cobrado ao cliente">
-            <input
-              value={form.valor_cobrado_cliente}
-              onChange={(e) =>
-                setForm({ ...form, valor_cobrado_cliente: e.target.value })
-              }
-              placeholder="Ex: 182,55"
-            />
-          </Campo>
-
-          <Campo label="Moeda">
+          <Campo label="Moeda dos serviços">
             <select
               value={form.moeda_cobranca}
-              onChange={(e) =>
-                setForm({ ...form, moeda_cobranca: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, moeda_cobranca: e.target.value })}
             >
               <option value="USD">USD</option>
               <option value="EUR">EUR</option>
@@ -859,24 +963,68 @@ export default function EmbarquesPage() {
             </select>
           </Campo>
 
-          <Campo label="Taxa de conversão">
-            <input
-              value={form.taxa_conversao}
-              onChange={(e) =>
-                setForm({ ...form, taxa_conversao: e.target.value })
-              }
-              placeholder="Ex: 5,2086"
-            />
-          </Campo>
+          <div className="md:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {ITENS_FINANCEIROS_EMBARQUE.map((item) => {
+              const selecionado = itemFinanceiroSelecionado(form.servicos_financeiros, item)
 
-                    <Campo label="Spread (%)">
-            <input
-              value={form.spread_percentual}
-              onChange={(e) =>
-                setForm({ ...form, spread_percentual: e.target.value })
-              }
-            />
-          </Campo>
+              return (
+                <div
+                  key={item}
+                  className={
+                    selecionado
+                      ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4'
+                      : 'border border-blue-900 bg-[#020817] rounded-2xl p-4'
+                  }
+                >
+                  <label className="flex items-center gap-2 font-bold text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selecionado}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          servicos_financeiros: atualizarItemFinanceiro(
+                            form.servicos_financeiros,
+                            item,
+                            e.target.checked
+                          ),
+                        })
+                      }
+                    />
+                    {item}
+                  </label>
+
+                  {selecionado && (
+                    <input
+                      value={valorItemFinanceiro(form.servicos_financeiros, item)}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          servicos_financeiros: alterarValorItemFinanceiro(
+                            form.servicos_financeiros,
+                            item,
+                            e.target.value
+                          ),
+                        })
+                      }
+                      placeholder={item === 'DESCONTO' ? 'Valor do desconto' : 'Valor'}
+                      className="mt-3"
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="md:col-span-5 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
+            <p className="text-slate-400 text-sm font-bold">Total selecionado</p>
+            <h3 className="text-3xl font-black text-green-400 mt-2">
+              {moeda(totalServicosFinanceiros(form.servicos_financeiros), form.moeda_cobranca || 'USD')}
+            </h3>
+            <p className="text-slate-500 text-xs mt-1">
+              {quantidadeServicosFinanceiros(form.servicos_financeiros)} item(ns) selecionado(s). Desconto entra abatendo do total.
+            </p>
+          </div>
         </div>
 
         <button
@@ -1102,7 +1250,17 @@ export default function EmbarquesPage() {
                     </Campo>
 
                     <Campo label="Serviço">
-                      <input value={editForm.servico} onChange={(e) => setEditForm({ ...editForm, servico: e.target.value })} />
+                      <select
+                        value={editForm.servico}
+                        onChange={(e) => setEditForm({ ...editForm, servico: e.target.value })}
+                      >
+                        <option value="">Selecione o serviço</option>
+                        {SERVICOS_OPERACIONAIS.map((servico) => (
+                          <option key={servico} value={servico}>
+                            {servico}
+                          </option>
+                        ))}
+                      </select>
                     </Campo>
 
                     <Campo label="Data prevista">
@@ -1142,24 +1300,15 @@ export default function EmbarquesPage() {
                     </Campo>
 
                     <div className="md:col-span-3 border-t border-blue-900 pt-5 mt-3">
-                      <h3 className="text-xl font-black text-green-400 mb-4">
+                      <h3 className="text-xl font-black text-green-400 mb-2">
                         Financeiro do Embarque
                       </h3>
+                      <p className="text-slate-400 text-sm">
+                        Selecione os serviços financeiros deste embarque. O total será gravado como valor cobrado.
+                      </p>
                     </div>
 
-                    <Campo label="Valor cobrado ao cliente">
-                      <input
-                        value={editForm.valor_cobrado_cliente}
-                        onChange={(e) =>
-                          setEditForm({
-                            ...editForm,
-                            valor_cobrado_cliente: e.target.value,
-                          })
-                        }
-                      />
-                    </Campo>
-
-                    <Campo label="Moeda">
+                    <Campo label="Moeda dos serviços">
                       <select
                         value={editForm.moeda_cobranca}
                         onChange={(e) =>
@@ -1175,29 +1324,65 @@ export default function EmbarquesPage() {
                       </select>
                     </Campo>
 
-                    <Campo label="Taxa de conversão">
-                      <input
-                        value={editForm.taxa_conversao}
-                        onChange={(e) =>
-                          setEditForm({
-                            ...editForm,
-                            taxa_conversao: e.target.value,
-                          })
-                        }
-                      />
-                    </Campo>
+                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {ITENS_FINANCEIROS_EMBARQUE.map((item) => {
+                        const selecionado = itemFinanceiroSelecionado(editForm.servicos_financeiros, item)
 
-                    <Campo label="Spread (%)">
-                      <input
-                        value={editForm.spread_percentual}
-                        onChange={(e) =>
-                          setEditForm({
-                            ...editForm,
-                            spread_percentual: e.target.value,
-                          })
-                        }
-                      />
-                    </Campo>
+                        return (
+                          <div
+                            key={item}
+                            className={
+                              selecionado
+                                ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4'
+                                : 'border border-blue-900 bg-[#020817] rounded-2xl p-4'
+                            }
+                          >
+                            <label className="flex items-center gap-2 font-bold text-sm">
+                              <input
+                                type="checkbox"
+                                checked={selecionado}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    servicos_financeiros: atualizarItemFinanceiro(
+                                      editForm.servicos_financeiros,
+                                      item,
+                                      e.target.checked
+                                    ),
+                                  })
+                                }
+                              />
+                              {item}
+                            </label>
+
+                            {selecionado && (
+                              <input
+                                value={valorItemFinanceiro(editForm.servicos_financeiros, item)}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    servicos_financeiros: alterarValorItemFinanceiro(
+                                      editForm.servicos_financeiros,
+                                      item,
+                                      e.target.value
+                                    ),
+                                  })
+                                }
+                                placeholder={item === 'DESCONTO' ? 'Valor do desconto' : 'Valor'}
+                                className="mt-3"
+                              />
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="md:col-span-3 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
+                      <p className="text-slate-400 text-sm font-bold">Total selecionado</p>
+                      <h3 className="text-3xl font-black text-green-400 mt-2">
+                        {moeda(totalServicosFinanceiros(editForm.servicos_financeiros), editForm.moeda_cobranca || 'USD')}
+                      </h3>
+                    </div>
 
                     <div className="md:col-span-3 border-t border-blue-900 pt-5 mt-3">
                       <h3 className="text-xl font-black text-yellow-400 mb-4">
@@ -1322,8 +1507,12 @@ export default function EmbarquesPage() {
                 />
 
                 <Info
-                  label="Valor cobrado"
-                  valor={moeda(item.valor_cobrado_cliente, item.moeda_cobranca || 'USD')}
+                  label="Financeiro selecionado"
+                  valor={
+                    item.servicos_financeiros && Array.isArray(item.servicos_financeiros)
+                      ? `${moeda(item.valor_cobrado_cliente, item.moeda_cobranca || 'USD')} • ${item.servicos_financeiros.length} item(ns)`
+                      : moeda(item.valor_cobrado_cliente, item.moeda_cobranca || 'USD')
+                  }
                 />
 
                 <Info
