@@ -412,61 +412,53 @@ export default function DetalheEmbarquePage() {
       : 'border-green-500/60 bg-green-600/10 text-green-300'
   }
 
-  function etapaConcluida(etapa: string) {
-  const status = String(embarque?.status_operacional || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  function statusNormalizadoVisual() {
+    return String(embarque?.status_operacional || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  }
 
-  if (etapa === 'aguardando_coleta') {
-    return (
+  function indiceStatusAtual() {
+    const status = statusNormalizadoVisual()
+
+    if (status.includes('entregue')) return 5
+    if (status.includes('liberado') || status.includes('saiu para entrega')) return 4
+    if (status.includes('fiscalizacao')) return 3
+    if (status.includes('em transito')) return 2
+    if (status.includes('coletado')) return 1
+
+    if (
       status.includes('aguardando coleta') ||
       status.includes('etiqueta gerada') ||
-      status.includes('coletado') ||
-      status.includes('em transito') ||
-      status.includes('fiscalizacao') ||
-      status.includes('liberado') ||
-      status.includes('entregue')
-    )
+      status.includes('aguardando awb')
+    ) {
+      return 0
+    }
+
+    return 0
   }
 
-  if (etapa === 'coleta') {
-    return (
-      status.includes('coletado') ||
-      status.includes('em transito') ||
-      status.includes('fiscalizacao') ||
-      status.includes('liberado') ||
-      status.includes('entregue')
-    )
+  function indiceEtapa(etapa: string) {
+    const mapa: Record<string, number> = {
+      aguardando_coleta: 0,
+      coleta: 1,
+      transito: 2,
+      fiscalizacao: 3,
+      liberado: 4,
+      entregue: 5,
+    }
+
+    return mapa[etapa] ?? 0
   }
 
-  if (etapa === 'transito') {
-    return (
-      status.includes('em transito') ||
-      status.includes('fiscalizacao') ||
-      status.includes('liberado') ||
-      status.includes('entregue')
-    )
+  function etapaConcluida(etapa: string) {
+    return indiceEtapa(etapa) <= indiceStatusAtual()
   }
 
-  if (etapa === 'fiscalizacao') {
-    return (
-      status.includes('fiscalizacao') ||
-      status.includes('liberado') ||
-      status.includes('entregue')
-    )
+  function etapaAtual(etapa: string) {
+    return indiceEtapa(etapa) === indiceStatusAtual()
   }
-
-  if (etapa === 'liberado') {
-    return status.includes('liberado') || status.includes('entregue')
-  }
-
-  if (etapa === 'entregue') {
-    return status.includes('entregue')
-  }
-
-  return false
-}
 
   if (!embarque) {
     return <main className="p-10 text-white">Carregando embarque...</main>
@@ -733,13 +725,37 @@ export default function DetalheEmbarquePage() {
         <h2 className="text-2xl font-black mb-8">Progresso do embarque</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-  <Etapa titulo="Aguardando coleta" ativo={etapaConcluida('aguardando_coleta')} />
-  <Etapa titulo="Coletado" ativo={etapaConcluida('coleta')} />
-  <Etapa titulo="Em trânsito" ativo={etapaConcluida('transito')} />
-  <Etapa titulo="Fiscalização" ativo={etapaConcluida('fiscalizacao')} />
-  <Etapa titulo="Liberado" ativo={etapaConcluida('liberado')} />
-  <Etapa titulo="Entregue" ativo={etapaConcluida('entregue')} />
-</div>
+          <Etapa
+            titulo="Aguardando coleta"
+            ativo={etapaConcluida('aguardando_coleta')}
+            atual={etapaAtual('aguardando_coleta')}
+          />
+          <Etapa
+            titulo="Coletado"
+            ativo={etapaConcluida('coleta')}
+            atual={etapaAtual('coleta')}
+          />
+          <Etapa
+            titulo="Em trânsito"
+            ativo={etapaConcluida('transito')}
+            atual={etapaAtual('transito')}
+          />
+          <Etapa
+            titulo="Fiscalização"
+            ativo={etapaConcluida('fiscalizacao')}
+            atual={etapaAtual('fiscalizacao')}
+          />
+          <Etapa
+            titulo="Liberado"
+            ativo={etapaConcluida('liberado')}
+            atual={etapaAtual('liberado')}
+          />
+          <Etapa
+            titulo="Entregue"
+            ativo={etapaConcluida('entregue')}
+            atual={etapaAtual('entregue')}
+          />
+        </div>
       </section>
 
       <section className="card mb-8">
@@ -950,15 +966,30 @@ function CampoResumo({ titulo, valor }: any) {
   )
 }
 
-function Etapa({ titulo, ativo }: { titulo: string; ativo: boolean }) {
+function Etapa({
+  titulo,
+  ativo,
+  atual = false,
+}: {
+  titulo: string
+  ativo: boolean
+  atual?: boolean
+}) {
   return (
     <div
       className={`rounded-3xl p-5 border text-center transition ${
-        ativo ? 'bg-green-600 border-green-500' : 'bg-[#071225] border-blue-900'
+        ativo
+          ? atual
+            ? 'bg-green-600 border-green-300 shadow-[0_0_25px_rgba(34,197,94,0.35)]'
+            : 'bg-green-700/80 border-green-600'
+          : 'bg-[#071225] border-blue-900'
       }`}
     >
       <div className="text-3xl mb-3">{ativo ? '✔️' : '⏳'}</div>
       <p className="font-bold">{titulo}</p>
+      {atual ? (
+        <p className="text-xs font-black mt-2 text-green-100">Status atual</p>
+      ) : null}
     </div>
   )
 }
