@@ -16,6 +16,7 @@ export default function EmbarquesPage() {
   const [filtroArquivamento, setFiltroArquivamento] = useState('ATIVOS')
   const [embarquesSelecionados, setEmbarquesSelecionados] = useState<string[]>([])
   const [arquivandoLote, setArquivandoLote] = useState(false)
+  const [abaTela, setAbaTela] = useState<'CADASTRO' | 'LISTAGEM'>('LISTAGEM')
 
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
   const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
@@ -297,6 +298,7 @@ export default function EmbarquesPage() {
 
   alert('Embarque salvo com sucesso')
   setForm(formInicial)
+  setAbaTela('LISTAGEM')
   carregar()
 }
 
@@ -664,7 +666,7 @@ export default function EmbarquesPage() {
         </div>
 
         <button
-          onClick={() => window.scrollTo({ top: 260, behavior: 'smooth' })}
+          onClick={() => setAbaTela('CADASTRO')}
           className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
         >
           + Novo embarque
@@ -680,6 +682,41 @@ export default function EmbarquesPage() {
         <KpiCard titulo="Arquivados" valor={totalArquivados} detalhe="Ocultos do admin" icone="🗄️" />
       </section>
 
+      <section className="mb-8 border border-blue-900 rounded-3xl bg-[#071225] p-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setAbaTela('LISTAGEM')}
+            className={
+              abaTela === 'LISTAGEM'
+                ? 'bg-blue-600 text-white px-6 py-4 rounded-2xl font-black shadow-[0_0_18px_rgba(37,99,235,0.35)]'
+                : 'bg-[#020817] hover:bg-blue-600/20 border border-blue-900 text-slate-300 px-6 py-4 rounded-2xl font-black transition'
+            }
+          >
+            📋 Embarques cadastrados
+            <span className="block text-xs font-medium mt-1 opacity-80">
+              Lista, filtros, rastreio, arquivar e vincular clientes
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAbaTela('CADASTRO')}
+            className={
+              abaTela === 'CADASTRO'
+                ? 'bg-blue-600 text-white px-6 py-4 rounded-2xl font-black shadow-[0_0_18px_rgba(37,99,235,0.35)]'
+                : 'bg-[#020817] hover:bg-blue-600/20 border border-blue-900 text-slate-300 px-6 py-4 rounded-2xl font-black transition'
+            }
+          >
+            ➕ Cadastrar embarque
+            <span className="block text-xs font-medium mt-1 opacity-80">
+              Criar novo processo operacional
+            </span>
+          </button>
+        </div>
+      </section>
+
+      {abaTela === 'CADASTRO' && (
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225] mb-8">
         <h2 className="text-2xl font-black mb-7">Cadastrar novo embarque</h2>
 
@@ -849,7 +886,9 @@ export default function EmbarquesPage() {
           💾 Salvar embarque
         </button>
       </section>
+      )}
 
+      {abaTela === 'LISTAGEM' && (
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225]">
         <div className="flex justify-between items-center gap-4 mb-7">
           <h2 className="text-2xl font-black">Embarques cadastrados</h2>
@@ -1398,6 +1437,7 @@ export default function EmbarquesPage() {
           )}
         </div>
       </section>
+      )}
     </main>
   )
 }
