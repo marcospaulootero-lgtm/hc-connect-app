@@ -187,6 +187,7 @@ export default function FinanceiroPage() {
   const [salvandoMovimento, setSalvandoMovimento] = useState(false)
   const [importando, setImportando] = useState(false)
   const [gerandoFechamento, setGerandoFechamento] = useState(false)
+  const [gerandoRetroativos, setGerandoRetroativos] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [editandoMovimentoId, setEditandoMovimentoId] = useState<string | null>(null)
 
@@ -1354,6 +1355,239 @@ export default function FinanceiroPage() {
     setGerandoFechamento(false)
 
     alert('Fechamento mensal gerado com sucesso. A reserva de 50% foi lançada no Fundo de Caixa.')
+  }
+
+
+  function ultimoDiaDoMes(mesRef: string) {
+    const [ano, mes] = mesRef.split('-').map(Number)
+    const data = new Date(ano, mes, 0)
+    return data.toISOString().slice(0, 10)
+  }
+
+  function calcularResultadoDoMes(mesRef: string) {
+    const embarquesMes = lancamentos.filter((item) => {
+      const mesBase =
+        item.mes_profit ||
+        mesDaData(item.recebimento) ||
+        mesDaData(item.vencimento_cobranca)
+
+      return mesBase === mesRef
+    })
+
+    const processosPagosMes = embarquesMes.filter(
+      (item) => statusCobranca(item) === 'PAGO'
+    )
+
+    const valorRecebido = processosPagosMes.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
+      0
+    )
+
+    const profitRecebido = processosPagosMes.reduce((acc, item) => {
+      const possuiCusto = Number(item.valor_compra || 0) > 0
+      return possuiCusto ? acc + calcularProfit(item) : acc
+    }, 0)
+
+    const semCusto = processosPagosMes.filter((item) =>
+      aguardandoCustoProcesso(item)
+    ).length
+
+    const movimentosMes = movimentacoes.filter(
+      (item) => item.mes_referencia === mesRef
+    )
+
+    const despesasPagas = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'DESPESA' &&
+          statusMovimento(item) === 'PAGO'
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const emprestimosPagos = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'PAGAMENTO_EMPRESTIMO' &&
+          statusMovimento(item) === 'PAGO'
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const reservasFundoMes = movimentosMes
+      .filter(
+        (item) =>
+          ehReservaOperacionalFundo(item) &&
+          statusMovimento(item) === 'PAGO'
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const resultadoOperacional =
+      profitRecebido - despesasPagas - emprestimosPagos
+
+    const lucroDistribuivel = resultadoOperacional > 0 ? resultadoOperacional : 0
+    const fundoPrevistoMes = lucroDistribuivel * 0.5
+    const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
+
+    return {
+      mesRef,
+      processos: processosPagosMes.length,
+      valorRecebido,
+      profitRecebido,
+      semCusto,
+      despesasPagas,
+      emprestimosPagos,
+      reservasFundoMes,
+      resultadoOperacional,
+      lucroDistribuivel,
+      fundoPrevistoMes,
+      saldoFundoMes,
+    }
+  }
+
+  async function gerarFechamentosRetroativos() {
+    const mesAtual = new Date().toISOString().slice(0, 7)
+
+    const meses = Array.from(
+      new Set([
+        ...lancamentos
+          .map((item) =>
+            item.mes_profit ||
+            mesDaData(item.recebimento) ||
+            mesDaData(item.vencimento_cobranca)
+          )
+          .filter(Boolean),
+        ...movimentacoes
+          .map((item) => item.mes_referencia)
+          .filter(Boolean),
+      ])
+    )
+      .filter((mes: any) => /^\d{4}-\d{2}$/.test(String(mes)))
+      .filter((mes: any) => String(mes) < mesAtual)
+      .sort((a: any, b: any) => String(a).localeCompare(String(b)))
+
+    if (meses.length === 0) {
+      alert('Nenhum mês anterior encontrado para fechamento retroativo.')
+      return
+    }
+
+    const existeSaldoInicial = movimentacoes.some((item) => {
+      const descricao = normalizarBusca(item.descricao || '')
+      const categoria = normalizarBusca(item.categoria || '')
+
+      return (
+        statusMovimento(item) === 'PAGO' &&
+        (descricao.includes('SALDO INICIAL') ||
+          categoria.includes('SALDO INICIAL') ||
+          descricao.includes('FUNDO INICIAL'))
+      )
+    })
+
+    const resultados = meses.map((mes) => calcularResultadoDoMes(String(mes)))
+
+    const candidatos = resultados.filter(
+      (item) =>
+        item.resultadoOperacional > 0 &&
+        item.saldoFundoMes > 0.009
+    )
+
+    if (candidatos.length === 0) {
+      alert(
+        'Nenhum fechamento retroativo pendente encontrado.\n\n' +
+          'Os meses anteriores já estão fechados, não tiveram lucro positivo ou já possuem reserva suficiente no fundo.'
+      )
+      return
+    }
+
+    const totalReservar = candidatos.reduce(
+      (acc, item) => acc + Number(item.saldoFundoMes || 0),
+      0
+    )
+
+    const listaMeses = candidatos
+      .map(
+        (item) =>
+          `${formatarMesVisual(item.mesRef)}: ${moeda(item.saldoFundoMes)}`
+      )
+      .join('\n')
+
+    const avisoSaldoInicial = existeSaldoInicial
+      ? '\n\nATENÇÃO: existe lançamento de saldo inicial/fundo inicial no caixa. Se esse valor já representa os meses antigos, gerar retroativos pode duplicar o fundo. Confirme somente se deseja detalhar mês a mês.'
+      : ''
+
+    const confirmar = confirm(
+      `Gerar fechamentos retroativos?\n\n` +
+        `Meses que serão lançados: ${candidatos.length}\n` +
+        `Total a reservar no fundo: ${moeda(totalReservar)}\n\n` +
+        listaMeses +
+        avisoSaldoInicial
+    )
+
+    if (!confirmar) return
+
+    if (existeSaldoInicial) {
+      const confirmarSaldoInicial = confirm(
+        'Confirma mesmo assim?\n\n' +
+          'Foi encontrado saldo inicial/fundo inicial. Para evitar duplicidade, só continue se esse saldo inicial NÃO representa esses fechamentos mensais.'
+      )
+
+      if (!confirmarSaldoInicial) return
+    }
+
+    setGerandoRetroativos(true)
+
+    const registros = candidatos.map((item) => {
+      const dataFechamento = ultimoDiaDoMes(item.mesRef)
+      const valorReserva = Number(item.saldoFundoMes.toFixed(2))
+
+      return {
+        tipo: 'FUNDO_CAIXA_ENTRADA',
+        categoria: 'Fechamento mensal',
+        descricao: `Fechamento mensal - reserva 50% ${item.mesRef}`,
+        valor: valorReserva,
+        data_vencimento: dataFechamento,
+        data_pagamento: dataFechamento,
+        mes_referencia: item.mesRef,
+        status: 'PAGO',
+        socio: null,
+        forma_pagamento: 'Fechamento retroativo',
+        impacta_resultado: false,
+        impacta_caixa: true,
+        observacoes:
+          `Fechamento retroativo gerado pelo Resultado Mensal. ` +
+          `Valor recebido: ${moeda(item.valorRecebido)}. ` +
+          `Profit HC recebido: ${moeda(item.profitRecebido)}. ` +
+          `Despesas pagas: ${moeda(item.despesasPagas)}. ` +
+          `Empréstimos pagos: ${moeda(item.emprestimosPagos)}. ` +
+          `Lucro líquido: ${moeda(item.resultadoOperacional)}. ` +
+          `Fundo previsto 50%: ${moeda(item.fundoPrevistoMes)}. ` +
+          `Já reservado anteriormente: ${moeda(item.reservasFundoMes)}. ` +
+          `Valor lançado agora: ${moeda(valorReserva)}. ` +
+          `Processos pagos sem custo no mês: ${item.semCusto}.`,
+        comprovante_url: '',
+      }
+    })
+
+    for (let i = 0; i < registros.length; i += 500) {
+      const lote = registros.slice(i, i + 500)
+
+      const { error } = await supabase
+        .from('financeiro_movimentacoes')
+        .insert(lote)
+
+      if (error) {
+        alert('Erro ao gerar fechamentos retroativos: ' + error.message)
+        setGerandoRetroativos(false)
+        return
+      }
+    }
+
+    await carregarMovimentacoes()
+    setGerandoRetroativos(false)
+
+    alert(
+      `Fechamentos retroativos gerados com sucesso.\n\n` +
+        `Meses lançados: ${registros.length}\n` +
+        `Total reservado no fundo: ${moeda(totalReservar)}`
+    )
   }
 
   const transportadoras = useMemo(() => {
@@ -3469,6 +3703,15 @@ export default function FinanceiroPage() {
                 className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
               >
                 {gerandoFechamento ? 'Gerando...' : 'Gerar fechamento do mês'}
+              </button>
+
+              <button
+                type="button"
+                onClick={gerarFechamentosRetroativos}
+                disabled={gerandoRetroativos || loading || loadingMovimentos}
+                className="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
+              >
+                {gerandoRetroativos ? 'Gerando retroativos...' : 'Gerar retroativos'}
               </button>
             </div>
           </div>
