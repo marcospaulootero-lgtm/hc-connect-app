@@ -483,14 +483,14 @@ useEffect(() => {
         </header>
 
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-5 mb-8">
-          <KpiCard titulo="Embarques no mês" valor={embarquesMes.length} detalhe="Total no período" icone="📦" cor="blue" />
-          <KpiCard titulo="Em trânsito" valor={transito} detalhe="Em andamento" icone="🚚" cor="green" />
-          <KpiCard titulo="Em fiscalização" valor={fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" />
-          <KpiCard titulo="Liberados" valor={liberados} detalhe="Prontos para seguir" icone="✅" cor="green" />
-          <KpiCard titulo="Entregues" valor={entregues} detalhe="Concluídos" icone="📬" cor="blue" />
-          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" />
-          <KpiCard titulo="Peso movimentado" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Total apurado" icone="⚖️" cor="green" />
-          <KpiCard titulo="Transportadoras" valor={transportadorasAtivas} detalhe="Em operação" icone="✈️" cor="blue" />
+          <KpiCard titulo="Embarques no mês" valor={embarquesMes.length} detalhe="Total no período" icone="📦" cor="blue" href="/admin/embarques" />
+          <KpiCard titulo="Em trânsito" valor={transito} detalhe="Em andamento" icone="🚚" cor="green" href="/admin/embarques?status=Em%20tr%C3%A2nsito" />
+          <KpiCard titulo="Em fiscalização" valor={fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" href="/admin/embarques?status=Fiscaliza%C3%A7%C3%A3o" />
+          <KpiCard titulo="Liberados" valor={liberados} detalhe="Prontos para seguir" icone="✅" cor="green" href="/admin/embarques?status=Liberado" />
+          <KpiCard titulo="Entregues" valor={entregues} detalhe="Concluídos" icone="📬" cor="blue" href="/admin/embarques?status=Entregue" />
+          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" href="/admin/usuarios" />
+          <KpiCard titulo="Peso movimentado" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Total apurado" icone="⚖️" cor="green" href="/admin/embarques" />
+          <KpiCard titulo="Transportadoras" valor={transportadorasAtivas} detalhe="Em operação" icone="✈️" cor="blue" href="/admin/embarques" />
         </section>
 
         <section className="grid grid-cols-1 xl:grid-cols-4 gap-6 mb-8">
@@ -501,10 +501,10 @@ useEffect(() => {
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-2 gap-3 mb-6">
-              <MiniStatus titulo="Abertos" valor={suporteAbertos} cor="red" />
-              <MiniStatus titulo="Em análise" valor={suporteAnalise} cor="yellow" />
-              <MiniStatus titulo="Respondidos" valor={suporteRespondidos} cor="purple" />
-              <MiniStatus titulo="Resolvidos" valor={suporteResolvidos} cor="green" />
+              <MiniStatus titulo="Abertos" valor={suporteAbertos} cor="red" href="/admin/suporte?status=ABERTO" />
+              <MiniStatus titulo="Em análise" valor={suporteAnalise} cor="yellow" href="/admin/suporte?status=EM%20AN%C3%81LISE" />
+              <MiniStatus titulo="Respondidos" valor={suporteRespondidos} cor="purple" href="/admin/suporte?status=RESPONDIDO" />
+              <MiniStatus titulo="Resolvidos" valor={suporteResolvidos} cor="green" href="/admin/suporte?status=RESOLVIDO" />
             </div>
 
             <div className="border border-blue-900 rounded-2xl bg-[#020817] p-5">
@@ -543,10 +543,10 @@ useEffect(() => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <OperationCard titulo="Embarques ativos" valor={String(ativos)} cor="blue" />
-              <OperationCard titulo="Em trânsito" valor={String(transito)} cor="green" />
-              <OperationCard titulo="Fiscalização" valor={String(fiscalizacao)} cor="yellow" />
-              <OperationCard titulo="Entregues" valor={String(entregues)} cor="blue" />
+              <OperationCard titulo="Embarques ativos" valor={String(ativos)} cor="blue" href="/admin/embarques?arquivamento=ATIVOS" />
+              <OperationCard titulo="Em trânsito" valor={String(transito)} cor="green" href="/admin/embarques?status=Em%20tr%C3%A2nsito" />
+              <OperationCard titulo="Fiscalização" valor={String(fiscalizacao)} cor="yellow" href="/admin/embarques?status=Fiscaliza%C3%A7%C3%A3o" />
+              <OperationCard titulo="Entregues" valor={String(entregues)} cor="blue" href="/admin/embarques?status=Entregue" />
             </div>
 
             <a href="/admin/embarques" className="block text-blue-400 font-bold mt-6 text-right">
@@ -575,9 +575,9 @@ useEffect(() => {
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <AutoBox titulo="Processados" valor={ultimoRastreio?.total_processado || 0} cor="blue" />
-              <AutoBox titulo="Sucessos" valor={ultimoRastreio?.total_sucesso || 0} cor="green" />
-              <AutoBox titulo="Erros" valor={ultimoRastreio?.total_erro || 0} cor="red" />
+              <AutoBox titulo="Processados" valor={ultimoRastreio?.total_processado || 0} cor="blue" href="/admin/intelligence" />
+              <AutoBox titulo="Sucessos" valor={ultimoRastreio?.total_sucesso || 0} cor="green" href="/admin/intelligence?tipo=sucesso" />
+              <AutoBox titulo="Erros" valor={ultimoRastreio?.total_erro || 0} cor="red" href="/admin/intelligence?tipo=erro" />
             </div>
 
             {Number(ultimoRastreio?.total_erro || 0) > 0 && (
@@ -604,10 +604,10 @@ useEffect(() => {
             </div>
 
             <div className="space-y-4">
-              <AlertaPremium titulo="Embarques em fiscalização" valor={fiscalizacao} icone="⚠️" cor="yellow" />
-              <AlertaPremium titulo="Chamados aguardando resposta" valor={suporteAbertos} icone="💬" cor="purple" />
-              <AlertaPremium titulo="Cotações pendentes" valor={cotacoesPendentes} icone="📄" cor="blue" />
-              <AlertaPremium titulo="Embarques ativos" valor={ativos} icone="📦" cor="green" />
+              <AlertaPremium titulo="Embarques em fiscalização" valor={fiscalizacao} icone="⚠️" cor="yellow" href="/admin/embarques?status=Fiscaliza%C3%A7%C3%A3o" />
+              <AlertaPremium titulo="Chamados aguardando resposta" valor={suporteAbertos} icone="💬" cor="purple" href="/admin/suporte?status=ABERTO" />
+              <AlertaPremium titulo="Cotações pendentes" valor={cotacoesPendentes} icone="📄" cor="blue" href="/admin/cotacoes?status=PENDENTES" />
+              <AlertaPremium titulo="Embarques ativos" valor={ativos} icone="📦" cor="green" href="/admin/embarques?arquivamento=ATIVOS" />
             </div>
           </div>
         </section>
@@ -762,7 +762,11 @@ useEffect(() => {
                 <tbody>
                   {ultimosEmbarques.map((item) => (
                     <tr key={item.id} className="border-b border-blue-950">
-                      <td className="py-4 font-bold text-blue-400">{item.awb || '-'}</td>
+                      <td className="py-4 font-bold text-blue-400">
+                        <a href={`/admin/embarques/${item.id}`} className="hover:underline">
+                          {item.awb || '-'}
+                        </a>
+                      </td>
                       <td className="py-4">{item.exportador || '-'}</td>
                       <td className="py-4">{item.importador || '-'}</td>
                       <td className="py-4">{item.transportadora || '-'}</td>
@@ -1037,7 +1041,7 @@ useEffect(() => {
   )
 }
 
-function KpiCard({ titulo, valor, detalhe, icone, cor }: any) {
+function KpiCard({ titulo, valor, detalhe, icone, cor, href }: any) {
   const corNumero =
     cor === 'green'
       ? 'text-emerald-400'
@@ -1045,22 +1049,33 @@ function KpiCard({ titulo, valor, detalhe, icone, cor }: any) {
       ? 'text-yellow-400'
       : 'text-blue-400'
 
-  return (
-    <div className="bg-[#071225] border border-blue-900 rounded-3xl p-6 shadow-[0_0_25px_rgba(37,99,235,0.08)]">
-      <div className="flex justify-between items-start">
-        <div>
-          <p className="text-slate-400 text-sm">{titulo}</p>
-          <h2 className={`text-4xl font-black mt-4 ${corNumero}`}>{valor}</h2>
-          <p className="text-slate-500 text-sm mt-2">{detalhe}</p>
-        </div>
-
-        <div className="text-4xl">{icone}</div>
+  const conteudo = (
+    <div className="flex justify-between items-start">
+      <div>
+        <p className="text-slate-400 text-sm">{titulo}</p>
+        <h2 className={`text-4xl font-black mt-4 ${corNumero}`}>{valor}</h2>
+        <p className="text-slate-500 text-sm mt-2">{detalhe}</p>
       </div>
+
+      <div className="text-4xl">{icone}</div>
     </div>
   )
+
+  const classe =
+    'block bg-[#071225] border border-blue-900 rounded-3xl p-6 shadow-[0_0_25px_rgba(37,99,235,0.08)] transition hover:border-blue-400 hover:bg-blue-600/10'
+
+  if (href) {
+    return (
+      <a href={href} className={classe}>
+        {conteudo}
+      </a>
+    )
+  }
+
+  return <div className={classe}>{conteudo}</div>
 }
 
-function MiniStatus({ titulo, valor, cor }: any) {
+function MiniStatus({ titulo, valor, cor, href }: any) {
   const classes =
     cor === 'red'
       ? 'bg-red-600/20 text-red-400'
@@ -1070,15 +1085,27 @@ function MiniStatus({ titulo, valor, cor }: any) {
       ? 'bg-purple-600/20 text-purple-400'
       : 'bg-green-600/20 text-green-400'
 
-  return (
-    <div className={`rounded-2xl p-4 ${classes}`}>
+  const conteudo = (
+    <>
       <h3 className="text-3xl font-black">{valor}</h3>
       <p className="font-bold mt-1">{titulo}</p>
-    </div>
+    </>
   )
+
+  const classe = `block rounded-2xl p-4 transition hover:ring-2 hover:ring-blue-400 ${classes}`
+
+  if (href) {
+    return (
+      <a href={href} className={classe}>
+        {conteudo}
+      </a>
+    )
+  }
+
+  return <div className={classe}>{conteudo}</div>
 }
 
-function OperationCard({ titulo, valor, cor }: any) {
+function OperationCard({ titulo, valor, cor, href }: any) {
   const classe =
     cor === 'green'
       ? 'text-green-400'
@@ -1088,15 +1115,28 @@ function OperationCard({ titulo, valor, cor }: any) {
       ? 'text-red-400'
       : 'text-blue-400'
 
-  return (
-    <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5">
+  const conteudo = (
+    <>
       <h3 className={`text-2xl font-black ${classe}`}>{valor}</h3>
       <p className="text-slate-400 mt-2">{titulo}</p>
-    </div>
+    </>
   )
+
+  const cardClasse =
+    'block border border-blue-900 bg-[#020817] rounded-2xl p-5 transition hover:border-blue-400 hover:bg-blue-600/10'
+
+  if (href) {
+    return (
+      <a href={href} className={cardClasse}>
+        {conteudo}
+      </a>
+    )
+  }
+
+  return <div className={cardClasse}>{conteudo}</div>
 }
 
-function AutoBox({ titulo, valor, cor }: any) {
+function AutoBox({ titulo, valor, cor, href }: any) {
   const classe =
     cor === 'green'
       ? 'text-green-400'
@@ -1104,12 +1144,25 @@ function AutoBox({ titulo, valor, cor }: any) {
       ? 'text-red-400'
       : 'text-blue-400'
 
-  return (
-    <div className="border border-blue-900 bg-[#020817] rounded-2xl p-4 text-center">
+  const conteudo = (
+    <>
       <h3 className={`text-2xl font-black ${classe}`}>{valor}</h3>
       <p className="text-slate-500 text-xs mt-1">{titulo}</p>
-    </div>
+    </>
   )
+
+  const cardClasse =
+    'block border border-blue-900 bg-[#020817] rounded-2xl p-4 text-center transition hover:border-blue-400 hover:bg-blue-600/10'
+
+  if (href) {
+    return (
+      <a href={href} className={cardClasse}>
+        {conteudo}
+      </a>
+    )
+  }
+
+  return <div className={cardClasse}>{conteudo}</div>
 }
 
 function StatusPillDashboard({ status }: any) {
@@ -1161,7 +1214,7 @@ function StatusPillDashboard({ status }: any) {
   )
 }
 
-function AlertaPremium({ titulo, valor, icone, cor }: any) {
+function AlertaPremium({ titulo, valor, icone, cor, href }: any) {
   const classe =
     cor === 'red'
       ? 'bg-red-600'
@@ -1173,8 +1226,8 @@ function AlertaPremium({ titulo, valor, icone, cor }: any) {
       ? 'bg-green-600'
       : 'bg-blue-600'
 
-  return (
-    <div className="flex justify-between items-center border-b border-blue-950 pb-4">
+  const conteudo = (
+    <>
       <div className="flex items-center gap-3">
         <span>{icone}</span>
         <p className="text-slate-300">{titulo}</p>
@@ -1183,8 +1236,21 @@ function AlertaPremium({ titulo, valor, icone, cor }: any) {
       <span className={`px-4 py-2 rounded-full font-black ${classe}`}>
         {valor}
       </span>
-    </div>
+    </>
   )
+
+  const cardClasse =
+    'flex justify-between items-center border-b border-blue-950 pb-4 transition hover:bg-blue-600/10 rounded-xl px-2 py-2'
+
+  if (href) {
+    return (
+      <a href={href} className={cardClasse}>
+        {conteudo}
+      </a>
+    )
+  }
+
+  return <div className={cardClasse}>{conteudo}</div>
 }
 
 function ResumoMini({ titulo, valor }: any) {
