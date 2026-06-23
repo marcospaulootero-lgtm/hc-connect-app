@@ -14,6 +14,8 @@ export default function EmbarquesPage() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
   const [filtroArquivamento, setFiltroArquivamento] = useState('ATIVOS')
+  const [embarquesSelecionados, setEmbarquesSelecionados] = useState<string[]>([])
+  const [arquivandoLote, setArquivandoLote] = useState(false)
 
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
   const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
@@ -98,6 +100,7 @@ export default function EmbarquesPage() {
 
     setEmbarques(embarquesData || [])
     setVinculos(vinculosData || [])
+    setEmbarquesSelecionados([])
   }
 
   async function carregarUsuarios() {
@@ -508,6 +511,73 @@ export default function EmbarquesPage() {
     carregar()
   }
 
+  function alterarSelecaoEmbarque(id: string, marcado: boolean) {
+    setEmbarquesSelecionados((atual) =>
+      marcado ? Array.from(new Set([...atual, id])) : atual.filter((item) => item !== id)
+    )
+  }
+
+  function selecionarTodosFiltrados(marcado: boolean) {
+    if (!marcado) {
+      setEmbarquesSelecionados([])
+      return
+    }
+
+    setEmbarquesSelecionados(embarquesFiltrados.map((item) => item.id))
+  }
+
+  async function arquivarSelecionados(arquivar: boolean) {
+    if (embarquesSelecionados.length === 0) {
+      alert('Selecione pelo menos um embarque.')
+      return
+    }
+
+    const confirmar = confirm(
+      arquivar
+        ? `Arquivar ${embarquesSelecionados.length} embarque(s) selecionado(s)?`
+        : `Restaurar ${embarquesSelecionados.length} embarque(s) selecionado(s)?`
+    )
+
+    if (!confirmar) return
+
+    setArquivandoLote(true)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const { error } = await supabase
+      .from('embarques')
+      .update({
+        arquivado_admin: arquivar,
+        arquivado_admin_em: arquivar ? new Date().toISOString() : null,
+        arquivado_admin_por: arquivar ? user?.id || null : null,
+        ultima_atualizacao: new Date().toISOString(),
+      })
+      .in('id', embarquesSelecionados)
+
+    if (error) {
+      setArquivandoLote(false)
+      alert(error.message)
+      return
+    }
+
+    const timeline = embarquesSelecionados.map((embarqueId) => ({
+      embarque_id: embarqueId,
+      status: arquivar ? 'ARQUIVADO ADMIN' : 'RESTAURADO ADMIN',
+      descricao: arquivar
+        ? 'Embarque arquivado em lote no painel administrativo.'
+        : 'Embarque restaurado em lote no painel administrativo.',
+    }))
+
+    await supabase.from('timeline_embarques').insert(timeline)
+
+    setArquivandoLote(false)
+    setEmbarquesSelecionados([])
+    alert(arquivar ? 'Embarques arquivados com sucesso.' : 'Embarques restaurados com sucesso.')
+    carregar()
+  }
+
   async function excluirEmbarque(id: string) {
     const confirmar = confirm('Deseja realmente excluir este embarque?')
     if (!confirmar) return
@@ -579,6 +649,9 @@ export default function EmbarquesPage() {
   const totalLiberados = embarquesAtivos.filter((e) => e.status_operacional === 'Liberado').length
   const totalEntregues = embarquesAtivos.filter((e) => e.status_operacional === 'Entregue').length
   const totalArquivados = embarques.filter((e) => e.arquivado_admin).length
+  const todosFiltradosSelecionados =
+    embarquesFiltrados.length > 0 &&
+    embarquesFiltrados.every((item) => embarquesSelecionados.includes(item.id))
 
   return (
     <main className="w-full max-w-none p-8 text-white">
@@ -787,6 +860,7 @@ export default function EmbarquesPage() {
               setFiltroStatus('')
               setFiltroTransportadora('')
               setFiltroArquivamento('ATIVOS')
+              setEmbarquesSelecionados([])
             }}
             className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
           >
@@ -831,6 +905,51 @@ export default function EmbarquesPage() {
           </div>
         </div>
 
+        <div className="border border-blue-900 bg-[#020817] rounded-2xl p-4 mb-6 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
+            <input
+              type="checkbox"
+              checked={todosFiltradosSelecionados}
+              onChange={(e) => selecionarTodosFiltrados(e.target.checked)}
+            />
+            Selecionar todos os embarques filtrados
+          </label>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-slate-400 text-sm">
+              {embarquesSelecionados.length} selecionado(s)
+            </span>
+
+            <button
+              type="button"
+              onClick={() => arquivarSelecionados(true)}
+              disabled={embarquesSelecionados.length === 0 || arquivandoLote}
+              className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 px-4 py-3 rounded-xl font-bold text-sm"
+            >
+              {arquivandoLote ? 'Processando...' : 'Arquivar selecionados'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => arquivarSelecionados(false)}
+              disabled={embarquesSelecionados.length === 0 || arquivandoLote}
+              className="bg-green-700 hover:bg-green-600 disabled:opacity-50 px-4 py-3 rounded-xl font-bold text-sm"
+            >
+              Restaurar selecionados
+            </button>
+
+            {embarquesSelecionados.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setEmbarquesSelecionados([])}
+                className="bg-blue-700 hover:bg-blue-600 px-4 py-3 rounded-xl font-bold text-sm"
+              >
+                Limpar seleção
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
           {embarquesFiltrados.map((item) => (
             <article
@@ -839,6 +958,15 @@ export default function EmbarquesPage() {
             >
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
                 <div>
+                  <label className="inline-flex items-center gap-2 mb-3 text-xs font-bold text-slate-400">
+                    <input
+                      type="checkbox"
+                      checked={embarquesSelecionados.includes(item.id)}
+                      onChange={(e) => alterarSelecaoEmbarque(item.id, e.target.checked)}
+                    />
+                    Selecionar
+                  </label>
+
                   <p className="text-slate-500 text-sm">AWB</p>
                   <a
                     href={`/admin/embarques/${item.id}`}
