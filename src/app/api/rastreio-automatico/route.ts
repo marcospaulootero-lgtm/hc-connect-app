@@ -198,25 +198,9 @@ async function rastrearDHL(embarque: any, awb: string) {
     throw new Error('Nenhuma remessa DHL encontrada.')
   }
 
-  const eventos = Array.isArray(shipment?.events) ? shipment.events : []
-  const eventoEntregue = encontrarEventoEntregueDHL(eventos)
-  const eventoAtual = eventoEntregue || eventos[0]
-  const dataColeta = encontrarDataColetaDHL(eventos)
-
-  const statusCompleto = [
-    shipment?.status?.description,
-    shipment?.status?.status,
-    shipment?.status?.statusCode,
-    eventoAtual?.description,
-    eventoAtual?.status,
-    eventoAtual?.statusCode,
-    eventoAtual?.typeCode,
-  ]
-    .filter(Boolean)
-    .join(' | ')
+  const eventoAtual = shipment?.events?.[0]
 
   const descricaoOriginal =
-    eventoEntregue?.description ||
     shipment?.status?.description ||
     eventoAtual?.description ||
     shipment?.status?.status ||
@@ -225,14 +209,24 @@ async function rastrearDHL(embarque: any, awb: string) {
 
   const descricao = traduzirDescricao(descricaoOriginal)
 
+  const statusCompleto = [
+    shipment?.status?.description,
+    shipment?.status?.status,
+    shipment?.status?.statusCode,
+    eventoAtual?.description,
+    eventoAtual?.typeCode,
+  ]
+    .filter(Boolean)
+    .join(' | ')
+
   const local =
-    eventoAtual?.location?.address?.addressLocality ||
     shipment?.status?.location?.address?.addressLocality ||
+    eventoAtual?.location?.address?.addressLocality ||
     null
 
   const dataEvento =
-    eventoAtual?.timestamp ||
     shipment?.status?.timestamp ||
+    eventoAtual?.timestamp ||
     new Date().toISOString()
 
   const statusNormalizado = await salvarRastreio({
@@ -243,7 +237,6 @@ async function rastrearDHL(embarque: any, awb: string) {
     descricao,
     local,
     dataEvento,
-    dataColeta,
   })
 
   return {
@@ -255,7 +248,6 @@ async function rastrearDHL(embarque: any, awb: string) {
     descricao,
   }
 }
-
 
 async function rastrearFedEx(embarque: any, awb: string) {
   const clientId = process.env.FEDEX_CLIENT_ID
@@ -320,34 +312,28 @@ async function rastrearFedEx(embarque: any, awb: string) {
     throw new Error('Nenhuma remessa FedEx encontrada.')
   }
 
-  const eventos = Array.isArray(resultado?.scanEvents) ? resultado.scanEvents : []
-  const eventoEntregue = encontrarEventoEntregueFedEx(eventos)
-  const ultimoEvento = eventoEntregue || eventos[0]
-  const dataColeta = encontrarDataColetaFedEx(eventos)
+  const ultimoEvento = resultado?.scanEvents?.[0]
+
+  const status =
+    resultado?.latestStatusDetail?.description ||
+    ultimoEvento?.eventDescription ||
+    'Status FedEx não informado'
+
+  const descricaoOriginal =
+    ultimoEvento?.eventDescription ||
+    resultado?.latestStatusDetail?.description ||
+    'Sem descrição'
+
+  const descricao = traduzirDescricao(descricaoOriginal)
 
   const statusCompleto = [
     resultado?.latestStatusDetail?.description,
     resultado?.latestStatusDetail?.code,
     ultimoEvento?.eventDescription,
     ultimoEvento?.eventType,
-    ultimoEvento?.derivedStatus,
   ]
     .filter(Boolean)
     .join(' | ')
-
-  const status =
-    statusCompleto ||
-    resultado?.latestStatusDetail?.description ||
-    ultimoEvento?.eventDescription ||
-    'Status FedEx não informado'
-
-  const descricaoOriginal =
-    eventoEntregue?.eventDescription ||
-    ultimoEvento?.eventDescription ||
-    resultado?.latestStatusDetail?.description ||
-    'Sem descrição'
-
-  const descricao = traduzirDescricao(descricaoOriginal)
 
   const local =
     ultimoEvento?.scanLocation?.city ||
@@ -367,7 +353,6 @@ async function rastrearFedEx(embarque: any, awb: string) {
     descricao,
     local,
     dataEvento,
-    dataColeta,
   })
 
   return {
@@ -378,103 +363,6 @@ async function rastrearFedEx(embarque: any, awb: string) {
     status: statusNormalizado,
     descricao,
   }
-}
-
-
-
-function encontrarDataColetaDHL(eventos: any[]) {
-  const eventoColeta = eventos.find((evento) => {
-    const texto = String(
-      `${evento?.description || ''} ${evento?.status || ''} ${evento?.statusCode || ''}`
-    ).toLowerCase()
-
-    return (
-      texto.includes('picked') ||
-      texto.includes('pickup') ||
-      texto.includes('colet') ||
-      texto.includes('shipment picked up') ||
-      texto.includes('remessa coletada')
-    )
-  })
-
-  return eventoColeta?.timestamp || null
-}
-
-function encontrarDataColetaFedEx(eventos: any[]) {
-  const eventoColeta = eventos.find((evento) => {
-    const texto = String(
-      `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
-    ).toLowerCase()
-
-    return (
-      texto.includes('picked') ||
-      texto.includes('pickup') ||
-      texto.includes('picked up') ||
-      texto.includes('colet') ||
-      texto.includes('pu')
-    )
-  })
-
-  return eventoColeta?.date || null
-}
-
-function textoEventoDHL(evento: any) {
-  return [
-    evento?.description,
-    evento?.status,
-    evento?.statusCode,
-    evento?.typeCode,
-  ]
-    .filter(Boolean)
-    .join(' | ')
-}
-
-function textoEventoFedEx(evento: any) {
-  return [
-    evento?.eventDescription,
-    evento?.eventType,
-    evento?.derivedStatus,
-  ]
-    .filter(Boolean)
-    .join(' | ')
-}
-
-function textoIndicaEntregaReal(texto: any) {
-  const s = removerAcentos(String(texto || ''))
-
-  return (
-    s === 'envio entregue' ||
-    s === 'delivered' ||
-    s.includes('shipment delivered') ||
-    s.includes('envio entregue') ||
-    s.includes('proof of delivery') ||
-    s.includes('delivered to consignee') ||
-    s.includes('delivered to recipient') ||
-    s.includes('signed for') ||
-    s.includes('delivery completed') ||
-    s.includes('entrega realizada') ||
-    s.includes('entrega concluida') ||
-    s.includes('entregue ao destinatario') ||
-    s.includes('comprovante de entrega')
-  )
-}
-
-function encontrarEventoEntregueDHL(eventos: any[]) {
-  return eventos.find((evento) => textoIndicaEntregaReal(textoEventoDHL(evento))) || null
-}
-
-function encontrarEventoEntregueFedEx(eventos: any[]) {
-  return eventos.find((evento) => textoIndicaEntregaReal(textoEventoFedEx(evento))) || null
-}
-
-function dataParaISODate(valor: any) {
-  const data = valor ? new Date(valor) : new Date()
-
-  if (isNaN(data.getTime())) {
-    return new Date().toISOString().split('T')[0]
-  }
-
-  return data.toISOString().split('T')[0]
 }
 
 function removerAcentos(texto: string) {
@@ -610,10 +498,6 @@ function traduzirDescricao(descricao: string) {
 function normalizarStatus(status: string) {
   const s = removerAcentos(status)
 
-  if (textoIndicaEntregaReal(status)) {
-    return 'Entregue'
-  }
-
   if (
     s.includes('despachante aduaneiro') ||
     s.includes('despachante') ||
@@ -735,14 +619,8 @@ async function salvarRastreio({
   descricao,
   local,
   dataEvento,
-  dataColeta,
 }: any) {
-  const statusDetectado = normalizarStatus(status)
-
-  const statusNormalizado =
-    embarque.status_operacional === 'Entregue' && statusDetectado !== 'Entregue'
-      ? 'Entregue'
-      : statusDetectado
+  const statusNormalizado = normalizarStatus(status)
 
   const dadosAtualizar: any = {
     status_operacional: statusNormalizado,
@@ -751,21 +629,16 @@ async function salvarRastreio({
   }
 
   if (statusNormalizado === 'Entregue') {
-    dadosAtualizar.data_entrega = dataParaISODate(dataEvento)
-  } else if (embarque.status_operacional !== 'Entregue') {
+    dadosAtualizar.data_entrega = new Date().toISOString().split('T')[0]
+  } else {
     dadosAtualizar.data_entrega = null
-  }
-
-  if (dataColeta && !embarque.data_coleta) {
-    dadosAtualizar.data_coleta = dataColeta
   }
 
   if (
     ['Coletado', 'Em trânsito', 'Fiscalização', 'Liberado', 'Saiu para entrega', 'Entregue'].includes(statusNormalizado) &&
     !embarque.data_envio
   ) {
-    const dataBaseEnvio = dataColeta || dataEvento || new Date().toISOString()
-    dadosAtualizar.data_envio = dataParaISODate(dataBaseEnvio)
+    dadosAtualizar.data_envio = new Date().toISOString().split('T')[0]
   }
 
   const { error: erroUpdate } = await supabase
@@ -777,36 +650,19 @@ async function salvarRastreio({
     throw new Error(`Erro ao atualizar embarque: ${erroUpdate.message}`)
   }
 
-  const { data: rastreioExistente } = await supabase
-    .from('rastreios_embarques')
-    .select('id')
-    .eq('embarque_id', embarque.id)
-    .eq('awb', awb)
-    .eq('status', statusNormalizado)
-    .eq('descricao', descricao)
-    .maybeSingle()
-
-  if (!rastreioExistente) {
-    const { error: erroInsert } = await supabase.from('rastreios_embarques').insert({
-      embarque_id: embarque.id,
-      awb,
-      transportadora,
-      status: statusNormalizado,
-      descricao,
-      localizacao: local,
-      data_evento: dataEvento,
-    })
-
-    if (erroInsert) {
-      throw new Error(`Erro ao salvar rastreio: ${erroInsert.message}`)
-    }
-  }
-
-  await supabase.from('timeline_embarques').insert({
+  const { error: erroInsert } = await supabase.from('rastreios_embarques').insert({
     embarque_id: embarque.id,
+    awb,
+    transportadora,
     status: statusNormalizado,
-    descricao: `Rastreio automático atualizado: ${descricao}`,
+    descricao,
+    localizacao: local,
+    data_evento: dataEvento,
   })
+
+  if (erroInsert) {
+    throw new Error(`Erro ao salvar rastreio: ${erroInsert.message}`)
+  }
 
   return statusNormalizado
 }
