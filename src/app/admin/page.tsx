@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const [suporte, setSuporte] = useState<any[]>([])
   const [financeiro, setFinanceiro] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
+  const [faturasTransportadoras, setFaturasTransportadoras] = useState<any[]>([])
   const [ultimoRastreio, setUltimoRastreio] = useState<any>(null)
 
   const [modalErrosRastreio, setModalErrosRastreio] = useState(false)
@@ -94,6 +95,7 @@ export default function DashboardPage() {
       suporteCarregado,
       financeiroCarregado,
       movimentacoesCarregadas,
+      faturasTransportadorasCarregadas,
       logRastreioRes,
     ] = await Promise.all([
       supabase.from('perfis').select('*').order('nome'),
@@ -102,6 +104,7 @@ export default function DashboardPage() {
       carregarTodos('suporte', 'criado_em', false),
       carregarTodos('financeiro_embarques', 'vencimento_cobranca', true),
       carregarTodos('financeiro_movimentacoes', 'data_vencimento', false),
+      carregarTodos('faturas_transportadoras'),
       supabase
         .from('logs_rastreio')
         .select('id, criado_em, total_processado, total_sucesso, total_erro, detalhes')
@@ -119,6 +122,7 @@ export default function DashboardPage() {
     setSuporte(suporteCarregado || [])
     setFinanceiro(financeiroCarregado || [])
     setMovimentacoes(movimentacoesCarregadas || [])
+    setFaturasTransportadoras(faturasTransportadorasCarregadas || [])
     setUltimoRastreio(logRastreioRes.data || null)
 
     if (mostrarLoading) setCarregando(false)
@@ -324,6 +328,127 @@ export default function DashboardPage() {
     return String(item.fatura || '').trim() !== ''
   }
 
+
+  function campoFaturaTransportadora(item: any, nomes: string[]) {
+    for (const nome of nomes) {
+      const valor = item?.[nome]
+      if (valor !== undefined && valor !== null && valor !== '') return valor
+    }
+
+    return ''
+  }
+
+  function numeroFaturaTransportadora(item: any) {
+    return campoFaturaTransportadora(item, [
+      'numero_fatura',
+      'n_fatura',
+      'nº_fatura',
+      'nro_fatura',
+      'fatura',
+      'invoice',
+    ])
+  }
+
+  function contaFaturaTransportadora(item: any) {
+    return campoFaturaTransportadora(item, ['conta', 'account', 'conta_transportadora'])
+  }
+
+  function bancoFaturaTransportadora(item: any) {
+    return campoFaturaTransportadora(item, ['banco_utilizado', 'banco', 'conta_bancaria'])
+  }
+
+  function vencimentoFaturaTransportadora(item: any) {
+    return normalizarData(
+      campoFaturaTransportadora(item, [
+        'vencimento',
+        'data_vencimento',
+        'vencimento_fatura',
+        'data_vencimento_fatura',
+      ])
+    )
+  }
+
+  function pagamentoFaturaTransportadora(item: any) {
+    return normalizarData(
+      campoFaturaTransportadora(item, [
+        'data_pagamento',
+        'pagamento',
+        'data_pago',
+        'pago_em',
+      ])
+    )
+  }
+
+  function totalFaturaTransportadora(item: any) {
+    return numero(campoFaturaTransportadora(item, ['total', 'valor_total', 'valor', 'valor_fatura']))
+  }
+
+  function valorContestadoFaturaTransportadora(item: any) {
+    return numero(campoFaturaTransportadora(item, ['valor_contestado', 'contestado', 'valor_contestacao']))
+  }
+
+  function pagoAjustadoFaturaTransportadora(item: any) {
+    return numero(campoFaturaTransportadora(item, ['pago_ajustado', 'pago_ajuste', 'valor_pago', 'pago', 'ajustado']))
+  }
+
+  function saldoFaturaTransportadora(item: any) {
+    const saldoManual = campoFaturaTransportadora(item, ['saldo', 'saldo_aberto', 'valor_saldo'])
+
+    if (saldoManual !== '') return numero(saldoManual)
+
+    return Math.max(
+      totalFaturaTransportadora(item) -
+        valorContestadoFaturaTransportadora(item) -
+        pagoAjustadoFaturaTransportadora(item),
+      0
+    )
+  }
+
+  function transportadoraFaturaTransportadora(item: any) {
+    return campoFaturaTransportadora(item, ['transportadora', 'empresa', 'carrier']) || 'Não informado'
+  }
+
+  function nomeTransportadoraFaturaCurto(item: any) {
+    const transportadora = normalizarBusca(transportadoraFaturaTransportadora(item))
+
+    if (transportadora.includes('DHL')) return 'DHL'
+    if (transportadora.includes('FEDEX') || transportadora.includes('FED EX')) return 'FedEx'
+
+    return transportadoraFaturaTransportadora(item)
+  }
+
+  function ehDhlFedexFaturaTransportadora(item: any) {
+    const transportadora = normalizarBusca(transportadoraFaturaTransportadora(item))
+
+    return transportadora.includes('DHL') || transportadora.includes('FEDEX') || transportadora.includes('FED EX')
+  }
+
+  function faturaTransportadoraArquivada(item: any) {
+    const flagArquivada = campoFaturaTransportadora(item, ['arquivada', 'arquivado', 'oculta', 'oculto'])
+    return flagArquivada === true || ['TRUE', 'SIM', '1'].includes(normalizarBusca(flagArquivada))
+  }
+
+  function statusFaturaTransportadora(item: any) {
+    // Mesma regra usada em /admin/faturas-transportadoras:
+    // pagamento/situação paga primeiro, depois cancelada, contestada e só então vencida pela data.
+    const situacao = normalizarBusca(campoFaturaTransportadora(item, ['situacao', 'situação', 'status']))
+
+    if (pagamentoFaturaTransportadora(item)) return 'PAGA'
+    if (situacao.includes('PAGO') || situacao.includes('PAGA') || situacao.includes('BAIXADO')) return 'PAGA'
+    if (situacao.includes('CANCEL')) return 'FATURA CANCELADA'
+    if (situacao.includes('CONTEST')) return 'CONTESTADA'
+
+    const vencimento = vencimentoFaturaTransportadora(item)
+    if (vencimento && vencimento < hojeIso()) return 'VENCIDA'
+
+    return situacao || 'EM ABERTO'
+  }
+
+  function faturaTransportadoraAtiva(item: any) {
+    return !faturaTransportadoraArquivada(item)
+  }
+
+
   function dataBaseEmbarque(item: any) {
     return item.data_coleta || item.data_envio || item.criado_em || item.ultima_atualizacao || null
   }
@@ -464,51 +589,53 @@ export default function DashboardPage() {
     const limite = new Date(hojeIso() + 'T00:00:00')
     limite.setDate(limite.getDate() + DIAS_ALERTA_FATURAS)
 
-    const todasDhlFedex = financeiro.filter((item) => ehDhlFedex(item) && temFatura(item))
-    const abertas = todasDhlFedex.filter((item) => statusCobranca(item) !== 'PAGO')
+    // Usa a mesma origem e a mesma lógica da aba /admin/faturas-transportadoras.
+    // Não usa financeiro_embarques, porque ali ficam faturas/recebimentos de clientes.
+    const todasDhlFedex = faturasTransportadoras.filter((item) => ehDhlFedexFaturaTransportadora(item))
+    const ativas = todasDhlFedex.filter((item) => faturaTransportadoraAtiva(item))
+    const abertas = ativas.filter((item) => statusFaturaTransportadora(item) === 'EM ABERTO')
 
     const proximas = abertas
       .filter((item) => {
-        const vencimentoIso = normalizarData(item.vencimento_cobranca)
+        const vencimentoIso = vencimentoFaturaTransportadora(item)
         if (!vencimentoIso) return false
 
         const vencimento = new Date(vencimentoIso + 'T00:00:00')
         return vencimento >= new Date(hojeIso() + 'T00:00:00') && vencimento <= limite
       })
       .sort((a, b) => {
-        const dataA = normalizarData(a.vencimento_cobranca) || '9999-99-99'
-        const dataB = normalizarData(b.vencimento_cobranca) || '9999-99-99'
+        const dataA = vencimentoFaturaTransportadora(a) || '9999-99-99'
+        const dataB = vencimentoFaturaTransportadora(b) || '9999-99-99'
         return dataA.localeCompare(dataB)
       })
 
-    const vencidas = abertas
-      .filter((item) => {
-        const vencimentoIso = normalizarData(item.vencimento_cobranca)
-        return vencimentoIso ? vencimentoIso < hojeIso() : false
-      })
+    // Espelha a tela Faturas DHL/FedEx: contestadas/canceladas/pagas não viram vencidas.
+    const vencidas = ativas
+      .filter((item) => statusFaturaTransportadora(item) === 'VENCIDA')
       .sort((a, b) => {
-        const dataA = normalizarData(a.vencimento_cobranca) || '9999-99-99'
-        const dataB = normalizarData(b.vencimento_cobranca) || '9999-99-99'
+        const dataA = vencimentoFaturaTransportadora(a) || '9999-99-99'
+        const dataB = vencimentoFaturaTransportadora(b) || '9999-99-99'
         return dataA.localeCompare(dataB)
       })
 
-    const semData = abertas.filter((item) => !normalizarData(item.vencimento_cobranca))
-
-    const dhlProximas = proximas.filter((item) => nomeTransportadoraCurto(item) === 'DHL')
-    const fedexProximas = proximas.filter((item) => nomeTransportadoraCurto(item) === 'FedEx')
+    const semData = abertas.filter((item) => !vencimentoFaturaTransportadora(item))
+    const dhlProximas = proximas.filter((item) => nomeTransportadoraFaturaCurto(item) === 'DHL')
+    const fedexProximas = proximas.filter((item) => nomeTransportadoraFaturaCurto(item) === 'FedEx')
 
     return {
       todasDhlFedex,
+      ativas,
       abertas,
       proximas,
       vencidas,
       semData,
       dhlProximas,
       fedexProximas,
-      totalProximas: proximas.reduce((acc, item) => acc + numero(item.valor_cobranca), 0),
-      totalVencidas: vencidas.reduce((acc, item) => acc + numero(item.valor_cobranca), 0),
+      totalProximas: proximas.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0),
+      totalVencidas: vencidas.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0),
     }
-  }, [financeiro])
+  }, [faturasTransportadoras])
+
 
   const operacionalResumo = useMemo(() => {
     const statusEh = (item: any, termos: string[]) => {
@@ -1042,20 +1169,20 @@ export default function DashboardPage() {
 
             <div className="space-y-3">
               {faturasResumo.proximas.slice(0, 4).map((item) => {
-                const vencimento = normalizarData(item.vencimento_cobranca)
+                const vencimento = vencimentoFaturaTransportadora(item)
                 const dias = diasAte(vencimento)
 
                 return (
                   <a
                     key={item.id}
-                    href={`/admin/financeiro?aba=PROCESSOS&busca=${encodeURIComponent(item.fatura || item.awb || '')}`}
+                    href={`/admin/faturas-transportadoras?busca=${encodeURIComponent(numeroFaturaTransportadora(item) || contaFaturaTransportadora(item) || '')}`}
                     className="block rounded-2xl border border-blue-950 bg-[#020817] p-4 transition hover:border-blue-500 hover:bg-blue-600/10"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-slate-500">{nomeTransportadoraCurto(item)}</p>
-                        <p className="mt-1 font-black text-blue-300">Fatura {item.fatura || '-'}</p>
-                        <p className="mt-1 text-xs font-semibold text-slate-400">AWB {item.awb || '-'}</p>
+                        <p className="text-xs font-black uppercase tracking-wide text-slate-500">{nomeTransportadoraFaturaCurto(item)}</p>
+                        <p className="mt-1 font-black text-blue-300">Fatura {numeroFaturaTransportadora(item) || '-'}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-400">Conta {contaFaturaTransportadora(item) || '-'}</p>
                       </div>
 
                       <span className={`rounded-full px-3 py-1 text-xs font-black ${
@@ -1068,7 +1195,7 @@ export default function DashboardPage() {
                     </div>
 
                     <p className="mt-3 text-xs font-bold text-slate-400">
-                      Vencimento: {dataBR(item.vencimento_cobranca)}
+                      Vencimento: {dataBR(vencimento)}
                     </p>
                   </a>
                 )
@@ -1425,23 +1552,37 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-3">
-              {[...faturasResumo.vencidas, ...faturasResumo.proximas, ...financeiroResumo.aguardandoCusto].slice(0, 8).map((item) => {
-                const vencimento = normalizarData(item.vencimento_cobranca)
-                const status = statusCobranca(item)
-                const semCusto = aguardandoCustoProcesso(item)
+              {[
+                ...faturasResumo.vencidas.map((item) => ({ tipo: 'FATURA_TRANSPORTADORA', item })),
+                ...faturasResumo.proximas.map((item) => ({ tipo: 'FATURA_TRANSPORTADORA', item })),
+                ...financeiroResumo.aguardandoCusto.map((item) => ({ tipo: 'PROCESSO_FINANCEIRO', item })),
+              ].slice(0, 8).map(({ tipo, item }) => {
+                const ehFaturaTransportadora = tipo === 'FATURA_TRANSPORTADORA'
+                const vencimento = ehFaturaTransportadora
+                  ? vencimentoFaturaTransportadora(item)
+                  : normalizarData(item.vencimento_cobranca)
+                const status = ehFaturaTransportadora
+                  ? statusFaturaTransportadora(item)
+                  : statusCobranca(item)
+                const semCusto = !ehFaturaTransportadora && aguardandoCustoProcesso(item)
+                const href = ehFaturaTransportadora
+                  ? `/admin/faturas-transportadoras?busca=${encodeURIComponent(numeroFaturaTransportadora(item) || contaFaturaTransportadora(item) || '')}`
+                  : `/admin/financeiro?aba=PROCESSOS&busca=${encodeURIComponent(item.fatura || item.awb || item.cliente || '')}`
 
                 return (
                   <a
-                    key={`${item.id}-${status}-${semCusto}`}
-                    href={`/admin/financeiro?aba=PROCESSOS&busca=${encodeURIComponent(item.fatura || item.awb || item.cliente || '')}`}
+                    key={`${tipo}-${item.id}-${status}-${semCusto}`}
+                    href={href}
                     className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-blue-950 bg-[#020817] p-4 transition hover:border-blue-500 hover:bg-blue-600/10"
                   >
                     <div>
                       <p className="font-black text-blue-300">
-                        {item.cliente || 'Cliente não informado'}
+                        {ehFaturaTransportadora ? `Fatura ${numeroFaturaTransportadora(item) || '-'}` : item.cliente || 'Cliente não informado'}
                       </p>
                       <p className="mt-1 text-xs font-semibold text-slate-400">
-                        AWB {item.awb || '-'} • Fatura {item.fatura || '-'} • {item.transportadora || '-'}
+                        {ehFaturaTransportadora
+                          ? `${nomeTransportadoraFaturaCurto(item)} • Conta ${contaFaturaTransportadora(item) || '-'} • Saldo ${moeda(saldoFaturaTransportadora(item))}`
+                          : `AWB ${item.awb || '-'} • Fatura ${item.fatura || '-'} • ${item.transportadora || '-'}`}
                       </p>
                     </div>
 
@@ -1576,9 +1717,9 @@ export default function DashboardPage() {
                   <tr>
                     <th className="px-4 py-3 text-left font-black">Transportadora</th>
                     <th className="px-4 py-3 text-left font-black">Fatura</th>
-                    <th className="px-4 py-3 text-left font-black">AWB</th>
-                    <th className="px-4 py-3 text-left font-black">Cliente</th>
-                    <th className="px-4 py-3 text-left font-black">Valor cliente</th>
+                    <th className="px-4 py-3 text-left font-black">Conta</th>
+                    <th className="px-4 py-3 text-left font-black">Banco</th>
+                    <th className="px-4 py-3 text-left font-black">Saldo</th>
                     <th className="px-4 py-3 text-left font-black">Vencimento</th>
                     <th className="px-4 py-3 text-left font-black">Situação</th>
                     <th className="px-4 py-3 text-left font-black">Ação</th>
@@ -1587,22 +1728,22 @@ export default function DashboardPage() {
 
                 <tbody>
                   {[...faturasResumo.vencidas, ...faturasResumo.proximas, ...faturasResumo.semData].map((item) => {
-                    const vencimento = normalizarData(item.vencimento_cobranca)
+                    const vencimento = vencimentoFaturaTransportadora(item)
                     const dias = diasAte(vencimento)
-                    const vencida = vencimento ? vencimento < hojeIso() : false
+                    const status = statusFaturaTransportadora(item)
 
                     return (
                       <tr key={item.id} className="border-t border-blue-950">
-                        <td className="px-4 py-3 font-bold">{nomeTransportadoraCurto(item)}</td>
-                        <td className="px-4 py-3 font-black text-blue-300">{item.fatura || '-'}</td>
-                        <td className="px-4 py-3">{item.awb || '-'}</td>
-                        <td className="px-4 py-3">{item.cliente || '-'}</td>
-                        <td className="px-4 py-3">{moeda(item.valor_cobranca)}</td>
+                        <td className="px-4 py-3 font-bold">{nomeTransportadoraFaturaCurto(item)}</td>
+                        <td className="px-4 py-3 font-black text-blue-300">{numeroFaturaTransportadora(item) || '-'}</td>
+                        <td className="px-4 py-3">{contaFaturaTransportadora(item) || '-'}</td>
+                        <td className="px-4 py-3">{bancoFaturaTransportadora(item) || '-'}</td>
+                        <td className="px-4 py-3">{moeda(saldoFaturaTransportadora(item))}</td>
                         <td className="px-4 py-3">{dataBR(vencimento)}</td>
                         <td className="px-4 py-3">
                           {!vencimento ? (
                             <span className="rounded-full bg-slate-500/20 px-3 py-1 text-xs font-black text-slate-300">Sem data</span>
-                          ) : vencida ? (
+                          ) : status === 'VENCIDA' ? (
                             <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-black text-red-300">Vencida</span>
                           ) : (
                             <span className="rounded-full bg-orange-500/20 px-3 py-1 text-xs font-black text-orange-300">
@@ -1612,7 +1753,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-4 py-3">
                           <a
-                            href={`/admin/financeiro?aba=PROCESSOS&busca=${encodeURIComponent(item.fatura || item.awb || '')}`}
+                            href={`/admin/faturas-transportadoras?busca=${encodeURIComponent(numeroFaturaTransportadora(item) || contaFaturaTransportadora(item) || '')}`}
                             className="font-black text-blue-400 hover:text-blue-300"
                           >
                             Abrir →
