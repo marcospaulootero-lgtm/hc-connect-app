@@ -5,6 +5,11 @@ import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
 
+type ServicoFinanceiroEmbarque = {
+  nome: string
+  valor: string
+}
+
 export default function DetalheEmbarquePage() {
   const params = useParams()
 
@@ -345,6 +350,68 @@ export default function DetalheEmbarquePage() {
     await carregar()
   }
 
+
+  function numeroFinanceiro(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return 0
+    if (typeof valor === 'number') return valor
+
+    return (
+      Number(
+        String(valor)
+          .replace(/[R$USD\s]/gi, '')
+          .replace(/\./g, '')
+          .replace(',', '.')
+      ) || 0
+    )
+  }
+
+  function moeda(valor: any, moedaBase = 'USD') {
+    if (valor === null || valor === undefined || valor === '') return '-'
+
+    const numeroValor = Number(valor || 0)
+
+    if (moedaBase === 'BRL') {
+      return numeroValor.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      })
+    }
+
+    return `${moedaBase} ${numeroValor.toFixed(2)}`
+  }
+
+  function servicosFinanceirosLista(lista: any): ServicoFinanceiroEmbarque[] {
+    return Array.isArray(lista)
+      ? lista
+          .map((item) => ({
+            nome: String(item?.nome || ''),
+            valor:
+              item?.valor === null || item?.valor === undefined
+                ? ''
+                : String(item.valor),
+          }))
+          .filter((item) => item.nome)
+      : []
+  }
+
+  function totalServicosFinanceiros(lista: any) {
+    return servicosFinanceirosLista(lista).reduce((acc, item) => {
+      const valor = numeroFinanceiro(item.valor)
+      const sinal = item.nome === 'DESCONTO' ? -1 : 1
+      return acc + valor * sinal
+    }, 0)
+  }
+
+  function quantidadeServicosFinanceiros(lista: any) {
+    return servicosFinanceirosLista(lista).length
+  }
+
+  function classeItemFinanceiro(nome: string) {
+    return nome === 'DESCONTO'
+      ? 'border-red-500/60 bg-red-600/10 text-red-300'
+      : 'border-green-500/60 bg-green-600/10 text-green-300'
+  }
+
   function etapaConcluida(etapa: string) {
   const status = String(embarque?.status_operacional || '')
     .toLowerCase()
@@ -600,6 +667,67 @@ export default function DetalheEmbarquePage() {
           </div>
         </div>
       </section>
+
+      <section className="card mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-6">
+          <div>
+            <p className="text-green-400 font-bold mb-2">Financeiro do embarque</p>
+            <h2 className="text-2xl font-black">Serviços e valores salvos</h2>
+            <p className="text-slate-400 mt-2">
+              Valores selecionados no cadastro/edição do embarque.
+            </p>
+          </div>
+
+          <div className="border border-green-600/60 bg-green-600/10 rounded-3xl p-5 min-w-[260px]">
+            <p className="text-slate-400 text-sm font-bold">Total do embarque</p>
+            <h3 className="text-3xl font-black text-green-400 mt-2">
+              {moeda(
+                totalServicosFinanceiros(embarque.servicos_financeiros) ||
+                  embarque.valor_cobrado_cliente,
+                embarque.moeda_cobranca || 'USD'
+              )}
+            </h3>
+            <p className="text-slate-500 text-xs mt-1">
+              {quantidadeServicosFinanceiros(embarque.servicos_financeiros)} item(ns) financeiro(s)
+            </p>
+          </div>
+        </div>
+
+        {servicosFinanceirosLista(embarque.servicos_financeiros).length === 0 ? (
+          <div className="border border-blue-900 bg-[#020817] rounded-2xl p-5 text-slate-400">
+            Nenhum serviço financeiro detalhado foi salvo neste embarque.
+            {embarque.valor_cobrado_cliente ? (
+              <span className="block mt-2 text-white font-bold">
+                Valor cobrado salvo: {moeda(embarque.valor_cobrado_cliente, embarque.moeda_cobranca || 'USD')}
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {servicosFinanceirosLista(embarque.servicos_financeiros).map((item) => {
+              const valor = numeroFinanceiro(item.valor)
+              const desconto = item.nome === 'DESCONTO'
+
+              return (
+                <div
+                  key={item.nome}
+                  className={`border rounded-2xl p-4 ${classeItemFinanceiro(item.nome)}`}
+                >
+                  <p className="text-xs font-black uppercase tracking-wide opacity-80">
+                    {desconto ? 'Abatimento' : 'Serviço'}
+                  </p>
+                  <h4 className="font-black text-white mt-2 break-words">{item.nome}</h4>
+                  <p className={desconto ? 'text-red-300 text-2xl font-black mt-3' : 'text-green-300 text-2xl font-black mt-3'}>
+                    {desconto ? '- ' : '+ '}
+                    {moeda(valor, embarque.moeda_cobranca || 'USD')}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
 
       <section className="card mb-8">
         <h2 className="text-2xl font-black mb-8">Progresso do embarque</h2>
