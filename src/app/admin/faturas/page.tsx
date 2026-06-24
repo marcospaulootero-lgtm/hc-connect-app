@@ -32,6 +32,7 @@ type Embarque = {
   spread?: number | string | null
   peso_real?: number | string | null
   peso_taxado?: number | string | null
+  servicos_financeiros?: ServicoFinanceiroEmbarque[] | any[] | null
 }
 
 type Fatura = {
@@ -117,6 +118,12 @@ type StatusPagamentoFinanceiro = {
 }
 
 type AbaFaturasAdmin = 'FATURAS' | 'EMISSOR'
+
+type ServicoFinanceiroEmbarque = {
+  nome?: string | null
+  valor?: string | number | null
+}
+
 
 type ClienteFaturamento = {
   id: string
@@ -1574,6 +1581,106 @@ export default function FaturasPage() {
     return `HC${ano}${mes}${dia}${awbFinal}`
   }
 
+  function servicosFinanceirosDoEmbarque(lista: any): ServicoFinanceiroEmbarque[] {
+    if (!Array.isArray(lista)) return []
+
+    return lista
+      .map((item) => ({
+        nome: String(item?.nome || item?.descricao || item?.servico || '').trim(),
+        valor: item?.valor ?? item?.valor_usd ?? item?.valor_brl ?? '',
+      }))
+      .filter((item) => item.nome)
+  }
+
+  function chaveServicoFatura(nome: any) {
+    const base = normalizarTexto(nome)
+
+    if (base.includes('PRESTACAO DE CONTAS') || base === 'CONTAS') return 'contas'
+    if (base.includes('AREA REMOTA')) return 'area_remota'
+    if (base.includes('MANUSEIO FORMAL')) return 'manuseio_formal'
+    if (base.includes('DELIVER FEE DOC') || base.includes('DELIVERY FEE DOC')) return 'delivery_fee_doc'
+    if (base.includes('DESCONTO')) return 'desconto'
+    if (base.includes('DGR')) return 'dgr'
+    if (base.includes('NAO EMPILHAVEL')) return 'tarifa_carga_nao_empilhavel'
+    if (base === 'DTA' || base.includes(' DTA')) return 'dta'
+    if (base.includes('OUTRAS TAXAS')) return 'outras_taxas'
+    if (base.includes('DUE') || base.includes('DRE')) return 'due_dre'
+    if (base.includes('FRETE FEDEX')) return 'frete_fedex'
+    if (base === 'FRETE' || base.includes('FRETE ')) return 'frete'
+    if (base.includes('HANDLING')) return 'handling'
+    if (base === 'IMPOSTOS R$' || base.includes('IMPOSTOS R')) return 'impostos_brl'
+    if (base.includes('IMPOSTOS')) return 'impostos'
+    if (base.includes('DIVERGENCIA DE PESO')) return 'divergencia_peso'
+    if (base.includes('OVERSIZE')) return 'oversize_piece'
+    if (base.includes('SEGURO')) return 'seguro'
+    if (base.includes('ALTA DEMANDA')) return 'taxa_alta_demanda'
+    if (base.includes('ENTREGA FORA')) return 'entrega_fora_area'
+    if (base.includes('COBERTA NIVEL B')) return 'coberta_nivel_b'
+
+    return ''
+  }
+
+  function carregarItensSalvosDoEmbarque(embarque: Embarque, taxaFinal: number) {
+    const servicosSalvos = servicosFinanceirosDoEmbarque((embarque as any).servicos_financeiros)
+
+    if (servicosSalvos.length === 0) return false
+
+    const moedaBase = normalizarTexto(embarque.moeda_cobranca || embarque.moeda || 'USD')
+    const valoresPorServico = new Map<string, ServicoFinanceiroEmbarque>()
+
+    servicosSalvos.forEach((servico) => {
+      const chave = chaveServicoFatura(servico.nome)
+      if (!chave) return
+      valoresPorServico.set(chave, servico)
+    })
+
+    setItensFatura(
+      itensPadraoFatura().map((item) => {
+        const servicoSalvo = valoresPorServico.get(item.id)
+
+        if (!servicoSalvo) {
+          return {
+            ...item,
+            selecionado: false,
+            valor_usd: '',
+            valor_brl: '',
+            observacao: '',
+          }
+        }
+
+        let valor = numero(servicoSalvo.valor)
+
+        // No cadastro do embarque o desconto entra como abatimento.
+        // Na fatura ele precisa entrar negativo para manter o total correto.
+        if (item.id === 'desconto' && valor > 0) valor = valor * -1
+
+        const valorUsd =
+          moedaBase === 'BRL' || moedaBase === 'R$'
+            ? taxaFinal > 0
+              ? valor / taxaFinal
+              : 0
+            : valor
+
+        const valorBrl =
+          moedaBase === 'BRL' || moedaBase === 'R$'
+            ? valor
+            : taxaFinal > 0
+              ? valor * taxaFinal
+              : 0
+
+        return {
+          ...item,
+          selecionado: true,
+          valor_usd: valorUsd ? formatarNumeroInput(valorUsd) : '',
+          valor_brl: valorBrl ? formatarNumeroInput(valorBrl) : '',
+          observacao: embarque.transportadora || '',
+        }
+      })
+    )
+
+    return true
+  }
+
   function selecionarEmbarqueEmissor(embarqueId: string) {
     setEmissorEmbarqueId(embarqueId)
 
@@ -1593,19 +1700,23 @@ export default function FaturasPage() {
 
     const taxaFinal = taxaConversaoFinal(taxa ? String(taxa).replace('.', ',') : '', emissorSpread)
 
-    setItensFatura((atuais) =>
-      atuais.map((item) => {
-        if (item.id !== 'frete') return { ...item, selecionado: false, valor_usd: '', valor_brl: '', observacao: '' }
+    const carregouItensSalvos = carregarItensSalvosDoEmbarque(embarque, taxaFinal)
 
-        return {
-          ...item,
-          selecionado: valor > 0,
-          valor_usd: taxaFinal > 0 && valor > 0 ? formatarNumeroInput(valor / taxaFinal) : '',
-          valor_brl: valor > 0 ? formatarNumeroInput(valor) : '',
-          observacao: embarque.transportadora || '',
-        }
-      })
-    )
+    if (!carregouItensSalvos) {
+      setItensFatura((atuais) =>
+        atuais.map((item) => {
+          if (item.id !== 'frete') return { ...item, selecionado: false, valor_usd: '', valor_brl: '', observacao: '' }
+
+          return {
+            ...item,
+            selecionado: valor > 0,
+            valor_usd: taxaFinal > 0 && valor > 0 ? formatarNumeroInput(valor / taxaFinal) : '',
+            valor_brl: valor > 0 ? formatarNumeroInput(valor) : '',
+            observacao: embarque.transportadora || '',
+          }
+        })
+      )
+    }
   }
 
   function atualizarItemFatura(id: string, campo: keyof ItemFaturaServico, valor: string | boolean) {
@@ -2281,7 +2392,7 @@ export default function FaturasPage() {
             <div>
               <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
               <p className="text-slate-400 text-sm">
-                Marque os serviços que entram na fatura. Os valores detalhados ficam no PDF; o total vai para Processos Faturados.
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
               </p>
             </div>
 
