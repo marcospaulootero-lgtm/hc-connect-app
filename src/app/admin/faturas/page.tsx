@@ -94,10 +94,19 @@ type DocumentoEmbarque = {
   criado_em?: string | null
 }
 
+type StatusPagamentoFinanceiro = {
+  status: 'PAGO' | 'ATRASADO' | 'EM_ABERTO' | 'SEM_FINANCEIRO'
+  label: string
+  detalhe: string
+  classe: string
+}
+
+type AbaFaturasAdmin = 'FATURAS' | 'EMISSOR'
 
 type ClienteFaturamento = {
   id: string
-  nome_empresa: string | null
+  codigo_hc?: string | null
+  nome_empresa: string
   nome_contato?: string | null
   endereco?: string | null
   cidade?: string | null
@@ -109,15 +118,17 @@ type ClienteFaturamento = {
   contato?: string | null
   inscricao_estadual?: string | null
   inscricao_municipal?: string | null
-  codigo_hc?: string | null
+  observacoes?: string | null
   ativo?: boolean | null
 }
 
-type StatusPagamentoFinanceiro = {
-  status: 'PAGO' | 'ATRASADO' | 'EM_ABERTO' | 'SEM_FINANCEIRO'
-  label: string
-  detalhe: string
-  classe: string
+type ItemFaturaServico = {
+  id: string
+  descricao: string
+  selecionado: boolean
+  valor_usd: string
+  valor_brl: string
+  observacao: string
 }
 
 export default function FaturasPage() {
@@ -125,18 +136,6 @@ export default function FaturasPage() {
   const [faturas, setFaturas] = useState<Fatura[]>([])
   const [financeiros, setFinanceiros] = useState<FinanceiroProcesso[]>([])
   const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<Record<string, DocumentoEmbarque[]>>({})
-  const [clientesFaturamento, setClientesFaturamento] = useState<ClienteFaturamento[]>([])
-  const [abaFaturas, setAbaFaturas] = useState<'LISTA' | 'EMISSOR'>('LISTA')
-  const [buscaClienteFaturamento, setBuscaClienteFaturamento] = useState('')
-  const [clienteFaturamentoId, setClienteFaturamentoId] = useState('')
-  const [buscaEmbarqueEmissor, setBuscaEmbarqueEmissor] = useState('')
-  const [embarqueEmissorId, setEmbarqueEmissorId] = useState('')
-  const [numeroFaturaEmissor, setNumeroFaturaEmissor] = useState('')
-  const [vencimentoFaturaEmissor, setVencimentoFaturaEmissor] = useState('')
-  const [valorFaturaEmissor, setValorFaturaEmissor] = useState('')
-  const [observacoesEmissor, setObservacoesEmissor] = useState('')
-  const [mostrarPreviewEmissor, setMostrarPreviewEmissor] = useState(false)
-  const [gerandoFaturaEmissor, setGerandoFaturaEmissor] = useState(false)
   const [pacoteAbertoId, setPacoteAbertoId] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
@@ -154,6 +153,21 @@ export default function FaturasPage() {
   const [visivelCliente, setVisivelCliente] = useState(true)
   const [observacoes, setObservacoes] = useState('')
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
+
+
+  const [abaAtiva, setAbaAtiva] = useState<AbaFaturasAdmin>('FATURAS')
+  const [clientesFaturamento, setClientesFaturamento] = useState<ClienteFaturamento[]>([])
+  const [buscaEmissorAwb, setBuscaEmissorAwb] = useState('')
+  const [emissorEmbarqueId, setEmissorEmbarqueId] = useState('')
+  const [emissorClienteId, setEmissorClienteId] = useState('')
+  const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
+  const [emissorVencimento, setEmissorVencimento] = useState('')
+  const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
+  const [emissorSpread, setEmissorSpread] = useState('3')
+  const [emissorObservacoes, setEmissorObservacoes] = useState('')
+  const [emissorVisivelCliente, setEmissorVisivelCliente] = useState(true)
+  const [salvandoEmissao, setSalvandoEmissao] = useState(false)
+  const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
 
   useEffect(() => {
     carregar()
@@ -246,13 +260,6 @@ export default function FaturasPage() {
 
     if (erroFaturas) console.log(erroFaturas)
 
-    const { data: clientesFaturamentoData, error: erroClientesFaturamento } = await supabase
-      .from('clientes_faturamento')
-      .select('*')
-      .order('nome_empresa', { ascending: true })
-
-    if (erroClientesFaturamento) console.log('ERRO CLIENTES FATURAMENTO:', erroClientesFaturamento)
-
     const { count: totalFinanceiro, error: erroCountFinanceiro } = await supabase
       .from('financeiro_embarques')
       .select('*', { count: 'exact', head: true })
@@ -305,7 +312,19 @@ export default function FaturasPage() {
       })
     }
 
+
+    const { data: clientesFaturamentoData, error: erroClientesFaturamento } = await supabase
+      .from('clientes_faturamento')
+      .select('*')
+      .eq('ativo', true)
+      .order('nome_empresa', { ascending: true })
+
+    if (erroClientesFaturamento) {
+      console.log('ERRO CLIENTES FATURAMENTO:', erroClientesFaturamento)
+    }
+
     setClientesFaturamento((clientesFaturamentoData as ClienteFaturamento[]) || [])
+
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
     setFinanceiros((financeiroData as FinanceiroProcesso[]) || [])
@@ -998,319 +1017,365 @@ export default function FaturasPage() {
     carregar()
   }
 
-  const clientesFaturamentoFiltrados = useMemo(() => {
-    const termo = normalizarTexto(buscaClienteFaturamento)
 
-    return clientesFaturamento
-      .filter((cliente) => cliente.ativo !== false)
-      .filter((cliente) => {
-        if (!termo) return true
+  const emissorEmbarqueSelecionado = useMemo(() => {
+    return embarques.find((item) => item.id === emissorEmbarqueId) || null
+  }, [embarques, emissorEmbarqueId])
 
-        const base = normalizarTexto(`
-          ${cliente.nome_empresa || ''}
-          ${cliente.nome_contato || ''}
-          ${cliente.cnpj || ''}
-          ${cliente.cpf || ''}
-          ${cliente.email || ''}
-          ${cliente.cidade || ''}
-          ${cliente.estado || ''}
-          ${cliente.codigo_hc || ''}
-        `)
+  const emissorClienteSelecionado = useMemo(() => {
+    return clientesFaturamento.find((item) => item.id === emissorClienteId) || null
+  }, [clientesFaturamento, emissorClienteId])
 
-        return base.includes(termo)
-      })
-      .slice(0, 80)
-  }, [clientesFaturamento, buscaClienteFaturamento])
-
-  const clienteFaturamentoSelecionado = useMemo(() => {
-    return clientesFaturamento.find((cliente) => cliente.id === clienteFaturamentoId) || null
-  }, [clientesFaturamento, clienteFaturamentoId])
-
-  const embarquesEmissorFiltrados = useMemo(() => {
-    const termo = normalizarTexto(buscaEmbarqueEmissor)
+  const embarquesDisponiveisEmissor = useMemo(() => {
+    const termo = normalizarTexto(buscaEmissorAwb)
 
     return embarques
       .filter((embarque) => {
         if (!termo) return true
 
-        const financeiro = financeiroDoEmbarque(embarque)
         const base = normalizarTexto(`
           ${embarque.awb || ''}
           ${embarque.cliente_final || ''}
-          ${embarque.exportador || ''}
           ${embarque.importador || ''}
-          ${embarque.transportadora || ''}
-          ${embarque.servico || ''}
+          ${embarque.exportador || ''}
           ${embarque.referencia_cliente || ''}
           ${embarque.referencia_hc || ''}
-          ${financeiro?.cliente || ''}
-          ${financeiro?.fatura || ''}
+          ${embarque.transportadora || ''}
+          ${embarque.servico || ''}
         `)
 
         return base.includes(termo)
       })
       .slice(0, 120)
-  }, [embarques, financeiros, buscaEmbarqueEmissor])
+  }, [embarques, buscaEmissorAwb])
 
-  const embarqueEmissorSelecionado = useMemo(() => {
-    return embarques.find((embarque) => embarque.id === embarqueEmissorId) || null
-  }, [embarques, embarqueEmissorId])
+  const totaisEmissor = useMemo(() => {
+    return itensFatura.reduce(
+      (acc, item) => {
+        if (!item.selecionado) return acc
 
-  const financeiroEmissorSelecionado = useMemo(() => {
-    return embarqueEmissorSelecionado ? financeiroDoEmbarque(embarqueEmissorSelecionado) : null
-  }, [embarqueEmissorSelecionado, financeiros])
+        acc.totalUSD += numero(item.valor_usd)
+        acc.totalBRL += numero(item.valor_brl)
+        return acc
+      },
+      { totalUSD: 0, totalBRL: 0 }
+    )
+  }, [itensFatura])
 
-  function documentoFiscalCliente(cliente?: ClienteFaturamento | null) {
-    if (!cliente) return '-'
-    return cliente.cnpj || cliente.cpf || '-'
+  function gerarNumeroFaturaSugerido(embarque?: Embarque | null) {
+    const data = new Date()
+    const ano = String(data.getFullYear()).slice(2)
+    const mes = String(data.getMonth() + 1).padStart(2, '0')
+    const dia = String(data.getDate()).padStart(2, '0')
+    const awbFinal = String(embarque?.awb || '').replace(/\D/g, '').slice(-4) || '0000'
+
+    return `HC${ano}${mes}${dia}${awbFinal}`
   }
 
-  function enderecoFiscalCliente(cliente?: ClienteFaturamento | null) {
-    if (!cliente) return '-'
+  function selecionarEmbarqueEmissor(embarqueId: string) {
+    setEmissorEmbarqueId(embarqueId)
 
-    return [cliente.endereco, cliente.cidade, cliente.estado, cliente.cep]
-      .map((item) => texto(item))
-      .filter(Boolean)
-      .join(' - ') || '-'
-  }
+    const embarque = embarques.find((item) => item.id === embarqueId) || null
+    if (!embarque) return
 
-  function valorEmissorNumero() {
-    return numero(valorFaturaEmissor)
-  }
-
-  function mesDaDataEmissor(valor: any) {
-    const data = normalizarData(valor)
-    if (!data) return ''
-    return data.slice(0, 7)
-  }
-
-  function selecionarClienteFaturamento(cliente: ClienteFaturamento) {
-    setClienteFaturamentoId(cliente.id)
-    setBuscaClienteFaturamento(cliente.nome_empresa || '')
-  }
-
-  function selecionarEmbarqueEmissor(embarque: Embarque) {
     const financeiro = financeiroDoEmbarque(embarque)
-    const fatura = faturaDoEmbarque(embarque.id)
-    const valor =
-      valorFinanceiro(financeiro) ||
-      numero(embarque.valor_cobrado_cliente) ||
-      numero(embarque.valor_fechado) ||
-      numero(embarque.valor_venda)
+    const valor = valorFinanceiro(financeiro) || numero(embarque.valor_fechado) || numero(embarque.valor_cobrado_cliente) || numero(embarque.valor_venda)
+    const vencimento = normalizarData(vencimentoFinanceiro(financeiro)) || ''
+    const taxa = numero(embarque.taxa_conversao)
+    const numeroAtual = faturaDoEmbarque(embarque.id)?.numero_fatura || gerarNumeroFaturaSugerido(embarque)
 
-    setEmbarqueEmissorId(embarque.id)
-    setNumeroFaturaEmissor(fatura?.numero_fatura || financeiro?.fatura || '')
-    setVencimentoFaturaEmissor(normalizarData(vencimentoFinanceiro(financeiro)) || '')
-    setValorFaturaEmissor(valor ? String(valor).replace('.', ',') : '')
-    setObservacoesEmissor(fatura?.observacoes || '')
-    setMostrarPreviewEmissor(true)
+    setEmissorNumeroFatura(numeroAtual)
+    setEmissorVencimento(vencimento)
+    setEmissorTaxaConversao(taxa ? String(taxa).replace('.', ',') : '')
 
-    const clienteReferencia = embarque.cliente_final || embarque.importador || financeiro?.cliente || ''
-    if (clienteReferencia && !buscaClienteFaturamento) {
-      setBuscaClienteFaturamento(clienteReferencia)
-    }
+    setItensFatura((atuais) =>
+      atuais.map((item) => {
+        if (item.id !== 'frete') return { ...item, selecionado: false, valor_usd: '', valor_brl: '', observacao: '' }
+
+        return {
+          ...item,
+          selecionado: valor > 0,
+          valor_usd: taxa > 0 && valor > 0 ? formatarNumeroInput(valor / taxa) : '',
+          valor_brl: valor > 0 ? formatarNumeroInput(valor) : '',
+          observacao: embarque.transportadora || '',
+        }
+      })
+    )
+  }
+
+  function atualizarItemFatura(id: string, campo: keyof ItemFaturaServico, valor: string | boolean) {
+    setItensFatura((atuais) =>
+      atuais.map((item) => {
+        if (item.id !== id) return item
+
+        const atualizado: ItemFaturaServico = {
+          ...item,
+          [campo]: valor,
+        } as ItemFaturaServico
+
+        if (campo === 'valor_usd') {
+          const taxa = numero(emissorTaxaConversao)
+          const valorUsd = numero(valor)
+          if (taxa > 0 && valorUsd > 0) {
+            atualizado.valor_brl = formatarNumeroInput(valorUsd * taxa)
+          }
+        }
+
+        return atualizado
+      })
+    )
+  }
+
+  function recalcularItensPorTaxa(novaTaxa: string) {
+    setEmissorTaxaConversao(novaTaxa)
+
+    const taxa = numero(novaTaxa)
+    if (taxa <= 0) return
+
+    setItensFatura((atuais) =>
+      atuais.map((item) => {
+        const valorUsd = numero(item.valor_usd)
+        if (!item.selecionado || valorUsd <= 0) return item
+
+        return {
+          ...item,
+          valor_brl: formatarNumeroInput(valorUsd * taxa),
+        }
+      })
+    )
   }
 
   function limparEmissor() {
-    setBuscaClienteFaturamento('')
-    setClienteFaturamentoId('')
-    setBuscaEmbarqueEmissor('')
-    setEmbarqueEmissorId('')
-    setNumeroFaturaEmissor('')
-    setVencimentoFaturaEmissor('')
-    setValorFaturaEmissor('')
-    setObservacoesEmissor('')
-    setMostrarPreviewEmissor(false)
+    setBuscaEmissorAwb('')
+    setEmissorEmbarqueId('')
+    setEmissorClienteId('')
+    setEmissorNumeroFatura('')
+    setEmissorVencimento('')
+    setEmissorTaxaConversao('')
+    setEmissorSpread('3')
+    setEmissorObservacoes('')
+    setEmissorVisivelCliente(true)
+    setItensFatura(itensPadraoFatura())
   }
 
-  function validarEmissorPorEmbarque() {
-    if (!embarqueEmissorSelecionado) {
-      alert('Selecione primeiro o embarque/AWB que será faturado.')
-      return false
-    }
-
-    if (!clienteFaturamentoSelecionado) {
-      alert('Selecione o cliente de faturamento com CNPJ/CPF.')
-      return false
-    }
-
-    if (!numeroFaturaEmissor.trim()) {
-      alert('Informe o número da fatura.')
-      return false
-    }
-
-    if (!vencimentoFaturaEmissor) {
-      alert('Informe o vencimento da fatura.')
-      return false
-    }
-
-    if (valorEmissorNumero() <= 0) {
-      alert('Informe o valor da fatura.')
-      return false
-    }
-
-    return true
+  function mesFinanceiroDaFatura() {
+    return normalizarData(emissorVencimento)?.slice(0, 7) || new Date().toISOString().slice(0, 7)
   }
 
-  function copiarResumoFatura() {
-    if (!validarEmissorPorEmbarque()) return
-
-    const cliente = clienteFaturamentoSelecionado
-    const embarque = embarqueEmissorSelecionado
-    if (!cliente || !embarque) return
-
-    const resumo =
-      `Fatura: ${numeroFaturaEmissor}\n` +
-      `AWB: ${embarque.awb || '-'}\n` +
-      `Cliente fiscal: ${cliente.nome_empresa || '-'}\n` +
-      `CNPJ/CPF: ${documentoFiscalCliente(cliente)}\n` +
-      `Vencimento: ${dataBR(vencimentoFaturaEmissor)}\n` +
-      `Serviço: ${embarque.servico || '-'}\n` +
-      `Transportadora: ${embarque.transportadora || '-'}\n` +
-      `Total: ${moeda(valorEmissorNumero())}`
-
-    navigator.clipboard.writeText(resumo)
-    alert('Resumo da fatura copiado.')
+  function itensSelecionadosFatura() {
+    return itensFatura
+      .filter((item) => item.selecionado && (numero(item.valor_usd) > 0 || numero(item.valor_brl) > 0 || item.observacao.trim()))
+      .map((item) => ({
+        descricao: item.descricao,
+        valor_usd: numero(item.valor_usd),
+        valor_brl: numero(item.valor_brl),
+        observacao: item.observacao || null,
+      }))
   }
 
-  async function gerarPdfBlobFaturaEmbarque() {
-    const cliente = clienteFaturamentoSelecionado
-    const embarque = embarqueEmissorSelecionado
+  async function salvarFinanceiroDaFatura(arquivoPdfUrl: string) {
+    if (!emissorEmbarqueSelecionado || !emissorClienteSelecionado) return
 
-    if (!cliente || !embarque) {
-      throw new Error('Cliente ou embarque não selecionado.')
+    const financeiroAtual = financeiroDoEmbarque(emissorEmbarqueSelecionado)
+    const itensResumo = itensSelecionadosFatura()
+      .map((item) => `${item.descricao}: ${moeda(item.valor_brl)}`)
+      .join(' | ')
+
+    const payloadBase: any = {
+      cliente: emissorClienteSelecionado.nome_empresa || emissorEmbarqueSelecionado.cliente_final || emissorEmbarqueSelecionado.importador || null,
+      awb: emissorEmbarqueSelecionado.awb || null,
+      fatura: emissorNumeroFatura || null,
+      transportadora: emissorEmbarqueSelecionado.transportadora || null,
+      servico: emissorEmbarqueSelecionado.servico || null,
+      valor_cobranca: totaisEmissor.totalBRL,
+      doc_dta: 0,
+      debito_terceiro: 0,
+      valor_compra: 0,
+      vencimento_cobranca: emissorVencimento || null,
+      recebimento: null,
+      mes: mesFinanceiroDaFatura(),
+      mes_profit: '',
+      observacoes: `Fatura emitida pelo HC Connect. PDF: ${arquivoPdfUrl}. Itens: ${itensResumo}${emissorObservacoes ? ` | Obs: ${emissorObservacoes}` : ''}`,
     }
 
-    const { default: jsPDF } = await import('jspdf')
-    await import('jspdf-autotable')
+    if (financeiroAtual?.id) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update(payloadBase)
+        .eq('id', financeiroAtual.id)
 
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
-    const margem = 42
-    const numeroFatura = numeroFaturaEmissor.trim()
-    const dataEmissao = new Date().toLocaleDateString('pt-BR')
-    const total = valorEmissorNumero()
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(22)
-    doc.text('HC Consultoria', margem, 52)
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.text('Couto e Otero Intermediação LTDA', margem, 69)
-    doc.text('Fatura gerada pelo HC Connect', margem, 84)
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(24)
-    doc.text('FATURA', 553, 52, { align: 'right' })
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.text(`Nº: ${numeroFatura}`, 553, 70, { align: 'right' })
-    doc.text(`Emissão: ${dataEmissao}`, 553, 85, { align: 'right' })
-    doc.text(`Vencimento: ${dataBR(vencimentoFaturaEmissor)}`, 553, 100, { align: 'right' })
-
-    doc.setDrawColor(15, 23, 42)
-    doc.setLineWidth(2)
-    doc.line(margem, 118, 553, 118)
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text('Cliente faturado', margem, 150)
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    const dadosCliente = [
-      cliente.nome_empresa || '-',
-      `CNPJ/CPF: ${documentoFiscalCliente(cliente)}`,
-      `Endereço: ${enderecoFiscalCliente(cliente)}`,
-      `Contato: ${cliente.nome_contato || cliente.contato || '-'}`,
-      `E-mail: ${cliente.email || '-'}`,
-      `Inscrição Estadual: ${cliente.inscricao_estadual || '-'}`,
-      `Inscrição Municipal: ${cliente.inscricao_municipal || '-'}`,
-    ]
-
-    let y = 168
-    dadosCliente.forEach((linha) => {
-      doc.text(String(linha), margem, y)
-      y += 14
-    })
-
-    const referencia = embarque.referencia_cliente || embarque.referencia_hc || '-'
-
-    ;(doc as any).autoTable({
-      startY: y + 18,
-      head: [['AWB', 'Referência', 'Serviço', 'Transportadora', 'Valor']],
-      body: [[
-        embarque.awb || '-',
-        referencia,
-        embarque.servico || '-',
-        embarque.transportadora || '-',
-        moeda(total),
-      ]],
-      styles: {
-        font: 'helvetica',
-        fontSize: 9,
-        cellPadding: 8,
-      },
-      headStyles: {
-        fillColor: [15, 23, 42],
-        textColor: [255, 255, 255],
-      },
-      columnStyles: {
-        4: { halign: 'right' },
-      },
-      margin: { left: margem, right: margem },
-    })
-
-    const finalY = ((doc as any).lastAutoTable?.finalY || 330) + 28
-
-    doc.setFillColor(15, 23, 42)
-    doc.roundedRect(340, finalY, 213, 68, 10, 10, 'F')
-    doc.setTextColor(203, 213, 225)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.text('Total da fatura', 360, finalY + 22)
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(22)
-    doc.text(moeda(total), 533, finalY + 50, { align: 'right' })
-    doc.setTextColor(17, 24, 39)
-
-    if (observacoesEmissor.trim()) {
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(11)
-      doc.text('Observações', margem, finalY + 103)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      doc.text(doc.splitTextToSize(observacoesEmissor.trim(), 500), margem, finalY + 120)
+      if (error) throw new Error(`Fatura salva, mas houve erro ao atualizar Processos Faturados: ${error.message}`)
+      return
     }
 
-    doc.setFontSize(8)
-    doc.setTextColor(100, 116, 139)
-    doc.text(
-      `HC Connect © ${new Date().getFullYear()} • Sistema desenvolvido por Marcos Paulo Otero`,
-      297,
-      810,
-      { align: 'center' }
-    )
+    const payloadComEmbarqueId = {
+      ...payloadBase,
+      embarque_id: emissorEmbarqueSelecionado.id,
+    }
 
-    return doc.output('blob')
+    const { error } = await supabase.from('financeiro_embarques').insert([payloadComEmbarqueId])
+
+    if (error) {
+      const erroColunaEmbarque = String(error.message || '').toLowerCase().includes('embarque_id')
+
+      if (erroColunaEmbarque) {
+        const { error: erroSemEmbarque } = await supabase.from('financeiro_embarques').insert([payloadBase])
+        if (erroSemEmbarque) throw new Error(`Fatura salva, mas houve erro ao lançar em Processos Faturados: ${erroSemEmbarque.message}`)
+        return
+      }
+
+      throw new Error(`Fatura salva, mas houve erro ao lançar em Processos Faturados: ${error.message}`)
+    }
   }
 
-  async function salvarFaturaEmitida() {
-    if (!validarEmissorPorEmbarque()) return
+  async function gerarPdfFaturaHC() {
+    if (!emissorEmbarqueSelecionado) return alert('Selecione o embarque/AWB primeiro.')
+    if (!emissorClienteSelecionado) return alert('Selecione o cliente de faturamento.')
+    if (!emissorNumeroFatura.trim()) return alert('Informe o número da fatura.')
+    if (!emissorVencimento) return alert('Informe o vencimento da fatura.')
+    if (itensSelecionadosFatura().length === 0 || totaisEmissor.totalBRL <= 0) {
+      return alert('Selecione pelo menos um serviço com valor para emitir a fatura.')
+    }
 
-    const cliente = clienteFaturamentoSelecionado
-    const embarque = embarqueEmissorSelecionado
-    if (!cliente || !embarque) return
-
-    setGerandoFaturaEmissor(true)
+    setSalvandoEmissao(true)
 
     try {
-      const faturaExistente = faturaDoEmbarque(embarque.id)
-      const blob = await gerarPdfBlobFaturaEmbarque()
-      const numeroLimpo = numeroFaturaEmissor.trim().replace(/[^a-zA-Z0-9_-]/g, '-')
-      const nomeArquivo = `emitidas/${embarque.id}/${Date.now()}-${numeroLimpo || 'fatura'}.pdf`
+      const jsPDFModule = await import('jspdf')
+      await import('jspdf-autotable')
+
+      const pdf = new jsPDFModule.default({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
+      const margem = 32
+      const larguraPagina = pdf.internal.pageSize.getWidth()
+      const itens = itensSelecionadosFatura()
+      const dadosCliente = dadosClienteFiscal(emissorClienteSelecionado)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(12)
+      pdf.text('FATURA DE SERVIÇO', margem, 34)
+      pdf.text(`CÓDIGO CLIENTE: ${emissorClienteSelecionado.codigo_hc || '-'}`, 185, 34)
+      pdf.text(`FATURA Nº: ${emissorNumeroFatura}`, 348, 34)
+
+      pdf.setFontSize(10)
+      pdf.text(`DATA DA FATURA: ${dataBR(new Date().toISOString())}`, 430, 56)
+      pdf.text(`DATA DE VENC.: ${dataBR(emissorVencimento)}`, 430, 76)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(9)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', margem, 58)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text('RUA DOS COMANCHES Nº 131', margem, 78)
+      pdf.text('BELO HORIZONTE, MG', margem, 92)
+      pdf.text('31530250', margem, 106)
+      pdf.text('CNPJ 41.456.630/0001-52', margem, 120)
+      pdf.text('TELEFONE: 55 (31) 3643-6175', 185, 78)
+      pdf.text('E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 185, 106)
+      pdf.text('INSCRIÇÃO ESTADUAL: ISENTO', 185, 128)
+      pdf.text('INSCRIÇÃO MUNICIPAL: 1296606100', 350, 128)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(22)
+      pdf.text('HC', larguraPagina - 92, 104)
+      pdf.setFontSize(7)
+      pdf.text('CONSULTORIA', larguraPagina - 112, 116)
+
+      pdf.setDrawColor(0, 0, 0)
+      pdf.setFillColor(221, 229, 244)
+      pdf.rect(margem, 140, larguraPagina - margem * 2, 94, 'FD')
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Cobrança para:', margem + 8, 158)
+      pdf.text('CNPJ / CPF:', 360, 158)
+      pdf.text('Endereço:', margem + 8, 182)
+
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(dadosCliente.nome || '-', 150, 158)
+      pdf.text(dadosCliente.documento || '-', 430, 158)
+      pdf.text(dadosCliente.endereco || '-', 150, 182)
+      pdf.text(`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`, 150, 204)
+      pdf.text(`CEP: ${dadosCliente.cep || '-'}`, 150, 222)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 252)
+      pdf.text(`HAWB/AWB: ${emissorEmbarqueSelecionado.awb || '-'}`, 245, 252)
+
+      const linhas = itens.map((item) => [
+        item.descricao,
+        item.observacao || '',
+        item.valor_usd > 0 ? formatarValorSimples(item.valor_usd) : '-',
+        item.valor_brl > 0 ? moeda(item.valor_brl) : '-',
+      ])
+
+      pdf.autoTable({
+        startY: 260,
+        head: [['SERVIÇO', 'OBSERVAÇÃO', 'VALOR USD', 'VALOR R$']],
+        body: linhas,
+        theme: 'grid',
+        margin: { left: margem, right: margem },
+        styles: { fontSize: 8, cellPadding: 4, lineColor: [25, 25, 25], lineWidth: 0.4 },
+        headStyles: { fillColor: [230, 230, 230], textColor: [0, 0, 0], fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 190 },
+          1: { cellWidth: 170 },
+          2: { cellWidth: 80, halign: 'right' },
+          3: { cellWidth: 90, halign: 'right' },
+        },
+      })
+
+      const yFinal = (pdf as any).lastAutoTable.finalY + 14
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text('TOTAL', margem + 6, yFinal + 12)
+      pdf.text('USD', 390, yFinal + 12)
+      pdf.text(formatarValorSimples(totaisEmissor.totalUSD), 435, yFinal + 12, { align: 'right' })
+      pdf.text('R$', 470, yFinal + 12)
+      pdf.text(moeda(totaisEmissor.totalBRL).replace('R$', '').trim(), larguraPagina - margem - 6, yFinal + 12, { align: 'right' })
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${emissorTaxaConversao || '-'}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 70
+      pdf.setFont('helvetica', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', larguraPagina / 2, yAssinatura, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', larguraPagina / 2, yAssinatura + 12, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', larguraPagina / 2, yAssinatura + 23, { align: 'center' })
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
 
       const { error: erroUpload } = await supabase.storage
         .from('faturas')
@@ -1320,80 +1385,310 @@ export default function FaturasPage() {
           contentType: 'application/pdf',
         })
 
-      if (erroUpload) throw erroUpload
+      if (erroUpload) throw new Error(erroUpload.message)
 
       const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
       const urlPdf = urlData.publicUrl
-
+      const faturaExistente = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
       const caminhoAntigo = extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
       if (caminhoAntigo) {
         await supabase.storage.from('faturas').remove([caminhoAntigo])
       }
 
-      const payloadFatura = {
-        embarque_id: embarque.id,
-        usuario_id: embarque.usuario_id || null,
-        numero_fatura: numeroFaturaEmissor.trim(),
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
         arquivo_pdf: urlPdf,
-        visivel_cliente: true,
-        observacoes: observacoesEmissor || null,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensSelecionadosFatura(),
+        valor_total: totaisEmissor.totalBRL,
+        valor_usd: totaisEmissor.totalUSD,
+        taxa_conversao: numero(emissorTaxaConversao),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
       }
 
       if (faturaExistente) {
-        const { error } = await supabase
-          .from('faturas')
-          .update(payloadFatura)
-          .eq('id', faturaExistente.id)
-
-        if (error) throw error
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
       } else {
         const { error } = await supabase.from('faturas').insert([payloadFatura])
-        if (error) throw error
+        if (error) throw new Error(error.message)
       }
 
-      const valor = valorEmissorNumero()
-      const payloadFinanceiro = {
-        embarque_id: embarque.id,
-        awb: embarque.awb || null,
-        cliente: cliente.nome_empresa || embarque.cliente_final || embarque.importador || null,
-        fatura: numeroFaturaEmissor.trim() || null,
-        transportadora: embarque.transportadora || null,
-        servico: embarque.servico || null,
-        valor_cobranca: valor,
-        doc_dta: 0,
-        debito_terceiro: 0,
-        valor_compra: 0,
-        vencimento_cobranca: vencimentoFaturaEmissor || null,
-        mes: mesDaDataEmissor(vencimentoFaturaEmissor) || null,
-        observacoes: observacoesEmissor || null,
-      }
+      await salvarFinanceiroDaFatura(urlPdf)
 
-      const financeiroExistente = financeiroDoEmbarque(embarque)
-
-      if (financeiroExistente?.id) {
-        const { error } = await supabase
-          .from('financeiro_embarques')
-          .update(payloadFinanceiro)
-          .eq('id', financeiroExistente.id)
-
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('financeiro_embarques').insert([payloadFinanceiro])
-        if (error) throw error
-      }
-
-      alert('Fatura gerada, vinculada ao AWB, liberada para o cliente e lançada em Processos Faturados.')
+      alert('Fatura emitida, salva, vinculada ao AWB e lançada em Processos Faturados.')
       limparEmissor()
-      setAbaFaturas('LISTA')
+      setAbaAtiva('FATURAS')
       carregar()
     } catch (error: any) {
-      console.error('Erro ao gerar fatura:', error)
-      alert(error?.message || 'Erro ao gerar a fatura.')
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
     } finally {
-      setGerandoFaturaEmissor(false)
+      setSalvandoEmissao(false)
     }
   }
 
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque, depois o cliente fiscal, escolha os serviços cobrados e gere o PDF para o cliente.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <input
+                value={buscaEmissorAwb}
+                onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                placeholder="Buscar por AWB, cliente, referência..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">Selecione o AWB</option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">Selecione o cliente fiscal</option>
+                {clientesFaturamento.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <input
+                  value={emissorTaxaConversao}
+                  onChange={(e) => recalcularItensPorTaxa(e.target.value)}
+                  placeholder="Taxa de conversão Ex.: 5,3295"
+                />
+
+                <input
+                  value={emissorSpread}
+                  onChange={(e) => setEmissorSpread(e.target.value)}
+                  placeholder="Spread %"
+                />
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Os valores detalhados ficam no PDF; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O custo fica zerado até você lançar o custo real no financeiro.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <main className="w-full max-w-none p-6 lg:p-8 text-white">
@@ -1407,336 +1702,43 @@ export default function FaturasPage() {
         </div>
 
         <button
-          onClick={() => document.getElementById('tabela_faturas')?.scrollIntoView({ behavior: 'smooth' })}
+          onClick={() => setAbaAtiva('EMISSOR')}
           className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
         >
-          Ver embarques
+          Emitir nova fatura
         </button>
       </div>
 
-      <section className="mb-8 border border-blue-900 rounded-3xl bg-[#071225] p-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setAbaFaturas('LISTA')}
-            className={
-              abaFaturas === 'LISTA'
-                ? 'bg-blue-600 text-white px-6 py-4 rounded-2xl font-black shadow-[0_0_18px_rgba(37,99,235,0.35)]'
-                : 'bg-[#020817] hover:bg-blue-600/20 border border-blue-900 text-slate-300 px-6 py-4 rounded-2xl font-black transition'
-            }
-          >
-            🧾 Faturas clientes
-            <span className="block text-xs font-medium mt-1 opacity-80">
-              Anexar PDFs, recibos, comprovantes e visibilidade do cliente
-            </span>
-          </button>
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setAbaFaturas('EMISSOR')}
-            className={
-              abaFaturas === 'EMISSOR'
-                ? 'bg-blue-600 text-white px-6 py-4 rounded-2xl font-black shadow-[0_0_18px_rgba(37,99,235,0.35)]'
-                : 'bg-[#020817] hover:bg-blue-600/20 border border-blue-900 text-slate-300 px-6 py-4 rounded-2xl font-black transition'
-            }
-          >
-            🧮 Emitir nova fatura
-            <span className="block text-xs font-medium mt-1 opacity-80">
-              Puxar AWB, gerar PDF, liberar cliente e lançar financeiro
-            </span>
-          </button>
-        </div>
-      </section>
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+      </div>
 
-      {abaFaturas === 'EMISSOR' ? (
-        <section className="space-y-8">
-          <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
-            <div className="flex flex-col xl:flex-row justify-between gap-6 mb-7">
-              <div>
-                <p className="text-blue-400 font-bold mb-2">Emissor de faturas</p>
-                <h2 className="text-3xl font-black">Emitir fatura pelo AWB do embarque</h2>
-                <p className="text-slate-400 mt-2">
-                  Primeiro selecione o embarque, depois o cliente fiscal. O PDF será salvo e vinculado ao AWB para aparecer no portal do cliente.
-                </p>
-              </div>
-
-              <div className="flex gap-3 flex-wrap h-fit">
-                <button
-                  type="button"
-                  onClick={limparEmissor}
-                  className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
-                >
-                  Limpar emissão
-                </button>
-
-                <Link
-                  href="/admin/clientes-faturamento"
-                  className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold"
-                >
-                  Clientes faturamento
-                </Link>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              <div className="border border-blue-900 rounded-3xl bg-[#020817] p-5">
-                <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
-
-                <input
-                  value={buscaEmbarqueEmissor}
-                  onChange={(e) => setBuscaEmbarqueEmissor(e.target.value)}
-                  placeholder="Buscar por AWB, cliente, importador, referência..."
-                  className="w-full mb-4"
-                />
-
-                <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-                  {embarquesEmissorFiltrados.map((embarque) => {
-                    const ativo = embarqueEmissorId === embarque.id
-                    const financeiro = financeiroDoEmbarque(embarque)
-                    const fatura = faturaDoEmbarque(embarque.id)
-
-                    return (
-                      <button
-                        key={embarque.id}
-                        type="button"
-                        onClick={() => selecionarEmbarqueEmissor(embarque)}
-                        className={
-                          ativo
-                            ? 'w-full text-left border border-blue-400 bg-blue-600/20 rounded-2xl p-4'
-                            : 'w-full text-left border border-blue-900 bg-[#071225] hover:bg-blue-600/10 rounded-2xl p-4'
-                        }
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-black text-blue-300">AWB {embarque.awb || '-'}</p>
-                            <p className="font-bold text-white mt-1">
-                              {embarque.cliente_final || embarque.importador || '-'}
-                            </p>
-                            <p className="text-slate-500 text-xs mt-1">
-                              {embarque.transportadora || '-'} • {embarque.servico || '-'}
-                            </p>
-                          </div>
-
-                          {fatura?.arquivo_pdf ? (
-                            <span className="rounded-full border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
-                              Com fatura
-                            </span>
-                          ) : financeiro ? (
-                            <span className="rounded-full border border-yellow-500 bg-yellow-500/20 px-2 py-1 text-[10px] font-black text-yellow-300">
-                              Financeiro
-                            </span>
-                          ) : (
-                            <span className="rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
-                              Novo
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    )
-                  })}
-
-                  {embarquesEmissorFiltrados.length === 0 && (
-                    <div className="border border-blue-900 rounded-2xl p-4 text-slate-400">
-                      Nenhum embarque encontrado.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="xl:col-span-2 border border-blue-900 rounded-3xl bg-[#020817] p-5">
-                <h3 className="text-xl font-black mb-4">Informações carregadas do embarque</h3>
-
-                {embarqueEmissorSelecionado ? (
-                  <div className="space-y-5">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <InfoPacote label="AWB" valor={embarqueEmissorSelecionado.awb || '-'} destaque />
-                      <InfoPacote label="Status" valor={embarqueEmissorSelecionado.status_operacional || '-'} />
-                      <InfoPacote label="Transportadora" valor={embarqueEmissorSelecionado.transportadora || '-'} />
-                      <InfoPacote label="Cliente processo" valor={embarqueEmissorSelecionado.cliente_final || '-'} />
-                      <InfoPacote label="Exportador" valor={embarqueEmissorSelecionado.exportador || '-'} />
-                      <InfoPacote label="Importador" valor={embarqueEmissorSelecionado.importador || '-'} />
-                      <InfoPacote label="Serviço" valor={embarqueEmissorSelecionado.servico || '-'} />
-                      <InfoPacote label="Origem/Destino" valor={`${embarqueEmissorSelecionado.origem || '-'} → ${embarqueEmissorSelecionado.destino || '-'}`} />
-                      <InfoPacote label="Referência" valor={embarqueEmissorSelecionado.referencia_cliente || embarqueEmissorSelecionado.referencia_hc || '-'} />
-                      <InfoPacote label="Valor sugerido" valor={moeda(valorFinanceiro(financeiroEmissorSelecionado) || numero(embarqueEmissorSelecionado.valor_cobrado_cliente) || numero(embarqueEmissorSelecionado.valor_fechado) || numero(embarqueEmissorSelecionado.valor_venda))} destaque />
-                      <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiroEmissorSelecionado)))} />
-                      <InfoPacote label="Fatura atual" valor={faturaDoEmbarque(embarqueEmissorSelecionado.id)?.numero_fatura || '-'} />
-                    </div>
-
-                    <div className="border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
-                      Ao gerar a fatura, ela será salva em Faturas clientes, ficará visível ao cliente e o AWB será criado ou atualizado em Financeiro &gt; Processos Faturados.
-                    </div>
-                  </div>
-                ) : (
-                  <div className="border border-blue-900 rounded-2xl p-6 text-center text-slate-400">
-                    Busque e selecione um embarque para carregar os dados.
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
-              <h3 className="text-xl font-black mb-4">2. Cliente de faturamento</h3>
-
-              <input
-                value={buscaClienteFaturamento}
-                onChange={(e) => setBuscaClienteFaturamento(e.target.value)}
-                placeholder="Buscar por nome, CNPJ, CPF, cidade ou código HC..."
-                className="w-full mb-4"
-              />
-
-              <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
-                {clientesFaturamentoFiltrados.map((cliente) => {
-                  const ativo = clienteFaturamentoId === cliente.id
-
-                  return (
-                    <button
-                      key={cliente.id}
-                      type="button"
-                      onClick={() => selecionarClienteFaturamento(cliente)}
-                      className={
-                        ativo
-                          ? 'w-full text-left border border-blue-400 bg-blue-600/20 rounded-2xl p-4'
-                          : 'w-full text-left border border-blue-900 bg-[#020817] hover:bg-blue-600/10 rounded-2xl p-4'
-                      }
-                    >
-                      <p className="font-black text-blue-300">{cliente.nome_empresa || '-'}</p>
-                      <p className="text-slate-300 text-xs mt-1">{documentoFiscalCliente(cliente)}</p>
-                      <p className="text-slate-500 text-xs mt-1">
-                        {cliente.cidade || '-'} / {cliente.estado || '-'} • {cliente.email || '-'}
-                      </p>
-                    </button>
-                  )
-                })}
-
-                {clientesFaturamentoFiltrados.length === 0 && (
-                  <div className="border border-blue-900 rounded-2xl p-4 text-slate-400">
-                    Nenhum cliente encontrado. Cadastre em Clientes Faturamento.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="xl:col-span-2 border border-blue-900 rounded-3xl bg-[#071225] p-7">
-              <div className="flex flex-col xl:flex-row justify-between gap-5 mb-6">
-                <div>
-                  <h3 className="text-xl font-black">3. Conferir e gerar PDF</h3>
-                  <p className="text-slate-400 text-sm mt-1">
-                    Preencha número, vencimento e valor. Depois gere a fatura final.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-3 h-fit">
-                  <button
-                    type="button"
-                    onClick={() => setMostrarPreviewEmissor(!mostrarPreviewEmissor)}
-                    className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
-                  >
-                    {mostrarPreviewEmissor ? 'Ocultar prévia' : 'Ver prévia'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={copiarResumoFatura}
-                    className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold"
-                  >
-                    Copiar resumo
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={salvarFaturaEmitida}
-                    disabled={gerandoFaturaEmissor}
-                    className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-black disabled:opacity-60"
-                  >
-                    {gerandoFaturaEmissor ? 'Gerando e salvando...' : 'Gerar PDF, vincular AWB e lançar financeiro'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div>
-                  <label className="block text-slate-300 font-bold mb-2">Número da fatura</label>
-                  <input
-                    value={numeroFaturaEmissor}
-                    onChange={(e) => setNumeroFaturaEmissor(e.target.value)}
-                    placeholder="Ex: 2026-001"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 font-bold mb-2">Vencimento</label>
-                  <input
-                    type="date"
-                    value={vencimentoFaturaEmissor}
-                    onChange={(e) => setVencimentoFaturaEmissor(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 font-bold mb-2">Valor da fatura</label>
-                  <input
-                    value={valorFaturaEmissor}
-                    onChange={(e) => setValorFaturaEmissor(e.target.value)}
-                    placeholder="Ex: 1500,00"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 font-bold mb-2">Total</label>
-                  <div className="border border-green-700 bg-green-950/20 rounded-2xl px-4 py-3 font-black text-green-300">
-                    {moeda(valorEmissorNumero())}
-                  </div>
-                </div>
-
-                <div className="md:col-span-4">
-                  <label className="block text-slate-300 font-bold mb-2">Observações da fatura</label>
-                  <textarea
-                    value={observacoesEmissor}
-                    onChange={(e) => setObservacoesEmissor(e.target.value)}
-                    placeholder="Observações que devem aparecer na fatura..."
-                    className="min-h-[90px]"
-                  />
-                </div>
-              </div>
-
-              {mostrarPreviewEmissor && (
-                <div className="border border-blue-900 rounded-3xl bg-[#020817] p-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-                    <InfoPacote label="AWB vinculado" valor={embarqueEmissorSelecionado?.awb || '-'} destaque />
-                    <InfoPacote label="Cliente fiscal" valor={clienteFaturamentoSelecionado?.nome_empresa || '-'} destaque />
-                    <InfoPacote label="CNPJ/CPF" valor={documentoFiscalCliente(clienteFaturamentoSelecionado)} />
-                    <InfoPacote label="Endereço" valor={enderecoFiscalCliente(clienteFaturamentoSelecionado)} />
-                    <InfoPacote label="Número da fatura" valor={numeroFaturaEmissor || '-'} />
-                    <InfoPacote label="Vencimento" valor={dataBR(vencimentoFaturaEmissor)} />
-                    <InfoPacote label="Valor" valor={moeda(valorEmissorNumero())} destaque />
-                    <InfoPacote label="Status final" valor="PDF visível para o cliente + financeiro lançado" />
-                  </div>
-
-                  {embarqueEmissorSelecionado ? (
-                    <div className="border border-blue-900 rounded-2xl p-4">
-                      <p className="font-black text-blue-300 mb-2">Item da fatura</p>
-                      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
-                        <InfoPacote label="AWB" valor={embarqueEmissorSelecionado.awb || '-'} />
-                        <InfoPacote label="Serviço" valor={embarqueEmissorSelecionado.servico || '-'} />
-                        <InfoPacote label="Transportadora" valor={embarqueEmissorSelecionado.transportadora || '-'} />
-                        <InfoPacote label="Referência" valor={embarqueEmissorSelecionado.referencia_cliente || embarqueEmissorSelecionado.referencia_hc || '-'} />
-                        <InfoPacote label="Valor" valor={moeda(valorEmissorNumero())} destaque />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-slate-500">Nenhum embarque selecionado.</div>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
-        </section>
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
       ) : (
         <>
-
       <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
         <Card
           titulo="Com fatura"
@@ -2223,6 +2225,130 @@ export default function FaturasPage() {
       )}
     </main>
   )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'contas', descricao: 'CONTAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
 }
 
 function ResumoFiltro({ titulo, valor, detalhe }: any) {
