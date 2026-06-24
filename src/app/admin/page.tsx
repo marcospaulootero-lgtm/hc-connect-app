@@ -533,6 +533,7 @@ export default function DashboardPage() {
   }
 
   const hoje = new Date()
+  const anoAtual = String(hoje.getFullYear())
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
   const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
     ? ultimoRastreio.detalhes
@@ -604,8 +605,22 @@ export default function DashboardPage() {
 
     const reserva50PendenteMes = reserva50PrevistaMes - reserva50LancadaMes
 
-    const fundoAtual = movimentacoes.reduce((acc, item) => {
-      if (statusMovimento(item) !== 'PAGO') return acc
+    const movimentosFundoAnoAtual = movimentacoes.filter((item) => {
+      if (statusMovimento(item) !== 'PAGO') return false
+      if (!['FUNDO_CAIXA_ENTRADA', 'FUNDO_CAIXA_SAIDA', 'AJUSTE_CAIXA'].includes(item.tipo)) return false
+
+      const mesReferencia = String(item.mes_referencia || '')
+      if (/^\d{4}-\d{2}$/.test(mesReferencia)) return mesReferencia.startsWith(anoAtual)
+
+      const dataBase =
+        normalizarData(item.data_pagamento) ||
+        normalizarData(item.data_vencimento) ||
+        normalizarData(item.created_at)
+
+      return String(dataBase || '').startsWith(anoAtual)
+    })
+
+    const fundoAtual = movimentosFundoAnoAtual.reduce((acc, item) => {
       if (item.tipo === 'FUNDO_CAIXA_ENTRADA') return acc + numero(item.valor)
       if (item.tipo === 'FUNDO_CAIXA_SAIDA') return acc - numero(item.valor)
       if (item.tipo === 'AJUSTE_CAIXA') return acc + numero(item.valor)
@@ -643,7 +658,7 @@ export default function DashboardPage() {
       vencido,
       totalAguardandoCusto,
     }
-  }, [financeiro, movimentacoes, mesAtual])
+  }, [financeiro, movimentacoes, mesAtual, anoAtual])
 
   const faturasResumo = useMemo(() => {
     const limite = new Date(hojeIso() + 'T00:00:00')
@@ -1390,7 +1405,7 @@ export default function DashboardPage() {
               <LinhaResumo titulo="Resultado após retiradas" valor={moeda(financeiroResumo.resultadoAposRetiradasMes)} cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'} />
               <LinhaResumo titulo="Reserva 50% prevista" valor={moeda(financeiroResumo.reserva50PrevistaMes)} cor="blue" />
               <LinhaResumo titulo="Reserva 50% lançada" valor={moeda(financeiroResumo.reserva50LancadaMes)} cor="blue" />
-              <LinhaResumo titulo="Fundo atual" valor={moeda(financeiroResumo.fundoAtual)} cor="blue" />
+              <LinhaResumo titulo="Fundo atual do ano" valor={moeda(financeiroResumo.fundoAtual)} cor="blue" />
             </div>
 
             <a href="/admin/financeiro" className="mt-6 block text-right font-black text-blue-400 hover:text-blue-300">
