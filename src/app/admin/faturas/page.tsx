@@ -1412,6 +1412,16 @@ export default function FaturasPage() {
     return usuariosPortal.find((item) => item.id === emissorUsuarioId) || null
   }, [usuariosPortal, emissorUsuarioId])
 
+  const statusDisponiveisEmissor = useMemo(() => {
+    return Array.from(
+      new Set(
+        embarques
+          .map((item) => String(item.status_operacional || '').trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [embarques])
+
   const embarquesDisponiveisEmissor = useMemo(() => {
     const termo = normalizarTexto(buscaEmissorAwb)
     const termoNumerico = buscaEmissorAwb.replace(/\D/g, '')
@@ -2081,8 +2091,8 @@ export default function FaturasPage() {
                   className="w-full"
                 >
                   <option value="TODOS">Status: todos</option>
-                  {statusDisponiveis.map((status) => (
-                    <option key={status} value={status || ''}>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
                       {status}
                     </option>
                   ))}
