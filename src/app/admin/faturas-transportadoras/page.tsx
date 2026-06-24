@@ -76,8 +76,8 @@ export default function FaturasTransportadorasPage() {
 
   const [form, setForm] = useState<FormState>(formVazio)
   const [busca, setBusca] = useState('')
-  const [filtroTransportadora, setFiltroTransportadora] = useState('TODAS')
-  const [filtroSituacao, setFiltroSituacao] = useState('TODAS')
+  const [filtroTransportadoras, setFiltroTransportadoras] = useState<string[]>([])
+  const [filtroSituacoes, setFiltroSituacoes] = useState<string[]>([])
   const [filtroArquivadas, setFiltroArquivadas] = useState('ATIVAS')
   const [ultimaAlteracao, setUltimaAlteracao] = useState('')
   const [selecionadas, setSelecionadas] = useState<string[]>([])
@@ -89,8 +89,21 @@ export default function FaturasTransportadorasPage() {
       try {
         const dados = JSON.parse(salvo)
         setBusca(dados.busca || '')
-        setFiltroTransportadora(dados.filtroTransportadora || 'TODAS')
-        setFiltroSituacao(dados.filtroSituacao || 'TODAS')
+
+        const transportadorasSalvas = Array.isArray(dados.filtroTransportadoras)
+          ? dados.filtroTransportadoras
+          : dados.filtroTransportadora && dados.filtroTransportadora !== 'TODAS'
+            ? [dados.filtroTransportadora]
+            : []
+
+        const situacoesSalvas = Array.isArray(dados.filtroSituacoes)
+          ? dados.filtroSituacoes
+          : dados.filtroSituacao && dados.filtroSituacao !== 'TODAS'
+            ? [dados.filtroSituacao]
+            : []
+
+        setFiltroTransportadoras(transportadorasSalvas)
+        setFiltroSituacoes(situacoesSalvas)
         setFiltroArquivadas(dados.filtroArquivadas || 'ATIVAS')
         setUltimaAlteracao(dados.ultimaAlteracao || '')
       } catch (error) {
@@ -104,15 +117,15 @@ export default function FaturasTransportadorasPage() {
   useEffect(() => {
     const dados = {
       busca,
-      filtroTransportadora,
-      filtroSituacao,
+      filtroTransportadoras,
+      filtroSituacoes,
       filtroArquivadas,
       ultimaAlteracao: new Date().toLocaleString('pt-BR'),
     }
 
     localStorage.setItem('hc_faturas_transportadoras_filtros', JSON.stringify(dados))
     setUltimaAlteracao(dados.ultimaAlteracao)
-  }, [busca, filtroTransportadora, filtroSituacao, filtroArquivadas])
+  }, [busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas])
 
   async function carregar() {
     setLoading(true)
@@ -903,39 +916,39 @@ export default function FaturasTransportadorasPage() {
 
   function limparFiltros() {
     setBusca('')
-    setFiltroTransportadora('TODAS')
-    setFiltroSituacao('TODAS')
+    setFiltroTransportadoras([])
+    setFiltroSituacoes([])
     setFiltroArquivadas('ATIVAS')
   }
 
   function filtroRapido(tipo: string) {
     if (tipo === 'DHL') {
-      setFiltroTransportadora('DHL')
-      setFiltroSituacao('TODAS')
+      setFiltroTransportadoras(['DHL'])
+      setFiltroSituacoes([])
       setFiltroArquivadas('ATIVAS')
     }
 
     if (tipo === 'FEDEX') {
-      setFiltroTransportadora('FedEx')
-      setFiltroSituacao('TODAS')
+      setFiltroTransportadoras(['FedEx'])
+      setFiltroSituacoes([])
       setFiltroArquivadas('ATIVAS')
     }
 
     if (tipo === 'VENCIDAS') {
-      setFiltroTransportadora('TODAS')
-      setFiltroSituacao('VENCIDA')
+      setFiltroTransportadoras([])
+      setFiltroSituacoes(['VENCIDA'])
       setFiltroArquivadas('ATIVAS')
     }
 
     if (tipo === 'ABERTAS') {
-      setFiltroTransportadora('TODAS')
-      setFiltroSituacao('EM ABERTO')
+      setFiltroTransportadoras([])
+      setFiltroSituacoes(['EM ABERTO'])
       setFiltroArquivadas('ATIVAS')
     }
 
     if (tipo === 'ARQUIVADAS') {
-      setFiltroTransportadora('TODAS')
-      setFiltroSituacao('TODAS')
+      setFiltroTransportadoras([])
+      setFiltroSituacoes([])
       setFiltroArquivadas('ARQUIVADAS')
     }
   }
@@ -960,11 +973,14 @@ export default function FaturasTransportadorasPage() {
 
       const passaBusca = !termo || texto.includes(termo)
       const passaTransportadora =
-        filtroTransportadora === 'TODAS' || item.transportadora === filtroTransportadora
+        filtroTransportadoras.length === 0 ||
+        filtroTransportadoras.includes(String(item.transportadora || ''))
+
+      const situacaoManual = String(item.situacao || '').toUpperCase()
       const passaSituacao =
-        filtroSituacao === 'TODAS' ||
-        statusAuto === filtroSituacao ||
-        String(item.situacao || '').toUpperCase() === filtroSituacao
+        filtroSituacoes.length === 0 ||
+        filtroSituacoes.includes(statusAuto) ||
+        filtroSituacoes.includes(situacaoManual)
       const passaArquivadas =
         filtroArquivadas === 'TODAS' ||
         (filtroArquivadas === 'ATIVAS' && !item.arquivada) ||
@@ -972,7 +988,7 @@ export default function FaturasTransportadorasPage() {
 
       return passaBusca && passaTransportadora && passaSituacao && passaArquivadas
     })
-  }, [faturas, busca, filtroTransportadora, filtroSituacao, filtroArquivadas])
+  }, [faturas, busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas])
 
 
   const todasFiltradasSelecionadas =
@@ -1249,28 +1265,30 @@ export default function FaturasTransportadorasPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3 w-full xl:max-w-[1100px]">
-            <select
-              value={filtroTransportadora}
-              onChange={(e) => setFiltroTransportadora(e.target.value)}
-            >
-              <option value="TODAS">Transportadora: todas</option>
-              <option value="DHL">DHL</option>
-              <option value="FedEx">FedEx</option>
-              <option value="KPM">KPM</option>
-              <option value="CLIPPER">CLIPPER</option>
-            </select>
+            <MultiFiltro
+              titulo="Transportadora"
+              opcoes={[
+                { valor: 'DHL', label: 'DHL' },
+                { valor: 'FedEx', label: 'FedEx' },
+                { valor: 'KPM', label: 'KPM' },
+                { valor: 'CLIPPER', label: 'CLIPPER' },
+              ]}
+              selecionados={filtroTransportadoras}
+              onChange={setFiltroTransportadoras}
+            />
 
-            <select
-              value={filtroSituacao}
-              onChange={(e) => setFiltroSituacao(e.target.value)}
-            >
-              <option value="TODAS">Situação: todas</option>
-              <option value="EM ABERTO">Em aberto</option>
-              <option value="VENCIDA">Vencida</option>
-              <option value="PAGA">Paga</option>
-              <option value="CONTESTADA">Contestada</option>
-              <option value="FATURA CANCELADA">Fatura cancelada</option>
-            </select>
+            <MultiFiltro
+              titulo="Situação"
+              opcoes={[
+                { valor: 'EM ABERTO', label: 'Em aberto' },
+                { valor: 'VENCIDA', label: 'Vencida' },
+                { valor: 'PAGA', label: 'Paga' },
+                { valor: 'CONTESTADA', label: 'Contestada' },
+                { valor: 'FATURA CANCELADA', label: 'Fatura cancelada' },
+              ]}
+              selecionados={filtroSituacoes}
+              onChange={setFiltroSituacoes}
+            />
 
             <select
               value={filtroArquivadas}
@@ -1493,6 +1511,78 @@ export default function FaturasTransportadorasPage() {
         )}
       </section>
     </main>
+  )
+}
+
+
+function MultiFiltro({
+  titulo,
+  opcoes,
+  selecionados,
+  onChange,
+}: {
+  titulo: string
+  opcoes: { valor: string; label: string }[]
+  selecionados: string[]
+  onChange: (valores: string[]) => void
+}) {
+  function alternar(valor: string) {
+    if (selecionados.includes(valor)) {
+      onChange(selecionados.filter((item) => item !== valor))
+      return
+    }
+
+    onChange([...selecionados, valor])
+  }
+
+  const resumo =
+    selecionados.length === 0
+      ? `${titulo}: todos`
+      : selecionados.length === 1
+        ? `${titulo}: ${opcoes.find((opcao) => opcao.valor === selecionados[0])?.label || selecionados[0]}`
+        : `${titulo}: ${selecionados.length} selecionados`
+
+  return (
+    <details className="relative group">
+      <summary className="list-none cursor-pointer select-none border border-blue-900 bg-[#020817] rounded-xl px-4 py-3 font-bold text-white flex items-center justify-between gap-3">
+        <span className="truncate">{resumo}</span>
+        <span className="text-slate-400 group-open:rotate-180 transition">⌄</span>
+      </summary>
+
+      <div className="absolute z-30 mt-2 w-full min-w-[240px] rounded-2xl border border-blue-900 bg-[#020817] p-3 shadow-2xl">
+        <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+          {opcoes.map((opcao) => {
+            const ativo = selecionados.includes(opcao.valor)
+
+            return (
+              <label
+                key={opcao.valor}
+                className={
+                  ativo
+                    ? 'flex items-center gap-3 rounded-xl border border-blue-500 bg-blue-600/20 px-3 py-2 font-bold text-white cursor-pointer'
+                    : 'flex items-center gap-3 rounded-xl border border-blue-900 bg-[#071225] px-3 py-2 font-bold text-slate-300 hover:border-blue-500 cursor-pointer'
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={ativo}
+                  onChange={() => alternar(opcao.valor)}
+                />
+                {opcao.label}
+              </label>
+            )
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onChange([])}
+          className="mt-3 w-full bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-xl font-bold text-xs"
+        >
+          Limpar {titulo.toLowerCase()}
+        </button>
+      </div>
+    </details>
   )
 }
 
