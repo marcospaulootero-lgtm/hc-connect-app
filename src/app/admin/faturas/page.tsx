@@ -122,6 +122,14 @@ type ClienteFaturamento = {
   ativo?: boolean | null
 }
 
+type PerfilCliente = {
+  id: string
+  nome?: string | null
+  email?: string | null
+  tipo_acesso?: string | null
+  ativo?: boolean | null
+}
+
 type ItemFaturaServico = {
   id: string
   descricao: string
@@ -157,9 +165,13 @@ export default function FaturasPage() {
 
   const [abaAtiva, setAbaAtiva] = useState<AbaFaturasAdmin>('FATURAS')
   const [clientesFaturamento, setClientesFaturamento] = useState<ClienteFaturamento[]>([])
+  const [usuariosPortal, setUsuariosPortal] = useState<PerfilCliente[]>([])
   const [buscaEmissorAwb, setBuscaEmissorAwb] = useState('')
+  const [buscaClienteEmissor, setBuscaClienteEmissor] = useState('')
+  const [buscaUsuarioEmissor, setBuscaUsuarioEmissor] = useState('')
   const [emissorEmbarqueId, setEmissorEmbarqueId] = useState('')
   const [emissorClienteId, setEmissorClienteId] = useState('')
+  const [emissorUsuarioId, setEmissorUsuarioId] = useState('')
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
@@ -324,6 +336,18 @@ export default function FaturasPage() {
     }
 
     setClientesFaturamento((clientesFaturamentoData as ClienteFaturamento[]) || [])
+
+    const { data: usuariosPortalData, error: erroUsuariosPortal } = await supabase
+      .from('perfis')
+      .select('id, nome, email, tipo_acesso, ativo')
+      .neq('tipo_acesso', 'admin')
+      .order('nome', { ascending: true })
+
+    if (erroUsuariosPortal) {
+      console.log('ERRO USUÁRIOS PORTAL:', erroUsuariosPortal)
+    }
+
+    setUsuariosPortal(((usuariosPortalData as PerfilCliente[]) || []).filter((item) => item.ativo !== false))
 
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
@@ -660,6 +684,8 @@ export default function FaturasPage() {
   }
 
   const embarquesFiltrados = useMemo(() => {
+    if (abaAtiva !== 'FATURAS') return []
+
     return embarques.filter((e) => {
       const fatura = faturaDoEmbarque(e.id)
       const financeiro = financeiroDoEmbarque(e)
@@ -721,6 +747,7 @@ export default function FaturasPage() {
       )
     })
   }, [
+    abaAtiva,
     embarques,
     faturas,
     financeiros,
@@ -732,25 +759,60 @@ export default function FaturasPage() {
     filtroArquivamento,
   ])
 
-  const faturasAtivas = faturas.filter((f) => !f.arquivado_admin)
-  const totalComFatura = faturasAtivas.filter((f) => f.arquivo_pdf).length
-  const totalVisiveis = faturasAtivas.filter((f) => f.visivel_cliente).length
-  const totalRecibos = faturasAtivas.filter((f) => f.recibo_pdf).length
-  const totalSemFatura = embarques.filter((e) => !faturaDoEmbarque(e.id)?.arquivo_pdf).length
-  const totalFaturasArquivadas = faturas.filter((f) => f.arquivado_admin).length
+  const resumoFaturasAdmin = useMemo(() => {
+    if (abaAtiva !== 'FATURAS') {
+      return {
+        totalComFatura: 0,
+        totalVisiveis: 0,
+        totalRecibos: 0,
+        totalSemFatura: 0,
+        totalFaturasArquivadas: 0,
+        totalPagos: 0,
+        totalAtrasados: 0,
+        totalEmAberto: 0,
+        totalSemFinanceiro: 0,
+        statusDisponiveis: [] as any[],
+      }
+    }
 
-  const pagamentosFinanceiros = embarques.map((e) => ({
-    embarque: e,
-    fatura: faturaDoEmbarque(e.id),
-    financeiro: financeiroDoEmbarque(e),
-    pagamento: statusPagamentoFinanceiro(financeiroDoEmbarque(e)),
-  }))
+    const faturasAtivas = faturas.filter((f) => !f.arquivado_admin)
+    const pagamentosFinanceiros = embarques.map((e) => {
+      const financeiro = financeiroDoEmbarque(e)
 
-  const totalPagos = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'PAGO').length
-  const totalAtrasados = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'ATRASADO').length
-  const totalEmAberto = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'EM_ABERTO').length
-  const totalSemFinanceiro = pagamentosFinanceiros.filter((item) => item.pagamento.status === 'SEM_FINANCEIRO').length
-  const statusDisponiveis = statusOperacionaisDisponiveis()
+      return {
+        embarque: e,
+        fatura: faturaDoEmbarque(e.id),
+        financeiro,
+        pagamento: statusPagamentoFinanceiro(financeiro),
+      }
+    })
+
+    return {
+      totalComFatura: faturasAtivas.filter((f) => f.arquivo_pdf).length,
+      totalVisiveis: faturasAtivas.filter((f) => f.visivel_cliente).length,
+      totalRecibos: faturasAtivas.filter((f) => f.recibo_pdf).length,
+      totalSemFatura: embarques.filter((e) => !faturaDoEmbarque(e.id)?.arquivo_pdf).length,
+      totalFaturasArquivadas: faturas.filter((f) => f.arquivado_admin).length,
+      totalPagos: pagamentosFinanceiros.filter((item) => item.pagamento.status === 'PAGO').length,
+      totalAtrasados: pagamentosFinanceiros.filter((item) => item.pagamento.status === 'ATRASADO').length,
+      totalEmAberto: pagamentosFinanceiros.filter((item) => item.pagamento.status === 'EM_ABERTO').length,
+      totalSemFinanceiro: pagamentosFinanceiros.filter((item) => item.pagamento.status === 'SEM_FINANCEIRO').length,
+      statusDisponiveis: statusOperacionaisDisponiveis(),
+    }
+  }, [abaAtiva, embarques, faturas, financeiros])
+
+  const {
+    totalComFatura,
+    totalVisiveis,
+    totalRecibos,
+    totalSemFatura,
+    totalFaturasArquivadas,
+    totalPagos,
+    totalAtrasados,
+    totalEmAberto,
+    totalSemFinanceiro,
+    statusDisponiveis,
+  } = resumoFaturasAdmin
 
   function abrirFormulario(embarque: Embarque) {
     const fatura = faturaDoEmbarque(embarque.id)
@@ -1026,6 +1088,10 @@ export default function FaturasPage() {
     return clientesFaturamento.find((item) => item.id === emissorClienteId) || null
   }, [clientesFaturamento, emissorClienteId])
 
+  const emissorUsuarioSelecionado = useMemo(() => {
+    return usuariosPortal.find((item) => item.id === emissorUsuarioId) || null
+  }, [usuariosPortal, emissorUsuarioId])
+
   const embarquesDisponiveisEmissor = useMemo(() => {
     const termo = normalizarTexto(buscaEmissorAwb)
 
@@ -1049,6 +1115,60 @@ export default function FaturasPage() {
       .slice(0, 120)
   }, [embarques, buscaEmissorAwb])
 
+  const clientesFaturamentoEmissor = useMemo(() => {
+    const termo = normalizarTexto(buscaClienteEmissor)
+    const clienteSelecionado = clientesFaturamento.find((item) => item.id === emissorClienteId) || null
+
+    const filtrados = clientesFaturamento
+      .filter((cliente) => {
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${cliente.codigo_hc || ''}
+          ${cliente.nome_empresa || ''}
+          ${cliente.cnpj || ''}
+          ${cliente.cpf || ''}
+          ${cliente.cidade || ''}
+          ${cliente.estado || ''}
+          ${cliente.email || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 120)
+
+    if (clienteSelecionado && !filtrados.some((item) => item.id === clienteSelecionado.id)) {
+      return [clienteSelecionado, ...filtrados.slice(0, 119)]
+    }
+
+    return filtrados
+  }, [clientesFaturamento, buscaClienteEmissor, emissorClienteId])
+
+  const usuariosPortalEmissor = useMemo(() => {
+    const termo = normalizarTexto(buscaUsuarioEmissor)
+    const usuarioSelecionado = usuariosPortal.find((item) => item.id === emissorUsuarioId) || null
+
+    const filtrados = usuariosPortal
+      .filter((usuario) => {
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${usuario.nome || ''}
+          ${usuario.email || ''}
+          ${usuario.tipo_acesso || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 120)
+
+    if (usuarioSelecionado && !filtrados.some((item) => item.id === usuarioSelecionado.id)) {
+      return [usuarioSelecionado, ...filtrados.slice(0, 119)]
+    }
+
+    return filtrados
+  }, [usuariosPortal, buscaUsuarioEmissor, emissorUsuarioId])
+
   const totaisEmissor = useMemo(() => {
     return itensFatura.reduce(
       (acc, item) => {
@@ -1061,6 +1181,22 @@ export default function FaturasPage() {
       { totalUSD: 0, totalBRL: 0 }
     )
   }, [itensFatura])
+
+  function taxaConversaoFinal(ptaxValor = emissorTaxaConversao, spreadValor = emissorSpread) {
+    const ptax = numero(ptaxValor)
+    const spread = numero(spreadValor)
+
+    if (ptax <= 0) return 0
+
+    return ptax * (1 + spread / 100)
+  }
+
+  function taxaConversaoFinalFormatada(ptaxValor = emissorTaxaConversao, spreadValor = emissorSpread) {
+    const taxa = taxaConversaoFinal(ptaxValor, spreadValor)
+    if (taxa <= 0) return '-'
+
+    return taxa.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+  }
 
   function gerarNumeroFaturaSugerido(embarque?: Embarque | null) {
     const data = new Date()
@@ -1087,6 +1223,9 @@ export default function FaturasPage() {
     setEmissorNumeroFatura(numeroAtual)
     setEmissorVencimento(vencimento)
     setEmissorTaxaConversao(taxa ? String(taxa).replace('.', ',') : '')
+    setEmissorUsuarioId(embarque.usuario_id || '')
+
+    const taxaFinal = taxaConversaoFinal(taxa ? String(taxa).replace('.', ',') : '', emissorSpread)
 
     setItensFatura((atuais) =>
       atuais.map((item) => {
@@ -1095,7 +1234,7 @@ export default function FaturasPage() {
         return {
           ...item,
           selecionado: valor > 0,
-          valor_usd: taxa > 0 && valor > 0 ? formatarNumeroInput(valor / taxa) : '',
+          valor_usd: taxaFinal > 0 && valor > 0 ? formatarNumeroInput(valor / taxaFinal) : '',
           valor_brl: valor > 0 ? formatarNumeroInput(valor) : '',
           observacao: embarque.transportadora || '',
         }
@@ -1114,7 +1253,7 @@ export default function FaturasPage() {
         } as ItemFaturaServico
 
         if (campo === 'valor_usd') {
-          const taxa = numero(emissorTaxaConversao)
+          const taxa = taxaConversaoFinal()
           const valorUsd = numero(valor)
           if (taxa > 0 && valorUsd > 0) {
             atualizado.valor_brl = formatarNumeroInput(valorUsd * taxa)
@@ -1129,7 +1268,26 @@ export default function FaturasPage() {
   function recalcularItensPorTaxa(novaTaxa: string) {
     setEmissorTaxaConversao(novaTaxa)
 
-    const taxa = numero(novaTaxa)
+    const taxa = taxaConversaoFinal(novaTaxa, emissorSpread)
+    if (taxa <= 0) return
+
+    setItensFatura((atuais) =>
+      atuais.map((item) => {
+        const valorUsd = numero(item.valor_usd)
+        if (!item.selecionado || valorUsd <= 0) return item
+
+        return {
+          ...item,
+          valor_brl: formatarNumeroInput(valorUsd * taxa),
+        }
+      })
+    )
+  }
+
+  function recalcularItensPorSpread(novoSpread: string) {
+    setEmissorSpread(novoSpread)
+
+    const taxa = taxaConversaoFinal(emissorTaxaConversao, novoSpread)
     if (taxa <= 0) return
 
     setItensFatura((atuais) =>
@@ -1147,8 +1305,11 @@ export default function FaturasPage() {
 
   function limparEmissor() {
     setBuscaEmissorAwb('')
+    setBuscaClienteEmissor('')
+    setBuscaUsuarioEmissor('')
     setEmissorEmbarqueId('')
     setEmissorClienteId('')
+    setEmissorUsuarioId('')
     setEmissorNumeroFatura('')
     setEmissorVencimento('')
     setEmissorTaxaConversao('')
@@ -1228,9 +1389,46 @@ export default function FaturasPage() {
     }
   }
 
+  async function garantirLoginVinculadoAoEmbarque() {
+    if (!emissorEmbarqueSelecionado || !emissorUsuarioId) return
+
+    if (!emissorEmbarqueSelecionado.usuario_id) {
+      await supabase
+        .from('embarques')
+        .update({ usuario_id: emissorUsuarioId })
+        .eq('id', emissorEmbarqueSelecionado.id)
+    }
+
+    const { data: vinculoExistente, error: erroConsultaVinculo } = await supabase
+      .from('embarque_clientes')
+      .select('*')
+      .eq('embarque_id', emissorEmbarqueSelecionado.id)
+      .eq('usuario_id', emissorUsuarioId)
+      .limit(1)
+
+    if (erroConsultaVinculo) {
+      console.log('Não foi possível consultar vínculo do embarque com o login:', erroConsultaVinculo)
+      return
+    }
+
+    if (vinculoExistente && vinculoExistente.length > 0) return
+
+    const { error: erroInserirVinculo } = await supabase
+      .from('embarque_clientes')
+      .insert([{
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId,
+      }])
+
+    if (erroInserirVinculo) {
+      console.log('Não foi possível vincular embarque ao login do cliente:', erroInserirVinculo)
+    }
+  }
+
   async function gerarPdfFaturaHC() {
     if (!emissorEmbarqueSelecionado) return alert('Selecione o embarque/AWB primeiro.')
     if (!emissorClienteSelecionado) return alert('Selecione o cliente de faturamento.')
+    if (emissorVisivelCliente && !emissorUsuarioId) return alert('Selecione o login do cliente que visualizará a fatura no portal.')
     if (!emissorNumeroFatura.trim()) return alert('Informe o número da fatura.')
     if (!emissorVencimento) return alert('Informe o vencimento da fatura.')
     if (itensSelecionadosFatura().length === 0 || totaisEmissor.totalBRL <= 0) {
@@ -1241,9 +1439,16 @@ export default function FaturasPage() {
 
     try {
       const jsPDFModule = await import('jspdf')
-      await import('jspdf-autotable')
+      const autoTableModule = await import('jspdf-autotable')
 
-      const pdf = new jsPDFModule.default({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
+      const jsPDF = (jsPDFModule as any).jsPDF || (jsPDFModule as any).default
+      const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable
+
+      if (!jsPDF || !autoTable) {
+        throw new Error('Biblioteca de PDF não carregou corretamente. Rode npm install jspdf jspdf-autotable e publique novamente.')
+      }
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 32
       const larguraPagina = pdf.internal.pageSize.getWidth()
       const itens = itensSelecionadosFatura()
@@ -1305,7 +1510,7 @@ export default function FaturasPage() {
         item.valor_brl > 0 ? moeda(item.valor_brl) : '-',
       ])
 
-      pdf.autoTable({
+      autoTable(pdf, {
         startY: 260,
         head: [['SERVIÇO', 'OBSERVAÇÃO', 'VALOR USD', 'VALOR R$']],
         body: linhas,
@@ -1345,7 +1550,7 @@ export default function FaturasPage() {
       pdf.setFont('helvetica', 'bold')
       pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
       pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
-      pdf.text(`R$ ${emissorTaxaConversao || '-'}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
 
       const yBanco = yTaxa + 30
       pdf.setFillColor(45, 119, 183)
@@ -1398,7 +1603,7 @@ export default function FaturasPage() {
 
       const payloadFatura: any = {
         embarque_id: emissorEmbarqueSelecionado.id,
-        usuario_id: emissorEmbarqueSelecionado.usuario_id || null,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
         numero_fatura: emissorNumeroFatura || null,
         arquivo_pdf: urlPdf,
         visivel_cliente: emissorVisivelCliente,
@@ -1408,7 +1613,7 @@ export default function FaturasPage() {
         itens_fatura: itensSelecionadosFatura(),
         valor_total: totaisEmissor.totalBRL,
         valor_usd: totaisEmissor.totalUSD,
-        taxa_conversao: numero(emissorTaxaConversao),
+        taxa_conversao: taxaConversaoFinal(),
         spread: numero(emissorSpread),
         vencimento: emissorVencimento || null,
       }
@@ -1421,9 +1626,10 @@ export default function FaturasPage() {
         if (error) throw new Error(error.message)
       }
 
+      await garantirLoginVinculadoAoEmbarque()
       await salvarFinanceiroDaFatura(urlPdf)
 
-      alert('Fatura emitida, salva, vinculada ao AWB e lançada em Processos Faturados.')
+      alert('Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.')
       limparEmissor()
       setAbaAtiva('FATURAS')
       carregar()
@@ -1442,6 +1648,7 @@ export default function FaturasPage() {
     const cliente = emissorClienteSelecionado
     const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
     const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
 
     return (
       <section className="space-y-6">
@@ -1507,18 +1714,64 @@ export default function FaturasPage() {
             <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
               <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
 
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
               <select
                 value={emissorClienteId}
                 onChange={(e) => setEmissorClienteId(e.target.value)}
                 className="w-full"
               >
                 <option value="">Selecione o cliente fiscal</option>
-                {clientesFaturamento.map((item) => (
+                {clientesFaturamentoEmissor.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
                   </option>
                 ))}
               </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Mostrando até 120 cadastros para deixar a digitação rápida. Use a busca para filtrar.
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login que verá a fatura no portal
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Selecione o login do cliente</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Se a fatura for visível para o cliente, selecione o login para aparecer no portal.
+                  </p>
+                )}
+              </div>
 
               {dadosCliente ? (
                 <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
@@ -1555,17 +1808,31 @@ export default function FaturasPage() {
                   />
                 </label>
 
-                <input
-                  value={emissorTaxaConversao}
-                  onChange={(e) => recalcularItensPorTaxa(e.target.value)}
-                  placeholder="Taxa de conversão Ex.: 5,3295"
-                />
+                <label className="text-sm font-bold text-slate-300">
+                  PTAX base
+                  <input
+                    value={emissorTaxaConversao}
+                    onChange={(e) => recalcularItensPorTaxa(e.target.value)}
+                    placeholder="Ex.: 5,1743"
+                    className="mt-2 w-full"
+                  />
+                </label>
 
-                <input
-                  value={emissorSpread}
-                  onChange={(e) => setEmissorSpread(e.target.value)}
-                  placeholder="Spread %"
-                />
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">O USD é convertido usando PTAX + spread.</p>
+                </div>
 
                 <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
                   <input
