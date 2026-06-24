@@ -496,6 +496,46 @@ export default function FinanceiroPage() {
     return TIPOS_MOVIMENTACAO.find((item) => item.value === tipo)?.label || tipo
   }
 
+  function normalizarServicoFinanceiro(valor: any) {
+    const original = normalizarTexto(valor)
+    const texto = normalizarBusca(original)
+
+    if (!texto) return ''
+
+    if (texto.includes('IMPORTACAO COURIER')) return 'IMPORTAÇÃO COURIER'
+    if (texto.includes('EXPORTACAO COURIER')) return 'EXPORTAÇÃO COURIER'
+
+    // Importação simples, importação formal e formal são serviços diferentes.
+    // FORMAL é usado quando o processo é com agente de carga.
+    if (texto === 'IMPORTACAO FORMAL' || texto.includes('IMPORTACAO FORMAL')) {
+      return 'IMPORTAÇÃO FORMAL'
+    }
+
+    if (texto === 'EXPORTACAO FORMAL' || texto.includes('EXPORTACAO FORMAL')) {
+      return 'EXPORTAÇÃO FORMAL'
+    }
+
+    if (texto === 'IMPORTACAO') return 'IMPORTAÇÃO'
+    if (texto === 'EXPORTACAO') return 'EXPORTAÇÃO'
+    if (texto === 'FORMAL') return 'FORMAL'
+
+    if (texto.includes('DUE') || texto.includes('DRE')) return 'DUE / DRE'
+    if (texto.includes('DTA')) return 'DTA'
+    if (texto.includes('PRESTACAO DE CONTAS')) return 'PRESTAÇÃO DE CONTAS'
+    if (texto === 'COURIER') return 'COURIER'
+
+    return original.toUpperCase()
+  }
+
+  function filtraServicoMultipla(valores: string[], valor: any) {
+    return valores.length === 0 || valores.includes(normalizarServicoFinanceiro(valor))
+  }
+
+  function textoPeriodoFundo() {
+    if (filtroMesMovimento.length === 0) return `Ano ${anoFinanceiroAtivo()} inteiro`
+    return textoMesesSelecionados(filtroMesMovimento)
+  }
+
 
   function filtraMultipla(valores: string[], valor: any) {
     return valores.length === 0 || valores.includes(String(valor || ''))
@@ -510,7 +550,7 @@ export default function FinanceiroPage() {
   }
 
   function textoMesesSelecionados(valores: string[]) {
-    if (valores.length === 0) return 'Todos os meses'
+    if (valores.length === 0) return `Todos os meses de ${anoFinanceiroAtivo()}`
     if (valores.length > 3) return `${valores.length} meses selecionados`
     return valores.map((valor) => formatarMesVisual(valor)).join(', ')
   }
@@ -643,7 +683,7 @@ export default function FinanceiroPage() {
       awb: form.awb,
       fatura: form.fatura,
       transportadora: form.transportadora,
-      servico: form.servico,
+      servico: normalizarServicoFinanceiro(form.servico),
       valor_cobranca: numero(form.valor_cobranca),
       doc_dta: numero(form.doc_dta),
       debito_terceiro: numero(form.debito_terceiro),
@@ -771,7 +811,7 @@ export default function FinanceiroPage() {
       awb: item.awb || '',
       fatura: item.fatura || '',
       transportadora: item.transportadora || '',
-      servico: item.servico || '',
+      servico: normalizarServicoFinanceiro(item.servico) || item.servico || '',
       valor_cobranca: formatarValorParaForm(item.valor_cobranca),
       doc_dta: formatarValorParaForm(item.doc_dta),
       debito_terceiro: formatarValorParaForm(item.debito_terceiro),
@@ -1281,7 +1321,7 @@ export default function FinanceiroPage() {
               linha['NÚMERO DA FATURA']
           ),
           transportadora: normalizarTexto(linha['EMPRESA PRESTADORA DE SERVIÇO']),
-          servico: normalizarTexto(linha['SERVIÇO']),
+          servico: normalizarServicoFinanceiro(linha['SERVIÇO']),
           valor_cobranca: numero(linha['VALOR DO FATURAMENTO']),
           doc_dta: numero(linha['DELIVER FEE DOC / DTA / IMPOSTOS/ DUE']),
           debito_terceiro: numero(linha['PROFIT TERCEIROS']),
@@ -1727,7 +1767,12 @@ export default function FinanceiroPage() {
 
   const servicos = useMemo(() => {
     return [
-      ...new Set(lancamentos.filter(lancamentoAnoSelecionado).map((item) => item.servico).filter(Boolean)),
+      ...new Set(
+        lancamentos
+          .filter(lancamentoAnoSelecionado)
+          .map((item) => normalizarServicoFinanceiro(item.servico))
+          .filter(Boolean)
+      ),
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
   }, [lancamentos, anoFinanceiro])
 
@@ -1777,7 +1822,7 @@ export default function FinanceiroPage() {
         })
       const passaTransportadora = filtraMultipla(filtroTransportadora, item.transportadora)
       const passaDespachante = filtraMultipla(filtroDespachante, item.despachante)
-      const passaServico = filtraMultipla(filtroServico, item.servico)
+      const passaServico = filtraServicoMultipla(filtroServico, item.servico)
 
       return (
         passaAno &&
@@ -2137,7 +2182,7 @@ export default function FinanceiroPage() {
           mes: (item.mes_profit || mesDaData(item.recebimento) || mesDaData(item.vencimento_cobranca) || '').slice(0, 7),
           tipo: 'RECEBIMENTO_PROCESSO',
           tipoLabel: 'Recebimento de processo',
-          categoria: item.servico || 'Processo faturado',
+          categoria: normalizarServicoFinanceiro(item.servico) || 'Processo faturado',
           descricao: `${item.cliente || 'Cliente'}${item.awb ? ` - AWB ${item.awb}` : ''}${item.fatura ? ` - Fatura ${item.fatura}` : ''}`,
           socio: '',
           entrada: Number(item.valor_cobranca || 0),
@@ -2736,7 +2781,7 @@ export default function FinanceiroPage() {
             item.awb || '-',
             item.fatura || '-',
             item.transportadora || '-',
-            item.servico || '-',
+            normalizarServicoFinanceiro(item.servico) || '-',
             moeda(item.valor_cobranca),
             moeda(item.doc_dta),
             moeda(item.debito_terceiro),
@@ -3781,7 +3826,7 @@ export default function FinanceiroPage() {
                           <Td>{item.awb}</Td>
                           <Td>{item.fatura || '-'}</Td>
                           <Td>{item.transportadora}</Td>
-                          <Td>{item.servico}</Td>
+                          <Td>{normalizarServicoFinanceiro(item.servico) || '-'}</Td>
                           <Td>{moeda(item.valor_cobranca)}</Td>
                           <Td>{moeda(item.doc_dta)}</Td>
                           <Td>{moeda(item.debito_terceiro)}</Td>
@@ -3825,27 +3870,34 @@ export default function FinanceiroPage() {
 
       {abaPrincipal === 'FUNDO' && (
         <>
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+          <section className="grid grid-cols-1 lg:grid-cols-4 gap-5 mb-5">
             <BigCard
               titulo="FUNDO DE CAIXA ATUAL"
               valor={moeda(resultadoGeral.fundoAtual)}
-              subtitulo="Entradas menos saídas pagas no fundo"
+              subtitulo={`Saldo acumulado de ${anoFinanceiroAtivo()}`}
               icone="🏦"
               classe="bg-blue-50 border-blue-200 text-blue-700"
             />
             <BigCard
-              titulo="ENTRADAS NO MÊS"
+              titulo="ENTRADAS DO PERÍODO"
               valor={moeda(resumoFundoFiltro.entradas)}
-              subtitulo={textoMesesSelecionados(filtroMesMovimento)}
+              subtitulo={textoPeriodoFundo()}
               icone="⬆️"
               classe="bg-green-50 border-green-200 text-green-700"
             />
             <BigCard
-              titulo="SAÍDAS NO MÊS"
+              titulo="SAÍDAS DO PERÍODO"
               valor={moeda(resumoFundoFiltro.saidas)}
-              subtitulo={textoMesesSelecionados(filtroMesMovimento)}
+              subtitulo={textoPeriodoFundo()}
               icone="⬇️"
               classe="bg-red-50 border-red-200 text-red-700"
+            />
+            <BigCard
+              titulo="SALDO DO PERÍODO"
+              valor={moeda(resumoFundoFiltro.saldoPeriodo)}
+              subtitulo="Entradas - saídas + ajustes"
+              icone={resumoFundoFiltro.saldoPeriodo >= 0 ? '✅' : '⚠️'}
+              classe={resumoFundoFiltro.saldoPeriodo >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
             />
           </section>
 
