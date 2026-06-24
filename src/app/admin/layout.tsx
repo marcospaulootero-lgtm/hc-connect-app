@@ -207,6 +207,14 @@ function MenuContent({ pathname }: { pathname: string | null }) {
         />
 
         <MenuItem
+          href="/admin/clientes-faturamento"
+          label="Clientes Faturamento"
+          descricao="Dados fiscais para emissão"
+          icon="🏢"
+          pathname={pathname}
+        />
+
+        <MenuItem
           href="/admin/clientes/performance"
           label="Ranking de Clientes"
           descricao="Ticket médio e faturamento"
