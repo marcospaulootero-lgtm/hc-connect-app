@@ -19,6 +19,7 @@ export default function DetalheEmbarquePage() {
   const [rastreioReal, setRastreioReal] = useState<any[]>([])
   const [documentos, setDocumentos] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
+  const [tipoDocumentoUpload, setTipoDocumentoUpload] = useState('DOCUMENTO_GERAL')
   const [atualizandoRastreio, setAtualizandoRastreio] = useState(false)
 
   const [editandoStatus, setEditandoStatus] = useState(false)
@@ -91,6 +92,43 @@ export default function DetalheEmbarquePage() {
   function nomeUsuario(usuarioId: string) {
     const usuario = usuarios.find((item) => item.id === usuarioId)
     return usuario?.nome || usuario?.email || 'Não vinculado'
+  }
+
+  function normalizarDocumento(valor: any) {
+    return String(valor || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  }
+
+  function documentoEhConhecimento(documento: any) {
+    const texto = normalizarDocumento(`${documento?.nome || ''} ${documento?.url || ''} ${documento?.caminho || ''}`)
+
+    return (
+      texto.includes('conhecimento') ||
+      texto.includes('bill-of-lading') ||
+      texto.includes('waybill') ||
+      texto.includes('awb')
+    )
+  }
+
+  function nomeSeguroArquivo(nome: string) {
+    const seguro = String(nome || 'arquivo')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+
+    return seguro || 'arquivo'
+  }
+
+  function nomeDocumentoUpload(file: File) {
+    if (tipoDocumentoUpload === 'CONHECIMENTO_EMBARQUE') {
+      return `Conhecimento de Embarque - ${file.name}`
+    }
+
+    return file.name
   }
 
   function linkRastreio() {
@@ -264,7 +302,8 @@ export default function DetalheEmbarquePage() {
 
     setUploading(true)
 
-    const nomeArquivo = `${embarque.id}/${Date.now()}-${file.name}`
+    const pasta = tipoDocumentoUpload === 'CONHECIMENTO_EMBARQUE' ? 'conhecimento-embarque' : 'documentos'
+    const nomeArquivo = `${embarque.id}/${pasta}/${Date.now()}-${nomeSeguroArquivo(file.name)}`
 
     const { error } = await supabase.storage
       .from('documentos')
@@ -285,7 +324,7 @@ export default function DetalheEmbarquePage() {
       .from('documentos_embarques')
       .insert({
         embarque_id: embarque.id,
-        nome: file.name,
+        nome: nomeDocumentoUpload(file),
         url: data.publicUrl,
         caminho: nomeArquivo,
       })
@@ -312,14 +351,21 @@ export default function DetalheEmbarquePage() {
     await supabase.from('timeline_embarques').insert({
       embarque_id: embarque.id,
       status: 'DOCUMENTO',
-      descricao: `Documento enviado: ${file.name}`,
+      descricao:
+        tipoDocumentoUpload === 'CONHECIMENTO_EMBARQUE'
+          ? `Conhecimento de Embarque enviado: ${file.name}`
+          : `Documento enviado: ${file.name}`,
     })
 
     e.target.value = ''
     setUploading(false)
     await carregar()
 
-    alert('Arquivo enviado com sucesso')
+    alert(
+      tipoDocumentoUpload === 'CONHECIMENTO_EMBARQUE'
+        ? 'Conhecimento de Embarque enviado com sucesso e disponível para o cliente.'
+        : 'Arquivo enviado com sucesso'
+    )
   }
 
   async function excluirDocumento(documento: any) {
@@ -857,11 +903,26 @@ export default function DetalheEmbarquePage() {
             </p>
           </div>
 
-          <label className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold cursor-pointer">
-            {uploading ? 'Enviando...' : 'Enviar documento'}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <select
+              value={tipoDocumentoUpload}
+              onChange={(e) => setTipoDocumentoUpload(e.target.value)}
+              className="bg-[#020817] border border-blue-900 text-white px-4 py-3 rounded-xl font-bold"
+            >
+              <option value="DOCUMENTO_GERAL">Documento geral</option>
+              <option value="CONHECIMENTO_EMBARQUE">Conhecimento de Embarque</option>
+            </select>
 
-            <input type="file" className="hidden" onChange={uploadArquivo} disabled={uploading} />
-          </label>
+            <label className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold cursor-pointer">
+              {uploading
+                ? 'Enviando...'
+                : tipoDocumentoUpload === 'CONHECIMENTO_EMBARQUE'
+                  ? 'Enviar conhecimento'
+                  : 'Enviar documento'}
+
+              <input type="file" className="hidden" onChange={uploadArquivo} disabled={uploading} />
+            </label>
+          </div>
         </div>
 
         {documentos.length === 0 ? (
@@ -876,7 +937,17 @@ export default function DetalheEmbarquePage() {
                 className="border border-blue-900 bg-[#020817] rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
               >
                 <div>
-                  <p className="font-black text-white break-all">📎 {documento.nome}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-black text-white break-all">
+                      {documentoEhConhecimento(documento) ? '📄 Conhecimento de Embarque' : `📎 ${documento.nome}`}
+                    </p>
+
+                    {documentoEhConhecimento(documento) && (
+                      <span className="rounded-full border border-green-500 bg-green-500/10 px-3 py-1 text-xs font-black text-green-300">
+                        Visível para cliente
+                      </span>
+                    )}
+                  </div>
                   <p className="text-slate-500 text-sm mt-1">
                     Enviado em{' '}
                     {documento.criado_em

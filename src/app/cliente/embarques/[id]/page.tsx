@@ -89,7 +89,14 @@ export default function DetalheCliente() {
       )
     })
 
-    setDocumentos(documentosSemFatura)
+    const documentosOrdenados = documentosSemFatura.sort((a, b) => {
+      const aConhecimento = documentoEhConhecimento(a) ? 1 : 0
+      const bConhecimento = documentoEhConhecimento(b) ? 1 : 0
+
+      return bConhecimento - aConhecimento
+    })
+
+    setDocumentos(documentosOrdenados)
 
     const { data: timelineData, error: timelineError } = await supabase
       .from('timeline_embarques')
@@ -191,6 +198,24 @@ export default function DetalheCliente() {
     } finally {
       setEnviandoComprovante((prev) => ({ ...prev, [fatura.id]: false }))
     }
+  }
+
+  function normalizarDocumento(valor: any) {
+    return String(valor || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  }
+
+  function documentoEhConhecimento(documento: any) {
+    const texto = normalizarDocumento(`${documento?.nome || ''} ${documento?.url || ''} ${documento?.caminho || ''}`)
+
+    return (
+      texto.includes('conhecimento') ||
+      texto.includes('bill-of-lading') ||
+      texto.includes('waybill') ||
+      texto.includes('awb')
+    )
   }
 
   function linkRastreio() {
@@ -544,12 +569,22 @@ export default function DetalheCliente() {
                   documentos.map((doc) => (
                     <a key={doc.id} href={doc.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between gap-4 border border-blue-900 rounded-2xl p-5 bg-[#020817] hover:border-blue-500 transition">
                       <div>
-                        <h3 className="font-bold break-all">{doc.nome}</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-bold break-all">
+                            {documentoEhConhecimento(doc) ? '📄 Conhecimento de Embarque' : doc.nome}
+                          </h3>
+
+                          {documentoEhConhecimento(doc) && (
+                            <span className="rounded-full border border-green-500 bg-green-500/10 px-3 py-1 text-xs font-black text-green-300">
+                              Documento principal
+                            </span>
+                          )}
+                        </div>
                         <p className="text-slate-500 text-sm mt-1">Enviado em {dataHoraBR(doc.criado_em)}</p>
                       </div>
 
                       <span className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap">
-                        Abrir
+                        {documentoEhConhecimento(doc) ? 'Abrir conhecimento' : 'Abrir'}
                       </span>
                     </a>
                   ))

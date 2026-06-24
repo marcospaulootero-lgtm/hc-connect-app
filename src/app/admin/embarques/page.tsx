@@ -66,6 +66,8 @@ export default function EmbarquesPage() {
 
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<any>(null)
+  const [conhecimentoEmbarque, setConhecimentoEmbarque] = useState<File | null>(null)
+  const [salvandoEmbarque, setSalvandoEmbarque] = useState(false)
 
   const formInicial = {
     usuarios_ids: [] as string[],
@@ -104,6 +106,70 @@ export default function EmbarquesPage() {
   function numero(valor: any) {
     if (valor === null || valor === undefined || valor === '') return null
     return Number(String(valor).replace(',', '.'))
+  }
+
+  function nomeSeguroArquivo(nome: string) {
+    const partes = String(nome || 'arquivo')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+
+    return partes || 'arquivo'
+  }
+
+  async function anexarConhecimentoEmbarque(embarqueId: string, arquivo: File) {
+    const nomeOriginal = arquivo.name || 'conhecimento-embarque.pdf'
+    const nomeArquivo = `${embarqueId}/conhecimento-embarque/${Date.now()}-${nomeSeguroArquivo(nomeOriginal)}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('documentos')
+      .upload(nomeArquivo, arquivo, {
+        cacheControl: '3600',
+        upsert: true,
+      })
+
+    if (uploadError) {
+      console.error('Erro upload conhecimento:', uploadError)
+      return uploadError.message
+    }
+
+    const { data: publicUrl } = supabase.storage
+      .from('documentos')
+      .getPublicUrl(nomeArquivo)
+
+    const nomeDocumento = `Conhecimento de Embarque - ${nomeOriginal}`
+
+    const { error: insertError } = await supabase
+      .from('documentos_embarques')
+      .insert({
+        embarque_id: embarqueId,
+        nome: nomeDocumento,
+        url: publicUrl.publicUrl,
+        caminho: nomeArquivo,
+      })
+
+    if (insertError) {
+      console.error('Erro documento conhecimento:', insertError)
+      return insertError.message
+    }
+
+    await supabase
+      .from('embarques')
+      .update({
+        documento_url: publicUrl.publicUrl,
+        ultima_atualizacao: new Date().toISOString(),
+      })
+      .eq('id', embarqueId)
+
+    await supabase.from('timeline_embarques').insert({
+      embarque_id: embarqueId,
+      status: 'CONHECIMENTO DE EMBARQUE',
+      descricao: `Conhecimento de Embarque anexado: ${nomeOriginal}`,
+    })
+
+    return null
   }
 
   function moeda(valor: any, moedaBase = 'USD') {
@@ -281,130 +347,158 @@ export default function EmbarquesPage() {
   }
 
   async function salvar() {
-  if (!form.awb) {
-    alert('Informe o AWB')
-    return
-  }
+    if (salvandoEmbarque) return
 
-  if (!form.servico || !form.origem || !form.destino) {
-    alert('Preencha serviço, origem e destino')
-    return
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    alert('Usuário administrador não identificado. Faça login novamente.')
-    return
-  }
-
-  const { data: perfilAdmin } = await supabase
-    .from('perfis')
-    .select('nome, email')
-    .eq('id', user.id)
-    .single()
-
-  const primeiroClienteId = form.usuarios_ids[0] || null
-  const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
-
-  const responsavel =
-    admins.find((a) => a.id === form.responsavel_id) || perfilAdmin
-
-  const responsavelId = form.responsavel_id || user.id
-  const servicosFinanceiros = servicosFinanceirosLista(form.servicos_financeiros)
-  const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
-
-  const { data, error } = await supabase
-    .from('embarques')
-    .insert([
-      {
-        usuario_id: primeiroClienteId,
-        empresa_id: primeiroCliente?.empresa_id || null,
-
-        criado_por_admin_id: user.id,
-        criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
-        criado_por_admin_email: perfilAdmin?.email || user.email || null,
-
-        responsavel_id: responsavelId,
-        responsavel_nome: responsavel?.nome || user.email || null,
-        responsavel_email: responsavel?.email || user.email || null,
-
-        exportador: form.exportador || null,
-        importador: form.importador || null,
-        referencia_cliente: form.referencia_cliente || null,
-        referencia_hc: form.referencia_hc || null,
-
-        awb: form.awb,
-        master: form.master || null,
-        data_master: form.master ? new Date().toISOString() : null,
-        transportadora: form.transportadora,
-        servico: form.servico,
-        origem: form.origem,
-        destino: form.destino,
-
-        peso_real: numero(form.peso_real),
-        peso_taxado: numero(form.peso_taxado),
-
-        valor_cobrado_cliente: totalFinanceiro || null,
-        moeda_cobranca: form.moeda_cobranca || 'USD',
-        taxa_conversao: null,
-        spread_percentual: null,
-        servicos_financeiros: servicosFinanceiros,
-
-        status_operacional: 'Aguardando coleta',
-        data_envio: null,
-        data_prevista: form.data_prevista || null,
-        ultima_atualizacao: new Date().toISOString(),
-        observacoes: form.observacoes || null,
-      },
-    ])
-    .select()
-    .single()
-
-  if (error) {
-    console.error('Erro Supabase:', error)
-    alert(error.message)
-    return
-  }
-
-  if (form.usuarios_ids.length > 0) {
-    const registros = form.usuarios_ids.map((clienteId) => ({
-      embarque_id: data.id,
-      cliente_id: clienteId,
-    }))
-
-    const { error: erroVinculos } = await supabase
-      .from('embarque_clientes')
-      .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
-
-    if (erroVinculos) {
-      alert(erroVinculos.message)
-      console.error('Erro vínculos:', erroVinculos)
+    if (!form.awb) {
+      alert('Informe o AWB')
       return
     }
-  }
 
-  try {
-    await fetch('/api/rastreio', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        embarque_id: data.id,
-      }),
-    })
-  } catch (erro) {
-    console.error('Erro ao atualizar rastreio inicial:', erro)
-  }
+    if (!form.servico || !form.origem || !form.destino) {
+      alert('Preencha serviço, origem e destino')
+      return
+    }
 
-  alert('Embarque salvo com sucesso')
-  setForm(formInicial)
-  setAbaTela('LISTAGEM')
-  carregar()
-}
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      alert('Usuário administrador não identificado. Faça login novamente.')
+      return
+    }
+
+    setSalvandoEmbarque(true)
+
+    try {
+      const { data: perfilAdmin } = await supabase
+        .from('perfis')
+        .select('nome, email')
+        .eq('id', user.id)
+        .single()
+
+      const primeiroClienteId = form.usuarios_ids[0] || null
+      const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
+
+      const responsavel =
+        admins.find((a) => a.id === form.responsavel_id) || perfilAdmin
+
+      const responsavelId = form.responsavel_id || user.id
+      const servicosFinanceiros = servicosFinanceirosLista(form.servicos_financeiros)
+      const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
+
+      const { data, error } = await supabase
+        .from('embarques')
+        .insert([
+          {
+            usuario_id: primeiroClienteId,
+            empresa_id: primeiroCliente?.empresa_id || null,
+
+            criado_por_admin_id: user.id,
+            criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
+            criado_por_admin_email: perfilAdmin?.email || user.email || null,
+
+            responsavel_id: responsavelId,
+            responsavel_nome: responsavel?.nome || user.email || null,
+            responsavel_email: responsavel?.email || user.email || null,
+
+            exportador: form.exportador || null,
+            importador: form.importador || null,
+            referencia_cliente: form.referencia_cliente || null,
+            referencia_hc: form.referencia_hc || null,
+
+            awb: form.awb,
+            master: form.master || null,
+            data_master: form.master ? new Date().toISOString() : null,
+            transportadora: form.transportadora,
+            servico: form.servico,
+            origem: form.origem,
+            destino: form.destino,
+
+            peso_real: numero(form.peso_real),
+            peso_taxado: numero(form.peso_taxado),
+
+            valor_cobrado_cliente: totalFinanceiro || null,
+            moeda_cobranca: form.moeda_cobranca || 'USD',
+            taxa_conversao: null,
+            spread_percentual: null,
+            servicos_financeiros: servicosFinanceiros,
+
+            status_operacional: 'Aguardando coleta',
+            data_envio: null,
+            data_prevista: form.data_prevista || null,
+            ultima_atualizacao: new Date().toISOString(),
+            observacoes: form.observacoes || null,
+          },
+        ])
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Erro Supabase:', error)
+        alert(error.message)
+        return
+      }
+
+      if (form.usuarios_ids.length > 0) {
+        const registros = form.usuarios_ids.map((clienteId) => ({
+          embarque_id: data.id,
+          cliente_id: clienteId,
+        }))
+
+        const { error: erroVinculos } = await supabase
+          .from('embarque_clientes')
+          .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
+
+        if (erroVinculos) {
+          alert(erroVinculos.message)
+          console.error('Erro vínculos:', erroVinculos)
+          return
+        }
+      }
+
+      let erroConhecimento: string | null = null
+
+      if (conhecimentoEmbarque) {
+        erroConhecimento = await anexarConhecimentoEmbarque(data.id, conhecimentoEmbarque)
+      }
+
+      try {
+        await fetch('/api/rastreio', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            embarque_id: data.id,
+          }),
+        })
+      } catch (erro) {
+        console.error('Erro ao atualizar rastreio inicial:', erro)
+      }
+
+      if (erroConhecimento) {
+        alert(
+          'Embarque salvo com sucesso, mas houve erro ao anexar o Conhecimento de Embarque.\n\n' +
+            erroConhecimento +
+            '\n\nVocê pode anexar o documento depois no detalhe do embarque.'
+        )
+      } else {
+        alert(
+          conhecimentoEmbarque
+            ? 'Embarque salvo com sucesso e Conhecimento de Embarque anexado para o cliente.'
+            : 'Embarque salvo com sucesso'
+        )
+      }
+
+      setForm(formInicial)
+      setConhecimentoEmbarque(null)
+      setAbaTela('LISTAGEM')
+      carregar()
+    } finally {
+      setSalvandoEmbarque(false)
+    }
+  }
 
   function abrirEdicao(item: any) {
     setEditandoId(item.id)
@@ -943,6 +1037,43 @@ export default function EmbarquesPage() {
             </Campo>
           </div>
 
+
+          <div className="md:col-span-2">
+            <label className="block text-slate-300 font-bold mb-2">
+              Conhecimento de Embarque
+            </label>
+
+            <label className="block border border-blue-900 bg-[#020817] rounded-2xl p-4 cursor-pointer hover:border-blue-500 transition">
+              <span className="block font-black text-blue-300">
+                📄 Anexar conhecimento
+              </span>
+              <span className="block text-xs text-slate-500 mt-1">
+                PDF, imagem ou documento. O cliente verá este arquivo no detalhe do embarque.
+              </span>
+
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                className="hidden"
+                onChange={(e) => setConhecimentoEmbarque(e.target.files?.[0] || null)}
+              />
+            </label>
+
+            {conhecimentoEmbarque && (
+              <div className="mt-3 rounded-xl border border-green-500/50 bg-green-500/10 px-4 py-3 text-sm text-green-300">
+                <p className="font-black">Arquivo selecionado</p>
+                <p className="break-all text-xs mt-1">{conhecimentoEmbarque.name}</p>
+                <button
+                  type="button"
+                  onClick={() => setConhecimentoEmbarque(null)}
+                  className="mt-2 text-xs font-black text-red-300 hover:text-red-200"
+                >
+                  Remover arquivo
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="md:col-span-5 mt-6 border-t border-blue-900 pt-6">
             <h3 className="text-2xl font-black text-green-400">
               Financeiro do Embarque
@@ -1029,9 +1160,10 @@ export default function EmbarquesPage() {
 
         <button
           onClick={salvar}
-          className="mt-6 bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          disabled={salvandoEmbarque}
+          className="mt-6 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed px-6 py-4 rounded-2xl font-bold"
         >
-          💾 Salvar embarque
+          {salvandoEmbarque ? 'Salvando...' : '💾 Salvar embarque'}
         </button>
       </section>
       )}
