@@ -9,8 +9,10 @@ export default function AdminEmbarqueDiretoPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [statusFiltro, setStatusFiltro] = useState('TODOS')
-  const [convertendo, setConvertendo] = useState<string | null>(null)
-  const [removendo, setRemovendo] = useState<string | null>(null)
+  const [arquivamentoFiltro, setArquivamentoFiltro] = useState('ATIVAS')
+  const [convertendo, setConvertendo] = useState<string | number | null>(null)
+  const [removendo, setRemovendo] = useState<string | number | null>(null)
+  const [restaurando, setRestaurando] = useState<string | number | null>(null)
 
   useEffect(() => {
     carregar()
@@ -22,7 +24,6 @@ export default function AdminEmbarqueDiretoPage() {
     const { data: solicitacoesData, error } = await supabase
       .from('embarque_direto')
       .select('*')
-      .or('status.is.null,status.neq.EXCLUIDO')
       .order('id', { ascending: false })
 
     if (error) {
@@ -50,8 +51,8 @@ export default function AdminEmbarqueDiretoPage() {
     setLoading(false)
   }
 
-  function docsDaSolicitacao(id: string) {
-    return documentos.filter((doc) => doc.embarque_direto_id === id)
+  function docsDaSolicitacao(id: string | number) {
+    return documentos.filter((doc) => String(doc.embarque_direto_id) === String(id))
   }
 
   function dataBR(data?: string | null) {
@@ -59,9 +60,18 @@ export default function AdminEmbarqueDiretoPage() {
     return new Date(data).toLocaleString('pt-BR')
   }
 
+  function arquivada(item: any) {
+    return !!item.arquivado_admin || String(item.status || '').toUpperCase() === 'EXCLUIDO'
+  }
+
+  function statusVisual(item: any) {
+    if (String(item.status || '').toUpperCase() === 'EXCLUIDO') return 'ARQUIVADO'
+    return item.status || 'AGUARDANDO ANÁLISE'
+  }
+
   const filtradas = useMemo(() => {
     return solicitacoes.filter((item) => {
-      if (item.status === 'EXCLUIDO') return false
+      const itemArquivado = arquivada(item)
 
       const texto = `
         ${item.cliente_final || ''}
@@ -75,18 +85,30 @@ export default function AdminEmbarqueDiretoPage() {
       `.toLowerCase()
 
       const passaBusca = texto.includes(busca.toLowerCase())
-      const passaStatus = statusFiltro === 'TODOS' || item.status === statusFiltro
+      const passaStatus =
+        statusFiltro === 'TODOS' ||
+        (statusFiltro === 'ARQUIVADO'
+          ? itemArquivado
+          : String(item.status || '') === statusFiltro)
 
-      return passaBusca && passaStatus
+      const passaArquivamento =
+        arquivamentoFiltro === 'TODAS' ||
+        (arquivamentoFiltro === 'ARQUIVADAS' ? itemArquivado : !itemArquivado)
+
+      return passaBusca && passaStatus && passaArquivamento
     })
-  }, [solicitacoes, busca, statusFiltro])
+  }, [solicitacoes, busca, statusFiltro, arquivamentoFiltro])
 
-  const aguardando = solicitacoes.filter((s) => s.status === 'AGUARDANDO ANÁLISE').length
-  const emAnalise = solicitacoes.filter((s) => s.status === 'EM ANÁLISE').length
-  const convertidas = solicitacoes.filter((s) => s.status === 'CONVERTIDO EM EMBARQUE').length
-  const recusadas = solicitacoes.filter((s) => s.status === 'RECUSADO').length
+  const solicitacoesAtivas = solicitacoes.filter((s) => !arquivada(s))
+  const solicitacoesArquivadas = solicitacoes.filter((s) => arquivada(s))
 
-  async function atualizarStatus(id: string, status: string) {
+  const aguardando = solicitacoesAtivas.filter((s) => s.status === 'AGUARDANDO ANÁLISE' || !s.status).length
+  const emAnalise = solicitacoesAtivas.filter((s) => s.status === 'EM ANÁLISE').length
+  const convertidas = solicitacoesAtivas.filter((s) => s.status === 'CONVERTIDO EM EMBARQUE').length
+  const recusadas = solicitacoesAtivas.filter((s) => s.status === 'RECUSADO').length
+  const arquivadas = solicitacoesArquivadas.length
+
+  async function atualizarStatus(id: string | number, status: string) {
     const { error } = await supabase
       .from('embarque_direto')
       .update({ status })
@@ -102,20 +124,28 @@ export default function AdminEmbarqueDiretoPage() {
 
   async function removerDaLista(item: any) {
     const confirmar = confirm(
-      `Remover esta solicitação da lista?\n\n` +
+      `Remover esta solicitação da lista principal?\n\n` +
         `Cliente: ${item.cliente_final || '-'}\n` +
         `Solicitante: ${item.solicitante_email || '-'}\n` +
         `AWB/Referência: ${item.awb || '-'}\n\n` +
-        `Ela não será exibida na tela, mas continuará no banco com status EXCLUIDO.`
+        `Ela ficará arquivada e poderá ser restaurada pelo filtro "Arquivadas".`
     )
 
     if (!confirmar) return
 
     setRemovendo(item.id)
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
     const { error } = await supabase
       .from('embarque_direto')
-      .update({ status: 'EXCLUIDO' })
+      .update({
+        arquivado_admin: true,
+        arquivado_admin_em: new Date().toISOString(),
+        arquivado_admin_por: user?.id || null,
+      })
       .eq('id', item.id)
 
     if (error) {
@@ -124,9 +154,56 @@ export default function AdminEmbarqueDiretoPage() {
       return
     }
 
-    setSolicitacoes((lista) => lista.filter((s) => s.id !== item.id))
-    setDocumentos((lista) => lista.filter((doc) => doc.embarque_direto_id !== item.id))
+    setSolicitacoes((lista) =>
+      lista.map((s) =>
+        String(s.id) === String(item.id)
+          ? {
+              ...s,
+              arquivado_admin: true,
+              arquivado_admin_em: new Date().toISOString(),
+              arquivado_admin_por: user?.id || null,
+            }
+          : s
+      )
+    )
+
     setRemovendo(null)
+  }
+
+  async function restaurarDaLista(item: any) {
+    const confirmar = confirm(
+      `Restaurar esta solicitação para a lista principal?\n\n` +
+        `Cliente: ${item.cliente_final || '-'}\n` +
+        `AWB/Referência: ${item.awb || '-'}`
+    )
+
+    if (!confirmar) return
+
+    setRestaurando(item.id)
+
+    const payload: any = {
+      arquivado_admin: false,
+      arquivado_admin_em: null,
+      arquivado_admin_por: null,
+    }
+
+    if (String(item.status || '').toUpperCase() === 'EXCLUIDO') {
+      payload.status = 'AGUARDANDO ANÁLISE'
+    }
+
+    const { error } = await supabase
+      .from('embarque_direto')
+      .update(payload)
+      .eq('id', item.id)
+
+    if (error) {
+      setRestaurando(null)
+      alert('Erro ao restaurar solicitação: ' + error.message)
+      return
+    }
+
+    setRestaurando(null)
+    carregar()
   }
 
   async function converterEmEmbarque(item: any) {
@@ -203,6 +280,11 @@ Instruções: ${item.instrucoes || '-'}
     carregar()
   }
 
+  function aplicarFiltroArquivadas() {
+    setArquivamentoFiltro('ARQUIVADAS')
+    setStatusFiltro('TODOS')
+  }
+
   return (
     <main className="w-full max-w-none p-8 text-white">
       <div className="mb-8 flex flex-col xl:flex-row justify-between gap-6">
@@ -222,11 +304,18 @@ Instruções: ${item.instrucoes || '-'}
         </button>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
         <Card titulo="Aguardando" valor={aguardando} detalhe="Novas solicitações" icone="🟡" />
         <Card titulo="Em análise" valor={emAnalise} detalhe="Em tratamento" icone="🔎" />
         <Card titulo="Convertidas" valor={convertidas} detalhe="Viraram embarque" icone="✅" />
         <Card titulo="Recusadas" valor={recusadas} detalhe="Não seguiram" icone="❌" />
+        <Card
+          titulo="Arquivadas"
+          valor={arquivadas}
+          detalhe="Removidas da lista"
+          icone="🗄️"
+          onClick={aplicarFiltroArquivadas}
+        />
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
@@ -238,7 +327,16 @@ Instruções: ${item.instrucoes || '-'}
             </p>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full xl:max-w-[880px]">
+            <select
+              value={arquivamentoFiltro}
+              onChange={(e) => setArquivamentoFiltro(e.target.value)}
+            >
+              <option value="ATIVAS">Lista: ativas</option>
+              <option value="ARQUIVADAS">Lista: arquivadas</option>
+              <option value="TODAS">Lista: todas</option>
+            </select>
+
             <select
               value={statusFiltro}
               onChange={(e) => setStatusFiltro(e.target.value)}
@@ -248,6 +346,7 @@ Instruções: ${item.instrucoes || '-'}
               <option value="EM ANÁLISE">Em análise</option>
               <option value="CONVERTIDO EM EMBARQUE">Convertido em embarque</option>
               <option value="RECUSADO">Recusado</option>
+              <option value="ARQUIVADO">Arquivado</option>
             </select>
 
             <input
@@ -271,9 +370,17 @@ Instruções: ${item.instrucoes || '-'}
           <div className="space-y-6">
             {filtradas.map((item) => {
               const docs = docsDaSolicitacao(item.id)
+              const itemArquivado = arquivada(item)
 
               return (
-                <article key={item.id} className="border border-blue-900 bg-[#020817] rounded-3xl p-6">
+                <article
+                  key={item.id}
+                  className={
+                    itemArquivado
+                      ? 'border border-slate-700 bg-[#020817] rounded-3xl p-6 opacity-80'
+                      : 'border border-blue-900 bg-[#020817] rounded-3xl p-6'
+                  }
+                >
                   <div className="flex flex-col xl:flex-row justify-between gap-6">
                     <div className="flex-1">
                       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -281,7 +388,13 @@ Instruções: ${item.instrucoes || '-'}
                           {item.cliente_final || 'Cliente não informado'}
                         </h3>
 
-                        <Status status={item.status} />
+                        <Status status={statusVisual(item)} />
+
+                        {itemArquivado && (
+                          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-slate-500 bg-slate-700/20 text-slate-300 text-xs font-black">
+                            🗄️ Arquivada
+                          </span>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
@@ -294,6 +407,7 @@ Instruções: ${item.instrucoes || '-'}
                         <Info label="Peso" valor={item.peso} />
                         <Info label="Volumes" valor={item.volumes} />
                         <Info label="Criado em" valor={dataBR(item.created_at)} />
+                        {itemArquivado && <Info label="Arquivado em" valor={dataBR(item.arquivado_admin_em)} />}
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
@@ -325,35 +439,47 @@ Instruções: ${item.instrucoes || '-'}
                     </div>
 
                     <div className="xl:w-[260px] flex flex-col gap-3">
-                      <button
-                        onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
-                        className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
-                      >
-                        Marcar em análise
-                      </button>
+                      {itemArquivado ? (
+                        <button
+                          onClick={() => restaurarDaLista(item)}
+                          disabled={restaurando === item.id}
+                          className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                        >
+                          {restaurando === item.id ? 'Restaurando...' : 'Restaurar para lista'}
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
+                            className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
+                          >
+                            Marcar em análise
+                          </button>
 
-                      <button
-                        onClick={() => converterEmEmbarque(item)}
-                        disabled={convertendo === item.id}
-                        className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
-                      >
-                        {convertendo === item.id ? 'Convertendo...' : 'Converter em embarque'}
-                      </button>
+                          <button
+                            onClick={() => converterEmEmbarque(item)}
+                            disabled={convertendo === item.id}
+                            className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                          >
+                            {convertendo === item.id ? 'Convertendo...' : 'Converter em embarque'}
+                          </button>
 
-                      <button
-                        onClick={() => atualizarStatus(item.id, 'RECUSADO')}
-                        className="bg-red-600 hover:bg-red-500 px-5 py-3 rounded-xl font-bold"
-                      >
-                        Recusar
-                      </button>
+                          <button
+                            onClick={() => atualizarStatus(item.id, 'RECUSADO')}
+                            className="bg-red-600 hover:bg-red-500 px-5 py-3 rounded-xl font-bold"
+                          >
+                            Recusar
+                          </button>
 
-                      <button
-                        onClick={() => removerDaLista(item)}
-                        disabled={removendo === item.id}
-                        className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
-                      >
-                        {removendo === item.id ? 'Removendo...' : 'Remover da lista'}
-                      </button>
+                          <button
+                            onClick={() => removerDaLista(item)}
+                            disabled={removendo === item.id}
+                            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                          >
+                            {removendo === item.id ? 'Removendo...' : 'Remover da lista'}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -366,18 +492,34 @@ Instruções: ${item.instrucoes || '-'}
   )
 }
 
-function Card({ titulo, valor, detalhe, icone }: any) {
+function Card({ titulo, valor, detalhe, icone, onClick }: any) {
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className="text-slate-300 font-bold">{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className="text-slate-400 mt-2">{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="text-left w-full border border-blue-900 rounded-3xl bg-[#071225] p-6 hover:border-blue-400 hover:bg-blue-600/10 transition"
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
   return (
     <div className="border border-blue-900 rounded-3xl bg-[#071225] p-6">
-      <div className="flex justify-between items-start gap-4">
-        <div>
-          <p className="text-slate-300 font-bold">{titulo}</p>
-          <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
-          <p className="text-slate-400 mt-2">{detalhe}</p>
-        </div>
-
-        <div className="text-4xl">{icone}</div>
-      </div>
+      {conteudo}
     </div>
   )
 }
@@ -415,6 +557,9 @@ function Status({ status }: any) {
   } else if (s === 'RECUSADO') {
     classe = 'bg-red-600/20 text-red-300 border-red-500'
     icone = '❌'
+  } else if (s === 'ARQUIVADO' || s === 'EXCLUIDO') {
+    classe = 'bg-slate-700/30 text-slate-300 border-slate-500'
+    icone = '🗄️'
   }
 
   return (
