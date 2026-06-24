@@ -305,6 +305,21 @@ export default function DashboardPage() {
     return item.status || 'PENDENTE'
   }
 
+  function ehReservaOperacionalFundo(item: any) {
+    const tipo = String(item.tipo || '')
+    const categoria = normalizarBusca(item.categoria || '')
+    const descricao = normalizarBusca(item.descricao || '')
+
+    if (tipo !== 'FUNDO_CAIXA_ENTRADA') return false
+
+    return (
+      categoria.includes('FECHAMENTO MENSAL') ||
+      categoria.includes('RESERVA 50') ||
+      descricao.includes('FECHAMENTO MENSAL') ||
+      descricao.includes('RESERVA 50')
+    )
+  }
+
   function aguardandoCustoProcesso(item: any) {
     return numero(item.valor_compra) <= 0
   }
@@ -518,7 +533,7 @@ export default function DashboardPage() {
   }
 
   const hoje = new Date()
-  const mesAtual = hoje.toISOString().slice(0, 7)
+  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
   const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
     ? ultimoRastreio.detalhes
     : []
@@ -536,24 +551,58 @@ export default function DashboardPage() {
       return mesBase === mesAtual
     })
 
+    // Entrada bruta de clientes. Não representa lucro nem caixa livre.
     const valorRecebidoMes = pagosMes.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
 
-    const profitRecebidoMes = pagosMes.reduce((acc, item) => {
+    // Profit bruto dos processos: recebido do cliente menos custos diretos do processo.
+    const profitBrutoProcessosMes = pagosMes.reduce((acc, item) => {
       if (aguardandoCustoProcesso(item)) return acc
       return acc + calcularProfit(item)
     }, 0)
 
     const processosPagosSemCusto = pagosMes.filter((item) => aguardandoCustoProcesso(item))
-
     const movimentosMes = movimentacoes.filter((item) => item.mes_referencia === mesAtual)
 
     const despesasPagasMes = movimentosMes
-      .filter((item) => ['DESPESA', 'PAGAMENTO_EMPRESTIMO'].includes(item.tipo) && statusMovimento(item) === 'PAGO')
+      .filter((item) => item.tipo === 'DESPESA' && statusMovimento(item) === 'PAGO')
       .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const emprestimosPagosMes = movimentosMes
+      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO' && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const despesasEemprestimosPagosMes = despesasPagasMes + emprestimosPagosMes
 
     const despesasPendentesMes = movimentosMes
       .filter((item) => ['DESPESA', 'PAGAMENTO_EMPRESTIMO'].includes(item.tipo) && statusMovimento(item) !== 'PAGO')
       .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const retiradasMarcosMes = movimentosMes
+      .filter((item) =>
+        ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) &&
+        item.socio === 'MARCOS' &&
+        statusMovimento(item) === 'PAGO'
+      )
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const retiradasHericaMes = movimentosMes
+      .filter((item) =>
+        ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) &&
+        item.socio === 'HERICA' &&
+        statusMovimento(item) === 'PAGO'
+      )
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const retiradasTotalMes = retiradasMarcosMes + retiradasHericaMes
+    const lucroOperacionalMes = profitBrutoProcessosMes - despesasEemprestimosPagosMes
+    const resultadoAposRetiradasMes = lucroOperacionalMes - retiradasTotalMes
+    const reserva50PrevistaMes = lucroOperacionalMes > 0 ? lucroOperacionalMes * 0.5 : 0
+
+    const reserva50LancadaMes = movimentosMes
+      .filter((item) => ehReservaOperacionalFundo(item) && statusMovimento(item) === 'PAGO')
+      .reduce((acc, item) => acc + numero(item.valor), 0)
+
+    const reserva50PendenteMes = reserva50PrevistaMes - reserva50LancadaMes
 
     const fundoAtual = movimentacoes.reduce((acc, item) => {
       if (statusMovimento(item) !== 'PAGO') return acc
@@ -575,9 +624,20 @@ export default function DashboardPage() {
       pagosMes,
       processosPagosSemCusto,
       valorRecebidoMes,
-      profitRecebidoMes,
+      profitRecebidoMes: profitBrutoProcessosMes,
+      profitBrutoProcessosMes,
       despesasPagasMes,
+      emprestimosPagosMes,
+      despesasEemprestimosPagosMes,
       despesasPendentesMes,
+      retiradasMarcosMes,
+      retiradasHericaMes,
+      retiradasTotalMes,
+      lucroOperacionalMes,
+      resultadoAposRetiradasMes,
+      reserva50PrevistaMes,
+      reserva50LancadaMes,
+      reserva50PendenteMes,
       fundoAtual,
       aReceber,
       vencido,
@@ -738,6 +798,30 @@ export default function DashboardPage() {
         cor: 'slate',
         onClick: () => setModalFaturas(true),
         acao: 'Conferir',
+      })
+    }
+
+    if (financeiroResumo.lucroOperacionalMes < 0) {
+      alertas.push({
+        titulo: 'Mês negativo na operação',
+        valor: moeda(financeiroResumo.lucroOperacionalMes),
+        detalhe: 'Profit bruto menor que despesas e empréstimos',
+        icone: '📉',
+        cor: 'red',
+        href: '/admin/financeiro?aba=RESULTADO',
+        acao: 'Ver resultado',
+      })
+    }
+
+    if (financeiroResumo.resultadoAposRetiradasMes < 0) {
+      alertas.push({
+        titulo: 'Negativo após retiradas',
+        valor: moeda(financeiroResumo.resultadoAposRetiradasMes),
+        detalhe: 'Mês ficou negativo depois das retiradas dos sócios',
+        icone: '🚨',
+        cor: 'red',
+        href: '/admin/financeiro?aba=RESULTADO',
+        acao: 'Ver sócios',
       })
     }
 
@@ -1048,7 +1132,7 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-5">
           <HeroCard
             titulo="A receber"
             valor={moeda(financeiroResumo.aReceber)}
@@ -1059,24 +1143,42 @@ export default function DashboardPage() {
           />
 
           <HeroCard
-            titulo="Recebido no mês"
+            titulo="Recebido de clientes"
             valor={moeda(financeiroResumo.valorRecebidoMes)}
-            detalhe={`${financeiroResumo.pagosMes.length} processos pagos`}
+            detalhe={`${financeiroResumo.pagosMes.length} processos pagos no mês`}
             icone="✅"
             cor="green"
             href="/admin/financeiro?aba=RESULTADO"
           />
 
           <HeroCard
-            titulo="Profit HC real"
-            valor={moeda(financeiroResumo.profitRecebidoMes)}
+            titulo="Profit bruto"
+            valor={moeda(financeiroResumo.profitBrutoProcessosMes)}
             detalhe={
               financeiroResumo.processosPagosSemCusto.length > 0
                 ? `${financeiroResumo.processosPagosSemCusto.length} pagos sem custo`
-                : 'Somente com custo lançado'
+                : 'Antes das despesas da HC'
             }
             icone="📈"
-            cor={financeiroResumo.profitRecebidoMes >= 0 ? 'green' : 'red'}
+            cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'}
+            href="/admin/financeiro?aba=RESULTADO"
+          />
+
+          <HeroCard
+            titulo="Lucro operacional"
+            valor={moeda(financeiroResumo.lucroOperacionalMes)}
+            detalhe="Profit bruto - despesas - empréstimos"
+            icone={financeiroResumo.lucroOperacionalMes >= 0 ? '🏦' : '📉'}
+            cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'}
+            href="/admin/financeiro?aba=RESULTADO"
+          />
+
+          <HeroCard
+            titulo="Após retiradas"
+            valor={moeda(financeiroResumo.resultadoAposRetiradasMes)}
+            detalhe={`Marcos ${moeda(financeiroResumo.retiradasMarcosMes)} • Hérica ${moeda(financeiroResumo.retiradasHericaMes)}`}
+            icone={financeiroResumo.resultadoAposRetiradasMes >= 0 ? '💵' : '🚨'}
+            cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'}
             href="/admin/financeiro?aba=RESULTADO"
           />
 
@@ -1224,10 +1326,15 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-3">
-              <LinhaResumo titulo="Recebido no mês" valor={moeda(financeiroResumo.valorRecebidoMes)} cor="green" />
-              <LinhaResumo titulo="Profit HC real" valor={moeda(financeiroResumo.profitRecebidoMes)} cor={financeiroResumo.profitRecebidoMes >= 0 ? 'green' : 'red'} />
-              <LinhaResumo titulo="Despesas pagas" valor={moeda(financeiroResumo.despesasPagasMes)} cor="red" />
-              <LinhaResumo titulo="Despesas pendentes" valor={moeda(financeiroResumo.despesasPendentesMes)} cor="yellow" />
+              <LinhaResumo titulo="Recebido de clientes" valor={moeda(financeiroResumo.valorRecebidoMes)} cor="green" />
+              <LinhaResumo titulo="Profit bruto dos processos" valor={moeda(financeiroResumo.profitBrutoProcessosMes)} cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'} />
+              <LinhaResumo titulo="Despesas + empréstimos pagos" valor={moeda(financeiroResumo.despesasEemprestimosPagosMes)} cor="red" />
+              <LinhaResumo titulo="Lucro operacional" valor={moeda(financeiroResumo.lucroOperacionalMes)} cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'} />
+              <LinhaResumo titulo="Retiradas Marcos" valor={moeda(financeiroResumo.retiradasMarcosMes)} cor="orange" />
+              <LinhaResumo titulo="Retiradas Hérica" valor={moeda(financeiroResumo.retiradasHericaMes)} cor="orange" />
+              <LinhaResumo titulo="Resultado após retiradas" valor={moeda(financeiroResumo.resultadoAposRetiradasMes)} cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'} />
+              <LinhaResumo titulo="Reserva 50% prevista" valor={moeda(financeiroResumo.reserva50PrevistaMes)} cor="blue" />
+              <LinhaResumo titulo="Reserva 50% lançada" valor={moeda(financeiroResumo.reserva50LancadaMes)} cor="blue" />
               <LinhaResumo titulo="Fundo atual" valor={moeda(financeiroResumo.fundoAtual)} cor="blue" />
             </div>
 
@@ -1998,7 +2105,9 @@ function LinhaResumo({ titulo, valor, cor }: any) {
         ? 'text-red-400'
         : cor === 'yellow'
           ? 'text-yellow-400'
-          : 'text-blue-400'
+          : cor === 'orange'
+            ? 'text-orange-400'
+            : 'text-blue-400'
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-950 bg-[#020817] px-4 py-3">
