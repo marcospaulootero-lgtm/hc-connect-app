@@ -55,6 +55,21 @@ type Fatura = {
   embarques?: any
 }
 
+
+
+type FaturaArquivo = {
+  id: string
+  fatura_id: string
+  embarque_id?: string | null
+  usuario_id?: string | null
+  tipo: string
+  nome: string | null
+  url: string
+  caminho?: string | null
+  visivel_cliente?: boolean | null
+  criado_em?: string | null
+}
+
 type FinanceiroProcesso = {
   id?: string
   embarque_id?: string | null
@@ -142,12 +157,15 @@ type ItemFaturaServico = {
 export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
+  const [arquivosFaturas, setArquivosFaturas] = useState<FaturaArquivo[]>([])
   const [financeiros, setFinanceiros] = useState<FinanceiroProcesso[]>([])
   const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<Record<string, DocumentoEmbarque[]>>({})
   const [pacoteAbertoId, setPacoteAbertoId] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
   const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
+  const [enviandoArquivoExtra, setEnviandoArquivoExtra] = useState<string | null>(null)
+  const [removendoArquivoExtra, setRemovendoArquivoExtra] = useState<string | null>(null)
 
   const [busca, setBusca] = useState('')
   const [filtroDocumento, setFiltroDocumento] = useState('TODOS')
@@ -349,8 +367,27 @@ export default function FaturasPage() {
 
     setUsuariosPortal(((usuariosPortalData as PerfilCliente[]) || []).filter((item) => item.ativo !== false))
 
+
+    let arquivosFaturasData: FaturaArquivo[] = []
+    const idsFaturas = ((faturasData as Fatura[]) || []).map((item) => item.id).filter(Boolean)
+
+    if (idsFaturas.length > 0) {
+      const { data: arquivosData, error: erroArquivosFaturas } = await supabase
+        .from('fatura_arquivos')
+        .select('*')
+        .in('fatura_id', idsFaturas)
+        .order('criado_em', { ascending: false })
+
+      if (erroArquivosFaturas) {
+        console.log('ERRO ARQUIVOS EXTRAS DAS FATURAS:', erroArquivosFaturas)
+      }
+
+      arquivosFaturasData = (arquivosData as FaturaArquivo[]) || []
+    }
+
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
+    setArquivosFaturas(arquivosFaturasData)
     setFinanceiros((financeiroData as FinanceiroProcesso[]) || [])
     setDocumentosPorEmbarque(documentosAgrupados)
   }
@@ -556,6 +593,103 @@ export default function FaturasPage() {
     return documentosPorEmbarque[embarqueId] || []
   }
 
+
+  function arquivosDaFatura(faturaId?: string | null) {
+    if (!faturaId) return []
+    return arquivosFaturas.filter((arquivo) => arquivo.fatura_id === faturaId)
+  }
+
+  function labelTipoArquivoFatura(tipo?: string | null) {
+    const normalizado = normalizarTexto(tipo || 'OUTRO')
+    if (normalizado.includes('BOLETO')) return 'Boleto'
+    if (normalizado.includes('COMPLEMENTAR')) return 'Fatura complementar'
+    if (normalizado.includes('RECIBO')) return 'Recibo'
+    if (normalizado.includes('FATURA')) return 'Fatura'
+    return 'Outro arquivo'
+  }
+
+  async function anexarArquivoExtraFatura(fatura: Fatura | null | undefined, tipo: string, arquivo: File | null) {
+    if (!fatura?.id) return alert('Cadastre ou emita a fatura antes de anexar arquivos adicionais.')
+    if (!arquivo) return
+
+    const tiposPermitidos = ['application/pdf', 'image/png', 'image/jpeg']
+    if (!tiposPermitidos.includes(arquivo.type)) {
+      return alert('Arquivo inválido. Use PDF, JPG ou PNG.')
+    }
+
+    setEnviandoArquivoExtra(`${fatura.id}-${tipo}`)
+
+    try {
+      const nomeSeguro = arquivo.name.replace(/[^a-zA-Z0-9_.-]/g, '-')
+      const caminho = `extras/${fatura.id}/${Date.now()}-${tipo.toLowerCase()}-${nomeSeguro}`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(caminho, arquivo, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: arquivo.type || 'application/octet-stream',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(caminho)
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const { error } = await supabase.from('fatura_arquivos').insert([
+        {
+          fatura_id: fatura.id,
+          embarque_id: fatura.embarque_id || null,
+          usuario_id: fatura.usuario_id || null,
+          tipo,
+          nome: arquivo.name,
+          url: urlData.publicUrl,
+          caminho,
+          visivel_cliente: true,
+          criado_por: user?.id || null,
+        },
+      ])
+
+      if (error) {
+        throw new Error(`${error.message}. Rode o SQL da tabela fatura_arquivos antes de anexar boleto ou complementar.`)
+      }
+
+      alert(`${labelTipoArquivoFatura(tipo)} anexado com sucesso.`)
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(error?.message || 'Erro ao anexar arquivo adicional.')
+    } finally {
+      setEnviandoArquivoExtra(null)
+    }
+  }
+
+  async function removerArquivoExtraFatura(arquivo: FaturaArquivo) {
+    const confirmar = confirm(`Deseja remover ${arquivo.nome || labelTipoArquivoFatura(arquivo.tipo)}?`)
+    if (!confirmar) return
+
+    setRemovendoArquivoExtra(arquivo.id)
+
+    try {
+      if (arquivo.caminho) {
+        await supabase.storage.from('faturas').remove([arquivo.caminho])
+      }
+
+      const { error } = await supabase.from('fatura_arquivos').delete().eq('id', arquivo.id)
+      if (error) throw new Error(error.message)
+
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(error?.message || 'Erro ao remover arquivo adicional.')
+    } finally {
+      setRemovendoArquivoExtra(null)
+    }
+  }
+
   function nomeDocumento(doc: DocumentoEmbarque) {
     return texto(doc.nome || doc.nome_arquivo || doc.filename || doc.tipo || doc.categoria || 'Documento')
   }
@@ -682,6 +816,116 @@ export default function FaturasPage() {
     if (!url.includes(marcador)) return null
     return url.split(marcador)[1] || null
   }
+
+
+  async function carregarImagemBase64(caminhos: string[]) {
+    for (const caminho of caminhos) {
+      try {
+        const url = caminho.startsWith('http') ? caminho : `${window.location.origin}${caminho}`
+        const resposta = await fetch(url, { cache: 'force-cache' })
+        if (!resposta.ok) continue
+
+        const blob = await resposta.blob()
+        if (!blob.type.startsWith('image/')) continue
+
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(String(reader.result || ''))
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        })
+
+        if (base64) return base64
+      } catch (error) {
+        console.log('Não foi possível carregar imagem para PDF:', caminho, error)
+      }
+    }
+
+    return null
+  }
+
+
+  function limparTextoPix(valor: string, limite: number) {
+    return String(valor || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Z0-9 $%*+\-./:]/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase()
+      .slice(0, limite)
+  }
+
+  function campoPix(id: string, valor: string) {
+    const textoCampo = String(valor || '')
+    return `${id}${String(textoCampo.length).padStart(2, '0')}${textoCampo}`
+  }
+
+  function crc16Pix(payload: string) {
+    let crc = 0xffff
+
+    for (let i = 0; i < payload.length; i++) {
+      crc ^= payload.charCodeAt(i) << 8
+
+      for (let bit = 0; bit < 8; bit++) {
+        if ((crc & 0x8000) !== 0) {
+          crc = (crc << 1) ^ 0x1021
+        } else {
+          crc = crc << 1
+        }
+
+        crc &= 0xffff
+      }
+    }
+
+    return crc.toString(16).toUpperCase().padStart(4, '0')
+  }
+
+  function gerarPixCopiaECola(valor: number, txid: string) {
+    const chavePixCnpj = '41456630000152'
+    const nomeRecebedor = limparTextoPix('COUTO E OTERO INTERMEDIACAO LTDA', 25)
+    const cidadeRecebedor = limparTextoPix('BELO HORIZONTE', 15)
+    const identificador = limparTextoPix(txid || 'HC', 25) || 'HC'
+    const descricao = limparTextoPix(`FATURA ${txid || ''}`, 60)
+    const valorFormatado = Math.max(0, Number(valor || 0)).toFixed(2)
+
+    const merchantAccount =
+      campoPix('00', 'br.gov.bcb.pix') +
+      campoPix('01', chavePixCnpj) +
+      campoPix('02', descricao)
+
+    const payloadSemCRC =
+      campoPix('00', '01') +
+      campoPix('26', merchantAccount) +
+      campoPix('52', '0000') +
+      campoPix('53', '986') +
+      campoPix('54', valorFormatado) +
+      campoPix('58', 'BR') +
+      campoPix('59', nomeRecebedor) +
+      campoPix('60', cidadeRecebedor) +
+      campoPix('62', campoPix('05', identificador)) +
+      '6304'
+
+    return `${payloadSemCRC}${crc16Pix(payloadSemCRC)}`
+  }
+
+  async function gerarQrCodePixBase64(valor: number, txid: string) {
+    try {
+      const qrcodeModule = await import('qrcode')
+      const qrcode = (qrcodeModule as any).default || qrcodeModule
+      const pixPayload = gerarPixCopiaECola(valor, txid)
+
+      return await qrcode.toDataURL(pixPayload, {
+        margin: 1,
+        width: 190,
+        errorCorrectionLevel: 'M',
+      })
+    } catch (error) {
+      console.log('Não foi possível gerar QR Code PIX:', error)
+      return null
+    }
+  }
+
 
   const embarquesFiltrados = useMemo(() => {
     if (abaAtiva !== 'FATURAS') return []
@@ -1448,6 +1692,9 @@ export default function FaturasPage() {
         throw new Error('Biblioteca de PDF não carregou corretamente. Rode npm install jspdf jspdf-autotable e publique novamente.')
       }
 
+      const logoBase64 = await carregarImagemBase64(['/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const qrPixBase64 = await gerarQrCodePixBase64(totaisEmissor.totalBRL, emissorNumeroFatura)
+
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 32
       const larguraPagina = pdf.internal.pageSize.getWidth()
@@ -1477,31 +1724,37 @@ export default function FaturasPage() {
       pdf.text('INSCRIÇÃO ESTADUAL: ISENTO', 185, 128)
       pdf.text('INSCRIÇÃO MUNICIPAL: 1296606100', 350, 128)
 
-      pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(22)
-      pdf.text('HC', larguraPagina - 92, 104)
-      pdf.setFontSize(7)
-      pdf.text('CONSULTORIA', larguraPagina - 112, 116)
+      if (logoBase64) {
+        pdf.addImage(logoBase64, 'PNG', larguraPagina - 105, 76, 72, 54)
+      } else {
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(22)
+        pdf.text('HC', larguraPagina - 92, 104)
+        pdf.setFontSize(7)
+        pdf.text('CONSULTORIA', larguraPagina - 112, 116)
+      }
 
       pdf.setDrawColor(0, 0, 0)
       pdf.setFillColor(221, 229, 244)
-      pdf.rect(margem, 140, larguraPagina - margem * 2, 94, 'FD')
+      pdf.rect(margem, 140, larguraPagina - margem * 2, 104, 'FD')
       pdf.setFontSize(8)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('Cobrança para:', margem + 8, 158)
-      pdf.text('CNPJ / CPF:', 360, 158)
-      pdf.text('Endereço:', margem + 8, 182)
+      pdf.text('Cobrança para:', margem + 8, 160)
+      pdf.text('CNPJ / CPF:', 382, 160)
+      pdf.text('Endereço:', margem + 8, 190)
 
       pdf.setFont('helvetica', 'normal')
-      pdf.text(dadosCliente.nome || '-', 150, 158)
-      pdf.text(dadosCliente.documento || '-', 430, 158)
-      pdf.text(dadosCliente.endereco || '-', 150, 182)
-      pdf.text(`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`, 150, 204)
-      pdf.text(`CEP: ${dadosCliente.cep || '-'}`, 150, 222)
+      const nomeClienteLinhas = pdf.splitTextToSize(dadosCliente.nome || '-', 215)
+      const enderecoClienteLinhas = pdf.splitTextToSize(dadosCliente.endereco || '-', 320)
+      pdf.text(nomeClienteLinhas, 150, 160)
+      pdf.text(dadosCliente.documento || '-', 455, 160)
+      pdf.text(enderecoClienteLinhas, 150, 190)
+      pdf.text(`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`, 150, 216)
+      pdf.text(`CEP: ${dadosCliente.cep || '-'}`, 150, 234)
 
       pdf.setFont('helvetica', 'bold')
-      pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 252)
-      pdf.text(`HAWB/AWB: ${emissorEmbarqueSelecionado.awb || '-'}`, 245, 252)
+      pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 264)
+      pdf.text(`HAWB/AWB: ${emissorEmbarqueSelecionado.awb || '-'}`, 245, 264)
 
       const linhas = itens.map((item) => [
         item.descricao,
@@ -1511,7 +1764,7 @@ export default function FaturasPage() {
       ])
 
       autoTable(pdf, {
-        startY: 260,
+        startY: 272,
         head: [['SERVIÇO', 'OBSERVAÇÃO', 'VALOR USD', 'VALOR R$']],
         body: linhas,
         theme: 'grid',
@@ -1563,19 +1816,45 @@ export default function FaturasPage() {
       pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
       pdf.setTextColor(0, 0, 0)
 
-      const yAssinatura = yBanco + 70
-      pdf.setFont('helvetica', 'italic')
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
       pdf.setFontSize(10)
-      pdf.text('Marcos Paulo Otero', larguraPagina / 2, yAssinatura, { align: 'center' })
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(7)
-      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', larguraPagina / 2, yAssinatura + 12, { align: 'center' })
-      pdf.text('CNPJ: 41.456.630/0001-52', larguraPagina / 2, yAssinatura + 23, { align: 'center' })
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        pdf.addImage(qrPixBase64, 'PNG', xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
 
       if (emissorObservacoes) {
         pdf.setFontSize(7)
         pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
-          maxWidth: larguraPagina - margem * 2,
+          maxWidth: larguraPagina - margem * 2 - 105,
         })
       }
 
@@ -2270,9 +2549,16 @@ export default function FaturasPage() {
                       <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
                       <td>
                         {fatura?.arquivo_pdf ? (
-                          <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
-                            Abrir
-                          </Link>
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+                            {arquivosDaFatura(fatura.id).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {arquivosDaFatura(fatura.id).length} arquivo(s)
+                              </span>
+                            ) : null}
+                          </div>
                         ) : (
                           <span className="text-slate-500">Sem fatura</span>
                         )}
@@ -2472,6 +2758,61 @@ export default function FaturasPage() {
                               )}
                             </div>
                           </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Arquivos adicionais para o cliente</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Use para anexar boleto, fatura complementar ou outros documentos relacionados a esta cobrança.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {arquivosDaFatura(fatura.id).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {arquivosDaFatura(fatura.id).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
                         </td>
                       </tr>
                     )}

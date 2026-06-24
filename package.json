@@ -11,11 +11,13 @@
   "dependencies": {
     "@supabase/supabase-js": "latest",
     "@tailwindcss/postcss": "^4.3.0",
+    "@types/qrcode": "^1.5.6",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "latest",
     "next": "latest",
     "next-pwa": "^5.6.0",
+    "qrcode": "^1.5.4",
     "react": "latest",
     "react-dom": "latest",
     "resend": "^6.12.4",
