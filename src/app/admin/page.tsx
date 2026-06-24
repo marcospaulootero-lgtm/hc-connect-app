@@ -682,6 +682,25 @@ export default function DashboardPage() {
     const dhlProximas = proximas.filter((item) => nomeTransportadoraFaturaCurto(item) === 'DHL')
     const fedexProximas = proximas.filter((item) => nomeTransportadoraFaturaCurto(item) === 'FedEx')
 
+    const hoje = hojeIso()
+    const amanhaData = new Date(hoje + 'T00:00:00')
+    amanhaData.setDate(amanhaData.getDate() + 1)
+    const amanha = amanhaData.toISOString().slice(0, 10)
+
+    const hojeVencem = abertas
+      .filter((item) => vencimentoFaturaTransportadora(item) === hoje)
+      .sort((a, b) => nomeTransportadoraFaturaCurto(a).localeCompare(nomeTransportadoraFaturaCurto(b), 'pt-BR'))
+
+    const amanhaVencem = abertas
+      .filter((item) => vencimentoFaturaTransportadora(item) === amanha)
+      .sort((a, b) => nomeTransportadoraFaturaCurto(a).localeCompare(nomeTransportadoraFaturaCurto(b), 'pt-BR'))
+
+    const totalAbertas = abertas.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0)
+    const totalProximas = proximas.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0)
+    const totalVencidas = vencidas.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0)
+    const totalHoje = hojeVencem.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0)
+    const totalAmanha = amanhaVencem.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0)
+
     return {
       todasDhlFedex,
       ativas,
@@ -691,8 +710,13 @@ export default function DashboardPage() {
       semData,
       dhlProximas,
       fedexProximas,
-      totalProximas: proximas.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0),
-      totalVencidas: vencidas.reduce((acc, item) => acc + saldoFaturaTransportadora(item), 0),
+      hojeVencem,
+      amanhaVencem,
+      totalAbertas,
+      totalProximas,
+      totalVencidas,
+      totalHoje,
+      totalAmanha,
     }
   }, [faturasTransportadoras])
 
@@ -772,8 +796,32 @@ export default function DashboardPage() {
         detalhe: `${moeda(faturasResumo.totalVencidas)} em aberto`,
         icone: '🔴',
         cor: 'red',
-        href: '/admin/financeiro?aba=PROCESSOS&status=ATRASADO',
+        href: '/admin/faturas-transportadoras',
         acao: 'Regularizar agora',
+      })
+    }
+
+    if (faturasResumo.hojeVencem.length > 0) {
+      alertas.push({
+        titulo: 'Faturas para pagar hoje',
+        valor: moeda(faturasResumo.totalHoje),
+        detalhe: `${faturasResumo.hojeVencem.length} fatura(s) DHL/FedEx vencem hoje`,
+        icone: '🚨',
+        cor: 'red',
+        onClick: () => setModalFaturas(true),
+        acao: 'Pagar hoje',
+      })
+    }
+
+    if (faturasResumo.amanhaVencem.length > 0) {
+      alertas.push({
+        titulo: 'Faturas para pagar amanhã',
+        valor: moeda(faturasResumo.totalAmanha),
+        detalhe: `${faturasResumo.amanhaVencem.length} fatura(s) para se programar`,
+        icone: '📅',
+        cor: 'orange',
+        onClick: () => setModalFaturas(true),
+        acao: 'Programar',
       })
     }
 
@@ -1183,11 +1231,17 @@ export default function DashboardPage() {
           />
 
           <HeroCard
-            titulo="Faturas DHL/FedEx"
-            valor={faturasResumo.proximas.length}
-            detalhe={`${faturasResumo.vencidas.length} vencidas • ${faturasResumo.semData.length} sem data`}
+            titulo="Faturas DHL/FedEx em aberto"
+            valor={moeda(faturasResumo.totalAbertas)}
+            detalhe={`Hoje ${moeda(faturasResumo.totalHoje)} • Amanhã ${moeda(faturasResumo.totalAmanha)} • ${faturasResumo.abertas.length} abertas`}
             icone="🚨"
-            cor={faturasResumo.vencidas.length > 0 ? 'red' : faturasResumo.proximas.length > 0 ? 'orange' : 'green'}
+            cor={
+              faturasResumo.vencidas.length > 0 || faturasResumo.hojeVencem.length > 0
+                ? 'red'
+                : faturasResumo.amanhaVencem.length > 0 || faturasResumo.proximas.length > 0
+                  ? 'orange'
+                  : 'green'
+            }
             onClick={() => setModalFaturas(true)}
           />
         </section>
@@ -1249,7 +1303,7 @@ export default function DashboardPage() {
                   <h2 className="text-2xl font-black">DHL/FedEx</h2>
                 </div>
                 <p className="mt-2 text-sm text-slate-400">
-                  Faturas a vencer nos próximos {DIAS_ALERTA_FATURAS} dias.
+                  Valores em aberto, vencimentos de hoje e programação de amanhã.
                 </p>
               </div>
 
@@ -1263,10 +1317,10 @@ export default function DashboardPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-5">
-              <MiniBox titulo="DHL próximas" valor={faturasResumo.dhlProximas.length} cor="yellow" />
-              <MiniBox titulo="FedEx próximas" valor={faturasResumo.fedexProximas.length} cor="purple" />
-              <MiniBox titulo="Vencidas" valor={faturasResumo.vencidas.length} cor="red" />
-              <MiniBox titulo="Sem data" valor={faturasResumo.semData.length} cor="slate" />
+              <MiniBox titulo="A pagar hoje" valor={moeda(faturasResumo.totalHoje)} cor={faturasResumo.totalHoje > 0 ? 'red' : 'green'} />
+              <MiniBox titulo="A pagar amanhã" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
+              <MiniBox titulo="Total em aberto" valor={moeda(faturasResumo.totalAbertas)} cor="blue" />
+              <MiniBox titulo={`Próx. ${DIAS_ALERTA_FATURAS} dias`} valor={moeda(faturasResumo.totalProximas)} cor="yellow" />
             </div>
 
             <div className="space-y-3">
@@ -1296,9 +1350,10 @@ export default function DashboardPage() {
                       </span>
                     </div>
 
-                    <p className="mt-3 text-xs font-bold text-slate-400">
-                      Vencimento: {dataBR(vencimento)}
-                    </p>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-xs font-bold text-slate-400">
+                      <span>Vencimento: {dataBR(vencimento)}</span>
+                      <span className="text-emerald-300">Saldo: {moeda(saldoFaturaTransportadora(item))}</span>
+                    </div>
                   </a>
                 )
               })}
@@ -1812,10 +1867,10 @@ export default function DashboardPage() {
             </div>
 
             <div className="mb-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-              <MiniBox titulo="Próximas" valor={faturasResumo.proximas.length} cor="orange" />
-              <MiniBox titulo="Vencidas" valor={faturasResumo.vencidas.length} cor="red" />
-              <MiniBox titulo="Sem data" valor={faturasResumo.semData.length} cor="slate" />
-              <MiniBox titulo="Total aberto" valor={faturasResumo.abertas.length} cor="blue" />
+              <MiniBox titulo="A pagar hoje" valor={moeda(faturasResumo.totalHoje)} cor={faturasResumo.totalHoje > 0 ? 'red' : 'green'} />
+              <MiniBox titulo="A pagar amanhã" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
+              <MiniBox titulo="Total em aberto" valor={moeda(faturasResumo.totalAbertas)} cor="blue" />
+              <MiniBox titulo="Vencidas" valor={moeda(faturasResumo.totalVencidas)} cor="red" />
             </div>
 
             <div className="max-h-[62vh] overflow-auto rounded-2xl border border-blue-950">
@@ -1983,7 +2038,7 @@ function MiniBox({ titulo, valor, cor, href }: any) {
 
   const conteudo = (
     <div className={`rounded-2xl border p-4 ${classes}`}>
-      <h3 className="text-2xl font-black">{valor}</h3>
+      <h3 className="break-words text-xl xl:text-2xl font-black">{valor}</h3>
       <p className="mt-1 text-xs font-bold opacity-80">{titulo}</p>
     </div>
   )
