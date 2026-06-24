@@ -928,6 +928,41 @@ export default function FaturasPage() {
   }
 
 
+  async function obterDimensoesImagemBase64(base64: string) {
+    return await new Promise<{ width: number; height: number } | null>((resolve) => {
+      try {
+        const img = new Image()
+        img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
+        img.onerror = () => resolve(null)
+        img.src = base64
+      } catch (error) {
+        console.log('Não foi possível medir a logo:', error)
+        resolve(null)
+      }
+    })
+  }
+
+  function encaixarImagemSemDistorcer(
+    larguraOriginal: number,
+    alturaOriginal: number,
+    larguraMaxima: number,
+    alturaMaxima: number
+  ) {
+    if (!larguraOriginal || !alturaOriginal) {
+      return {
+        width: larguraMaxima,
+        height: alturaMaxima,
+      }
+    }
+
+    const escala = Math.min(larguraMaxima / larguraOriginal, alturaMaxima / alturaOriginal)
+
+    return {
+      width: larguraOriginal * escala,
+      height: alturaOriginal * escala,
+    }
+  }
+
   function limparTextoPix(valor: string, limite: number) {
     return String(valor || '')
       .normalize('NFD')
@@ -1958,15 +1993,10 @@ export default function FaturasPage() {
       pdf.text('INSCRIÇÃO ESTADUAL: ISENTO', 185, 128)
       pdf.text('INSCRIÇÃO MUNICIPAL: 1296606100', 350, 128)
 
-      const xLogo = larguraPagina - 118
-      const yLogo = 72
-      const wLogo = 88
-      const hLogo = 62
-
-      // Mesmo visual do login: fundo branco atrás da logo.
-      pdf.setFillColor(255, 255, 255)
-      pdf.setDrawColor(230, 230, 230)
-      pdf.roundedRect(xLogo - 6, yLogo - 6, wLogo + 12, hLogo + 12, 6, 6, 'FD')
+      const larguraMaximaLogo = 88
+      const alturaMaximaLogo = 58
+      const xLogoBase = larguraPagina - margem - larguraMaximaLogo
+      const yLogoBase = 74
 
       if (logoBase64) {
         try {
@@ -1976,21 +2006,33 @@ export default function FaturasPage() {
               ? 'WEBP'
               : 'PNG'
 
-          pdf.addImage(logoBase64, formatoLogo, xLogo, yLogo, wLogo, hLogo)
+          const dimensoesLogo = await obterDimensoesImagemBase64(logoBase64)
+          const logoAjustada = encaixarImagemSemDistorcer(
+            dimensoesLogo?.width || larguraMaximaLogo,
+            dimensoesLogo?.height || alturaMaximaLogo,
+            larguraMaximaLogo,
+            alturaMaximaLogo
+          )
+
+          const xLogo = xLogoBase + (larguraMaximaLogo - logoAjustada.width) / 2
+          const yLogo = yLogoBase + (alturaMaximaLogo - logoAjustada.height) / 2
+
+          // Sem fundo e sem distorção: mantém transparência e proporção original da logo.
+          pdf.addImage(logoBase64, formatoLogo, xLogo, yLogo, logoAjustada.width, logoAjustada.height)
         } catch (error) {
           console.log('Logo não pôde ser inserida no PDF. Usando fallback em texto:', error)
           pdf.setFont('helvetica', 'bold')
           pdf.setFontSize(22)
-          pdf.text('HC', xLogo + 38, yLogo + 32, { align: 'center' })
+          pdf.text('HC', xLogoBase + larguraMaximaLogo / 2, yLogoBase + 32, { align: 'center' })
           pdf.setFontSize(7)
-          pdf.text('CONSULTORIA', xLogo + 38, yLogo + 44, { align: 'center' })
+          pdf.text('CONSULTORIA', xLogoBase + larguraMaximaLogo / 2, yLogoBase + 44, { align: 'center' })
         }
       } else {
         pdf.setFont('helvetica', 'bold')
         pdf.setFontSize(22)
-        pdf.text('HC', xLogo + 38, yLogo + 32, { align: 'center' })
+        pdf.text('HC', xLogoBase + larguraMaximaLogo / 2, yLogoBase + 32, { align: 'center' })
         pdf.setFontSize(7)
-        pdf.text('CONSULTORIA', xLogo + 38, yLogo + 44, { align: 'center' })
+        pdf.text('CONSULTORIA', xLogoBase + larguraMaximaLogo / 2, yLogoBase + 44, { align: 'center' })
       }
 
       pdf.setDrawColor(0, 0, 0)
