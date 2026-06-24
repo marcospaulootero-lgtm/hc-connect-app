@@ -2208,9 +2208,51 @@ export default function FaturasPage() {
     if (!emissorEmbarqueSelecionado || !emissorClienteSelecionado) return
 
     const financeiroAtual = financeiroDoEmbarque(emissorEmbarqueSelecionado)
-    const itensResumo = itensSelecionadosFatura()
+    const itensSelecionados = itensSelecionadosFatura()
+
+    const itensResumo = itensSelecionados
       .map((item) => `${item.descricao}: ${moeda(item.valor_brl)}`)
       .join(' | ')
+
+    // Regra HC:
+    // A fatura para o cliente continua com PTAX + spread.
+    // Porém, o item HANDLING entra em Processos Faturados como débito de terceiro
+    // SEM o spread, para que somente o spread do HANDLING fique como profit.
+    const ptaxBase = numero(emissorTaxaConversao)
+    const spreadPercentual = numero(emissorSpread)
+    const fatorSpread = 1 + spreadPercentual / 100
+
+    const itensHandling = itensSelecionados.filter((item) =>
+      normalizarTexto(item.descricao).includes('HANDLING')
+    )
+
+    const handlingComSpread = itensHandling.reduce((total, item) => total + numero(item.valor_brl), 0)
+
+    const handlingSemSpread = itensHandling.reduce((total, item) => {
+      const valorUsd = numero(item.valor_usd)
+      const valorBrl = numero(item.valor_brl)
+
+      if (valorUsd > 0 && ptaxBase > 0) {
+        return total + valorUsd * ptaxBase
+      }
+
+      if (valorBrl > 0 && fatorSpread > 0) {
+        return total + valorBrl / fatorSpread
+      }
+
+      return total
+    }, 0)
+
+    const spreadHandling = Math.max(0, handlingComSpread - handlingSemSpread)
+    const debitoTerceiroAtualizado =
+      handlingSemSpread > 0
+        ? Number(handlingSemSpread.toFixed(2))
+        : numero(financeiroAtual?.debito_terceiro)
+
+    const observacaoHandling =
+      handlingSemSpread > 0
+        ? `HANDLING sem spread lançado em débito terceiro: ${moeda(handlingSemSpread)}. Spread/Profit do HANDLING: ${moeda(spreadHandling)}.`
+        : ''
 
     const payloadBase: any = {
       cliente: emissorClienteSelecionado.nome_empresa || emissorEmbarqueSelecionado.cliente_final || emissorEmbarqueSelecionado.importador || null,
@@ -2219,14 +2261,14 @@ export default function FaturasPage() {
       transportadora: emissorEmbarqueSelecionado.transportadora || null,
       servico: emissorEmbarqueSelecionado.servico || null,
       valor_cobranca: totaisEmissor.totalBRL,
-      doc_dta: 0,
-      debito_terceiro: 0,
-      valor_compra: 0,
+      doc_dta: numero(financeiroAtual?.doc_dta),
+      debito_terceiro: debitoTerceiroAtualizado,
+      valor_compra: numero(financeiroAtual?.valor_compra),
       vencimento_cobranca: emissorVencimento || null,
-      recebimento: null,
+      recebimento: financeiroAtual?.recebimento || null,
       mes: mesFinanceiroDaFatura(),
-      mes_profit: '',
-      observacoes: `Fatura emitida pelo HC Connect. PDF: ${arquivoPdfUrl}. Itens: ${itensResumo}${emissorObservacoes ? ` | Obs: ${emissorObservacoes}` : ''}`,
+      mes_profit: financeiroAtual?.mes_profit || '',
+      observacoes: `Fatura emitida pelo HC Connect. PDF: ${arquivoPdfUrl}. Itens: ${itensResumo}${observacaoHandling ? ` | ${observacaoHandling}` : ''}${emissorObservacoes ? ` | Obs: ${emissorObservacoes}` : ''}`,
     }
 
     if (financeiroAtual?.id) {
