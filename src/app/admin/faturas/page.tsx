@@ -185,7 +185,9 @@ export default function FaturasPage() {
   const [clientesFaturamento, setClientesFaturamento] = useState<ClienteFaturamento[]>([])
   const [usuariosPortal, setUsuariosPortal] = useState<PerfilCliente[]>([])
   const [buscaEmissorAwb, setBuscaEmissorAwb] = useState('')
+  const [filtroStatusEmissor, setFiltroStatusEmissor] = useState('TODOS')
   const [buscaClienteEmissor, setBuscaClienteEmissor] = useState('')
+  const [buscandoClientesEmissor, setBuscandoClientesEmissor] = useState(false)
   const [buscaUsuarioEmissor, setBuscaUsuarioEmissor] = useState('')
   const [emissorEmbarqueId, setEmissorEmbarqueId] = useState('')
   const [emissorClienteId, setEmissorClienteId] = useState('')
@@ -202,6 +204,18 @@ export default function FaturasPage() {
   useEffect(() => {
     carregar()
   }, [])
+
+  useEffect(() => {
+    const termo = buscaClienteEmissor.trim()
+
+    if (termo.length < 2) return
+
+    const timer = setTimeout(() => {
+      buscarClientesFaturamentoEmissor(termo)
+    }, 350)
+
+    return () => clearTimeout(timer)
+  }, [buscaClienteEmissor])
 
   useEffect(() => {
     try {
@@ -390,6 +404,68 @@ export default function FaturasPage() {
     setArquivosFaturas(arquivosFaturasData)
     setFinanceiros((financeiroData as FinanceiroProcesso[]) || [])
     setDocumentosPorEmbarque(documentosAgrupados)
+  }
+
+
+  async function buscarClientesFaturamentoEmissor(termoBusca: string) {
+    const termo = termoBusca.trim()
+    if (termo.length < 2) return
+
+    setBuscandoClientesEmissor(true)
+
+    try {
+      const termoSeguro = termo.replace(/[%_,]/g, ' ').trim()
+      const termoNumerico = termo.replace(/\D/g, '')
+      const filtros = [
+        `nome_empresa.ilike.%${termoSeguro}%`,
+        `nome_contato.ilike.%${termoSeguro}%`,
+        `codigo_hc.ilike.%${termoSeguro}%`,
+        `email.ilike.%${termoSeguro}%`,
+        `cidade.ilike.%${termoSeguro}%`,
+        `estado.ilike.%${termoSeguro}%`,
+        `cnpj.ilike.%${termoSeguro}%`,
+        `cpf.ilike.%${termoSeguro}%`,
+      ]
+
+      if (termoNumerico && termoNumerico !== termoSeguro) {
+        filtros.push(`cnpj.ilike.%${termoNumerico}%`)
+        filtros.push(`cpf.ilike.%${termoNumerico}%`)
+        filtros.push(`contato.ilike.%${termoNumerico}%`)
+      }
+
+      const { data, error } = await supabase
+        .from('clientes_faturamento')
+        .select('*')
+        .eq('ativo', true)
+        .or(filtros.join(','))
+        .order('nome_empresa', { ascending: true })
+        .limit(120)
+
+      if (error) {
+        console.log('ERRO BUSCA CLIENTES FATURAMENTO:', error)
+        return
+      }
+
+      const encontrados = (data as ClienteFaturamento[]) || []
+
+      setClientesFaturamento((atuais) => {
+        const mapa = new Map<string, ClienteFaturamento>()
+
+        ;(atuais || []).forEach((item) => {
+          if (item?.id) mapa.set(item.id, item)
+        })
+
+        encontrados.forEach((item) => {
+          if (item?.id) mapa.set(item.id, item)
+        })
+
+        return Array.from(mapa.values()).sort((a, b) =>
+          String(a.nome_empresa || '').localeCompare(String(b.nome_empresa || ''), 'pt-BR')
+        )
+      })
+    } finally {
+      setBuscandoClientesEmissor(false)
+    }
   }
 
   function normalizarAwb(valor?: any) {
@@ -1338,10 +1414,17 @@ export default function FaturasPage() {
 
   const embarquesDisponiveisEmissor = useMemo(() => {
     const termo = normalizarTexto(buscaEmissorAwb)
+    const termoNumerico = buscaEmissorAwb.replace(/\D/g, '')
+    const embarqueSelecionado = embarques.find((item) => item.id === emissorEmbarqueId) || null
 
-    return embarques
+    const filtrados = embarques
       .filter((embarque) => {
-        if (!termo) return true
+        const passaStatus =
+          filtroStatusEmissor === 'TODOS' ||
+          String(embarque.status_operacional || '') === filtroStatusEmissor
+
+        if (!passaStatus) return false
+        if (!termo && !termoNumerico) return true
 
         const base = normalizarTexto(`
           ${embarque.awb || ''}
@@ -1352,32 +1435,61 @@ export default function FaturasPage() {
           ${embarque.referencia_hc || ''}
           ${embarque.transportadora || ''}
           ${embarque.servico || ''}
+          ${embarque.status_operacional || ''}
         `)
 
-        return base.includes(termo)
+        const numeros = `
+          ${embarque.awb || ''}
+          ${embarque.referencia_cliente || ''}
+          ${embarque.referencia_hc || ''}
+        `.replace(/\D/g, '')
+
+        return (
+          (!!termo && base.includes(termo)) ||
+          (!!termoNumerico && numeros.includes(termoNumerico))
+        )
       })
       .slice(0, 120)
-  }, [embarques, buscaEmissorAwb])
+
+    if (embarqueSelecionado && !filtrados.some((item) => item.id === embarqueSelecionado.id)) {
+      return [embarqueSelecionado, ...filtrados.slice(0, 119)]
+    }
+
+    return filtrados
+  }, [embarques, buscaEmissorAwb, filtroStatusEmissor, emissorEmbarqueId])
 
   const clientesFaturamentoEmissor = useMemo(() => {
     const termo = normalizarTexto(buscaClienteEmissor)
+    const termoNumerico = buscaClienteEmissor.replace(/\D/g, '')
     const clienteSelecionado = clientesFaturamento.find((item) => item.id === emissorClienteId) || null
 
     const filtrados = clientesFaturamento
       .filter((cliente) => {
-        if (!termo) return true
+        if (!termo && !termoNumerico) return true
 
         const base = normalizarTexto(`
           ${cliente.codigo_hc || ''}
           ${cliente.nome_empresa || ''}
+          ${cliente.nome_contato || ''}
           ${cliente.cnpj || ''}
           ${cliente.cpf || ''}
           ${cliente.cidade || ''}
           ${cliente.estado || ''}
           ${cliente.email || ''}
+          ${cliente.contato || ''}
         `)
 
-        return base.includes(termo)
+        const numeros = `
+          ${cliente.cnpj || ''}
+          ${cliente.cpf || ''}
+          ${cliente.contato || ''}
+          ${cliente.codigo_hc || ''}
+        `.replace(/\D/g, '')
+
+        return (
+          (!!termo && base.includes(termo)) ||
+          (!!termoNumerico && numeros.includes(termoNumerico))
+        )
       })
       .slice(0, 120)
 
@@ -1549,6 +1661,7 @@ export default function FaturasPage() {
 
   function limparEmissor() {
     setBuscaEmissorAwb('')
+    setFiltroStatusEmissor('TODOS')
     setBuscaClienteEmissor('')
     setBuscaUsuarioEmissor('')
     setEmissorEmbarqueId('')
@@ -1954,25 +2067,46 @@ export default function FaturasPage() {
             <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
               <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
 
-              <input
-                value={buscaEmissorAwb}
-                onChange={(e) => setBuscaEmissorAwb(e.target.value)}
-                placeholder="Buscar por AWB, cliente, referência..."
-                className="mb-3 w-full"
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveis.map((status) => (
+                    <option key={status} value={status || ''}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <select
                 value={emissorEmbarqueId}
                 onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
                 className="w-full"
               >
-                <option value="">Selecione o AWB</option>
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
                 {embarquesDisponiveisEmissor.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.awb || 'Sem AWB'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
                   </option>
                 ))}
               </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
 
               {embarque ? (
                 <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
@@ -2005,7 +2139,9 @@ export default function FaturasPage() {
                 onChange={(e) => setEmissorClienteId(e.target.value)}
                 className="w-full"
               >
-                <option value="">Selecione o cliente fiscal</option>
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
                 {clientesFaturamentoEmissor.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
@@ -2014,7 +2150,11 @@ export default function FaturasPage() {
               </select>
 
               <p className="mt-2 text-xs text-slate-500">
-                Mostrando até 120 cadastros para deixar a digitação rápida. Use a busca para filtrar.
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
               </p>
 
               <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
