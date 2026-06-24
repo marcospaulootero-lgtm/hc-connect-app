@@ -1926,7 +1926,7 @@ export default function FaturasPage() {
         throw new Error('Biblioteca de PDF não carregou corretamente. Rode npm install jspdf jspdf-autotable e publique novamente.')
       }
 
-      const logoBase64 = await carregarImagemBase64(['/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
       const qrPixBase64 = await gerarQrCodePixBase64(totaisEmissor.totalBRL, emissorNumeroFatura)
 
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
@@ -1958,14 +1958,39 @@ export default function FaturasPage() {
       pdf.text('INSCRIÇÃO ESTADUAL: ISENTO', 185, 128)
       pdf.text('INSCRIÇÃO MUNICIPAL: 1296606100', 350, 128)
 
+      const xLogo = larguraPagina - 118
+      const yLogo = 72
+      const wLogo = 88
+      const hLogo = 62
+
+      // Mesmo visual do login: fundo branco atrás da logo.
+      pdf.setFillColor(255, 255, 255)
+      pdf.setDrawColor(230, 230, 230)
+      pdf.roundedRect(xLogo - 6, yLogo - 6, wLogo + 12, hLogo + 12, 6, 6, 'FD')
+
       if (logoBase64) {
-        pdf.addImage(logoBase64, 'PNG', larguraPagina - 105, 76, 72, 54)
+        try {
+          const formatoLogo = logoBase64.includes('image/jpeg') || logoBase64.includes('image/jpg')
+            ? 'JPEG'
+            : logoBase64.includes('image/webp')
+              ? 'WEBP'
+              : 'PNG'
+
+          pdf.addImage(logoBase64, formatoLogo, xLogo, yLogo, wLogo, hLogo)
+        } catch (error) {
+          console.log('Logo não pôde ser inserida no PDF. Usando fallback em texto:', error)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(22)
+          pdf.text('HC', xLogo + 38, yLogo + 32, { align: 'center' })
+          pdf.setFontSize(7)
+          pdf.text('CONSULTORIA', xLogo + 38, yLogo + 44, { align: 'center' })
+        }
       } else {
         pdf.setFont('helvetica', 'bold')
         pdf.setFontSize(22)
-        pdf.text('HC', larguraPagina - 92, 104)
+        pdf.text('HC', xLogo + 38, yLogo + 32, { align: 'center' })
         pdf.setFontSize(7)
-        pdf.text('CONSULTORIA', larguraPagina - 112, 116)
+        pdf.text('CONSULTORIA', xLogo + 38, yLogo + 44, { align: 'center' })
       }
 
       pdf.setDrawColor(0, 0, 0)
@@ -2067,7 +2092,19 @@ export default function FaturasPage() {
       const yQr = yBanco + 48
 
       if (qrPixBase64) {
-        pdf.addImage(qrPixBase64, 'PNG', xQr, yQr, 72, 72)
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
         pdf.setFont('helvetica', 'bold')
         pdf.setFontSize(6)
         pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
