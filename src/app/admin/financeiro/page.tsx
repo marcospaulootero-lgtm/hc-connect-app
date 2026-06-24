@@ -84,6 +84,13 @@ const movimentacaoVazia: MovimentacaoFormState = {
 
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
+const ANO_BASE_FINANCEIRO = 2025
+const ANO_ATUAL_FINANCEIRO = new Date().getFullYear()
+const ANOS_FINANCEIRO_PERMITIDOS = Array.from(
+  new Set([ANO_ATUAL_FINANCEIRO, ANO_BASE_FINANCEIRO])
+).sort((a, b) => b - a)
+const MES_MINIMO_FINANCEIRO = `${ANO_BASE_FINANCEIRO}-01`
+const MES_MAXIMO_FINANCEIRO = `${ANO_ATUAL_FINANCEIRO}-12`
 
 const EMPRESTIMOS_HC = [
   {
@@ -192,6 +199,7 @@ export default function FinanceiroPage() {
   const [editandoMovimentoId, setEditandoMovimentoId] = useState<string | null>(null)
 
   const [abaPrincipal, setAbaPrincipal] = useState('EXTRATO')
+  const [anoFinanceiro, setAnoFinanceiro] = useState(String(new Date().getFullYear()))
   const [aba, setAba] = useState('EM ABERTO')
   const [pagina, setPagina] = useState(1)
   const [paginaMovimentos, setPaginaMovimentos] = useState(1)
@@ -204,7 +212,7 @@ export default function FinanceiroPage() {
   const [filtroServico, setFiltroServico] = useState<string[]>([])
 
   const [buscaMovimento, setBuscaMovimento] = useState('')
-  const [filtroMesMovimento, setFiltroMesMovimento] = useState<string[]>([new Date().toISOString().slice(0, 7)])
+  const [filtroMesMovimento, setFiltroMesMovimento] = useState<string[]>([])
   const [filtroStatusMovimento, setFiltroStatusMovimento] = useState<string[]>([])
   const [filtroSocioMovimento, setFiltroSocioMovimento] = useState<string[]>([])
   const [mesResultado, setMesResultado] = useState(new Date().toISOString().slice(0, 7))
@@ -222,6 +230,38 @@ export default function FinanceiroPage() {
     carregarDados()
     aplicarParametrosUrl()
   }, [])
+
+  useEffect(() => {
+    const anoValido = anoFinanceiroPermitido(anoFinanceiro)
+      ? String(anoFinanceiro)
+      : String(ANO_ATUAL_FINANCEIRO)
+
+    setAnoExtrato(anoValido)
+
+    setMesResultado((atual) => {
+      if (String(atual || '').startsWith(`${anoValido}-`)) return atual
+
+      const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0')
+      const mesPadrao = anoValido === String(ANO_ATUAL_FINANCEIRO) ? mesAtual : '12'
+      return `${anoValido}-${mesPadrao}`
+    })
+
+    setFormMovimento((atual) => {
+      if (String(atual.mes_referencia || '').startsWith(`${anoValido}-`)) return atual
+
+      const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0')
+      const mesPadrao = anoValido === String(ANO_ATUAL_FINANCEIRO) ? mesAtual : '12'
+      return { ...atual, mes_referencia: `${anoValido}-${mesPadrao}` }
+    })
+
+    setFiltroMesMovimento((atuais) =>
+      atuais.filter((mes) => String(mes || '').startsWith(`${anoValido}-`))
+    )
+
+    setPagina(1)
+    setPaginaMovimentos(1)
+    setPaginaExtrato(1)
+  }, [anoFinanceiro])
 
   function aplicarParametrosUrl() {
     if (typeof window === 'undefined') return
@@ -322,6 +362,83 @@ export default function FinanceiroPage() {
     const data = normalizarData(valor)
     if (!data) return ''
     return data.slice(0, 7)
+  }
+
+  function anoFinanceiroPermitido(ano: any) {
+    const anoNumero = Number(String(ano || '').slice(0, 4))
+    return ANOS_FINANCEIRO_PERMITIDOS.includes(anoNumero)
+  }
+
+  function mesFinanceiroPermitido(mes: any) {
+    const texto = String(mes || '').slice(0, 7)
+    if (!/^\d{4}-\d{2}$/.test(texto)) return false
+    return anoFinanceiroPermitido(texto.slice(0, 4))
+  }
+
+  function mesBaseLancamento(item: any) {
+    return (
+      item.mes_profit ||
+      mesDaData(item.recebimento) ||
+      mesDaData(item.vencimento_cobranca) ||
+      item.mes ||
+      ''
+    )
+  }
+
+  function lancamentoAnoPermitido(item: any) {
+    return mesFinanceiroPermitido(mesBaseLancamento(item))
+  }
+
+  function movimentoAnoPermitido(item: any) {
+    return mesFinanceiroPermitido(
+      item.mes_referencia ||
+        mesDaData(item.data_pagamento) ||
+        mesDaData(item.data_vencimento)
+    )
+  }
+
+  function anoFinanceiroAtivo() {
+    return anoFinanceiroPermitido(anoFinanceiro)
+      ? String(anoFinanceiro)
+      : String(ANO_ATUAL_FINANCEIRO)
+  }
+
+  function mesPadraoAnoFinanceiroAtivo() {
+    const anoAtivo = anoFinanceiroAtivo()
+    const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0')
+    const mesPadrao = anoAtivo === String(ANO_ATUAL_FINANCEIRO) ? mesAtual : '12'
+    return `${anoAtivo}-${mesPadrao}`
+  }
+
+  function mesDoAnoFinanceiroAtivo(mes: any) {
+    return String(mes || '').slice(0, 7).startsWith(`${anoFinanceiroAtivo()}-`)
+  }
+
+  function lancamentoAnoSelecionado(item: any) {
+    return mesDoAnoFinanceiroAtivo(mesBaseLancamento(item))
+  }
+
+  function movimentoAnoSelecionado(item: any) {
+    return mesDoAnoFinanceiroAtivo(
+      item.mes_referencia ||
+        mesDaData(item.data_pagamento) ||
+        mesDaData(item.data_vencimento)
+    )
+  }
+
+  function textoAnosFinanceiroPermitidos() {
+    return ANOS_FINANCEIRO_PERMITIDOS.join(' e ')
+  }
+
+  function calcularFundoAtualPermitido(lista = movimentacoes) {
+    return lista.reduce((acc, item) => {
+      if (!movimentoAnoSelecionado(item)) return acc
+      if (statusMovimento(item) !== 'PAGO') return acc
+      if (item.tipo === 'FUNDO_CAIXA_ENTRADA') return acc + Number(item.valor || 0)
+      if (item.tipo === 'FUNDO_CAIXA_SAIDA') return acc - Number(item.valor || 0)
+      if (item.tipo === 'AJUSTE_CAIXA') return acc + Number(item.valor || 0)
+      return acc
+    }, 0)
   }
 
   function calcularCustos(item: any) {
@@ -476,9 +593,10 @@ export default function FinanceiroPage() {
     }
 
     const todos = respostas.flatMap((res) => res.data || [])
+    const todosPermitidos = todos.filter((item) => lancamentoAnoPermitido(item))
 
     setLancamentos(
-      todos.sort((a, b) => {
+      todosPermitidos.sort((a, b) => {
         const statusA = statusCobranca(a)
         const statusB = statusCobranca(b)
 
@@ -513,7 +631,7 @@ export default function FinanceiroPage() {
       return
     }
 
-    setMovimentacoes(data || [])
+    setMovimentacoes(((data || []) as any[]).filter((item) => movimentoAnoPermitido(item)))
     setPaginaMovimentos(1)
     setLoadingMovimentos(false)
   }
@@ -1238,6 +1356,7 @@ export default function FinanceiroPage() {
     setFormMovimento({
       ...movimentacaoVazia,
       tipo: 'DESPESA',
+      mes_referencia: mesPadraoAnoFinanceiroAtivo(),
       impacta_resultado: true,
       impacta_caixa: true,
     })
@@ -1248,6 +1367,7 @@ export default function FinanceiroPage() {
     setFormMovimento({
       ...movimentacaoVazia,
       tipo,
+      mes_referencia: mesPadraoAnoFinanceiroAtivo(),
       socio: 'MARCOS',
       impacta_resultado: false,
       impacta_caixa: true,
@@ -1260,6 +1380,7 @@ export default function FinanceiroPage() {
     setFormMovimento({
       ...movimentacaoVazia,
       tipo,
+      mes_referencia: mesPadraoAnoFinanceiroAtivo(),
       categoria: tipo === 'FUNDO_CAIXA_ENTRADA' ? 'Reserva' : 'Uso do fundo',
       impacta_resultado: false,
       impacta_caixa: true,
@@ -1461,11 +1582,13 @@ export default function FinanceiroPage() {
       ])
     )
       .filter((mes: any) => /^\d{4}-\d{2}$/.test(String(mes)))
+      .filter((mes: any) => mesFinanceiroPermitido(mes))
+      .filter((mes: any) => mesDoAnoFinanceiroAtivo(mes))
       .filter((mes: any) => String(mes) < mesAtual)
       .sort((a: any, b: any) => String(a).localeCompare(String(b)))
 
     if (meses.length === 0) {
-      alert('Nenhum mês anterior encontrado para fechamento retroativo.')
+      alert('Nenhum mês anterior encontrado para fechamento retroativo no ano selecionado.')
       return
     }
 
@@ -1514,7 +1637,7 @@ export default function FinanceiroPage() {
       : ''
 
     const confirmar = confirm(
-      `Gerar fechamentos retroativos?\n\n` +
+      `Gerar fechamentos retroativos de ${anoFinanceiroAtivo()}?\n\n` +
         `Meses que serão lançados: ${candidatos.length}\n` +
         `Total a reservar no fundo: ${moeda(totalReservar)}\n\n` +
         listaMeses +
@@ -1592,27 +1715,28 @@ export default function FinanceiroPage() {
 
   const transportadoras = useMemo(() => {
     return [
-      ...new Set(lancamentos.map((item) => item.transportadora).filter(Boolean)),
+      ...new Set(lancamentos.filter(lancamentoAnoSelecionado).map((item) => item.transportadora).filter(Boolean)),
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
-  }, [lancamentos])
+  }, [lancamentos, anoFinanceiro])
 
   const despachantes = useMemo(() => {
     return [
-      ...new Set(lancamentos.map((item) => item.despachante).filter(Boolean)),
+      ...new Set(lancamentos.filter(lancamentoAnoSelecionado).map((item) => item.despachante).filter(Boolean)),
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
-  }, [lancamentos])
+  }, [lancamentos, anoFinanceiro])
 
   const servicos = useMemo(() => {
     return [
-      ...new Set(lancamentos.map((item) => item.servico).filter(Boolean)),
+      ...new Set(lancamentos.filter(lancamentoAnoSelecionado).map((item) => item.servico).filter(Boolean)),
     ].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
-  }, [lancamentos])
+  }, [lancamentos, anoFinanceiro])
 
   const resumo = useMemo(() => {
-    const emAberto = lancamentos.filter((item) => statusCobranca(item) === 'EM ABERTO')
-    const atrasado = lancamentos.filter((item) => statusCobranca(item) === 'ATRASADO')
-    const pago = lancamentos.filter((item) => statusCobranca(item) === 'PAGO')
-    const aguardandoCusto = lancamentos.filter((item) => aguardandoCustoProcesso(item))
+    const lancamentosAno = lancamentos.filter(lancamentoAnoSelecionado)
+    const emAberto = lancamentosAno.filter((item) => statusCobranca(item) === 'EM ABERTO')
+    const atrasado = lancamentosAno.filter((item) => statusCobranca(item) === 'ATRASADO')
+    const pago = lancamentosAno.filter((item) => statusCobranca(item) === 'PAGO')
+    const aguardandoCusto = lancamentosAno.filter((item) => aguardandoCustoProcesso(item))
 
     function total(lista: any[]) {
       return lista.reduce((acc, item) => acc + Number(item.valor_cobranca || 0), 0)
@@ -1623,9 +1747,9 @@ export default function FinanceiroPage() {
       atrasado: { qtd: atrasado.length, total: total(atrasado) },
       pago: { qtd: pago.length, total: total(pago) },
       aguardandoCusto: { qtd: aguardandoCusto.length, total: total(aguardandoCusto) },
-      todos: { qtd: lancamentos.length, total: total(lancamentos) },
+      todos: { qtd: lancamentosAno.length, total: total(lancamentosAno) },
     }
-  }, [lancamentos])
+  }, [lancamentos, anoFinanceiro])
 
   const filtrados = useMemo(() => {
     const termo = busca.toLowerCase().trim()
@@ -1640,6 +1764,7 @@ export default function FinanceiroPage() {
         ${item.servico || ''}
       `.toLowerCase()
 
+      const passaAno = lancamentoAnoSelecionado(item)
       const passaBusca = !termo || texto.includes(termo)
       const statusAtual = statusCobranca(item)
       const processoSemCusto = aguardandoCustoProcesso(item)
@@ -1655,6 +1780,7 @@ export default function FinanceiroPage() {
       const passaServico = filtraMultipla(filtroServico, item.servico)
 
       return (
+        passaAno &&
         passaAba &&
         passaStatusMultiplo &&
         passaBusca &&
@@ -1671,6 +1797,7 @@ export default function FinanceiroPage() {
     filtroTransportadora,
     filtroDespachante,
     filtroServico,
+    anoFinanceiro,
   ])
 
   const resumoFiltrado = useMemo(() => {
@@ -1741,30 +1868,38 @@ export default function FinanceiroPage() {
   }, [filtrados])
 
   const movimentacoesDaAba = useMemo(() => {
+    const movimentosAno = movimentacoes.filter(movimentoAnoSelecionado)
+
     if (abaPrincipal === 'DESPESAS') {
-      return movimentacoes.filter((item) => ['DESPESA', 'PAGAMENTO_EMPRESTIMO'].includes(item.tipo))
+      return movimentosAno.filter((item) => ['DESPESA', 'PAGAMENTO_EMPRESTIMO'].includes(item.tipo))
     }
 
     if (abaPrincipal === 'SOCIOS') {
-      return movimentacoes.filter((item) =>
+      return movimentosAno.filter((item) =>
         ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'APORTE_SOCIO'].includes(item.tipo)
       )
     }
 
     if (abaPrincipal === 'FUNDO') {
-      return movimentacoes.filter((item) =>
+      return movimentosAno.filter((item) =>
         ['FUNDO_CAIXA_ENTRADA', 'FUNDO_CAIXA_SAIDA', 'AJUSTE_CAIXA'].includes(item.tipo)
       )
     }
 
-    return movimentacoes
-  }, [abaPrincipal, movimentacoes])
+    return movimentosAno
+  }, [abaPrincipal, movimentacoes, anoFinanceiro])
 
   const mesesMovimentacoes = useMemo(() => {
     return [
-      ...new Set(movimentacoesDaAba.map((item) => item.mes_referencia).filter(Boolean)),
+      ...new Set(
+        movimentacoesDaAba
+          .map((item) => item.mes_referencia)
+          .filter(Boolean)
+          .filter((mes) => mesFinanceiroPermitido(mes))
+          .filter((mes) => mesDoAnoFinanceiroAtivo(mes))
+      ),
     ].sort((a, b) => String(b).localeCompare(String(a)))
-  }, [movimentacoesDaAba])
+  }, [movimentacoesDaAba, anoFinanceiro])
 
   const movimentacoesFiltradas = useMemo(() => {
     const termo = buscaMovimento.toLowerCase().trim()
@@ -1892,13 +2027,7 @@ export default function FinanceiroPage() {
       .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA' && statusMovimento(item) === 'PAGO')
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
-    const fundoAtual = movimentacoes.reduce((acc, item) => {
-      if (statusMovimento(item) !== 'PAGO') return acc
-      if (item.tipo === 'FUNDO_CAIXA_ENTRADA') return acc + Number(item.valor || 0)
-      if (item.tipo === 'FUNDO_CAIXA_SAIDA') return acc - Number(item.valor || 0)
-      if (item.tipo === 'AJUSTE_CAIXA') return acc + Number(item.valor || 0)
-      return acc
-    }, 0)
+    const fundoAtual = calcularFundoAtualPermitido()
 
     const retiradasTotal = retiradasMarcos + retiradasHerica
     const resultadoOperacional = profitRecebido - despesasPagas - emprestimosPagos
@@ -1953,14 +2082,15 @@ export default function FinanceiroPage() {
       saldoFundoMes,
       saldoCaixaRealMes,
     }
-  }, [lancamentos, movimentacoes, mesResultado])
+  }, [lancamentos, movimentacoes, mesResultado, anoFinanceiro])
 
 
   const resumoFundoFiltro = useMemo(() => {
     const movimentosFundo = movimentacoes.filter((item) => {
       const tipoFundo = ['FUNDO_CAIXA_ENTRADA', 'FUNDO_CAIXA_SAIDA', 'AJUSTE_CAIXA'].includes(item.tipo)
+      const passaAno = movimentoAnoSelecionado(item)
       const passaMes = filtraMultipla(filtroMesMovimento, item.mes_referencia)
-      return tipoFundo && passaMes && statusMovimento(item) === 'PAGO'
+      return tipoFundo && passaAno && passaMes && statusMovimento(item) === 'PAGO'
     })
 
     const entradas = movimentosFundo
@@ -1981,10 +2111,13 @@ export default function FinanceiroPage() {
       ajustes,
       saldoPeriodo: entradas - saidas + ajustes,
     }
-  }, [movimentacoes, filtroMesMovimento])
+  }, [movimentacoes, filtroMesMovimento, anoFinanceiro])
 
   const extratoAnual = useMemo(() => {
-    const ano = String(anoExtrato || new Date().getFullYear())
+    const anoSelecionado = anoFinanceiroPermitido(anoExtrato)
+      ? String(anoExtrato)
+      : String(ANO_ATUAL_FINANCEIRO)
+    const ano = anoSelecionado
 
     const linhasProcessos = lancamentos
       .filter((item) => {
@@ -2833,7 +2966,19 @@ export default function FinanceiroPage() {
 
           <Input type="date" label="Vencimento" value={formMovimento.data_vencimento} onChange={(v) => setFormMovimento({ ...formMovimento, data_vencimento: v })} />
           <Input type="date" label="Pagamento" value={formMovimento.data_pagamento} onChange={(v) => setFormMovimento({ ...formMovimento, data_pagamento: v, status: v ? 'PAGO' : formMovimento.status })} />
-          <Input type="month" label="Mês referência" value={formMovimento.mes_referencia} onChange={(v) => setFormMovimento({ ...formMovimento, mes_referencia: v })} />
+          <Input
+            type="month"
+            label="Mês referência"
+            value={formMovimento.mes_referencia}
+            onChange={(v) => {
+              if (!mesFinanceiroPermitido(v)) {
+                alert(`O financeiro está limitado a ${textoAnosFinanceiroPermitidos()}.`)
+                return
+              }
+
+              setFormMovimento({ ...formMovimento, mes_referencia: v })
+            }}
+          />
 
           <div>
             <label className="text-sm font-semibold text-gray-600">Status</label>
@@ -2934,7 +3079,7 @@ export default function FinanceiroPage() {
             values={filtroMesMovimento}
             onChange={(valores) => { setFiltroMesMovimento(valores); setPaginaMovimentos(1) }}
             options={mesesMovimentacoes.map((item: any) => ({ value: String(item), label: formatarMesVisual(item) }))}
-            placeholder="Todos os meses"
+            placeholder={`Todos os meses de ${anoFinanceiroAtivo()}`}
           />
 
           <MultiSelect
@@ -3057,15 +3202,17 @@ export default function FinanceiroPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="number"
-                min="2020"
-                max="2100"
+              <select
                 value={anoExtrato}
-                onChange={(e) => { setAnoExtrato(e.target.value); setPaginaExtrato(1) }}
+                onChange={(e) => { setAnoFinanceiro(e.target.value); setAnoExtrato(e.target.value); setPaginaExtrato(1) }}
                 className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Ano"
-              />
+              >
+                {ANOS_FINANCEIRO_PERMITIDOS.map((ano) => (
+                  <option key={ano} value={String(ano)}>
+                    {ano}
+                  </option>
+                ))}
+              </select>
 
               <div className={`rounded-xl border px-4 py-3 text-sm font-black ${statusClasse}`}>
                 Status: {resumoDono.statusDono}
@@ -3332,6 +3479,40 @@ export default function FinanceiroPage() {
           )}
         </div>
       </div>
+
+
+      <section className="mb-6 rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Filtro geral do financeiro</p>
+            <h2 className="text-xl font-black text-gray-950">Ano em análise: {anoFinanceiroAtivo()}</h2>
+            <p className="text-sm font-semibold text-gray-500">
+              Todas as abas abaixo usam este ano como base: Painel do Dono, Resultado, Processos, Despesas, Sócios e Caixa/Fundo.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+            <label className="text-sm font-bold text-gray-600">
+              Ano
+              <select
+                value={anoFinanceiroAtivo()}
+                onChange={(e) => setAnoFinanceiro(e.target.value)}
+                className="mt-1 block min-w-[180px] rounded-xl border border-gray-200 px-4 py-3 text-sm font-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {ANOS_FINANCEIRO_PERMITIDOS.map((ano) => (
+                  <option key={ano} value={String(ano)}>
+                    {ano}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+              Período permitido: {textoAnosFinanceiroPermitidos()}
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="mb-6 flex gap-2 overflow-x-auto pb-1">
         <TabButton ativo={abaPrincipal === 'EXTRATO'} onClick={() => mudarAbaPrincipal('EXTRATO')}>Painel do Dono</TabButton>
@@ -3690,8 +3871,18 @@ export default function FinanceiroPage() {
                 <label className="text-sm font-semibold text-gray-600">Mês do resultado</label>
                 <input
                   type="month"
+                  min={`${anoFinanceiroAtivo()}-01`}
+                  max={`${anoFinanceiroAtivo()}-12`}
                   value={mesResultado}
-                  onChange={(e) => setMesResultado(e.target.value)}
+                  onChange={(e) => {
+                    if (!mesFinanceiroPermitido(e.target.value)) {
+                      alert(`O financeiro está limitado a ${textoAnosFinanceiroPermitidos()}.`)
+                      return
+                    }
+
+                    setAnoFinanceiro(e.target.value.slice(0, 4))
+                    setMesResultado(e.target.value)
+                  }}
                   className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
