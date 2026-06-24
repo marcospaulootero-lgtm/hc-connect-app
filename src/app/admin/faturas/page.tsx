@@ -105,6 +105,14 @@ type FinanceiroProcesso = {
   cliente_final?: string | null
   fatura?: string | null
   numero_fatura?: string | null
+  transportadora?: string | null
+  servico?: string | null
+  mes?: string | null
+  mes_profit?: string | null
+  observacoes?: string | null
+  doc_dta?: number | string | null
+  debito_terceiro?: number | string | null
+  valor_compra?: number | string | null
 }
 
 type DocumentoEmbarque = {
@@ -184,6 +192,12 @@ export default function FaturasPage() {
   const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
   const [enviandoArquivoExtra, setEnviandoArquivoExtra] = useState<string | null>(null)
   const [removendoArquivoExtra, setRemovendoArquivoExtra] = useState<string | null>(null)
+  const [reciboSelecionado, setReciboSelecionado] = useState<Embarque | null>(null)
+  const [dataRecebimentoRecibo, setDataRecebimentoRecibo] = useState('')
+  const [valorRecebidoRecibo, setValorRecebidoRecibo] = useState('')
+  const [formaRecebimentoRecibo, setFormaRecebimentoRecibo] = useState('PIX / Transferência bancária')
+  const [observacoesRecibo, setObservacoesRecibo] = useState('')
+  const [emitindoRecibo, setEmitindoRecibo] = useState(false)
 
   const [busca, setBusca] = useState('')
   const [filtroDocumento, setFiltroDocumento] = useState('TODOS')
@@ -3402,7 +3416,7 @@ export default function FaturasPage() {
                             >
                               {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
                             </button>
-                          )
+                          )}
 
                           {fatura && (
                             <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
