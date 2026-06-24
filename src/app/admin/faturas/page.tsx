@@ -50,6 +50,17 @@ type Fatura = {
   criado_em: string
   visivel_cliente?: boolean | null
   observacoes?: string | null
+  valor_total?: number | string | null
+  valor_usd?: number | string | null
+  taxa_conversao?: number | string | null
+  spread?: number | string | null
+  vencimento?: string | null
+  data_pagamento?: string | null
+  valor_pago?: number | string | null
+  recibo_emitido_em?: string | null
+  recibo_observacoes?: string | null
+  dados_cliente_faturamento?: any
+  itens_fatura?: any
   arquivado_admin?: boolean | null
   arquivado_admin_em?: string | null
   arquivado_admin_por?: string | null
@@ -295,6 +306,17 @@ export default function FaturasPage() {
         criado_em,
         visivel_cliente,
         observacoes,
+        valor_total,
+        valor_usd,
+        taxa_conversao,
+        spread,
+        vencimento,
+        data_pagamento,
+        valor_pago,
+        recibo_emitido_em,
+        recibo_observacoes,
+        dados_cliente_faturamento,
+        itens_fatura,
         arquivado_admin,
         arquivado_admin_em,
         arquivado_admin_por,
@@ -1391,6 +1413,327 @@ export default function FaturasPage() {
     alert('Recibo anexado com sucesso.')
     carregar()
   }
+
+
+  function valorPadraoRecibo(embarque: Embarque) {
+    const fatura = faturaDoEmbarque(embarque.id)
+    const financeiro = financeiroDoEmbarque(embarque)
+
+    return (
+      numero(fatura?.valor_pago) ||
+      numero(fatura?.valor_total) ||
+      valorFinanceiro(financeiro) ||
+      numero(embarque.valor_fechado) ||
+      numero(embarque.valor_cobrado_cliente) ||
+      numero(embarque.valor_venda)
+    )
+  }
+
+  function abrirEmissaoRecibo(embarque: Embarque) {
+    const fatura = faturaDoEmbarque(embarque.id)
+
+    if (!fatura?.arquivo_pdf) {
+      alert('Cadastre ou emita a fatura antes de emitir o recibo.')
+      return
+    }
+
+    const financeiro = financeiroDoEmbarque(embarque)
+    const dataRecebimento =
+      normalizarData(recebimentoFinanceiro(financeiro)) ||
+      normalizarData(fatura.data_pagamento) ||
+      new Date().toISOString().slice(0, 10)
+
+    setReciboSelecionado(embarque)
+    setDataRecebimentoRecibo(dataRecebimento)
+    setValorRecebidoRecibo(formatarNumeroInput(valorPadraoRecibo(embarque)))
+    setFormaRecebimentoRecibo('PIX / Transferência bancária')
+    setObservacoesRecibo('')
+
+    setTimeout(() => {
+      document.getElementById('form_recibo')?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }
+
+  function limparRecibo() {
+    setReciboSelecionado(null)
+    setDataRecebimentoRecibo('')
+    setValorRecebidoRecibo('')
+    setFormaRecebimentoRecibo('PIX / Transferência bancária')
+    setObservacoesRecibo('')
+  }
+
+  async function salvarFinanceiroDoRecibo(embarque: Embarque, fatura: Fatura, urlRecibo: string) {
+    const financeiroAtual = financeiroDoEmbarque(embarque)
+    const valorPago = numero(valorRecebidoRecibo)
+    const dataRecebimento = normalizarData(dataRecebimentoRecibo)
+
+    if (!dataRecebimento) {
+      throw new Error('Informe uma data de recebimento válida.')
+    }
+
+    const payloadBase: any = {
+      cliente:
+        financeiroAtual?.cliente ||
+        fatura.dados_cliente_faturamento?.nome ||
+        embarque.cliente_final ||
+        embarque.importador ||
+        null,
+      awb: embarque.awb || null,
+      fatura: fatura.numero_fatura || null,
+      transportadora: embarque.transportadora || financeiroAtual?.transportadora || null,
+      servico: embarque.servico || financeiroAtual?.servico || null,
+      valor_cobranca: valorPago || valorFinanceiro(financeiroAtual) || numero(fatura.valor_total),
+      vencimento_cobranca: normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiroAtual)) || null,
+      recebimento: dataRecebimento,
+      mes: normalizarData(fatura.vencimento)?.slice(0, 7) || financeiroAtual?.mes || dataRecebimento.slice(0, 7),
+      mes_profit: dataRecebimento.slice(0, 7),
+      observacoes: [
+        financeiroAtual?.observacoes || '',
+        `Recibo emitido pelo HC Connect em ${dataBR(new Date().toISOString())}.`,
+        `Recebimento em ${dataBR(dataRecebimento)}.`,
+        `Valor recebido: ${moeda(valorPago)}.`,
+        `Forma: ${formaRecebimentoRecibo || '-'}.`,
+        `Recibo: ${urlRecibo}.`,
+        observacoesRecibo ? `Obs recibo: ${observacoesRecibo}` : '',
+      ]
+        .filter(Boolean)
+        .join(' | '),
+    }
+
+    if (financeiroAtual?.id) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update(payloadBase)
+        .eq('id', financeiroAtual.id)
+
+      if (error) throw new Error(`Recibo salvo, mas houve erro ao atualizar Processos Faturados: ${error.message}`)
+      return
+    }
+
+    const payloadComEmbarqueId = {
+      ...payloadBase,
+      embarque_id: embarque.id,
+      doc_dta: 0,
+      debito_terceiro: 0,
+      valor_compra: 0,
+    }
+
+    const { error } = await supabase.from('financeiro_embarques').insert([payloadComEmbarqueId])
+
+    if (error) {
+      const erroColunaEmbarque = String(error.message || '').toLowerCase().includes('embarque_id')
+
+      if (erroColunaEmbarque) {
+        const { embarque_id, ...payloadSemEmbarqueId } = payloadComEmbarqueId
+        const { error: erroSemEmbarque } = await supabase.from('financeiro_embarques').insert([payloadSemEmbarqueId])
+        if (erroSemEmbarque) throw new Error(`Recibo salvo, mas houve erro ao lançar em Processos Faturados: ${erroSemEmbarque.message}`)
+        return
+      }
+
+      throw new Error(`Recibo salvo, mas houve erro ao lançar em Processos Faturados: ${error.message}`)
+    }
+  }
+
+  async function gerarPdfReciboHC() {
+    if (!reciboSelecionado) return alert('Selecione uma fatura para emitir o recibo.')
+    if (!dataRecebimentoRecibo) return alert('Informe a data do recebimento.')
+
+    const fatura = faturaDoEmbarque(reciboSelecionado.id)
+    if (!fatura?.arquivo_pdf) return alert('Fatura não encontrada para este AWB.')
+
+    const valorPago = numero(valorRecebidoRecibo)
+    if (valorPago <= 0) return alert('Informe o valor recebido.')
+
+    setEmitindoRecibo(true)
+
+    try {
+      const jsPDFModule = await import('jspdf')
+      const jsPDF = (jsPDFModule as any).jsPDF || (jsPDFModule as any).default
+
+      if (!jsPDF) {
+        throw new Error('Biblioteca de PDF não carregou corretamente. Rode npm install jspdf e publique novamente.')
+      }
+
+      const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
+      const margem = 44
+      const larguraPagina = pdf.internal.pageSize.getWidth()
+      const dataRecebimento = normalizarData(dataRecebimentoRecibo) || dataRecebimentoRecibo
+      const dadosCliente =
+        fatura.dados_cliente_faturamento ||
+        {
+          nome: reciboSelecionado.cliente_final || reciboSelecionado.importador || '-',
+          documento: '-',
+          endereco: '-',
+          cidade: '-',
+          estado: '-',
+          cep: '-',
+        }
+
+      pdf.setDrawColor(25, 25, 25)
+      pdf.setLineWidth(1)
+
+      if (logoBase64) {
+        try {
+          const formatoLogo = logoBase64.includes('image/jpeg') || logoBase64.includes('image/jpg')
+            ? 'JPEG'
+            : logoBase64.includes('image/webp')
+              ? 'WEBP'
+              : 'PNG'
+
+          const dimensoesLogo = await obterDimensoesImagemBase64(logoBase64)
+          const logoAjustada = encaixarImagemSemDistorcer(
+            dimensoesLogo?.width || 86,
+            dimensoesLogo?.height || 58,
+            86,
+            58
+          )
+
+          pdf.addImage(
+            logoBase64,
+            formatoLogo,
+            larguraPagina - margem - logoAjustada.width,
+            36 + (58 - logoAjustada.height) / 2,
+            logoAjustada.width,
+            logoAjustada.height
+          )
+        } catch (error) {
+          console.log('Logo não pôde ser inserida no recibo:', error)
+        }
+      }
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(18)
+      pdf.text('RECIBO DE PAGAMENTO', margem, 54)
+
+      pdf.setFontSize(9)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', margem, 82)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text('CNPJ 41.456.630/0001-52', margem, 96)
+      pdf.text('RUA DOS COMANCHES Nº 131 - BELO HORIZONTE/MG - CEP 31530250', margem, 110)
+      pdf.text('E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', margem, 124)
+
+      pdf.setDrawColor(0, 0, 0)
+      pdf.line(margem, 146, larguraPagina - margem, 146)
+
+      pdf.setFillColor(238, 242, 255)
+      pdf.rect(margem, 166, larguraPagina - margem * 2, 92, 'FD')
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(9)
+      pdf.text('Recebemos de:', margem + 12, 188)
+      pdf.text('CNPJ / CPF:', 370, 188)
+      pdf.text('Referente à fatura:', margem + 12, 214)
+      pdf.text('AWB / HAWB:', 370, 214)
+      pdf.text('Data do recebimento:', margem + 12, 240)
+
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(pdf.splitTextToSize(dadosCliente.nome || '-', 250), margem + 110, 188)
+      pdf.text(dadosCliente.documento || '-', 440, 188)
+      pdf.text(fatura.numero_fatura || '-', margem + 130, 214)
+      pdf.text(reciboSelecionado.awb || '-', 440, 214)
+      pdf.text(dataBR(dataRecebimento), margem + 140, 240)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(13)
+      pdf.text('Valor recebido:', margem, 300)
+      pdf.setFontSize(24)
+      pdf.text(moeda(valorPago), margem + 130, 304)
+
+      pdf.setFontSize(10)
+      pdf.text('Valor por extenso:', margem, 342)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(pdf.splitTextToSize(valorPorExtensoBRL(valorPago), larguraPagina - margem * 2 - 125), margem + 125, 342)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Forma de recebimento:', margem, 386)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(formaRecebimentoRecibo || '-', margem + 130, 386)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Descrição:', margem, 422)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(
+        pdf.splitTextToSize(
+          `Recebimento referente à fatura ${fatura.numero_fatura || '-'} vinculada ao AWB ${reciboSelecionado.awb || '-'}.`,
+          larguraPagina - margem * 2
+        ),
+        margem,
+        440
+      )
+
+      if (observacoesRecibo) {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Observações:', margem, 486)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(pdf.splitTextToSize(observacoesRecibo, larguraPagina - margem * 2), margem, 504)
+      }
+
+      const yAssinatura = 640
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(larguraPagina / 2 - 95, yAssinatura, larguraPagina / 2 + 95, yAssinatura)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(11)
+      pdf.text('Marcos Paulo Otero', larguraPagina / 2, yAssinatura - 8, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(8)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', larguraPagina / 2, yAssinatura + 16, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', larguraPagina / 2, yAssinatura + 30, { align: 'center' })
+
+      pdf.setFontSize(7)
+      pdf.text(`Recibo emitido pelo HC Connect em ${dataBR(new Date().toISOString())}`, margem, 780)
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `recibos/${fatura.id}/${Date.now()}-recibo-${String(fatura.numero_fatura || reciboSelecionado.awb || 'hc').replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlRecibo = urlData.publicUrl
+
+      const caminhoAntigo = extrairCaminhoStorage(fatura.recibo_pdf)
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const { error: erroFatura } = await supabase
+        .from('faturas')
+        .update({
+          recibo_pdf: urlRecibo,
+          recibo_nome: `Recibo ${fatura.numero_fatura || reciboSelecionado.awb || ''}`.trim(),
+          data_pagamento: dataRecebimento,
+          valor_pago: valorPago,
+          recibo_emitido_em: new Date().toISOString(),
+          recibo_observacoes: observacoesRecibo || null,
+          status_pagamento: 'PAGO',
+          observacao_pagamento: `Recibo emitido em ${dataBR(new Date().toISOString())}. Recebido em ${dataBR(dataRecebimento)}.`,
+        })
+        .eq('id', fatura.id)
+
+      if (erroFatura) throw new Error(erroFatura.message)
+
+      await salvarFinanceiroDoRecibo(reciboSelecionado, fatura, urlRecibo)
+
+      alert('Recibo emitido com sucesso. O pagamento foi registrado em Processos Faturados e o recibo está disponível para o cliente.')
+      limparRecibo()
+      carregar()
+    } catch (error: any) {
+      console.log(error)
+      alert(`Erro ao emitir recibo: ${error.message || error}`)
+    } finally {
+      setEmitindoRecibo(false)
+    }
+  }
+
 
   async function alternarVisibilidade(fatura: Fatura) {
     const { error } = await supabase
@@ -2739,6 +3082,82 @@ export default function FaturasPage() {
         </section>
       )}
 
+
+      {reciboSelecionado && (
+        <section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emitir recibo</p>
+              <h2 className="text-2xl font-black">Recibo do AWB {reciboSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              onClick={limparRecibo}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+            <InfoPacote label="Fatura" valor={faturaDoEmbarque(reciboSelecionado.id)?.numero_fatura || '-'} />
+            <InfoPacote label="Cliente" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+            <InfoPacote label="Valor base" valor={moeda(valorPadraoRecibo(reciboSelecionado))} destaque />
+            <InfoPacote label="Status financeiro" valor={statusPagamentoFinanceiro(financeiroDoEmbarque(reciboSelecionado)).label} />
+
+            <div>
+              <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+              <input
+                type="date"
+                value={dataRecebimentoRecibo}
+                onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+              <input
+                value={valorRecebidoRecibo}
+                onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+                placeholder="Ex: 1.359,29"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+              <input
+                value={formaRecebimentoRecibo}
+                onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+                placeholder="PIX, boleto, transferência..."
+              />
+            </div>
+
+            <textarea
+              value={observacoesRecibo}
+              onChange={(e) => setObservacoesRecibo(e.target.value)}
+              placeholder="Observações que devem constar no recibo ou histórico financeiro"
+              className="md:col-span-4 min-h-[90px]"
+            />
+
+            <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+              Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={gerarPdfReciboHC}
+              disabled={emitindoRecibo}
+              className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {emitindoRecibo ? 'Gerando recibo...' : 'Gerar recibo e registrar recebimento'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
       <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
         <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
           <div>
@@ -2905,20 +3324,26 @@ export default function FaturasPage() {
                       </td>
                       <td>
                         {fatura?.recibo_pdf ? (
-                          <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
-                            Abrir
-                          </Link>
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
                         ) : fatura?.arquivo_pdf ? (
-                          <label className="inline-flex cursor-pointer rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500">
-                            {enviandoRecibo === embarque.id ? 'Enviando...' : 'Anexar'}
-                            <input
-                              type="file"
-                              accept="application/pdf"
-                              disabled={enviandoRecibo === embarque.id}
-                              onChange={(e) => anexarRecibo(embarque, e.target.files?.[0] || null)}
-                              className="hidden"
-                            />
-                          </label>
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
                         ) : (
                           <span className="text-slate-500">-</span>
                         )}
@@ -2968,6 +3393,16 @@ export default function FaturasPage() {
                           <button onClick={() => abrirFormulario(embarque)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black">
                             {fatura ? 'Editar' : 'Anexar'}
                           </button>
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )
 
                           {fatura && (
                             <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
