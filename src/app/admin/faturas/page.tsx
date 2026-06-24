@@ -1916,7 +1916,7 @@ export default function FaturasPage() {
       .from('embarque_clientes')
       .select('*')
       .eq('embarque_id', emissorEmbarqueSelecionado.id)
-      .eq('usuario_id', emissorUsuarioId)
+      .eq('cliente_id', emissorUsuarioId)
       .limit(1)
 
     if (erroConsultaVinculo) {
@@ -1930,7 +1930,7 @@ export default function FaturasPage() {
       .from('embarque_clientes')
       .insert([{
         embarque_id: emissorEmbarqueSelecionado.id,
-        usuario_id: emissorUsuarioId,
+        cliente_id: emissorUsuarioId,
       }])
 
     if (erroInserirVinculo) {
