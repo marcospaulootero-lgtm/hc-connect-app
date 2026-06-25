@@ -136,7 +136,7 @@ type StatusPagamentoFinanceiro = {
   classe: string
 }
 
-type AbaFaturasAdmin = 'FATURAS' | 'EMISSOR'
+type AbaFaturasAdmin = 'FATURAS' | 'EMISSOR' | 'RECIBO'
 
 type ServicoFinanceiroEmbarque = {
   nome?: string | null
@@ -214,6 +214,7 @@ export default function FaturasPage() {
 
 
   const [abaAtiva, setAbaAtiva] = useState<AbaFaturasAdmin>('FATURAS')
+  const [buscaRecibo, setBuscaRecibo] = useState('')
   const [clientesFaturamento, setClientesFaturamento] = useState<ClienteFaturamento[]>([])
   const [usuariosPortal, setUsuariosPortal] = useState<PerfilCliente[]>([])
   const [buscaEmissorAwb, setBuscaEmissorAwb] = useState('')
@@ -2634,6 +2635,217 @@ export default function FaturasPage() {
     }
   }
 
+
+  function renderFormularioRecibo() {
+    return (
+      {reciboSelecionado && (
+        <section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emitir recibo</p>
+              <h2 className="text-2xl font-black">Recibo do AWB {reciboSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              onClick={limparRecibo}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+            <InfoPacote label="Fatura" valor={faturaDoEmbarque(reciboSelecionado.id)?.numero_fatura || '-'} />
+            <InfoPacote label="Cliente" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+            <InfoPacote label="Valor base" valor={moeda(valorPadraoRecibo(reciboSelecionado))} destaque />
+            <InfoPacote label="Status financeiro" valor={statusPagamentoFinanceiro(financeiroDoEmbarque(reciboSelecionado)).label} />
+
+            <div>
+              <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+              <input
+                type="date"
+                value={dataRecebimentoRecibo}
+                onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+              <input
+                value={valorRecebidoRecibo}
+                onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+                placeholder="Ex: 1.359,29"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+              <input
+                value={formaRecebimentoRecibo}
+                onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+                placeholder="PIX, boleto, transferência..."
+              />
+            </div>
+
+            <textarea
+              value={observacoesRecibo}
+              onChange={(e) => setObservacoesRecibo(e.target.value)}
+              placeholder="Observações que devem constar no recibo ou histórico financeiro"
+              className="md:col-span-4 min-h-[90px]"
+            />
+
+            <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+              Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={gerarPdfReciboHC}
+              disabled={emitindoRecibo}
+              className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {emitindoRecibo ? 'Gerando recibo...' : 'Gerar recibo e registrar recebimento'}
+            </button>
+          </div>
+        </section>
+      )}
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
   function renderAbaEmissor() {
     const embarque = emissorEmbarqueSelecionado
     const cliente = emissorClienteSelecionado
@@ -2986,12 +3198,21 @@ export default function FaturasPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setAbaAtiva('EMISSOR')}
-          className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
-        >
-          Emitir nova fatura
-        </button>
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
       </div>
 
       <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
@@ -3018,10 +3239,24 @@ export default function FaturasPage() {
         >
           🧮 Emitir nova fatura
         </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
       </div>
 
       {abaAtiva === 'EMISSOR' ? (
         renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
       ) : (
         <>
       <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
@@ -3139,80 +3374,7 @@ export default function FaturasPage() {
       )}
 
 
-      {reciboSelecionado && (
-        <section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
-          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
-            <div>
-              <p className="text-green-400 font-bold mb-2">Emitir recibo</p>
-              <h2 className="text-2xl font-black">Recibo do AWB {reciboSelecionado.awb}</h2>
-              <p className="text-slate-400 text-sm">
-                Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.
-              </p>
-            </div>
-
-            <button
-              onClick={limparRecibo}
-              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
-            >
-              Cancelar
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-            <InfoPacote label="Fatura" valor={faturaDoEmbarque(reciboSelecionado.id)?.numero_fatura || '-'} />
-            <InfoPacote label="Cliente" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
-            <InfoPacote label="Valor base" valor={moeda(valorPadraoRecibo(reciboSelecionado))} destaque />
-            <InfoPacote label="Status financeiro" valor={statusPagamentoFinanceiro(financeiroDoEmbarque(reciboSelecionado)).label} />
-
-            <div>
-              <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
-              <input
-                type="date"
-                value={dataRecebimentoRecibo}
-                onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
-              <input
-                value={valorRecebidoRecibo}
-                onChange={(e) => setValorRecebidoRecibo(e.target.value)}
-                placeholder="Ex: 1.359,29"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
-              <input
-                value={formaRecebimentoRecibo}
-                onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
-                placeholder="PIX, boleto, transferência..."
-              />
-            </div>
-
-            <textarea
-              value={observacoesRecibo}
-              onChange={(e) => setObservacoesRecibo(e.target.value)}
-              placeholder="Observações que devem constar no recibo ou histórico financeiro"
-              className="md:col-span-4 min-h-[90px]"
-            />
-
-            <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
-              Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro &gt; Processos Faturados.
-            </div>
-
-            <button
-              onClick={gerarPdfReciboHC}
-              disabled={emitindoRecibo}
-              className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
-            >
-              {emitindoRecibo ? 'Gerando recibo...' : 'Gerar recibo e registrar recebimento'}
-            </button>
-          </div>
-        </section>
-      )}
-
+      {renderFormularioRecibo()}
 
       <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
         <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
