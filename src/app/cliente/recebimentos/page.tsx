@@ -16,6 +16,12 @@ type RepasseParceiro = {
   observacao_parceiro: string | null
   liberado_parceiro_em: string | null
   atualizado_em: string | null
+  processo_pago?: boolean | null
+  data_recebimento?: string | null
+  solicitacao_id?: string | null
+  solicitacao_status?: string | null
+  solicitado_em?: string | null
+  observacao_solicitacao?: string | null
 }
 
 type FiltroStatus = 'TODOS' | 'PENDENTE' | 'PAGO'
@@ -25,6 +31,7 @@ export default function RecebimentosParceiroPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [statusFiltro, setStatusFiltro] = useState<FiltroStatus>('TODOS')
+  const [solicitandoId, setSolicitandoId] = useState<string | null>(null)
 
   useEffect(() => {
     carregar()
@@ -56,6 +63,58 @@ export default function RecebimentosParceiroPage() {
 
     setRepasses((data as RepasseParceiro[]) || [])
     setLoading(false)
+  }
+
+
+  async function solicitarProfit(item: RepasseParceiro) {
+    if (!item?.id) return
+
+    if (!item.processo_pago) {
+      alert('Este profit ainda não pode ser solicitado porque o processo ainda não consta como pago pela HC.')
+      return
+    }
+
+    if (statusRepasse(item) === 'PAGO') {
+      alert('Este profit já consta como pago no portal.')
+      return
+    }
+
+    if (item.solicitacao_status && !['RECUSADO', 'CANCELADO'].includes(String(item.solicitacao_status).toUpperCase())) {
+      alert('Este profit já possui uma solicitação em andamento.')
+      return
+    }
+
+    const confirmar = confirm(
+      `Solicitar pagamento deste profit?\n\nAWB: ${item.awb || '-'}\nValor: ${moeda(item.debito_terceiro)}\n\nA HC receberá sua solicitação para análise.`
+    )
+
+    if (!confirmar) return
+
+    setSolicitandoId(item.id)
+
+    const { data, error } = await supabase.rpc('solicitar_repasse_parceiro', {
+      financeiro_id: item.id,
+      mensagem: null,
+    })
+
+    if (error) {
+      console.log('ERRO SOLICITAR PROFIT:', error)
+      alert('Erro ao solicitar profit: ' + error.message)
+      setSolicitandoId(null)
+      return
+    }
+
+    const retorno = Array.isArray(data) ? data[0] : data
+
+    if (retorno?.ok === false) {
+      alert(retorno?.mensagem || 'Não foi possível solicitar este profit.')
+      setSolicitandoId(null)
+      return
+    }
+
+    alert(retorno?.mensagem || 'Solicitação enviada para a HC.')
+    await carregar()
+    setSolicitandoId(null)
   }
 
   function numero(valor: any) {
@@ -183,6 +242,8 @@ export default function RecebimentosParceiroPage() {
           moeda(item.debito_terceiro),
           status === 'PAGO' ? 'PAGO' : 'A RECEBER',
           item.mes_pgto || '-',
+          item.processo_pago ? 'SIM' : 'NAO',
+          labelSolicitacao(item),
           item.observacao_parceiro || '-',
         ]
       })
@@ -190,8 +251,8 @@ export default function RecebimentosParceiroPage() {
       autoTable(doc, {
         startY: (doc as any).lastAutoTable.finalY + 10,
         margin: { left: margem, right: margem },
-        head: [['AWB', 'Cliente', 'Servico', 'Valor a receber', 'Status', 'Mes pgto', 'Observacao HC']],
-        body: linhas.length ? linhas : [['-', '-', '-', '-', '-', '-', '-']],
+        head: [['AWB', 'Cliente', 'Servico', 'Valor', 'Status', 'Mes pgto', 'Processo pago', 'Solicitacao', 'Observacao HC']],
+        body: linhas.length ? linhas : [['-', '-', '-', '-', '-', '-', '-', '-', '-']],
         theme: 'striped',
         tableWidth: pageWidth - margem * 2,
         headStyles: {
@@ -207,13 +268,15 @@ export default function RecebimentosParceiroPage() {
           minCellHeight: 7,
         },
         columnStyles: {
-          0: { cellWidth: 25 },
-          1: { cellWidth: 55 },
-          2: { cellWidth: 32 },
-          3: { cellWidth: 31, halign: 'right' },
-          4: { cellWidth: 27, halign: 'center' },
-          5: { cellWidth: 28, halign: 'center' },
-          6: { cellWidth: 75 },
+          0: { cellWidth: 23 },
+          1: { cellWidth: 45 },
+          2: { cellWidth: 28 },
+          3: { cellWidth: 25, halign: 'right' },
+          4: { cellWidth: 25, halign: 'center' },
+          5: { cellWidth: 23, halign: 'center' },
+          6: { cellWidth: 22, halign: 'center' },
+          7: { cellWidth: 28, halign: 'center' },
+          8: { cellWidth: 54 },
         },
         didDrawPage: () => {
           doc.setFontSize(8)
@@ -237,6 +300,41 @@ export default function RecebimentosParceiroPage() {
   function statusRepasse(item: RepasseParceiro) {
     const status = normalizarTexto(item.pgta_terceiros).toUpperCase()
     return status.includes('PAGO') ? 'PAGO' : 'PENDENTE'
+  }
+
+
+  function labelSolicitacao(item: RepasseParceiro) {
+    const status = String(item.solicitacao_status || '').toUpperCase()
+
+    if (!status) return '-'
+    if (status === 'SOLICITADO') return 'Solicitado'
+    if (status === 'EM_ANALISE') return 'Em análise'
+    if (status === 'APROVADO') return 'Aprovado'
+    if (status === 'RECUSADO') return 'Recusado'
+    if (status === 'PAGO') return 'Pago'
+    if (status === 'CANCELADO') return 'Cancelado'
+
+    return status
+  }
+
+  function classeSolicitacao(item: RepasseParceiro) {
+    const status = String(item.solicitacao_status || '').toUpperCase()
+
+    if (status === 'PAGO' || status === 'APROVADO') return 'border-green-500 bg-green-600/20 text-green-300'
+    if (status === 'RECUSADO' || status === 'CANCELADO') return 'border-red-500 bg-red-600/20 text-red-300'
+    if (status === 'SOLICITADO' || status === 'EM_ANALISE') return 'border-yellow-500 bg-yellow-500/20 text-yellow-300'
+
+    return 'border-slate-600 bg-slate-700/20 text-slate-300'
+  }
+
+  function podeSolicitarProfit(item: RepasseParceiro) {
+    if (!item.processo_pago) return false
+    if (statusRepasse(item) === 'PAGO') return false
+
+    const status = String(item.solicitacao_status || '').toUpperCase()
+    if (['SOLICITADO', 'EM_ANALISE', 'APROVADO'].includes(status)) return false
+
+    return true
   }
 
   const filtrados = useMemo(() => {
@@ -277,6 +375,7 @@ export default function RecebimentosParceiroPage() {
       qtd: repasses.length,
       qtdPendentes: pendentes.length,
       qtdPagos: pagos.length,
+      qtdSolicitados: repasses.filter((item) => !!item.solicitacao_status && !['RECUSADO', 'CANCELADO'].includes(String(item.solicitacao_status).toUpperCase())).length,
     }
   }, [repasses])
 
@@ -319,12 +418,13 @@ export default function RecebimentosParceiroPage() {
           </div>
         </div>
 
-        <section className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-3 xl:grid-cols-5">
+        <section className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-3 xl:grid-cols-6">
           <Card titulo="Total liberado" valor={moeda(resumo.total)} detalhe={`${resumo.qtd} processos`} icone="🤝" />
           <Card titulo="A receber" valor={moeda(resumo.aReceber)} detalhe={`${resumo.qtdPendentes} pendentes`} icone="💰" destaque="yellow" />
           <Card titulo="Recebido" valor={moeda(resumo.recebido)} detalhe={`${resumo.qtdPagos} pagos`} icone="✅" destaque="green" />
           <Card titulo="Pendentes" valor={String(resumo.qtdPendentes)} detalhe="Aguardando pagamento" icone="⏳" />
           <Card titulo="Histórico" valor={String(resumo.qtdPagos)} detalhe="Pagamentos concluídos" icone="🧾" />
+          <Card titulo="Solicitados" valor={String(resumo.qtdSolicitados)} detalhe="Pedidos enviados" icone="📨" destaque="yellow" />
         </section>
 
         <section className="rounded-3xl border border-blue-900 bg-[#071225] p-6">
@@ -332,7 +432,7 @@ export default function RecebimentosParceiroPage() {
             <div>
               <h2 className="text-2xl font-black">Repasses liberados</h2>
               <p className="text-sm text-slate-400">
-                Lista de processos que a HC disponibilizou para visualização.
+                Lista de processos disponibilizados pela HC. A solicitação de profit só fica disponível quando o processo consta como pago.
               </p>
             </div>
 
@@ -382,7 +482,7 @@ export default function RecebimentosParceiroPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-sm">
+              <table className="w-full min-w-[1350px] text-sm">
                 <thead className="bg-[#020817] text-slate-400">
                   <tr>
                     <Th>AWB</Th>
@@ -391,9 +491,11 @@ export default function RecebimentosParceiroPage() {
                     <Th>Parceiro</Th>
                     <Th>Valor a receber</Th>
                     <Th>Status</Th>
+                    <Th>Processo pago</Th>
+                    <Th>Solicitação</Th>
                     <Th>Mês pagamento</Th>
                     <Th>Observação HC</Th>
-                    <Th>Liberado em</Th>
+                    <Th>Ação</Th>
                   </tr>
                 </thead>
 
@@ -423,9 +525,50 @@ export default function RecebimentosParceiroPage() {
                             {status === 'PAGO' ? 'PAGO' : 'A RECEBER'}
                           </span>
                         </Td>
+                        <Td>
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-black ${
+                              item.processo_pago
+                                ? 'border-green-500 bg-green-600/20 text-green-300'
+                                : 'border-slate-600 bg-slate-700/20 text-slate-300'
+                            }`}
+                            title={item.data_recebimento || ''}
+                          >
+                            {item.processo_pago ? 'SIM' : 'NÃO'}
+                          </span>
+                        </Td>
+                        <Td>
+                          {item.solicitacao_status ? (
+                            <div className="space-y-1">
+                              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${classeSolicitacao(item)}`}>
+                                {labelSolicitacao(item)}
+                              </span>
+                              <p className="text-xs text-slate-500">{dataBR(item.solicitado_em)}</p>
+                            </div>
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </Td>
                         <Td>{item.mes_pgto || '-'}</Td>
                         <Td>{item.observacao_parceiro || '-'}</Td>
-                        <Td>{dataBR(item.liberado_parceiro_em)}</Td>
+                        <Td>
+                          {status === 'PAGO' ? (
+                            <span className="text-xs font-bold text-green-300">Profit pago</span>
+                          ) : podeSolicitarProfit(item) ? (
+                            <button
+                              type="button"
+                              onClick={() => solicitarProfit(item)}
+                              disabled={solicitandoId === item.id}
+                              className="rounded-xl bg-yellow-500 px-4 py-2 text-xs font-black text-black hover:bg-yellow-400 disabled:opacity-50"
+                            >
+                              {solicitandoId === item.id ? 'Solicitando...' : 'Solicitar profit'}
+                            </button>
+                          ) : item.processo_pago ? (
+                            <span className="text-xs font-bold text-yellow-300">Já solicitado</span>
+                          ) : (
+                            <span className="text-xs font-bold text-slate-500">Aguardando pagamento</span>
+                          )}
+                        </Td>
                       </tr>
                     )
                   })}

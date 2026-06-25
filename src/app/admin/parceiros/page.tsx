@@ -15,6 +15,7 @@ export default function ParceirosPage() {
   const [editando, setEditando] = useState<any>(null)
   const [usuariosPortal, setUsuariosPortal] = useState<any[]>([])
   const [acessosPortal, setAcessosPortal] = useState<any[]>([])
+  const [solicitacoesProfit, setSolicitacoesProfit] = useState<any[]>([])
   const [usuariosSelecionadosPortal, setUsuariosSelecionadosPortal] = useState<string[]>([])
   const [observacaoLiberacaoPortal, setObservacaoLiberacaoPortal] = useState('')
   const [salvandoPortal, setSalvandoPortal] = useState(false)
@@ -77,6 +78,41 @@ export default function ParceirosPage() {
   function dataHoraBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleString('pt-BR')
+  }
+
+
+  function solicitacoesDoItem(item: any) {
+    if (!item?.id) return []
+    return solicitacoesProfit.filter((solicitacao) => solicitacao.financeiro_embarque_id === item.id)
+  }
+
+  function solicitacoesAbertasDoItem(item: any) {
+    return solicitacoesDoItem(item).filter((solicitacao) =>
+      ['SOLICITADO', 'EM_ANALISE', 'APROVADO'].includes(String(solicitacao.status || '').toUpperCase())
+    )
+  }
+
+  function usuarioDaSolicitacao(solicitacao: any) {
+    return solicitacao?.perfis || usuariosPortal.find((usuario) => usuario.id === solicitacao?.usuario_id) || null
+  }
+
+  function labelStatusSolicitacao(status: any) {
+    const s = String(status || '').toUpperCase()
+    if (s === 'SOLICITADO') return 'Solicitado'
+    if (s === 'EM_ANALISE') return 'Em análise'
+    if (s === 'APROVADO') return 'Aprovado'
+    if (s === 'RECUSADO') return 'Recusado'
+    if (s === 'PAGO') return 'Pago'
+    if (s === 'CANCELADO') return 'Cancelado'
+    return s || '-'
+  }
+
+  function classeSolicitacaoAdmin(status: any) {
+    const s = String(status || '').toUpperCase()
+    if (s === 'PAGO' || s === 'APROVADO') return 'bg-green-50 text-green-700 border-green-200'
+    if (s === 'RECUSADO' || s === 'CANCELADO') return 'bg-red-50 text-red-700 border-red-200'
+    if (s === 'SOLICITADO' || s === 'EM_ANALISE') return 'bg-yellow-50 text-yellow-700 border-yellow-200'
+    return 'bg-slate-50 text-slate-600 border-slate-200'
   }
 
   function acessosDoItem(item: any) {
@@ -321,6 +357,47 @@ export default function ParceirosPage() {
       }
     }
 
+    let solicitacoesData: any[] = []
+
+    if (idsFinanceiros.length > 0) {
+      const lotesIds = dividirEmLotes(idsFinanceiros, 500)
+
+      for (const lote of lotesIds) {
+        const { data: solicitacoesLote, error: solicitacoesError } = await supabase
+          .from('financeiro_parceiro_solicitacoes')
+          .select(`
+            id,
+            financeiro_embarque_id,
+            usuario_id,
+            status,
+            mensagem,
+            observacao_admin,
+            solicitado_em,
+            respondido_em,
+            respondido_por,
+            criado_em,
+            atualizado_em,
+            perfis:usuario_id (
+              id,
+              nome,
+              email,
+              tipo_acesso,
+              ativo
+            )
+          `)
+          .in('financeiro_embarque_id', lote)
+          .order('solicitado_em', { ascending: false })
+
+        if (solicitacoesError) {
+          console.log('Erro ao carregar solicitações de profit:', solicitacoesError)
+          break
+        }
+
+        solicitacoesData = [...solicitacoesData, ...(solicitacoesLote || [])]
+      }
+    }
+
+    setSolicitacoesProfit(solicitacoesData)
     setAcessosPortal(acessosData)
     setRegistros(ordenados)
 
@@ -461,6 +538,16 @@ export default function ParceirosPage() {
       return
     }
 
+    await supabase
+      .from('financeiro_parceiro_solicitacoes')
+      .update({
+        status: 'PAGO',
+        respondido_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq('financeiro_embarque_id', item.id)
+      .in('status', ['SOLICITADO', 'EM_ANALISE', 'APROVADO'])
+
     await carregar()
   }
 
@@ -486,6 +573,39 @@ export default function ParceirosPage() {
 
     if (error) {
       alert('Erro ao reabrir pagamento: ' + error.message)
+      return
+    }
+
+    await carregar()
+  }
+
+
+
+  async function atualizarSolicitacaoProfit(solicitacao: any, novoStatus: string) {
+    if (!solicitacao?.id) return
+
+    const confirmar = confirm(
+      `Atualizar solicitação para ${labelStatusSolicitacao(novoStatus)}?\n\nLogin: ${usuarioPortalLabel(usuarioDaSolicitacao(solicitacao))}`
+    )
+
+    if (!confirmar) return
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const { error } = await supabase
+      .from('financeiro_parceiro_solicitacoes')
+      .update({
+        status: novoStatus,
+        respondido_em: new Date().toISOString(),
+        respondido_por: user?.id || null,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq('id', solicitacao.id)
+
+    if (error) {
+      alert('Erro ao atualizar solicitação: ' + error.message)
       return
     }
 
@@ -971,6 +1091,10 @@ export default function ParceirosPage() {
     const processosComAcesso = new Set(acessosPeriodo.map((acesso) => acesso.financeiro_embarque_id))
     const loginsComAcesso = new Set(acessosPeriodo.map((acesso) => acesso.usuario_id))
     const visualizados = acessosPeriodo.filter((acesso) => !!acesso.ultimo_visualizado_em)
+    const solicitacoesPeriodo = solicitacoesProfit.filter((solicitacao) => idsPeriodo.has(solicitacao.financeiro_embarque_id))
+    const solicitacoesAbertas = solicitacoesPeriodo.filter((solicitacao) =>
+      ['SOLICITADO', 'EM_ANALISE', 'APROVADO'].includes(String(solicitacao.status || '').toUpperCase())
+    )
 
     return {
       processosLiberados: processosComAcesso.size,
@@ -978,8 +1102,10 @@ export default function ParceirosPage() {
       loginsLiberados: loginsComAcesso.size,
       acessosLiberados: acessosPeriodo.length,
       acessosVisualizados: visualizados.length,
+      solicitacoesAbertas: solicitacoesAbertas.length,
+      solicitacoesTotal: solicitacoesPeriodo.length,
     }
-  }, [dadosParceiroPeriodo, acessosPortal])
+  }, [dadosParceiroPeriodo, acessosPortal, solicitacoesProfit])
 
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
@@ -1291,12 +1417,14 @@ export default function ParceirosPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
               <ResumoFiltroCard titulo="Processos liberados" valor={String(resumoPortalParceiro.processosLiberados)} destaque="green" />
               <ResumoFiltroCard titulo="Processos ocultos" valor={String(resumoPortalParceiro.processosOcultos)} destaque="orange" />
               <ResumoFiltroCard titulo="Logins com acesso" valor={String(resumoPortalParceiro.loginsLiberados)} />
               <ResumoFiltroCard titulo="Acessos liberados" valor={String(resumoPortalParceiro.acessosLiberados)} />
               <ResumoFiltroCard titulo="Já visualizados" valor={String(resumoPortalParceiro.acessosVisualizados)} destaque="green" />
+              <ResumoFiltroCard titulo="Solicitações abertas" valor={String(resumoPortalParceiro.solicitacoesAbertas)} destaque="orange" />
+              <ResumoFiltroCard titulo="Solicitações total" valor={String(resumoPortalParceiro.solicitacoesTotal)} />
             </div>
           </section>
 
@@ -1548,7 +1676,7 @@ export default function ParceirosPage() {
             </section>
 
             <div className="overflow-x-auto">
-              <table className="min-w-[1880px] w-full text-sm">
+              <table className="min-w-[2120px] w-full text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <Th>AWB</Th>
@@ -1560,6 +1688,7 @@ export default function ParceirosPage() {
                     <Th>Portal parceiro</Th>
                     <Th>Quem visualiza</Th>
                     <Th>Última visualização</Th>
+                    <Th>Solicitação profit</Th>
                     <Th>Ações</Th>
                   </tr>
                 </thead>
@@ -1567,13 +1696,13 @@ export default function ParceirosPage() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center">
+                      <td colSpan={11} className="p-8 text-center">
                         Carregando registros...
                       </td>
                     </tr>
                   ) : paginados.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-slate-500">
+                      <td colSpan={11} className="p-8 text-center text-slate-500">
                         Nenhum profit de parceiro encontrado.
                       </td>
                     </tr>
@@ -1586,6 +1715,7 @@ export default function ParceirosPage() {
                         .sort((a, b) =>
                           String(b.ultimo_visualizado_em || '').localeCompare(String(a.ultimo_visualizado_em || ''))
                         )[0]
+                      const solicitacoesItem = solicitacoesDoItem(item)
 
                       return (
                         <tr
@@ -1649,6 +1779,51 @@ export default function ParceirosPage() {
                               <span className="text-xs font-bold text-slate-500">Ainda não visualizou</span>
                             ) : (
                               <span className="text-slate-400">-</span>
+                            )}
+                          </Td>
+                          <Td>
+                            {solicitacoesItem.length === 0 ? (
+                              <span className="text-slate-400">-</span>
+                            ) : (
+                              <div className="space-y-2">
+                                {solicitacoesItem.slice(0, 3).map((solicitacao) => (
+                                  <div key={solicitacao.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                    <div className="mb-1 flex items-center justify-between gap-2">
+                                      <Badge texto={labelStatusSolicitacao(solicitacao.status)} classe={classeSolicitacaoAdmin(solicitacao.status)} />
+                                      <span className="text-[10px] font-bold text-slate-500">{dataHoraBR(solicitacao.solicitado_em)}</span>
+                                    </div>
+                                    <p className="text-xs font-black text-slate-800">{usuarioPortalLabel(usuarioDaSolicitacao(solicitacao))}</p>
+                                    {['SOLICITADO', 'EM_ANALISE'].includes(String(solicitacao.status || '').toUpperCase()) && (
+                                      <div className="mt-2 flex flex-wrap gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => atualizarSolicitacaoProfit(solicitacao, 'EM_ANALISE')}
+                                          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700 hover:bg-blue-100"
+                                        >
+                                          Em análise
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => atualizarSolicitacaoProfit(solicitacao, 'APROVADO')}
+                                          className="rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-black text-green-700 hover:bg-green-100"
+                                        >
+                                          Aprovar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => atualizarSolicitacaoProfit(solicitacao, 'RECUSADO')}
+                                          className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-100"
+                                        >
+                                          Recusar
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {solicitacoesItem.length > 3 && (
+                                  <p className="text-xs font-bold text-slate-500">+ {solicitacoesItem.length - 3} solicitação(ões)</p>
+                                )}
+                              </div>
                             )}
                           </Td>
                           <Td>
