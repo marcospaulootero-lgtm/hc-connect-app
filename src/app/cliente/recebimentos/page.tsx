@@ -113,6 +113,7 @@ export default function RecebimentosParceiroPage() {
 
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
+      const margem = 12
 
       doc.setFillColor(2, 12, 34)
       doc.rect(0, 0, pageWidth, 24, 'F')
@@ -120,30 +121,31 @@ export default function RecebimentosParceiroPage() {
       doc.setTextColor(255, 255, 255)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(18)
-      doc.text('HC Consultoria', 14, 15)
+      doc.text('HC Consultoria', margem, 15)
 
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(10)
-      doc.text('Relatorio de Recebimentos', pageWidth - 14, 15, { align: 'right' })
+      doc.text('Relatorio de Recebimentos', pageWidth - margem, 15, { align: 'right' })
 
       doc.setTextColor(15, 23, 42)
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(18)
-      doc.text('Recebimentos liberados pela HC', 14, 36)
+      doc.setFontSize(17)
+      doc.text('Recebimentos liberados pela HC', margem, 36)
 
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
       doc.setTextColor(71, 85, 105)
-      doc.text(`Parceiro: ${parceiroNome}`, 14, 44)
-      doc.text(`Status: ${statusFiltro}`, 14, 50)
-      doc.text(`Busca: ${busca || '-'}`, 14, 56)
-      doc.text(`Gerado em: ${dataGeracao}`, pageWidth - 14, 44, { align: 'right' })
-      doc.text('Este relatorio considera somente os repasses disponibilizados para este login.', pageWidth - 14, 50, {
+      doc.text(`Parceiro: ${parceiroNome}`, margem, 44)
+      doc.text(`Status: ${statusFiltro}`, margem, 50)
+      doc.text(`Busca: ${busca || '-'}`, margem, 56)
+      doc.text(`Gerado em: ${dataGeracao}`, pageWidth - margem, 44, { align: 'right' })
+      doc.text('Somente repasses disponibilizados para este login.', pageWidth - margem, 50, {
         align: 'right',
       })
 
       autoTable(doc, {
         startY: 64,
+        margin: { left: margem, right: margem },
         head: [['Total liberado', 'A receber', 'Recebido', 'Pendentes', 'Pagos', 'Processos no filtro']],
         body: [[
           moeda(resumo.total),
@@ -165,8 +167,9 @@ export default function RecebimentosParceiroPage() {
           fontStyle: 'bold',
         },
         styles: {
-          fontSize: 9,
-          cellPadding: 3,
+          fontSize: 8.5,
+          cellPadding: 2.6,
+          overflow: 'linebreak',
         },
       })
 
@@ -177,46 +180,46 @@ export default function RecebimentosParceiroPage() {
           item.awb || '-',
           item.cliente || '-',
           item.servico || '-',
-          item.parceiro || '-',
           moeda(item.debito_terceiro),
           status === 'PAGO' ? 'PAGO' : 'A RECEBER',
           item.mes_pgto || '-',
           item.observacao_parceiro || '-',
-          dataBR(item.liberado_parceiro_em),
         ]
       })
 
       autoTable(doc, {
         startY: (doc as any).lastAutoTable.finalY + 10,
-        head: [['AWB', 'Cliente', 'Servico', 'Parceiro', 'Valor a receber', 'Status', 'Mes pagamento', 'Observacao HC', 'Liberado em']],
-        body: linhas.length ? linhas : [['-', '-', '-', '-', '-', '-', '-', '-', '-']],
+        margin: { left: margem, right: margem },
+        head: [['AWB', 'Cliente', 'Servico', 'Valor a receber', 'Status', 'Mes pgto', 'Observacao HC']],
+        body: linhas.length ? linhas : [['-', '-', '-', '-', '-', '-', '-']],
         theme: 'striped',
+        tableWidth: pageWidth - margem * 2,
         headStyles: {
           fillColor: [15, 23, 42],
           textColor: [255, 255, 255],
           fontStyle: 'bold',
+          halign: 'left',
         },
         styles: {
-          fontSize: 8,
-          cellPadding: 2.3,
+          fontSize: 7.3,
+          cellPadding: 2.1,
           overflow: 'linebreak',
+          minCellHeight: 7,
         },
         columnStyles: {
-          0: { cellWidth: 26 },
-          1: { cellWidth: 48 },
+          0: { cellWidth: 25 },
+          1: { cellWidth: 55 },
           2: { cellWidth: 32 },
-          3: { cellWidth: 34 },
-          4: { cellWidth: 32, halign: 'right' },
-          5: { cellWidth: 26, halign: 'center' },
-          6: { cellWidth: 28, halign: 'center' },
-          7: { cellWidth: 48 },
-          8: { cellWidth: 26, halign: 'center' },
+          3: { cellWidth: 31, halign: 'right' },
+          4: { cellWidth: 27, halign: 'center' },
+          5: { cellWidth: 28, halign: 'center' },
+          6: { cellWidth: 75 },
         },
         didDrawPage: () => {
           doc.setFontSize(8)
           doc.setTextColor(100, 116, 139)
-          doc.text('Relatorio gerado automaticamente pelo HC Connect', 14, pageHeight - 8)
-          doc.text(`Pagina ${doc.getNumberOfPages()}`, pageWidth - 14, pageHeight - 8, { align: 'right' })
+          doc.text('Relatorio gerado automaticamente pelo HC Connect', margem, pageHeight - 8)
+          doc.text(`Pagina ${doc.getNumberOfPages()}`, pageWidth - margem, pageHeight - 8, { align: 'right' })
         },
       })
 
