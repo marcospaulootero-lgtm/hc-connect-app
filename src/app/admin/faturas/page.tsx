@@ -1746,7 +1746,16 @@ export default function FaturasPage() {
 
       await salvarFinanceiroDoRecibo(reciboSelecionado, fatura, urlRecibo)
 
-      alert('Recibo emitido com sucesso. O pagamento foi registrado em Processos Faturados e o recibo está disponível para o cliente.')
+      const desejaArquivar = confirm(
+        `Recibo emitido com sucesso e pagamento registrado em Processos Faturados.\n\n` +
+          `Faturamento finalizado para o AWB ${reciboSelecionado.awb || '-'}.\n` +
+          `Deseja arquivar este processo na aba de faturas?`
+      )
+
+      if (desejaArquivar) {
+        await arquivarFaturamentoFinalizado(fatura, false)
+      }
+
       limparRecibo()
       carregar()
     } catch (error: any) {
@@ -1805,6 +1814,77 @@ export default function FaturasPage() {
 
     alert(arquivar ? 'Fatura arquivada no admin.' : 'Fatura restaurada no admin.')
     carregar()
+  }
+
+
+  function faturamentoEstaFinalizado(fatura?: Fatura | null, financeiro?: FinanceiroProcesso | null) {
+    if (!fatura?.arquivo_pdf) return false
+    if (!fatura.recibo_pdf) return false
+
+    const pagamento = statusPagamentoFinanceiro(financeiro || null)
+
+    return pagamento.status === 'PAGO' || String(fatura.status_pagamento || '').toUpperCase() === 'PAGO'
+  }
+
+  async function arquivarFaturamentoFinalizado(fatura: Fatura, mostrarAlerta = true) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const { error } = await supabase
+      .from('faturas')
+      .update({
+        arquivado_admin: true,
+        arquivado_admin_em: new Date().toISOString(),
+        arquivado_admin_por: user?.id || null,
+        observacoes: [fatura.observacoes || '', 'Faturamento finalizado: fatura, recibo e pagamento confirmados.']
+          .filter(Boolean)
+          .join(' | '),
+      })
+      .eq('id', fatura.id)
+
+    if (error) {
+      alert('Erro ao arquivar faturamento finalizado: ' + error.message)
+      return false
+    }
+
+    if (mostrarAlerta) {
+      alert('Faturamento finalizado e arquivado na aba de faturas.')
+    }
+
+    return true
+  }
+
+  async function finalizarFaturamentoDaTabela(embarque: Embarque, fatura: Fatura | null | undefined, financeiro: FinanceiroProcesso | null) {
+    if (!fatura?.arquivo_pdf) {
+      alert('Para finalizar, primeiro é necessário ter a fatura emitida/anexada.')
+      return
+    }
+
+    if (!fatura.recibo_pdf) {
+      alert('Para finalizar, primeiro é necessário emitir/anexar o recibo.')
+      return
+    }
+
+    if (!faturamentoEstaFinalizado(fatura, financeiro)) {
+      alert('Para finalizar, o pagamento precisa estar confirmado em Processos Faturados ou na fatura.')
+      return
+    }
+
+    const confirmar = confirm(
+      `Faturamento finalizado para o AWB ${embarque.awb || '-'}.\n\n` +
+        `Fatura: ${fatura.numero_fatura || '-'}\n` +
+        `Cliente: ${embarque.cliente_final || embarque.importador || '-'}\n\n` +
+        `Deseja arquivar este processo na aba de faturas?`
+    )
+
+    if (!confirmar) return
+
+    const arquivou = await arquivarFaturamentoFinalizado(fatura)
+
+    if (arquivou) {
+      carregar()
+    }
   }
 
 
@@ -3795,12 +3875,20 @@ export default function FaturasPage() {
                         </div>
                       </td>
                       <td>
-                        <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
-                          <span>{pagamento.label}</span>
-                          {financeiro ? (
-                            <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
                           ) : null}
-                        </span>
+                        </div>
                       </td>
                       <td>
                         <div className="flex flex-wrap gap-1">
@@ -3842,6 +3930,16 @@ export default function FaturasPage() {
                               className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
                             >
                               {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
                             </button>
                           )}
 
