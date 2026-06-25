@@ -14,7 +14,9 @@ export default function ParceirosPage() {
   const [importando, setImportando] = useState(false)
   const [editando, setEditando] = useState<any>(null)
   const [usuariosPortal, setUsuariosPortal] = useState<any[]>([])
-  const [parceiroUsuarioSelecionado, setParceiroUsuarioSelecionado] = useState('')
+  const [acessosPortal, setAcessosPortal] = useState<any[]>([])
+  const [usuariosSelecionadosPortal, setUsuariosSelecionadosPortal] = useState<string[]>([])
+  const [observacaoLiberacaoPortal, setObservacaoLiberacaoPortal] = useState('')
   const [salvandoPortal, setSalvandoPortal] = useState(false)
 
   const [busca, setBusca] = useState('')
@@ -29,8 +31,6 @@ export default function ParceirosPage() {
     debito_terceiro: '',
     pgta_terceiros: 'PENDENTE',
     mes_pgto: '',
-    visivel_parceiro: false,
-    observacao_parceiro: '',
   })
 
   useEffect(() => {
@@ -38,11 +38,13 @@ export default function ParceirosPage() {
   }, [])
 
   useEffect(() => {
-    const registrosDoParceiro = registros.filter((item) => nomeParceiroRegistro(item) === parceiroSelecionado)
-    const usuarioVinculado = registrosDoParceiro.find((item) => item.parceiro_usuario_id)?.parceiro_usuario_id || ''
+    if (!parceiroSelecionado || parceiroSelecionado === 'Sem parceiro') {
+      setUsuariosSelecionadosPortal([])
+      return
+    }
 
-    setParceiroUsuarioSelecionado(usuarioVinculado)
-  }, [parceiroSelecionado, registros])
+    setUsuariosSelecionadosPortal(usuariosComAcessoDoParceiro(parceiroSelecionado))
+  }, [parceiroSelecionado, acessosPortal, registros])
 
   function moeda(valor: any) {
     return Number(valor || 0).toLocaleString('pt-BR', {
@@ -66,6 +68,63 @@ export default function ParceirosPage() {
 
     if (nome && email) return `${nome} - ${email}`
     return nome || email || usuario?.id || 'Usuário sem identificação'
+  }
+
+  function usuarioDoAcesso(acesso: any) {
+    return acesso?.perfis || usuariosPortal.find((usuario) => usuario.id === acesso?.usuario_id) || null
+  }
+
+  function dataHoraBR(data?: string | null) {
+    if (!data) return '-'
+    return new Date(data).toLocaleString('pt-BR')
+  }
+
+  function acessosDoItem(item: any) {
+    if (!item?.id) return []
+    return acessosPortal.filter((acesso) => acesso.financeiro_embarque_id === item.id)
+  }
+
+  function acessosAtivosDoItem(item: any) {
+    return acessosDoItem(item).filter((acesso) => acesso.ativo !== false)
+  }
+
+  function usuariosComAcessoDoParceiro(parceiro: string) {
+    if (!parceiro) return []
+
+    const idsFinanceiros = new Set(
+      registros
+        .filter((item) => nomeParceiroRegistro(item) === parceiro)
+        .map((item) => item.id)
+        .filter(Boolean)
+    )
+
+    return Array.from(
+      new Set(
+        acessosPortal
+          .filter((acesso) => acesso.ativo !== false && idsFinanceiros.has(acesso.financeiro_embarque_id))
+          .map((acesso) => acesso.usuario_id)
+          .filter(Boolean)
+      )
+    )
+  }
+
+  function alternarUsuarioSelecionado(usuarioId: string) {
+    setUsuariosSelecionadosPortal((atuais) => {
+      if (atuais.includes(usuarioId)) {
+        return atuais.filter((id) => id !== usuarioId)
+      }
+
+      return [...atuais, usuarioId]
+    })
+  }
+
+  function selecionarTodosUsuariosDoParceiro() {
+    if (!parceiroSelecionado || parceiroSelecionado === 'Sem parceiro') return
+    setUsuariosSelecionadosPortal(usuariosComAcessoDoParceiro(parceiroSelecionado))
+  }
+
+  function limparUsuariosSelecionados() {
+    setUsuariosSelecionadosPortal([])
   }
 
   function normalizarBusca(valor: any) {
@@ -220,6 +279,49 @@ export default function ParceirosPage() {
       setUsuariosPortal((usuariosData || []).filter((usuario: any) => usuario.ativo !== false))
     }
 
+    const idsFinanceiros = ordenados.map((item) => item.id).filter(Boolean)
+    let acessosData: any[] = []
+
+    if (idsFinanceiros.length > 0) {
+      const lotesIds = dividirEmLotes(idsFinanceiros, 500)
+
+      for (const lote of lotesIds) {
+        const { data: acessosLote, error: acessosError } = await supabase
+          .from('financeiro_parceiro_acessos')
+          .select(`
+            id,
+            financeiro_embarque_id,
+            usuario_id,
+            ativo,
+            observacao_parceiro,
+            liberado_em,
+            liberado_por,
+            ocultado_em,
+            ultimo_visualizado_em,
+            visualizacoes,
+            criado_em,
+            atualizado_em,
+            perfis:usuario_id (
+              id,
+              nome,
+              email,
+              tipo_acesso,
+              ativo
+            )
+          `)
+          .in('financeiro_embarque_id', lote)
+          .order('liberado_em', { ascending: false })
+
+        if (acessosError) {
+          console.log('Erro ao carregar acessos do portal parceiro:', acessosError)
+          break
+        }
+
+        acessosData = [...acessosData, ...(acessosLote || [])]
+      }
+    }
+
+    setAcessosPortal(acessosData)
     setRegistros(ordenados)
 
     if (!parceiroSelecionado && ordenados.length > 0) {
@@ -397,8 +499,6 @@ export default function ParceirosPage() {
       debito_terceiro: String(item.debito_terceiro || ''),
       pgta_terceiros: normalizarStatusParceiro(item.pgta_terceiros),
       mes_pgto: item.mes_pgto || '',
-      visivel_parceiro: !!item.visivel_parceiro,
-      observacao_parceiro: item.observacao_parceiro || '',
     })
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -411,8 +511,6 @@ export default function ParceirosPage() {
       debito_terceiro: '',
       pgta_terceiros: 'PENDENTE',
       mes_pgto: '',
-      visivel_parceiro: false,
-      observacao_parceiro: '',
     })
   }
 
@@ -430,14 +528,6 @@ export default function ParceirosPage() {
         debito_terceiro: normalizarNumero(form.debito_terceiro),
         pgta_terceiros: normalizarStatusParceiro(form.pgta_terceiros),
         mes_pgto: form.mes_pgto || null,
-        visivel_parceiro: !!form.visivel_parceiro,
-        observacao_parceiro: form.observacao_parceiro || null,
-        liberado_parceiro_em: form.visivel_parceiro
-          ? editando.liberado_parceiro_em || new Date().toISOString()
-          : null,
-        parceiro_usuario_id: form.visivel_parceiro
-          ? editando.parceiro_usuario_id || parceiroUsuarioSelecionado || null
-          : editando.parceiro_usuario_id || parceiroUsuarioSelecionado || null,
         atualizado_em: new Date().toISOString(),
       })
       .eq('id', editando.id)
@@ -454,80 +544,23 @@ export default function ParceirosPage() {
     setSalvando(false)
   }
 
-  async function vincularLoginParceiro() {
-    if (!parceiroSelecionado) {
-      alert('Selecione um parceiro antes de vincular o login.')
-      return
-    }
 
-    if (!parceiroUsuarioSelecionado) {
-      alert('Selecione o login que irá visualizar os repasses deste parceiro.')
-      return
-    }
-
-    const registrosDoParceiro = registros.filter(
-      (item) => nomeParceiroRegistro(item) === parceiroSelecionado
-    )
-
-    if (registrosDoParceiro.length === 0) {
-      alert('Nenhum registro encontrado para este parceiro.')
-      return
-    }
-
-    if (
-      !confirm(
-        `Vincular o login selecionado ao parceiro ${parceiroSelecionado}?\n\nTodos os processos atuais deste parceiro receberão este vínculo, mas só ficarão visíveis no portal quando você clicar em Liberar.`
-      )
-    ) {
-      return
-    }
-
-    setSalvandoPortal(true)
-
-    const lotes = dividirEmLotes(
-      registrosDoParceiro.map((item) => item.id).filter(Boolean),
-      200
-    )
-
-    for (const lote of lotes) {
-      const { error } = await supabase
-        .from('financeiro_embarques')
-        .update({
-          parceiro_usuario_id: parceiroUsuarioSelecionado,
-          atualizado_em: new Date().toISOString(),
-        })
-        .in('id', lote)
-
-      if (error) {
-        alert('Erro ao vincular login ao parceiro: ' + error.message)
-        setSalvandoPortal(false)
-        return
-      }
-    }
-
-    alert('Login vinculado ao parceiro com sucesso.')
-    await carregar()
-    setSalvandoPortal(false)
-  }
-
-  async function atualizarVisibilidadePortal(itens: any[], visivel: boolean) {
+  async function liberarPortalParceiro(itens: any[]) {
     if (!itens.length) {
       alert('Nenhum processo encontrado no filtro atual.')
       return
     }
 
-    if (visivel && !parceiroUsuarioSelecionado) {
-      alert('Selecione e vincule um login antes de liberar os repasses no portal.')
+    if (!usuariosSelecionadosPortal.length) {
+      alert('Selecione um ou mais logins para liberar os repasses.')
       return
     }
 
-    const textoAcao = visivel ? 'liberar no portal' : 'ocultar do portal'
-
     if (
       !confirm(
-        `Deseja ${textoAcao} ${itens.length} processo(s) do filtro atual?\n\nParceiro: ${
+        `Liberar ${itens.length} processo(s) para ${usuariosSelecionadosPortal.length} login(s)?\n\nParceiro: ${
           parceiroSelecionado || 'Todos'
-        }`
+        }\n\nCada login selecionado passará a visualizar estes repasses no portal.`
       )
     ) {
       return
@@ -535,65 +568,92 @@ export default function ParceirosPage() {
 
     setSalvandoPortal(true)
 
-    const lotes = dividirEmLotes(
-      itens.map((item) => item.id).filter(Boolean),
-      200
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const agora = new Date().toISOString()
+    const linhas = itens.flatMap((item) =>
+      usuariosSelecionadosPortal.map((usuarioId) => ({
+        financeiro_embarque_id: item.id,
+        usuario_id: usuarioId,
+        ativo: true,
+        observacao_parceiro: observacaoLiberacaoPortal || null,
+        liberado_em: agora,
+        liberado_por: user?.id || null,
+        atualizado_em: agora,
+      }))
     )
 
+    const lotes = dividirEmLotes(linhas, 250)
+
     for (const lote of lotes) {
-      const payload: any = {
-        visivel_parceiro: visivel,
-        liberado_parceiro_em: visivel ? new Date().toISOString() : null,
-        atualizado_em: new Date().toISOString(),
-      }
-
-      if (visivel && parceiroUsuarioSelecionado) {
-        payload.parceiro_usuario_id = parceiroUsuarioSelecionado
-      }
-
       const { error } = await supabase
-        .from('financeiro_embarques')
-        .update(payload)
-        .in('id', lote)
+        .from('financeiro_parceiro_acessos')
+        .upsert(lote, { onConflict: 'financeiro_embarque_id,usuario_id' })
 
       if (error) {
-        alert(`Erro ao ${textoAcao}: ${error.message}`)
+        alert('Erro ao liberar repasses no portal: ' + error.message)
         setSalvandoPortal(false)
         return
       }
     }
 
-    alert(visivel ? 'Repasses liberados no portal.' : 'Repasses ocultados do portal.')
+    alert('Repasses liberados para os logins selecionados.')
     await carregar()
     setSalvandoPortal(false)
   }
 
-  async function alternarVisibilidadePortal(item: any) {
-    const novoStatus = !item.visivel_parceiro
-
-    if (novoStatus && !item.parceiro_usuario_id && !parceiroUsuarioSelecionado) {
-      alert('Selecione o login do parceiro antes de liberar este repasse.')
+  async function ocultarPortalParceiro(itens: any[], somenteSelecionados = false) {
+    if (!itens.length) {
+      alert('Nenhum processo encontrado no filtro atual.')
       return
     }
 
-    const { error } = await supabase
-      .from('financeiro_embarques')
-      .update({
-        visivel_parceiro: novoStatus,
-        parceiro_usuario_id: novoStatus
-          ? item.parceiro_usuario_id || parceiroUsuarioSelecionado || null
-          : item.parceiro_usuario_id || parceiroUsuarioSelecionado || null,
-        liberado_parceiro_em: novoStatus ? new Date().toISOString() : null,
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq('id', item.id)
+    const ids = itens.map((item) => item.id).filter(Boolean)
+    const aplicarSelecionados = somenteSelecionados && usuariosSelecionadosPortal.length > 0
+    const textoLogins = aplicarSelecionados
+      ? `${usuariosSelecionadosPortal.length} login(s) selecionado(s)`
+      : 'todos os logins vinculados nestes processos'
 
-    if (error) {
-      alert('Erro ao atualizar visibilidade no portal: ' + error.message)
+    if (
+      !confirm(
+        `Ocultar ${itens.length} processo(s) para ${textoLogins}?\n\nParceiro: ${parceiroSelecionado || 'Todos'}`
+      )
+    ) {
       return
     }
 
+    setSalvandoPortal(true)
+
+    const lotes = dividirEmLotes(ids, 250)
+
+    for (const lote of lotes) {
+      let query = supabase
+        .from('financeiro_parceiro_acessos')
+        .update({
+          ativo: false,
+          ocultado_em: new Date().toISOString(),
+          atualizado_em: new Date().toISOString(),
+        })
+        .in('financeiro_embarque_id', lote)
+
+      if (aplicarSelecionados) {
+        query = query.in('usuario_id', usuariosSelecionadosPortal)
+      }
+
+      const { error } = await query
+
+      if (error) {
+        alert('Erro ao ocultar repasses no portal: ' + error.message)
+        setSalvandoPortal(false)
+        return
+      }
+    }
+
+    alert('Repasses ocultados no portal.')
     await carregar()
+    setSalvandoPortal(false)
   }
 
   async function gerarPdfFiltro() {
@@ -745,7 +805,7 @@ export default function ParceirosPage() {
     const mapa: any = {}
 
     registros.forEach((item) => {
-      const nome = nomeParceiroRegistro(item)
+      const nome = item.parceiro || item.despachante || 'Sem parceiro'
 
       if (!mapa[nome]) {
         mapa[nome] = {
@@ -785,7 +845,7 @@ export default function ParceirosPage() {
 
     return registros.filter(
       (item) =>
-        nomeParceiroRegistro(item) ===
+        (item.parceiro || item.despachante || 'Sem parceiro') ===
         parceiroSelecionado
     )
   }, [registros, parceiroSelecionado])
@@ -902,9 +962,24 @@ export default function ParceirosPage() {
     }
   }, [filtrados])
 
-  const totalVisiveisParceiro = dadosParceiroPeriodo.filter((item) => item.visivel_parceiro).length
-  const totalOcultosParceiro = dadosParceiroPeriodo.filter((item) => !item.visivel_parceiro).length
-  const usuarioParceiroAtual = usuariosPortal.find((usuario) => usuario.id === parceiroUsuarioSelecionado) || null
+
+  const resumoPortalParceiro = useMemo(() => {
+    const idsPeriodo = new Set(dadosParceiroPeriodo.map((item) => item.id).filter(Boolean))
+    const acessosPeriodo = acessosPortal.filter(
+      (acesso) => acesso.ativo !== false && idsPeriodo.has(acesso.financeiro_embarque_id)
+    )
+    const processosComAcesso = new Set(acessosPeriodo.map((acesso) => acesso.financeiro_embarque_id))
+    const loginsComAcesso = new Set(acessosPeriodo.map((acesso) => acesso.usuario_id))
+    const visualizados = acessosPeriodo.filter((acesso) => !!acesso.ultimo_visualizado_em)
+
+    return {
+      processosLiberados: processosComAcesso.size,
+      processosOcultos: Math.max(0, dadosParceiroPeriodo.length - processosComAcesso.size),
+      loginsLiberados: loginsComAcesso.size,
+      acessosLiberados: acessosPeriodo.length,
+      acessosVisualizados: visualizados.length,
+    }
+  }, [dadosParceiroPeriodo, acessosPortal])
 
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
@@ -1112,73 +1187,116 @@ export default function ParceirosPage() {
           </section>
 
           <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="mb-4 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
                 <p className="text-xs font-black tracking-widest text-blue-600">
                   PORTAL DO PARCEIRO
                 </p>
                 <h3 className="mt-1 text-xl font-black text-slate-950">
-                  Disponibilizar repasses para visualização
+                  Liberar repasses por login
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Escolha o login que representa este parceiro. Depois libere apenas os processos que devem aparecer no portal.
+                  Selecione um ou mais logins. Ao liberar, cada login selecionado verá os processos filtrados no portal. A tabela abaixo mostra exatamente quem visualiza cada profit e quando visualizou.
                 </p>
               </div>
 
-              <div className="grid w-full gap-3 xl:max-w-[680px]">
-                <select
-                  value={parceiroUsuarioSelecionado}
-                  onChange={(e) => setParceiroUsuarioSelecionado(e.target.value)}
-                  disabled={!parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
+              <div className="grid w-full gap-3 xl:max-w-[760px]">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Logins que terão acesso
+                    </p>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={selecionarTodosUsuariosDoParceiro}
+                        className="rounded-lg border border-blue-200 bg-white px-3 py-1 text-xs font-black text-blue-600 hover:bg-blue-50"
+                      >
+                        Selecionar vinculados
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={limparUsuariosSelecionados}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600 hover:bg-slate-100"
+                      >
+                        Limpar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
+                    {usuariosPortal.length === 0 ? (
+                      <p className="rounded-xl bg-white p-3 text-sm font-bold text-slate-500">
+                        Nenhum login de cliente/parceiro encontrado.
+                      </p>
+                    ) : (
+                      usuariosPortal.map((usuario) => (
+                        <label
+                          key={usuario.id}
+                          className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm font-bold ${
+                            usuariosSelecionadosPortal.includes(usuario.id)
+                              ? 'border-blue-300 bg-blue-50 text-blue-700'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={usuariosSelecionadosPortal.includes(usuario.id)}
+                            onChange={() => alternarUsuarioSelecionado(usuario.id)}
+                          />
+                          <span>{usuarioPortalLabel(usuario)}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <input
+                  value={observacaoLiberacaoPortal}
+                  onChange={(e) => setObservacaoLiberacaoPortal(e.target.value)}
+                  placeholder="Observação opcional que aparece para o parceiro, ex: Repasse previsto para 30/06"
                   className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-                >
-                  <option value="">Selecionar login do parceiro...</option>
-                  {usuariosPortal.map((usuario) => (
-                    <option key={usuario.id} value={usuario.id}>
-                      {usuarioPortalLabel(usuario)}
-                    </option>
-                  ))}
-                </select>
+                />
 
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                   <button
                     type="button"
-                    onClick={vincularLoginParceiro}
-                    disabled={salvandoPortal || !parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
-                    className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {salvandoPortal ? 'Salvando...' : 'Vincular login'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => atualizarVisibilidadePortal(filtrados, true)}
-                    disabled={salvandoPortal || !parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
+                    onClick={() => liberarPortalParceiro(filtrados)}
+                    disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
                     className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
                   >
-                    Liberar filtrados
+                    {salvandoPortal ? 'Salvando...' : 'Liberar filtrados'}
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => atualizarVisibilidadePortal(filtrados, false)}
-                    disabled={salvandoPortal || !parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
+                    onClick={() => ocultarPortalParceiro(filtrados, true)}
+                    disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
+                    className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
+                  >
+                    Ocultar dos selecionados
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => ocultarPortalParceiro(filtrados, false)}
+                    disabled={salvandoPortal}
                     className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
                   >
-                    Ocultar filtrados
+                    Ocultar de todos
                   </button>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-              <ResumoFiltroCard
-                titulo="Login vinculado"
-                valor={usuarioParceiroAtual ? usuarioPortalLabel(usuarioParceiroAtual) : 'Não definido'}
-              />
-              <ResumoFiltroCard titulo="Liberados no portal" valor={String(totalVisiveisParceiro)} destaque="green" />
-              <ResumoFiltroCard titulo="Ocultos" valor={String(totalOcultosParceiro)} destaque="orange" />
-              <ResumoFiltroCard titulo="Filtro atual" valor={`${filtrados.length} processos`} />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+              <ResumoFiltroCard titulo="Processos liberados" valor={String(resumoPortalParceiro.processosLiberados)} destaque="green" />
+              <ResumoFiltroCard titulo="Processos ocultos" valor={String(resumoPortalParceiro.processosOcultos)} destaque="orange" />
+              <ResumoFiltroCard titulo="Logins com acesso" valor={String(resumoPortalParceiro.loginsLiberados)} />
+              <ResumoFiltroCard titulo="Acessos liberados" valor={String(resumoPortalParceiro.acessosLiberados)} />
+              <ResumoFiltroCard titulo="Já visualizados" valor={String(resumoPortalParceiro.acessosVisualizados)} destaque="green" />
             </div>
           </section>
 
@@ -1321,36 +1439,6 @@ export default function ParceirosPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="text-sm font-semibold text-slate-600">
-                    Portal parceiro
-                  </label>
-                  <label className="mt-1 flex min-h-[42px] items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-bold text-slate-800">
-                    <input
-                      type="checkbox"
-                      checked={form.visivel_parceiro}
-                      onChange={(e) =>
-                        setForm({ ...form, visivel_parceiro: e.target.checked })
-                      }
-                    />
-                    Visível
-                  </label>
-                </div>
-
-                <div className="md:col-span-4">
-                  <label className="text-sm font-semibold text-slate-600">
-                    Observação para o parceiro
-                  </label>
-                  <textarea
-                    value={form.observacao_parceiro}
-                    onChange={(e) =>
-                      setForm({ ...form, observacao_parceiro: e.target.value })
-                    }
-                    placeholder="Ex: Repasse previsto para o fechamento do mês."
-                    className="mt-1 min-h-[90px] w-full rounded-xl border border-slate-200 px-3 py-2"
-                  />
-                </div>
-
                 <div className="md:col-span-4 flex gap-3">
                   <button
                     disabled={salvando}
@@ -1460,7 +1548,7 @@ export default function ParceirosPage() {
             </section>
 
             <div className="overflow-x-auto">
-              <table className="min-w-[1680px] w-full text-sm">
+              <table className="min-w-[1880px] w-full text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <Th>AWB</Th>
@@ -1470,7 +1558,8 @@ export default function ParceirosPage() {
                     <Th>Status Pgto Terceiro</Th>
                     <Th>Mês Pgto Terceiro</Th>
                     <Th>Portal parceiro</Th>
-                    <Th>Observação parceiro</Th>
+                    <Th>Quem visualiza</Th>
+                    <Th>Última visualização</Th>
                     <Th>Ações</Th>
                   </tr>
                 </thead>
@@ -1478,19 +1567,25 @@ export default function ParceirosPage() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center">
+                      <td colSpan={10} className="p-8 text-center">
                         Carregando registros...
                       </td>
                     </tr>
                   ) : paginados.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-slate-500">
+                      <td colSpan={10} className="p-8 text-center text-slate-500">
                         Nenhum profit de parceiro encontrado.
                       </td>
                     </tr>
                   ) : (
                     paginados.map((item) => {
                       const statusAtual = statusVisual(item)
+                      const acessosItem = acessosAtivosDoItem(item)
+                      const ultimoAcesso = [...acessosItem]
+                        .filter((acesso) => acesso.ultimo_visualizado_em)
+                        .sort((a, b) =>
+                          String(b.ultimo_visualizado_em || '').localeCompare(String(a.ultimo_visualizado_em || ''))
+                        )[0]
 
                       return (
                         <tr
@@ -1511,15 +1606,51 @@ export default function ParceirosPage() {
                           <Td>{item.mes_pgto || '-'}</Td>
                           <Td>
                             <Badge
-                              texto={item.visivel_parceiro ? 'VISÍVEL' : 'OCULTO'}
+                              texto={acessosItem.length > 0 ? 'LIBERADO' : 'OCULTO'}
                               classe={
-                                item.visivel_parceiro
+                                acessosItem.length > 0
                                   ? 'bg-green-50 text-green-700 border-green-200'
                                   : 'bg-slate-50 text-slate-600 border-slate-200'
                               }
                             />
                           </Td>
-                          <Td>{item.observacao_parceiro || '-'}</Td>
+                          <Td>
+                            {acessosItem.length === 0 ? (
+                              <span className="text-slate-400">-</span>
+                            ) : (
+                              <div className="space-y-1">
+                                {acessosItem.slice(0, 3).map((acesso) => {
+                                  const usuario = usuarioDoAcesso(acesso)
+
+                                  return (
+                                    <div key={acesso.id} className="rounded-lg bg-blue-50 px-2 py-1 text-xs font-black text-blue-700">
+                                      {usuarioPortalLabel(usuario)}
+                                    </div>
+                                  )
+                                })}
+
+                                {acessosItem.length > 3 && (
+                                  <p className="text-xs font-bold text-slate-500">
+                                    + {acessosItem.length - 3} login(s)
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </Td>
+                          <Td>
+                            {ultimoAcesso ? (
+                              <div>
+                                <p className="font-black text-slate-800">{dataHoraBR(ultimoAcesso.ultimo_visualizado_em)}</p>
+                                <p className="text-xs text-slate-500">
+                                  {usuarioPortalLabel(usuarioDoAcesso(ultimoAcesso))}
+                                </p>
+                              </div>
+                            ) : acessosItem.length > 0 ? (
+                              <span className="text-xs font-bold text-slate-500">Ainda não visualizou</span>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </Td>
                           <Td>
                             <div className="flex gap-2">
                               {statusAtual === 'PAGO' ? (
@@ -1546,14 +1677,18 @@ export default function ParceirosPage() {
                               </button>
 
                               <button
-                                onClick={() => alternarVisibilidadePortal(item)}
-                                className={`min-w-[120px] rounded-lg border px-4 py-2 font-black ${
-                                  item.visivel_parceiro
-                                    ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
-                                    : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
-                                }`}
+                                onClick={() => liberarPortalParceiro([item])}
+                                disabled={usuariosSelecionadosPortal.length === 0}
+                                className="min-w-[110px] rounded-lg border border-purple-200 bg-purple-50 px-4 py-2 font-black text-purple-700 hover:bg-purple-100 disabled:opacity-50"
                               >
-                                {item.visivel_parceiro ? 'Ocultar' : 'Liberar'}
+                                Liberar
+                              </button>
+
+                              <button
+                                onClick={() => ocultarPortalParceiro([item], usuariosSelecionadosPortal.length > 0)}
+                                className="min-w-[110px] rounded-lg border border-red-200 bg-red-50 px-4 py-2 font-black text-red-700 hover:bg-red-100"
+                              >
+                                Ocultar
                               </button>
                             </div>
                           </Td>
