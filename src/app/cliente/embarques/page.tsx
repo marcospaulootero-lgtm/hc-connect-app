@@ -299,8 +299,8 @@ export default function ClienteEmbarquesPage() {
   const totalLiberados = ativos.filter((e) => normalizarTexto(e.status_operacional).includes('liberado')).length
 
   return (
-    <main className="min-h-screen bg-[#020817] text-white p-6 xl:p-10">
-      <div className="max-w-[1600px] mx-auto">
+    <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
+      <div className="w-full max-w-none mx-auto">
         <header className="flex flex-col xl:flex-row justify-between items-start gap-8 mb-8">
           <div>
             <p className="text-blue-400 font-bold mb-2">Portal do cliente</p>

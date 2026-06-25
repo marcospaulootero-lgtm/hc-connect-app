@@ -342,7 +342,7 @@ export default function DetalheCliente() {
 
   if (!embarque) {
     return (
-      <main className="min-h-screen bg-[#020817] text-white p-10">
+      <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
         Carregando embarque...
       </main>
     )

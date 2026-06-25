@@ -279,8 +279,8 @@ export default function FaturasClientePage() {
   const totalArquivadas = faturasArquivadas.length
 
   return (
-    <main className="min-h-screen bg-[#020817] text-white p-6 lg:p-10">
-      <div className="max-w-7xl mx-auto">
+    <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
+      <div className="w-full max-w-none mx-auto">
         <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
           <div>
             <p className="text-blue-400 font-bold mb-2">Documentos</p>

@@ -323,8 +323,8 @@ export default function CotacoesClientePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#020817] text-white p-10">
-      <div className="max-w-7xl mx-auto">
+    <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
+      <div className="w-full max-w-none mx-auto">
         <div className="mb-10 flex flex-col lg:flex-row justify-between items-start gap-6">
           <div>
             <h1 className="text-5xl font-black mb-2">

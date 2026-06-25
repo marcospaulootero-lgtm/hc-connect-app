@@ -430,8 +430,8 @@ export default function ClientePage() {
   const suporteAtivos = chamadosSuporte.filter((c) => c.status !== 'RESOLVIDO').length
 
   return (
-    <main className="min-h-screen bg-[#020817] text-white p-6 xl:p-10">
-      <div className="max-w-[1600px] mx-auto">
+    <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
+      <div className="w-full max-w-none mx-auto">
         <header className="flex flex-col xl:flex-row justify-between items-start gap-8 mb-10">
           <div>
             <div className="bg-white inline-block p-5 rounded-3xl shadow-lg mb-6">
