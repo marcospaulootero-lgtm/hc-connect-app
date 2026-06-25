@@ -10,6 +10,7 @@ export default function ClientePage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [faturas, setFaturas] = useState<any[]>([])
+  const [repassesParceiro, setRepassesParceiro] = useState<any[]>([])
   const [chamadosSuporte, setChamadosSuporte] = useState<any[]>([])
   const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<any>({})
   const [busca, setBusca] = useState('')
@@ -87,6 +88,7 @@ export default function ClientePage() {
     carregarEmbarques(user.id)
     carregarCotacoes(user.id, user.email || '')
     carregarFaturas(user.id)
+    carregarRepassesParceiro()
     carregarSuporte(user.id)
   }
 
@@ -197,6 +199,23 @@ export default function ClientePage() {
     setFaturas(data || [])
   }
 
+  async function carregarRepassesParceiro() {
+    try {
+      const { data, error } = await supabase.rpc('get_meus_repasses_parceiro')
+
+      if (error) {
+        console.log('Recebimentos de parceiro ainda não disponíveis:', error)
+        setRepassesParceiro([])
+        return
+      }
+
+      setRepassesParceiro(data || [])
+    } catch (error) {
+      console.log('Erro ao carregar recebimentos de parceiro:', error)
+      setRepassesParceiro([])
+    }
+  }
+
   async function sair() {
     await supabase.auth.signOut()
     window.location.href = '/login'
@@ -212,6 +231,28 @@ export default function ClientePage() {
   function dataBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleString('pt-BR')
+  }
+
+
+  function numero(valor: any) {
+    if (valor === null || valor === undefined || valor === '') return 0
+    if (typeof valor === 'number') return valor
+
+    return (
+      Number(
+        String(valor)
+          .replace(/[R$\s]/gi, '')
+          .replace(/\./g, '')
+          .replace(',', '.')
+      ) || 0
+    )
+  }
+
+  function moeda(valor: any) {
+    return numero(valor).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
   }
 
   function linkRastreio(item: any) {
@@ -374,6 +415,10 @@ export default function ClientePage() {
   const ultimasCotacoes = cotacoes.slice(0, 4)
   const faturasDisponiveis = faturas.length
   const recibosDisponiveis = faturas.filter((f) => f.recibo_pdf).length
+  const repassesDisponiveis = repassesParceiro.length
+  const repassesPendentes = repassesParceiro.filter((item) => String(item.status_pagamento || item.pgta_terceiros || '').toUpperCase() !== 'PAGO')
+  const repassesPagos = repassesParceiro.filter((item) => String(item.status_pagamento || item.pgta_terceiros || '').toUpperCase() === 'PAGO')
+  const totalRepassesAReceber = repassesPendentes.reduce((acc, item) => acc + numero(item.valor_receber || item.debito_terceiro || 0), 0)
   const suporteAbertos = chamadosSuporte.filter((c) => c.status === 'ABERTO').length
   const suporteAnalise = chamadosSuporte.filter((c) => c.status === 'EM ANÁLISE').length
   const suporteRespondidos = chamadosSuporte.filter((c) => c.status === 'RESPONDIDO').length
@@ -422,6 +467,10 @@ export default function ClientePage() {
                 Faturas e recibos
               </a>
 
+              <a href="/cliente/recebimentos" className="bg-yellow-500 hover:bg-yellow-400 px-5 py-3 rounded-xl font-bold text-black">
+                💰 Recebimentos
+              </a>
+
               <a href="/cliente/suporte" className="bg-purple-600 hover:bg-purple-500 px-5 py-3 rounded-xl font-bold">
                 Suporte
               </a>
@@ -448,7 +497,7 @@ export default function ClientePage() {
           )}
         </header>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-9 gap-5 mb-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-10 gap-5 mb-8">
           <Kpi
             titulo="Embarques"
             valor={embarques.length}
@@ -523,6 +572,16 @@ export default function ClientePage() {
             }}
           />
           <Kpi
+            titulo="Recebimentos"
+            valor={repassesDisponiveis}
+            detalhe={totalRepassesAReceber > 0 ? `${moeda(totalRepassesAReceber)} a receber` : 'Ver repasses'}
+            icone="💰"
+            cor="yellow"
+            onClick={() => {
+              window.location.href = '/cliente/recebimentos'
+            }}
+          />
+          <Kpi
             titulo="Peso total"
             valor={`${pesoTotal.toFixed(2)} kg`}
             detalhe="Movimentado"
@@ -540,6 +599,7 @@ export default function ClientePage() {
               <Alerta titulo="Embarques em fiscalização" valor={fiscalizacao} icone="🛃" cor="yellow" />
               <Alerta titulo="Cotações disponíveis" valor={cotacoesDisponiveis} icone="📄" cor="green" />
               <Alerta titulo="Faturas disponíveis" valor={faturasDisponiveis} icone="🧾" cor="blue" />
+              <Alerta titulo="Recebimentos liberados" valor={repassesDisponiveis} icone="💰" cor="yellow" />
               <Alerta titulo="Suporte ativo" valor={suporteAtivos} icone="🎧" cor="purple" />
               <Alerta titulo="Documentos disponíveis" valor={documentosTotal} icone="📎" cor="purple" />
             </div>
@@ -553,6 +613,8 @@ export default function ClientePage() {
               <Resumo titulo="Em análise" valor={cotacoesAnalise} />
               <Resumo titulo="Faturas liberadas" valor={faturasDisponiveis} />
               <Resumo titulo="Recibos liberados" valor={recibosDisponiveis} />
+              <Resumo titulo="Repasses a receber" valor={moeda(totalRepassesAReceber)} />
+              <Resumo titulo="Repasses pagos" valor={repassesPagos.length} />
               <Resumo titulo="Suporte aberto" valor={suporteAbertos + suporteAnalise} />
               <Resumo titulo="Suporte respondido" valor={suporteRespondidos} />
               <Resumo titulo="Embarques ativos" valor={embarques.length - entregues} />
