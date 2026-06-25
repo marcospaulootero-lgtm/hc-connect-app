@@ -1121,86 +1121,79 @@ export default function ParceirosPage() {
   const inicialParceiro = normalizarTexto(parceiroSelecionado).slice(0, 1) || 'P'
 
   return (
-    <main className="min-h-screen bg-[#f5f7fb] p-6 text-slate-900">
-      <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-950">
-            Profit Parceiros
-          </h1>
-          <p className="text-sm text-slate-500">
-            Acompanhe os valores e pagamentos dos seus parceiros
-          </p>
-        </div>
+    <main className="min-h-screen bg-[#f5f7fb] p-4 text-slate-900 lg:p-6">
+      <div className="mx-auto w-full max-w-none space-y-5">
+        <header className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-600">Financeiro</p>
+            <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">Profit Parceiros</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Controle de repasses, pagamentos, liberação no portal e solicitações dos parceiros.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap gap-3">
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-blue-200 bg-white px-5 py-3 text-sm font-black text-blue-600 shadow-sm hover:bg-blue-50">
-            ☁ Importar Excel
-            <input
-              type="file"
-              accept=".xlsx,.xls,.xlsm"
-              onChange={importarPagamentosExcel}
-              disabled={importando}
-              className="hidden"
-            />
-          </label>
+          <div className="flex flex-wrap gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 shadow-sm hover:bg-blue-100">
+              ☁ Importar Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls,.xlsm"
+                onChange={importarPagamentosExcel}
+                disabled={importando}
+                className="hidden"
+              />
+            </label>
 
-          <button
-            type="button"
-            onClick={carregar}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            ⟳ {loading ? 'Atualizando...' : 'Atualizar dados'}
-          </button>
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={carregar}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              ⟳ {loading ? 'Atualizando...' : 'Atualizar dados'}
+            </button>
+          </div>
+        </header>
 
-      <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          titulo="PROFIT TOTAL"
-          valor={moeda(resumoGeral.total)}
-          subtitulo="Total gerado para parceiros"
-          icone="🤝"
-          cor="blue"
-        />
-        <KpiCard
-          titulo="A PAGAR"
-          valor={moeda(resumoGeral.aberto)}
-          subtitulo="Valores pendentes"
-          icone="💰"
-          cor="orange"
-        />
-        <KpiCard
-          titulo="PAGOS"
-          valor={moeda(resumoGeral.pago)}
-          subtitulo="Valores pagos"
-          icone="✅"
-          cor="green"
-        />
-        <KpiCard
-          titulo="PARCEIROS"
-          valor={String(resumoGeral.qtdParceiros)}
-          subtitulo="Parceiros ativos"
-          icone="👥"
-          cor="purple"
-        />
-      </section>
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <KpiCard titulo="PROFIT TOTAL" valor={moeda(resumoGeral.total)} subtitulo="Total gerado para parceiros" icone="🤝" cor="blue" />
+          <KpiCard titulo="A PAGAR" valor={moeda(resumoGeral.aberto)} subtitulo="Valores pendentes" icone="💰" cor="orange" />
+          <KpiCard titulo="PAGOS" valor={moeda(resumoGeral.pago)} subtitulo="Valores pagos" icone="✅" cor="green" />
+          <KpiCard titulo="PARCEIROS" valor={String(resumoGeral.qtdParceiros)} subtitulo="Parceiros ativos" icone="👥" cor="purple" />
+        </section>
 
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[330px_1fr]">
-        <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-4">
-            <h2 className="text-base font-black">Selecione o parceiro</h2>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h2 className="text-lg font-black text-slate-950">Parceiros</h2>
+              <p className="text-sm text-slate-500">
+                A seleção agora fica em cards horizontais para evitar a barra lateral apertada.
+              </p>
+            </div>
 
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-1">
+            <div className="flex w-full flex-col gap-3 xl:w-[520px] xl:flex-row">
               <input
                 value={buscaParceiro}
                 onChange={(e) => setBuscaParceiro(e.target.value)}
                 placeholder="Buscar parceiro..."
-                className="w-full rounded-lg bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-400"
+                className="w-full rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-slate-400"
               />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setParceiroSelecionado('')
+                  setPagina(1)
+                  setBusca('')
+                  setAba('TODOS')
+                }}
+                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"
+              >
+                Ver todos
+              </button>
             </div>
           </div>
 
-          <div className="max-h-[670px] overflow-y-auto">
+          <div className="flex gap-3 overflow-x-auto pb-2">
             {parceirosFiltrados.map((item: any) => (
               <button
                 key={item.nome}
@@ -1211,708 +1204,435 @@ export default function ParceirosPage() {
                   setBusca('')
                   setAba('TODOS')
                 }}
-                className={`group w-full border-b border-slate-100 p-4 text-left transition ${
+                className={`min-w-[220px] rounded-2xl border p-4 text-left transition ${
                   parceiroSelecionado === item.nome
-                    ? 'border-l-4 border-l-blue-600 bg-blue-50'
-                    : 'bg-white hover:bg-slate-50'
+                    ? 'border-blue-500 bg-blue-600 text-white shadow-md'
+                    : 'border-slate-200 bg-slate-50 text-slate-900 hover:border-blue-300 hover:bg-blue-50'
                 }`}
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-black text-slate-950">{item.nome}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {item.qtd} processos
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-black">{item.nome}</p>
+                    <p className={parceiroSelecionado === item.nome ? 'mt-1 text-xs text-blue-100' : 'mt-1 text-xs text-slate-500'}>
+                      {item.qtd} processo(s)
                     </p>
                   </div>
-
-                  <div className="text-right">
-                    <p className="text-sm font-black text-slate-950">
-                      {moeda(item.total)}
-                    </p>
-                    <span className="text-slate-300 group-hover:text-blue-500">›</span>
-                  </div>
+                  <span className="rounded-full bg-white/20 px-2 py-1 text-xs font-black">›</span>
                 </div>
+
+                <p className="mt-3 text-lg font-black">{moeda(item.total)}</p>
               </button>
             ))}
           </div>
+        </section>
 
-          <div className="border-t border-slate-100 p-4">
-            <button
-              type="button"
-              onClick={() => {
-                setParceiroSelecionado('')
-                setPagina(1)
-              }}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-blue-600 hover:bg-blue-50"
-            >
-              ☰ Ver todos parceiros
-            </button>
-          </div>
-        </aside>
-
-        <div className="space-y-5">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-950 text-3xl font-black text-white shadow-sm">
-                  {inicialParceiro.toUpperCase()}
-                </div>
-
-                <div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-3xl font-black text-slate-950">
-                      {parceiroSelecionado || 'Todos parceiros'}
-                    </h2>
-
-                    <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-black text-green-700">
-                      Parceiro ativo
-                    </span>
+        <section className="grid grid-cols-1 gap-5 2xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-5">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-2xl font-black text-white shadow-sm">
+                    {inicialParceiro.toUpperCase()}
                   </div>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    Painel consolidado de valores, pagamentos e processos
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h2 className="truncate text-2xl font-black text-slate-950">
+                        {parceiroSelecionado || 'Todos parceiros'}
+                      </h2>
+                      <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-black text-green-700">Parceiro ativo</span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500">Resumo financeiro do parceiro selecionado.</p>
+                  </div>
                 </div>
+
+                <select
+                  value={periodo}
+                  onChange={(e) => {
+                    setPeriodo(e.target.value)
+                    setPagina(1)
+                  }}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+                >
+                  <option value="TODOS">📅 Todos os períodos</option>
+                  {anosDisponiveis.map((ano: any) => (
+                    <option key={ano} value={ano}>📅 Período: {ano}</option>
+                  ))}
+                </select>
               </div>
 
-              <select
-                value={periodo}
-                onChange={(e) => {
-                  setPeriodo(e.target.value)
-                  setPagina(1)
-                }}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-              >
-                <option value="TODOS">📅 Todos os períodos</option>
-                {anosDisponiveis.map((ano: any) => (
-                  <option key={ano} value={ano}>
-                    📅 Período: {ano}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-5 md:grid-cols-5">
+                <MiniInfo titulo="TOTAL PROFIT" valor={moeda(resumoParceiro.total)} />
+                <MiniInfo titulo="A PAGAR" valor={moeda(resumoParceiro.aberto)} destaque="orange" />
+                <MiniInfo titulo="PAGO" valor={moeda(resumoParceiro.pago)} destaque="green" />
+                <MiniInfo titulo="PROCESSOS" valor={String(resumoParceiro.qtd)} />
+                <MiniInfo titulo="TICKET MÉDIO" valor={moeda(resumoParceiro.ticket)} />
+              </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-5 md:grid-cols-5">
-              <MiniInfo titulo="TOTAL PROFIT" valor={moeda(resumoParceiro.total)} />
-              <MiniInfo titulo="A PAGAR" valor={moeda(resumoParceiro.aberto)} destaque="orange" />
-              <MiniInfo titulo="PAGO" valor={moeda(resumoParceiro.pago)} destaque="green" />
-              <MiniInfo titulo="PROCESSOS" valor={String(resumoParceiro.qtd)} />
-              <MiniInfo titulo="TICKET MÉDIO" valor={moeda(resumoParceiro.ticket)} />
-            </div>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-green-500" style={{ width: `${percentualPago}%` }} />
+              </div>
 
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-green-500"
-                style={{ width: `${percentualPago}%` }}
-              />
-            </div>
+              <p className="mt-2 text-xs font-bold text-slate-500">
+                {percentualPago}% pago · {100 - percentualPago}% pendente
+              </p>
+            </section>
 
-            <p className="mt-2 text-xs font-bold text-slate-500">
-              {percentualPago}% pago · {100 - percentualPago}% pendente
-            </p>
-          </section>
+            {editando && (
+              <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-black">Editar pagamento parceiro</h2>
+                    <p className="text-sm text-slate-500">{editando.cliente} · AWB {editando.awb}</p>
+                  </div>
+
+                  <button type="button" onClick={cancelar} className="rounded-xl bg-slate-100 px-4 py-2 font-bold text-slate-800 hover:bg-slate-200">
+                    Cancelar
+                  </button>
+                </div>
+
+                <form onSubmit={salvar} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-600">Parceiro</label>
+                    <input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+                  </div>
+
+                  <Info label="Cliente" value={editando.cliente || '-'} />
+                  <Info label="AWB" value={editando.awb || '-'} />
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-600">Valor parceiro</label>
+                    <input value={form.debito_terceiro} onChange={(e) => setForm({ ...form, debito_terceiro: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-600">Status pagamento</label>
+                    <select value={form.pgta_terceiros} onChange={(e) => setForm({ ...form, pgta_terceiros: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+                      <option value="PENDENTE">PENDENTE</option>
+                      <option value="PAGO">PAGO</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-600">Mês do pagamento</label>
+                    <input value={form.mes_pgto} onChange={(e) => setForm({ ...form, mes_pgto: e.target.value })} placeholder="Ex: junho" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+                  </div>
+
+                  <div className="md:col-span-4 flex gap-3">
+                    <button disabled={salvando} className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                      {salvando ? 'Salvando...' : 'Salvar pagamento'}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            )}
+          </div>
 
           <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-              <div>
-                <p className="text-xs font-black tracking-widest text-blue-600">
-                  PORTAL DO PARCEIRO
-                </p>
-                <h3 className="mt-1 text-xl font-black text-slate-950">
-                  Liberar repasses por login
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Selecione um ou mais logins. Ao liberar, cada login selecionado verá os processos filtrados no portal. A tabela abaixo mostra exatamente quem visualiza cada profit e quando visualizou.
-                </p>
+            <div className="mb-4">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Portal do parceiro</p>
+              <h3 className="mt-1 text-xl font-black text-slate-950">Liberar repasses por login</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Escolha os logins que podem visualizar os processos filtrados. Abaixo você acompanha quem viu e quem solicitou.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <ResumoFiltroCard titulo="Liberados" valor={String(resumoPortalParceiro.processosLiberados)} destaque="green" />
+              <ResumoFiltroCard titulo="Ocultos" valor={String(resumoPortalParceiro.processosOcultos)} destaque="orange" />
+              <ResumoFiltroCard titulo="Visualizados" valor={String(resumoPortalParceiro.acessosVisualizados)} destaque="green" />
+              <ResumoFiltroCard titulo="Solicitações" valor={String(resumoPortalParceiro.solicitacoesAbertas)} destaque="orange" />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-black text-slate-950">Logins com acesso</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={selecionarTodosUsuariosDoParceiro} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">
+                    Selecionar vinculados
+                  </button>
+                  <button type="button" onClick={limparUsuariosSelecionados} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">
+                    Limpar
+                  </button>
+                </div>
               </div>
 
-              <div className="grid w-full gap-3 xl:max-w-[760px]">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                      Logins que terão acesso
-                    </p>
-
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={selecionarTodosUsuariosDoParceiro}
-                        className="rounded-lg border border-blue-200 bg-white px-3 py-1 text-xs font-black text-blue-600 hover:bg-blue-50"
-                      >
-                        Selecionar vinculados
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={limparUsuariosSelecionados}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600 hover:bg-slate-100"
-                      >
-                        Limpar
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
-                    {usuariosPortal.length === 0 ? (
-                      <p className="rounded-xl bg-white p-3 text-sm font-bold text-slate-500">
-                        Nenhum login de cliente/parceiro encontrado.
-                      </p>
-                    ) : (
-                      usuariosPortal.map((usuario) => (
-                        <label
-                          key={usuario.id}
-                          className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm font-bold ${
-                            usuariosSelecionadosPortal.includes(usuario.id)
-                              ? 'border-blue-300 bg-blue-50 text-blue-700'
-                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={usuariosSelecionadosPortal.includes(usuario.id)}
-                            onChange={() => alternarUsuarioSelecionado(usuario.id)}
-                          />
-                          <span>{usuarioPortalLabel(usuario)}</span>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <input
-                  value={observacaoLiberacaoPortal}
-                  onChange={(e) => setObservacaoLiberacaoPortal(e.target.value)}
-                  placeholder="Observação opcional que aparece para o parceiro, ex: Repasse previsto para 30/06"
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-                />
-
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                  <button
-                    type="button"
-                    onClick={() => liberarPortalParceiro(filtrados)}
-                    disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
-                    className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
-                  >
-                    {salvandoPortal ? 'Salvando...' : 'Liberar filtrados'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => ocultarPortalParceiro(filtrados, true)}
-                    disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
-                    className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
-                  >
-                    Ocultar dos selecionados
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => ocultarPortalParceiro(filtrados, false)}
-                    disabled={salvandoPortal}
-                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
-                  >
-                    Ocultar de todos
-                  </button>
-                </div>
+              <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                {usuariosPortal.length === 0 ? (
+                  <p className="rounded-xl bg-white p-3 text-sm font-bold text-slate-500">Nenhum login de cliente/parceiro encontrado.</p>
+                ) : (
+                  usuariosPortal.map((usuario) => (
+                    <label
+                      key={usuario.id}
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm font-bold ${
+                        usuariosSelecionadosPortal.includes(usuario.id)
+                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input type="checkbox" checked={usuariosSelecionadosPortal.includes(usuario.id)} onChange={() => alternarUsuarioSelecionado(usuario.id)} />
+                      <span className="min-w-0 truncate">{usuarioPortalLabel(usuario)}</span>
+                    </label>
+                  ))
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
-              <ResumoFiltroCard titulo="Processos liberados" valor={String(resumoPortalParceiro.processosLiberados)} destaque="green" />
-              <ResumoFiltroCard titulo="Processos ocultos" valor={String(resumoPortalParceiro.processosOcultos)} destaque="orange" />
-              <ResumoFiltroCard titulo="Logins com acesso" valor={String(resumoPortalParceiro.loginsLiberados)} />
-              <ResumoFiltroCard titulo="Acessos liberados" valor={String(resumoPortalParceiro.acessosLiberados)} />
-              <ResumoFiltroCard titulo="Já visualizados" valor={String(resumoPortalParceiro.acessosVisualizados)} destaque="green" />
-              <ResumoFiltroCard titulo="Solicitações abertas" valor={String(resumoPortalParceiro.solicitacoesAbertas)} destaque="orange" />
-              <ResumoFiltroCard titulo="Solicitações total" valor={String(resumoPortalParceiro.solicitacoesTotal)} />
+            <input
+              value={observacaoLiberacaoPortal}
+              onChange={(e) => setObservacaoLiberacaoPortal(e.target.value)}
+              placeholder="Observação para o parceiro, ex: Repasse previsto para 30/06"
+              className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+            />
+
+            <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => liberarPortalParceiro(filtrados)}
+                disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
+                className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
+              >
+                {salvandoPortal ? 'Salvando...' : 'Liberar filtrados'}
+              </button>
+              <button
+                type="button"
+                onClick={() => ocultarPortalParceiro(filtrados, true)}
+                disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
+                className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
+              >
+                Ocultar selecionados
+              </button>
+              <button
+                type="button"
+                onClick={() => ocultarPortalParceiro(filtrados, false)}
+                disabled={salvandoPortal}
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
+              >
+                Ocultar todos
+              </button>
             </div>
           </section>
+        </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h3 className="text-lg font-black">
-                  Ranking de parceiros
-                  <span className="font-normal text-slate-500"> (por valor total)</span>
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Top 5 parceiros por valor total. O gráfico mensal foi removido para dar mais espaço aos processos.
-                </p>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
+            <div>
+              <h3 className="text-xl font-black text-slate-950">
+                Processos do parceiro: {parceiroSelecionado || 'Todos'}
+                <span className="ml-2 rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-600">{filtrados.length} registros</span>
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Colunas reorganizadas para leitura sem diminuir o zoom. As informações de portal e solicitação ficam agrupadas.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                {['TODOS', 'PAGO', 'PENDENTE'].map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => {
+                      setAba(item)
+                      setPagina(1)
+                    }}
+                    className={`rounded-lg px-4 py-2 text-xs font-black ${
+                      aba === item ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-white'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))}
               </div>
+
+              <input
+                value={busca}
+                onChange={(e) => {
+                  setBusca(e.target.value)
+                  setPagina(1)
+                }}
+                placeholder="Buscar processo, cliente, AWB..."
+                className="min-w-[280px] rounded-xl border border-slate-200 px-4 py-3 text-sm"
+              />
+
+              <button type="button" onClick={gerarPdfFiltro} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50">
+                📄 Gerar PDF
+              </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  setParceiroSelecionado('')
+                  setBusca('')
+                  setAba('TODOS')
                   setPagina(1)
                 }}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-blue-600 hover:bg-blue-50 md:w-auto"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
               >
-                Ver ranking completo
+                Limpar
               </button>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-              {ranking.map((item: any, index: number) => (
-                <button
-                  key={item.nome}
-                  type="button"
-                  onClick={() => {
-                    setParceiroSelecionado(item.nome)
-                    setPagina(1)
-                    setBusca('')
-                    setAba('TODOS')
-                  }}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 px-4 py-3 text-left hover:border-blue-200 hover:bg-blue-50"
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${
-                        index === 0
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : index === 1
-                          ? 'bg-slate-100 text-slate-600'
-                          : index === 2
-                          ? 'bg-orange-100 text-orange-700'
-                          : 'bg-slate-50 text-slate-600'
-                      }`}
-                    >
-                      {index < 3 ? '🏅' : index + 1}
-                    </span>
-
-                    <div className="min-w-0">
-                      <p className="truncate font-black text-slate-900">{item.nome}</p>
-                      <p className="text-xs text-slate-500">{item.qtd} processos</p>
-                    </div>
-                  </div>
-
-                  <p className="whitespace-nowrap text-sm font-black text-slate-950">
-                    {moeda(item.total)}
-                  </p>
-                </button>
-              ))}
+          <section className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <ResumoFiltroCard titulo="Processos" valor={String(resumoFiltrado.qtd)} />
+              <ResumoFiltroCard titulo="Total terceiro" valor={moeda(resumoFiltrado.total)} />
+              <ResumoFiltroCard titulo="Pago terceiro" valor={moeda(resumoFiltrado.pago)} destaque="green" />
+              <ResumoFiltroCard titulo="Pendente terceiro" valor={moeda(resumoFiltrado.pendente)} destaque="orange" />
+              <ResumoFiltroCard titulo="Ticket médio" valor={moeda(resumoFiltrado.ticket)} />
             </div>
           </section>
 
-          {editando && (
-            <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-black">Editar pagamento parceiro</h2>
-                  <p className="text-sm text-slate-500">
-                    {editando.cliente} · AWB {editando.awb}
-                  </p>
-                </div>
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="w-full min-w-[1180px] text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <Th>Processo</Th>
+                  <Th>Cliente / Serviço</Th>
+                  <Th>Valor</Th>
+                  <Th>Pagamento</Th>
+                  <Th>Portal parceiro</Th>
+                  <Th>Solicitação</Th>
+                  <Th>Ações</Th>
+                </tr>
+              </thead>
 
-                <button
-                  type="button"
-                  onClick={cancelar}
-                  className="rounded-xl bg-slate-100 px-4 py-2 font-bold text-slate-800 hover:bg-slate-200"
-                >
-                  Cancelar
-                </button>
-              </div>
-
-              <form onSubmit={salvar} className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                <div>
-                  <label className="text-sm font-semibold text-slate-600">Parceiro</label>
-                  <input
-                    value={form.parceiro}
-                    onChange={(e) => setForm({ ...form, parceiro: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                  />
-                </div>
-
-                <Info label="Cliente" value={editando.cliente || '-'} />
-                <Info label="AWB" value={editando.awb || '-'} />
-
-                <div>
-                  <label className="text-sm font-semibold text-slate-600">
-                    Valor parceiro
-                  </label>
-                  <input
-                    value={form.debito_terceiro}
-                    onChange={(e) =>
-                      setForm({ ...form, debito_terceiro: e.target.value })
-                    }
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-slate-600">
-                    Status pagamento
-                  </label>
-                  <select
-                    value={form.pgta_terceiros}
-                    onChange={(e) =>
-                      setForm({ ...form, pgta_terceiros: e.target.value })
-                    }
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                  >
-                    <option value="PENDENTE">PENDENTE</option>
-                    <option value="PAGO">PAGO</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-slate-600">
-                    Mês do pagamento
-                  </label>
-                  <input
-                    value={form.mes_pgto}
-                    onChange={(e) => setForm({ ...form, mes_pgto: e.target.value })}
-                    placeholder="Ex: junho"
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                  />
-                </div>
-
-                <div className="md:col-span-4 flex gap-3">
-                  <button
-                    disabled={salvando}
-                    className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {salvando ? 'Salvando...' : 'Salvar pagamento'}
-                  </button>
-                </div>
-              </form>
-            </section>
-          )}
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <h3 className="text-base font-black">
-                  Processos do parceiro: {parceiroSelecionado || 'Todos'}
-                  <span className="ml-2 rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-600">
-                    {filtrados.length} registros
-                  </span>
-                </h3>
-                <p className="mt-1 text-xs font-bold text-slate-500">
-                  Controle dos terceiros: valor = coluna I, status = coluna Q, mês do pagamento = coluna S.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <input
-                  value={busca}
-                  onChange={(e) => {
-                    setBusca(e.target.value)
-                    setPagina(1)
-                  }}
-                  placeholder="Buscar processo, cliente, AWB..."
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm xl:w-[340px]"
-                />
-
-                <button
-                  type="button"
-                  onClick={gerarPdfFiltro}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
-                >
-                  📄 Gerar PDF
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBusca('')
-                    setAba('TODOS')
-                    setPagina(1)
-                  }}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
-                >
-                  ⌕
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-4 flex flex-wrap gap-2">
-              {['TODOS', 'PAGO', 'PENDENTE'].map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => {
-                    setAba(item)
-                    setPagina(1)
-                  }}
-                  className={`rounded-xl border px-4 py-2 text-xs font-black ${
-                    aba === item
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-
-            <section className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
-              <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h4 className="text-sm font-black text-slate-950">
-                    Resumo do filtro para enviar ao cliente
-                  </h4>
-                  <p className="text-xs font-bold text-slate-500">
-                    Os valores abaixo mudam conforme parceiro, período, busca e status selecionados.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={gerarPdfFiltro}
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700"
-                >
-                  Gerar PDF do filtro
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                <ResumoFiltroCard titulo="Processos" valor={String(resumoFiltrado.qtd)} />
-                <ResumoFiltroCard titulo="Total terceiro" valor={moeda(resumoFiltrado.total)} />
-                <ResumoFiltroCard titulo="Pago terceiro" valor={moeda(resumoFiltrado.pago)} destaque="green" />
-                <ResumoFiltroCard titulo="Pendente terceiro" valor={moeda(resumoFiltrado.pendente)} destaque="orange" />
-                <ResumoFiltroCard titulo="Ticket médio" valor={moeda(resumoFiltrado.ticket)} />
-              </div>
-            </section>
-
-            <div className="overflow-x-auto">
-              <table className="min-w-[2120px] w-full text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+              <tbody>
+                {loading ? (
                   <tr>
-                    <Th>AWB</Th>
-                    <Th>Cliente</Th>
-                    <Th>Serviço</Th>
-                    <Th>Valor Terceiro</Th>
-                    <Th>Status Pgto Terceiro</Th>
-                    <Th>Mês Pgto Terceiro</Th>
-                    <Th>Portal parceiro</Th>
-                    <Th>Quem visualiza</Th>
-                    <Th>Última visualização</Th>
-                    <Th>Solicitação profit</Th>
-                    <Th>Ações</Th>
+                    <td colSpan={7} className="p-8 text-center">Carregando registros...</td>
                   </tr>
-                </thead>
+                ) : paginados.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-500">Nenhum profit de parceiro encontrado.</td>
+                  </tr>
+                ) : (
+                  paginados.map((item) => {
+                    const statusAtual = statusVisual(item)
+                    const acessosAtivos = acessosAtivosDoItem(item)
+                    const acessosItem = acessosDoItem(item)
+                    const ultimoAcesso = [...acessosAtivos]
+                      .filter((acesso) => !!acesso.ultimo_visualizado_em)
+                      .sort((a, b) => String(b.ultimo_visualizado_em).localeCompare(String(a.ultimo_visualizado_em)))[0]
+                    const solicitacoesItem = solicitacoesDoItem(item)
+                    const solicitacoesAbertas = solicitacoesAbertasDoItem(item)
 
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={11} className="p-8 text-center">
-                        Carregando registros...
-                      </td>
-                    </tr>
-                  ) : paginados.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} className="p-8 text-center text-slate-500">
-                        Nenhum profit de parceiro encontrado.
-                      </td>
-                    </tr>
-                  ) : (
-                    paginados.map((item) => {
-                      const statusAtual = statusVisual(item)
-                      const acessosItem = acessosAtivosDoItem(item)
-                      const ultimoAcesso = [...acessosItem]
-                        .filter((acesso) => acesso.ultimo_visualizado_em)
-                        .sort((a, b) =>
-                          String(b.ultimo_visualizado_em || '').localeCompare(String(a.ultimo_visualizado_em || ''))
-                        )[0]
-                      const solicitacoesItem = solicitacoesDoItem(item)
+                    return (
+                      <tr key={item.id} className="border-b border-slate-100 align-top hover:bg-slate-50">
+                        <Td>
+                          <div className="space-y-1">
+                            <p className="font-black text-slate-950">AWB {item.awb || '-'}</p>
+                            <p className="text-xs font-bold text-slate-500">Parceiro: {nomeParceiroRegistro(item)}</p>
+                          </div>
+                        </Td>
 
-                      return (
-                        <tr
-                          key={item.id}
-                          className="border-b border-slate-100 hover:bg-slate-50"
-                        >
-                          <Td>{item.awb || '-'}</Td>
-                          <Td>{item.cliente || '-'}</Td>
-                          <Td>{item.servico || '-'}</Td>
-                          <Td>
-                            <span className="font-black text-slate-900">
-                              {moeda(item.debito_terceiro)}
-                            </span>
-                          </Td>
-                          <Td>
+                        <Td>
+                          <div className="max-w-[360px] space-y-1">
+                            <p className="font-bold text-slate-900">{item.cliente || '-'}</p>
+                            <p className="text-xs font-bold text-slate-500">{item.servico || '-'}</p>
+                          </div>
+                        </Td>
+
+                        <Td>
+                          <p className="font-black text-slate-950">{moeda(item.debito_terceiro)}</p>
+                        </Td>
+
+                        <Td>
+                          <div className="space-y-2">
                             <Badge texto={statusAtual} classe={badge(statusAtual)} />
-                          </Td>
-                          <Td>{item.mes_pgto || '-'}</Td>
-                          <Td>
-                            <Badge
-                              texto={acessosItem.length > 0 ? 'LIBERADO' : 'OCULTO'}
-                              classe={
-                                acessosItem.length > 0
-                                  ? 'bg-green-50 text-green-700 border-green-200'
-                                  : 'bg-slate-50 text-slate-600 border-slate-200'
-                              }
-                            />
-                          </Td>
-                          <Td>
-                            {acessosItem.length === 0 ? (
-                              <span className="text-slate-400">-</span>
-                            ) : (
-                              <div className="space-y-1">
-                                {acessosItem.slice(0, 3).map((acesso) => {
-                                  const usuario = usuarioDoAcesso(acesso)
+                            <p className="text-xs font-bold text-slate-500">Mês: {item.mes_pgto || '-'}</p>
+                          </div>
+                        </Td>
 
-                                  return (
-                                    <div key={acesso.id} className="rounded-lg bg-blue-50 px-2 py-1 text-xs font-black text-blue-700">
-                                      {usuarioPortalLabel(usuario)}
-                                    </div>
-                                  )
-                                })}
-
-                                {acessosItem.length > 3 && (
-                                  <p className="text-xs font-bold text-slate-500">
-                                    + {acessosItem.length - 3} login(s)
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </Td>
-                          <Td>
-                            {ultimoAcesso ? (
-                              <div>
-                                <p className="font-black text-slate-800">{dataHoraBR(ultimoAcesso.ultimo_visualizado_em)}</p>
-                                <p className="text-xs text-slate-500">
-                                  {usuarioPortalLabel(usuarioDoAcesso(ultimoAcesso))}
+                        <Td>
+                          <div className="max-w-[340px] space-y-2">
+                            {acessosAtivos.length > 0 ? (
+                              <>
+                                <Badge texto="LIBERADO" classe="bg-green-50 text-green-700 border-green-200" />
+                                <div className="flex flex-wrap gap-1">
+                                  {acessosAtivos.slice(0, 3).map((acesso) => (
+                                    <span key={acesso.id} className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">
+                                      {usuarioPortalLabel(usuarioDoAcesso(acesso))}
+                                    </span>
+                                  ))}
+                                  {acessosAtivos.length > 3 && (
+                                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600">+{acessosAtivos.length - 3}</span>
+                                  )}
+                                </div>
+                                <p className="text-xs font-bold text-slate-500">
+                                  Última visualização: {ultimoAcesso ? dataHoraBR(ultimoAcesso.ultimo_visualizado_em) : 'ainda não visualizado'}
                                 </p>
-                              </div>
-                            ) : acessosItem.length > 0 ? (
-                              <span className="text-xs font-bold text-slate-500">Ainda não visualizou</span>
+                              </>
                             ) : (
-                              <span className="text-slate-400">-</span>
+                              <Badge texto="OCULTO" classe="bg-slate-50 text-slate-600 border-slate-200" />
                             )}
-                          </Td>
-                          <Td>
+                            {acessosItem.length > acessosAtivos.length && (
+                              <p className="text-xs font-bold text-slate-400">{acessosItem.length - acessosAtivos.length} acesso(s) oculto(s)</p>
+                            )}
+                          </div>
+                        </Td>
+
+                        <Td>
+                          <div className="max-w-[280px] space-y-2">
                             {solicitacoesItem.length === 0 ? (
-                              <span className="text-slate-400">-</span>
+                              <span className="text-sm font-bold text-slate-400">Sem solicitação</span>
                             ) : (
-                              <div className="space-y-2">
-                                {solicitacoesItem.slice(0, 3).map((solicitacao) => (
-                                  <div key={solicitacao.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-                                    <div className="mb-1 flex items-center justify-between gap-2">
-                                      <Badge texto={labelStatusSolicitacao(solicitacao.status)} classe={classeSolicitacaoAdmin(solicitacao.status)} />
-                                      <span className="text-[10px] font-bold text-slate-500">{dataHoraBR(solicitacao.solicitado_em)}</span>
-                                    </div>
-                                    <p className="text-xs font-black text-slate-800">{usuarioPortalLabel(usuarioDaSolicitacao(solicitacao))}</p>
-                                    {['SOLICITADO', 'EM_ANALISE'].includes(String(solicitacao.status || '').toUpperCase()) && (
-                                      <div className="mt-2 flex flex-wrap gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => atualizarSolicitacaoProfit(solicitacao, 'EM_ANALISE')}
-                                          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700 hover:bg-blue-100"
-                                        >
-                                          Em análise
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => atualizarSolicitacaoProfit(solicitacao, 'APROVADO')}
-                                          className="rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-black text-green-700 hover:bg-green-100"
-                                        >
-                                          Aprovar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => atualizarSolicitacaoProfit(solicitacao, 'RECUSADO')}
-                                          className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-100"
-                                        >
-                                          Recusar
-                                        </button>
-                                      </div>
-                                    )}
+                              solicitacoesItem.slice(0, 2).map((solicitacao) => (
+                                <div key={solicitacao.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                                    <Badge texto={labelStatusSolicitacao(solicitacao.status)} classe={classeSolicitacaoAdmin(solicitacao.status)} />
+                                    <span className="text-[10px] font-bold text-slate-500">{dataHoraBR(solicitacao.solicitado_em)}</span>
                                   </div>
-                                ))}
-                                {solicitacoesItem.length > 3 && (
-                                  <p className="text-xs font-bold text-slate-500">+ {solicitacoesItem.length - 3} solicitação(ões)</p>
-                                )}
-                              </div>
+                                  <p className="text-xs font-black text-slate-800">{usuarioPortalLabel(usuarioDaSolicitacao(solicitacao))}</p>
+                                  {['SOLICITADO', 'EM_ANALISE'].includes(String(solicitacao.status || '').toUpperCase()) && (
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      <button type="button" onClick={() => atualizarSolicitacaoProfit(solicitacao, 'EM_ANALISE')} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700 hover:bg-blue-100">Em análise</button>
+                                      <button type="button" onClick={() => atualizarSolicitacaoProfit(solicitacao, 'APROVADO')} className="rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-black text-green-700 hover:bg-green-100">Aprovar</button>
+                                      <button type="button" onClick={() => atualizarSolicitacaoProfit(solicitacao, 'RECUSADO')} className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-100">Recusar</button>
+                                    </div>
+                                  )}
+                                </div>
+                              ))
                             )}
-                          </Td>
-                          <Td>
-                            <div className="flex gap-2">
-                              {statusAtual === 'PAGO' ? (
-                                <button
-                                  onClick={() => reabrirPagamento(item)}
-                                  className="min-w-[110px] rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-2 font-black text-yellow-700 hover:bg-yellow-100"
-                                >
-                                  ↺ Reabrir
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => marcarPago(item)}
-                                  className="min-w-[110px] rounded-lg border border-green-200 bg-green-50 px-4 py-2 font-black text-green-700 hover:bg-green-100"
-                                >
-                                  ✓ Pago
-                                </button>
-                              )}
+                            {solicitacoesAbertas.length > 0 && <p className="text-xs font-black text-orange-600">{solicitacoesAbertas.length} aberta(s)</p>}
+                          </div>
+                        </Td>
 
-                              <button
-                                onClick={() => editar(item)}
-                                className="min-w-[90px] rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 font-black text-blue-600 hover:bg-blue-100"
-                              >
-                                Editar
-                              </button>
+                        <Td>
+                          <div className="flex flex-wrap gap-2">
+                            {statusAtual === 'PAGO' ? (
+                              <button onClick={() => reabrirPagamento(item)} className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs font-black text-yellow-700 hover:bg-yellow-100">↺ Reabrir</button>
+                            ) : (
+                              <button onClick={() => marcarPago(item)} className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-black text-green-700 hover:bg-green-100">✓ Pago</button>
+                            )}
+                            <button onClick={() => editar(item)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-600 hover:bg-blue-100">Editar</button>
+                            <button onClick={() => liberarPortalParceiro([item])} disabled={usuariosSelecionadosPortal.length === 0} className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-black text-purple-700 hover:bg-purple-100 disabled:opacity-50">Liberar</button>
+                            <button onClick={() => ocultarPortalParceiro([item], usuariosSelecionadosPortal.length > 0)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100">Ocultar</button>
+                          </div>
+                        </Td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-                              <button
-                                onClick={() => liberarPortalParceiro([item])}
-                                disabled={usuariosSelecionadosPortal.length === 0}
-                                className="min-w-[110px] rounded-lg border border-purple-200 bg-purple-50 px-4 py-2 font-black text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                              >
-                                Liberar
-                              </button>
+          <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm text-slate-500">Mostrando {paginados.length} de {filtrados.length} registros</p>
 
-                              <button
-                                onClick={() => ocultarPortalParceiro([item], usuariosSelecionadosPortal.length > 0)}
-                                className="min-w-[110px] rounded-lg border border-red-200 bg-red-50 px-4 py-2 font-black text-red-700 hover:bg-red-100"
-                              >
-                                Ocultar
-                              </button>
-                            </div>
-                          </Td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={pagina <= 1} onClick={() => setPagina((p) => Math.max(1, p - 1))} className="rounded-lg bg-slate-100 px-4 py-2 font-bold text-slate-800 disabled:opacity-50">Anterior</button>
+              <span className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-black text-white">{pagina}</span>
+              <span className="text-sm font-bold text-slate-500">de {totalPaginas}</span>
+              <button type="button" disabled={pagina >= totalPaginas} onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} className="rounded-lg bg-slate-100 px-4 py-2 font-bold text-slate-800 disabled:opacity-50">Próxima</button>
             </div>
-
-            <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <p className="text-sm text-slate-500">
-                Mostrando {paginados.length} de {filtrados.length} registros
-              </p>
-
-              <div className="flex gap-2 items-center">
-                <button
-                  type="button"
-                  disabled={pagina <= 1}
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                  className="rounded-lg bg-slate-100 px-4 py-2 font-bold text-slate-800 disabled:opacity-50"
-                >
-                  Anterior
-                </button>
-
-                <span className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-black text-white">
-                  {pagina}
-                </span>
-
-                <span className="text-sm font-bold text-slate-500">
-                  de {totalPaginas}
-                </span>
-
-                <button
-                  type="button"
-                  disabled={pagina >= totalPaginas}
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                  className="rounded-lg bg-slate-100 px-4 py-2 font-bold text-slate-800 disabled:opacity-50"
-                >
-                  Próxima
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      </section>
+          </div>
+        </section>
+      </div>
     </main>
   )
+
 }
 
 function KpiCard({ titulo, valor, subtitulo, icone, cor }: any) {
@@ -1985,9 +1705,9 @@ function MiniInfo({ titulo, valor, destaque }: any) {
       : 'text-slate-950'
 
   return (
-    <div className="border-r border-slate-100 last:border-r-0">
-      <p className="text-xs font-black text-slate-500">{titulo}</p>
-      <p className={`mt-1 text-xl font-black ${cor}`}>{valor}</p>
+    <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50 p-3">
+      <p className="truncate text-[11px] font-black uppercase tracking-wide text-slate-500">{titulo}</p>
+      <p className={`mt-1 truncate text-lg font-black ${cor}`}>{valor}</p>
     </div>
   )
 }
@@ -2033,12 +1753,12 @@ function Badge({ texto, classe }: { texto: string; classe: string }) {
 
 function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th className="px-4 py-3 text-left font-black whitespace-nowrap">
+    <th className="px-3 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500 whitespace-nowrap">
       {children}
     </th>
   )
 }
 
 function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-4 py-3 whitespace-nowrap">{children}</td>
+  return <td className="px-3 py-3 align-top text-sm text-slate-700">{children}</td>
 }
