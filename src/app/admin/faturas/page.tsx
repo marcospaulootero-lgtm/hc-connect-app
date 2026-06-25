@@ -230,6 +230,10 @@ export default function FaturasPage() {
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
+  const [emissorTipoCambio, setEmissorTipoCambio] = useState('DOLAR_VENDA_DIA')
+  const [emissorDolarVendaDia, setEmissorDolarVendaDia] = useState('')
+  const [emissorPtaxDhlMesAnterior, setEmissorPtaxDhlMesAnterior] = useState('')
+  const [emissorDataPtaxDhlMesAnterior, setEmissorDataPtaxDhlMesAnterior] = useState('')
   const [emissorSpread, setEmissorSpread] = useState('3')
   const [emissorObservacoes, setEmissorObservacoes] = useState('')
   const [emissorVisivelCliente, setEmissorVisivelCliente] = useState(true)
@@ -2078,6 +2082,42 @@ export default function FaturasPage() {
     return true
   }
 
+  function dataUltimoDiaMesAnterior() {
+    const hoje = new Date()
+    const ultimoDiaMesAnterior = new Date(hoje.getFullYear(), hoje.getMonth(), 0)
+
+    return ultimoDiaMesAnterior.toISOString().slice(0, 10)
+  }
+
+  function dataBRSimples(dataISO?: string | null) {
+    const data = normalizarData(dataISO)
+    if (!data) return '-'
+
+    const [ano, mes, dia] = data.split('-')
+    return `${dia}/${mes}/${ano}`
+  }
+
+  function sugestaoPtaxDhlMesAnterior() {
+    const data = dataUltimoDiaMesAnterior()
+    const mesAtual = new Date().toISOString().slice(0, 7)
+
+    // Referência cadastrada conforme regra operacional informada:
+    // faturamentos DHL em junho usam o último PTAX do mês anterior, 31/05 = 5,0569.
+    const referenciasConhecidas: Record<string, string> = {
+      '2026-06': '5,0569',
+    }
+
+    return {
+      data,
+      valor: referenciasConhecidas[mesAtual] || '',
+    }
+  }
+
+  function aplicarTaxaCambio(tipo: string, valor: string) {
+    setEmissorTipoCambio(tipo)
+    recalcularItensPorTaxa(valor)
+  }
+
   function selecionarEmbarqueEmissor(embarqueId: string) {
     setEmissorEmbarqueId(embarqueId)
 
@@ -2089,14 +2129,22 @@ export default function FaturasPage() {
     const vencimento = normalizarData(vencimentoFinanceiro(financeiro)) || ''
     const taxa = numero(embarque.taxa_conversao)
     const numeroAtual = faturaDoEmbarque(embarque.id)?.numero_fatura || gerarNumeroFaturaSugerido(embarque)
+    const transportadoraDhl = normalizarTexto(embarque.transportadora || '').includes('DHL')
+    const ptaxDhlSugerido = sugestaoPtaxDhlMesAnterior()
+    const taxaBaseEmbarque = taxa ? String(taxa).replace('.', ',') : ''
+    const taxaBaseInicial = transportadoraDhl && ptaxDhlSugerido.valor ? ptaxDhlSugerido.valor : taxaBaseEmbarque
 
     setEmissorNumeroFatura(numeroAtual)
     setEmissorVencimento(vencimento)
-    setEmissorTaxaConversao(taxa ? String(taxa).replace('.', ',') : '')
+    setEmissorTaxaConversao(taxaBaseInicial)
+    setEmissorTipoCambio(transportadoraDhl ? 'PTAX_DHL_MES_ANTERIOR' : 'DOLAR_VENDA_DIA')
+    setEmissorDataPtaxDhlMesAnterior(ptaxDhlSugerido.data)
+    setEmissorPtaxDhlMesAnterior(transportadoraDhl ? ptaxDhlSugerido.valor : '')
+    setEmissorDolarVendaDia(!transportadoraDhl ? taxaBaseEmbarque : '')
     setEmissorUsuarioId(embarque.usuario_id || '')
     setEmissorDespachante(financeiro?.despachante || '')
 
-    const taxaFinal = taxaConversaoFinal(taxa ? String(taxa).replace('.', ',') : '', emissorSpread)
+    const taxaFinal = taxaConversaoFinal(taxaBaseInicial, emissorSpread)
 
     const carregouItensSalvos = carregarItensSalvosDoEmbarque(embarque, taxaFinal)
 
@@ -2200,6 +2248,10 @@ export default function FaturasPage() {
     setEmissorNumeroFatura('')
     setEmissorVencimento('')
     setEmissorTaxaConversao('')
+    setEmissorTipoCambio('DOLAR_VENDA_DIA')
+    setEmissorDolarVendaDia('')
+    setEmissorPtaxDhlMesAnterior('')
+    setEmissorDataPtaxDhlMesAnterior('')
     setEmissorSpread('3')
     setEmissorObservacoes('')
     setEmissorVisivelCliente(true)
@@ -3071,15 +3123,99 @@ export default function FaturasPage() {
                   />
                 </label>
 
-                <label className="text-sm font-bold text-slate-300">
-                  PTAX base
-                  <input
-                    value={emissorTaxaConversao}
-                    onChange={(e) => recalcularItensPorTaxa(e.target.value)}
-                    placeholder="Ex.: 5,1743"
-                    className="mt-2 w-full"
-                  />
-                </label>
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+                  </div>
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
 
                 <label className="text-sm font-bold text-slate-300">
                   Spread %
@@ -3094,7 +3230,13 @@ export default function FaturasPage() {
                 <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
                   <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
                   <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
-                  <p className="mt-1 text-xs text-slate-400">O USD é convertido usando PTAX + spread.</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
                 </div>
 
                 <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
