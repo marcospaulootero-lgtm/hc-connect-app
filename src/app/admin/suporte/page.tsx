@@ -11,6 +11,7 @@ export default function SuporteAdminPage() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [respondendoId, setRespondendoId] = useState<string | null>(null)
   const [resposta, setResposta] = useState('')
+  const [adminLogado, setAdminLogado] = useState<any>(null)
 
   useEffect(() => {
     carregarTudo()
@@ -27,7 +28,34 @@ export default function SuporteAdminPage() {
   }, [])
 
   async function carregarTudo() {
-    await Promise.all([carregarChamados(), carregarUsuarios(), carregarMensagens()])
+    await Promise.all([carregarAdminLogado(), carregarChamados(), carregarUsuarios(), carregarMensagens()])
+  }
+
+  async function carregarAdminLogado() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      window.location.href = '/login'
+      return null
+    }
+
+    const { data: perfil } = await supabase
+      .from('perfis')
+      .select('id, nome, email, tipo_acesso')
+      .eq('id', user.id)
+      .single()
+
+    const admin = {
+      id: user.id,
+      email: user.email,
+      nome: perfil?.nome || user.email,
+      tipo_acesso: perfil?.tipo_acesso || 'admin',
+    }
+
+    setAdminLogado(admin)
+    return admin
   }
 
   async function carregarChamados() {
@@ -71,6 +99,33 @@ export default function SuporteAdminPage() {
     return usuario?.email || '-'
   }
 
+  function nomeAutorMensagem(msg: any) {
+    const autor = String(msg.autor || '').toUpperCase()
+
+    if (autor === 'ADMIN') {
+      const perfilAdmin = usuarios.find((item) => item.id === msg.usuario_id)
+
+      return (
+        msg.autor_nome ||
+        msg.nome_autor ||
+        msg.criado_por_nome ||
+        perfilAdmin?.nome ||
+        perfilAdmin?.email ||
+        'Equipe HC'
+      )
+    }
+
+    const perfilCliente = usuarios.find((item) => item.id === msg.usuario_id)
+
+    return (
+      msg.autor_nome ||
+      msg.nome_autor ||
+      perfilCliente?.nome ||
+      perfilCliente?.email ||
+      'Cliente'
+    )
+  }
+
   function corStatus(status: string) {
     if (status === 'ABERTO') return 'bg-yellow-400 text-black'
     if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
@@ -97,24 +152,41 @@ export default function SuporteAdminPage() {
     }
 
     const respostaFinal = resposta.trim()
+    const adminAtual = adminLogado || (await carregarAdminLogado())
+
+    if (!adminAtual?.id) {
+      alert('Não foi possível identificar o admin logado. Faça login novamente.')
+      return
+    }
 
     const { error: erroMensagem } = await supabase.from('mensagens_suporte').insert([
       {
         chamado_id: chamado.id,
         empresa_id: chamado.empresa_id || null,
         embarque_id: chamado.embarque_id || null,
-        usuario_id: chamado.usuario_id || null,
+
+        // Importante:
+        // Aqui deve ser o ID do admin logado, não o ID do cliente.
+        // Assim o cliente consegue ver quem respondeu.
+        usuario_id: adminAtual.id,
+
         assunto: chamado.assunto || 'Suporte',
         mensagem: respostaFinal,
         autor: 'ADMIN',
         criado_por: 'ADMIN',
+        autor_nome: adminAtual.nome || adminAtual.email || 'Equipe HC',
+        autor_email: adminAtual.email || null,
         status: 'RESPONDIDO',
         respondido_em: new Date().toISOString(),
       },
     ])
 
     if (erroMensagem) {
-      alert(erroMensagem.message)
+      alert(
+        erroMensagem.message.includes('autor_nome') || erroMensagem.message.includes('autor_email')
+          ? `${erroMensagem.message}\n\nRode primeiro o SQL suporte-admin-autor-sql.sql no Supabase.`
+          : erroMensagem.message
+      )
       return
     }
 
@@ -123,11 +195,18 @@ export default function SuporteAdminPage() {
       .update({
         resposta: respostaFinal,
         status: 'RESPONDIDO',
+        respondido_por: adminAtual.id,
+        respondido_por_nome: adminAtual.nome || adminAtual.email || 'Equipe HC',
+        respondido_em: new Date().toISOString(),
       })
       .eq('id', chamado.id)
 
     if (erroChamado) {
-      alert(erroChamado.message)
+      alert(
+        erroChamado.message.includes('respondido_por')
+          ? `${erroChamado.message}\n\nRode primeiro o SQL suporte-admin-autor-sql.sql no Supabase.`
+          : erroChamado.message
+      )
       return
     }
 
@@ -315,7 +394,7 @@ export default function SuporteAdminPage() {
                           <div key={msg.id} className={`flex ${admin ? 'justify-end' : 'justify-start'}`}>
                             <div className={`max-w-[85%] rounded-2xl p-4 ${admin ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200'}`}>
                               <p className="text-xs opacity-80 mb-1">
-                                {admin ? 'HC Consultoria' : 'Cliente'}
+                                {admin ? `HC Consultoria • ${nomeAutorMensagem(msg)}` : nomeAutorMensagem(msg)}
                               </p>
 
                               <p className="leading-7 whitespace-pre-wrap">{msg.mensagem}</p>
