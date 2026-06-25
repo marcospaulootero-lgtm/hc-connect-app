@@ -105,6 +105,7 @@ type FinanceiroProcesso = {
   cliente_final?: string | null
   fatura?: string | null
   numero_fatura?: string | null
+  despachante?: string | null
   transportadora?: string | null
   servico?: string | null
   mes?: string | null
@@ -225,6 +226,7 @@ export default function FaturasPage() {
   const [emissorEmbarqueId, setEmissorEmbarqueId] = useState('')
   const [emissorClienteId, setEmissorClienteId] = useState('')
   const [emissorUsuarioId, setEmissorUsuarioId] = useState('')
+  const [emissorDespachante, setEmissorDespachante] = useState('')
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
@@ -1495,6 +1497,7 @@ export default function FaturasPage() {
         null,
       awb: embarque.awb || null,
       fatura: fatura.numero_fatura || null,
+      despachante: financeiroAtual?.despachante || null,
       transportadora: embarque.transportadora || financeiroAtual?.transportadora || null,
       servico: embarque.servico || financeiroAtual?.servico || null,
       valor_cobranca: valorPago || valorFinanceiro(financeiroAtual) || numero(fatura.valor_total),
@@ -2090,6 +2093,7 @@ export default function FaturasPage() {
     setEmissorVencimento(vencimento)
     setEmissorTaxaConversao(taxa ? String(taxa).replace('.', ',') : '')
     setEmissorUsuarioId(embarque.usuario_id || '')
+    setEmissorDespachante(financeiro?.despachante || '')
 
     const taxaFinal = taxaConversaoFinal(taxa ? String(taxa).replace('.', ',') : '', emissorSpread)
 
@@ -2181,6 +2185,7 @@ export default function FaturasPage() {
     setEmissorEmbarqueId('')
     setEmissorClienteId('')
     setEmissorUsuarioId('')
+    setEmissorDespachante('')
     setEmissorNumeroFatura('')
     setEmissorVencimento('')
     setEmissorTaxaConversao('')
@@ -2252,13 +2257,14 @@ export default function FaturasPage() {
 
     const observacaoHandling =
       handlingSemSpread > 0
-        ? `HANDLING sem spread lançado em débito terceiro: ${moeda(handlingSemSpread)}. Spread/Profit do HANDLING: ${moeda(spreadHandling)}.`
+        ? `HANDLING sem spread lançado em débito terceiro${emissorDespachante ? ` para ${emissorDespachante}` : ''}: ${moeda(handlingSemSpread)}. Spread/Profit do HANDLING: ${moeda(spreadHandling)}.`
         : ''
 
     const payloadBase: any = {
       cliente: emissorClienteSelecionado.nome_empresa || emissorEmbarqueSelecionado.cliente_final || emissorEmbarqueSelecionado.importador || null,
       awb: emissorEmbarqueSelecionado.awb || null,
       fatura: emissorNumeroFatura || null,
+      despachante: emissorDespachante || financeiroAtual?.despachante || null,
       transportadora: emissorEmbarqueSelecionado.transportadora || null,
       servico: emissorEmbarqueSelecionado.servico || null,
       valor_cobranca: totaisEmissor.totalBRL,
@@ -2637,80 +2643,80 @@ export default function FaturasPage() {
 
 
   function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
     return (
-      {reciboSelecionado && (
-        <section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
-          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
-            <div>
-              <p className="text-green-400 font-bold mb-2">Emitir recibo</p>
-              <h2 className="text-2xl font-black">Recibo do AWB {reciboSelecionado.awb}</h2>
-              <p className="text-slate-400 text-sm">
-                Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.
-              </p>
-            </div>
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">Emitir recibo</p>
+      <h2 className="text-2xl font-black">Recibo do AWB {reciboSelecionado.awb}</h2>
+      <p className="text-slate-400 text-sm">
+        Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.
+      </p>
+    </div>
 
-            <button
-              onClick={limparRecibo}
-              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
-            >
-              Cancelar
-            </button>
-          </div>
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-            <InfoPacote label="Fatura" valor={faturaDoEmbarque(reciboSelecionado.id)?.numero_fatura || '-'} />
-            <InfoPacote label="Cliente" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
-            <InfoPacote label="Valor base" valor={moeda(valorPadraoRecibo(reciboSelecionado))} destaque />
-            <InfoPacote label="Status financeiro" valor={statusPagamentoFinanceiro(financeiroDoEmbarque(reciboSelecionado)).label} />
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote label="Fatura" valor={faturaDoEmbarque(reciboSelecionado.id)?.numero_fatura || '-'} />
+    <InfoPacote label="Cliente" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote label="Valor base" valor={moeda(valorPadraoRecibo(reciboSelecionado))} destaque />
+    <InfoPacote label="Status financeiro" valor={statusPagamentoFinanceiro(financeiroDoEmbarque(reciboSelecionado)).label} />
 
-            <div>
-              <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
-              <input
-                type="date"
-                value={dataRecebimentoRecibo}
-                onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
-              />
-            </div>
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
 
-            <div>
-              <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
-              <input
-                value={valorRecebidoRecibo}
-                onChange={(e) => setValorRecebidoRecibo(e.target.value)}
-                placeholder="Ex: 1.359,29"
-              />
-            </div>
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
-              <input
-                value={formaRecebimentoRecibo}
-                onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
-                placeholder="PIX, boleto, transferência..."
-              />
-            </div>
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
 
-            <textarea
-              value={observacoesRecibo}
-              onChange={(e) => setObservacoesRecibo(e.target.value)}
-              placeholder="Observações que devem constar no recibo ou histórico financeiro"
-              className="md:col-span-4 min-h-[90px]"
-            />
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
 
-            <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
-              Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro &gt; Processos Faturados.
-            </div>
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro &gt; Processos Faturados.
+    </div>
 
-            <button
-              onClick={gerarPdfReciboHC}
-              disabled={emitindoRecibo}
-              className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
-            >
-              {emitindoRecibo ? 'Gerando recibo...' : 'Gerar recibo e registrar recebimento'}
-            </button>
-          </div>
-        </section>
-      )}
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo ? 'Gerando recibo...' : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
     )
   }
 
@@ -3001,6 +3007,22 @@ export default function FaturasPage() {
                     Se a fatura for visível para o cliente, selecione o login para aparecer no portal.
                   </p>
                 )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
               </div>
 
               {dadosCliente ? (
