@@ -90,6 +90,147 @@ export default function RecebimentosParceiroPage() {
     return new Date(data).toLocaleDateString('pt-BR')
   }
 
+  async function gerarPdfCliente() {
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      const autoTableModule: any = await import('jspdf-autotable')
+      const autoTable = autoTableModule.default || autoTableModule
+
+      const dataGeracao = new Date().toLocaleString('pt-BR')
+      const parceiroNome = filtrados.find((item) => item.parceiro)?.parceiro || 'Parceiro'
+      const nomeArquivo = String(parceiroNome || 'recebimentos')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      })
+
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+
+      doc.setFillColor(2, 12, 34)
+      doc.rect(0, 0, pageWidth, 24, 'F')
+
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(18)
+      doc.text('HC Consultoria', 14, 15)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.text('Relatorio de Recebimentos', pageWidth - 14, 15, { align: 'right' })
+
+      doc.setTextColor(15, 23, 42)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(18)
+      doc.text('Recebimentos liberados pela HC', 14, 36)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(71, 85, 105)
+      doc.text(`Parceiro: ${parceiroNome}`, 14, 44)
+      doc.text(`Status: ${statusFiltro}`, 14, 50)
+      doc.text(`Busca: ${busca || '-'}`, 14, 56)
+      doc.text(`Gerado em: ${dataGeracao}`, pageWidth - 14, 44, { align: 'right' })
+      doc.text('Este relatorio considera somente os repasses disponibilizados para este login.', pageWidth - 14, 50, {
+        align: 'right',
+      })
+
+      autoTable(doc, {
+        startY: 64,
+        head: [['Total liberado', 'A receber', 'Recebido', 'Pendentes', 'Pagos', 'Processos no filtro']],
+        body: [[
+          moeda(resumo.total),
+          moeda(resumo.aReceber),
+          moeda(resumo.recebido),
+          String(resumo.qtdPendentes),
+          String(resumo.qtdPagos),
+          String(filtrados.length),
+        ]],
+        theme: 'grid',
+        headStyles: {
+          fillColor: [37, 99, 235],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+        },
+        bodyStyles: {
+          halign: 'center',
+          fontStyle: 'bold',
+        },
+        styles: {
+          fontSize: 9,
+          cellPadding: 3,
+        },
+      })
+
+      const linhas = filtrados.map((item) => {
+        const status = statusRepasse(item)
+
+        return [
+          item.awb || '-',
+          item.cliente || '-',
+          item.servico || '-',
+          item.parceiro || '-',
+          moeda(item.debito_terceiro),
+          status === 'PAGO' ? 'PAGO' : 'A RECEBER',
+          item.mes_pgto || '-',
+          item.observacao_parceiro || '-',
+          dataBR(item.liberado_parceiro_em),
+        ]
+      })
+
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 10,
+        head: [['AWB', 'Cliente', 'Servico', 'Parceiro', 'Valor a receber', 'Status', 'Mes pagamento', 'Observacao HC', 'Liberado em']],
+        body: linhas.length ? linhas : [['-', '-', '-', '-', '-', '-', '-', '-', '-']],
+        theme: 'striped',
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+        },
+        styles: {
+          fontSize: 8,
+          cellPadding: 2.3,
+          overflow: 'linebreak',
+        },
+        columnStyles: {
+          0: { cellWidth: 26 },
+          1: { cellWidth: 48 },
+          2: { cellWidth: 32 },
+          3: { cellWidth: 34 },
+          4: { cellWidth: 32, halign: 'right' },
+          5: { cellWidth: 26, halign: 'center' },
+          6: { cellWidth: 28, halign: 'center' },
+          7: { cellWidth: 48 },
+          8: { cellWidth: 26, halign: 'center' },
+        },
+        didDrawPage: () => {
+          doc.setFontSize(8)
+          doc.setTextColor(100, 116, 139)
+          doc.text('Relatorio gerado automaticamente pelo HC Connect', 14, pageHeight - 8)
+          doc.text(`Pagina ${doc.getNumberOfPages()}`, pageWidth - 14, pageHeight - 8, { align: 'right' })
+        },
+      })
+
+      doc.save(`recebimentos-hc-${nomeArquivo || 'parceiro'}.pdf`)
+    } catch (error: any) {
+      console.log('ERRO PDF RECEBIMENTOS:', error)
+      alert(
+        'Erro ao gerar PDF: ' +
+          (error?.message || 'erro desconhecido') +
+          '\n\nConfira se as dependências jspdf e jspdf-autotable estão instaladas.'
+      )
+    }
+  }
+
   function statusRepasse(item: RepasseParceiro) {
     const status = normalizarTexto(item.pgta_terceiros).toUpperCase()
     return status.includes('PAGO') ? 'PAGO' : 'PENDENTE'
@@ -157,6 +298,15 @@ export default function RecebimentosParceiroPage() {
               Atualizar
             </button>
 
+            <button
+              type="button"
+              onClick={gerarPdfCliente}
+              disabled={loading || filtrados.length === 0}
+              className="rounded-xl bg-green-600 px-5 py-3 font-black text-white hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              📄 Gerar PDF
+            </button>
+
             <Link
               href="/cliente"
               className="rounded-xl bg-slate-700 px-5 py-3 font-black text-white hover:bg-slate-600"
@@ -207,6 +357,15 @@ export default function RecebimentosParceiroPage() {
                 placeholder="Buscar por AWB, cliente, serviço..."
                 className="w-full rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 text-white outline-none placeholder:text-slate-500"
               />
+
+              <button
+                type="button"
+                onClick={gerarPdfCliente}
+                disabled={loading || filtrados.length === 0}
+                className="rounded-xl border border-green-500/40 bg-green-600/20 px-4 py-3 text-sm font-black text-green-300 hover:bg-green-600/30 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Gerar PDF do filtro
+              </button>
             </div>
           </div>
 
