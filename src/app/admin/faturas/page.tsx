@@ -724,6 +724,7 @@ export default function FaturasPage() {
   function labelTipoArquivoFatura(tipo?: string | null) {
     const normalizado = normalizarTexto(tipo || 'OUTRO')
     if (normalizado.includes('BOLETO')) return 'Boleto'
+    if (normalizado.includes('FATURA') && normalizado.includes('EXTRA')) return 'PDF faturamento'
     if (normalizado.includes('COMPLEMENTAR')) return 'Fatura complementar'
     if (normalizado.includes('RECIBO')) return 'Recibo'
     if (normalizado.includes('FATURA')) return 'Fatura'
@@ -3562,6 +3563,18 @@ export default function FaturasPage() {
                             <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
                               Abrir
                             </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
                             {arquivosDaFatura(fatura.id).length > 0 ? (
                               <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
                                 + {arquivosDaFatura(fatura.id).length} arquivo(s)
@@ -3569,13 +3582,23 @@ export default function FaturasPage() {
                             ) : null}
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
-                            className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
-                          >
-                            Emitir fatura
-                          </button>
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          </div>
                         )}
                       </td>
                       <td>
@@ -3659,6 +3682,16 @@ export default function FaturasPage() {
                           >
                             {fatura ? 'Editar' : 'Emitir fatura'}
                           </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
 
                           {fatura?.arquivo_pdf && (
                             <button
@@ -3806,12 +3839,12 @@ export default function FaturasPage() {
                                 <div>
                                   <h3 className="text-xl font-black text-purple-300">Arquivos adicionais para o cliente</h3>
                                   <p className="text-sm text-slate-400">
-                                    Use para anexar boleto, fatura complementar ou outros documentos relacionados a esta cobrança.
+                                    Use para anexar boleto, PDF de faturamento pronto, fatura complementar ou outros documentos relacionados a esta cobrança.
                                   </p>
                                 </div>
 
                                 <div className="flex flex-wrap gap-2">
-                                  {['BOLETO', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
                                     <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
                                       {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
                                       <input
