@@ -2490,7 +2490,6 @@ export default function FaturasPage() {
   async function gerarPdfFaturaHC() {
     if (!emissorEmbarqueSelecionado) return alert('Selecione o embarque/AWB primeiro.')
     if (!emissorClienteSelecionado) return alert('Selecione o cliente de faturamento.')
-    if (emissorVisivelCliente && !emissorUsuarioId) return alert('Selecione o login do cliente que visualizará a fatura no portal.')
     if (!emissorNumeroFatura.trim()) return alert('Informe o número da fatura.')
     if (!emissorVencimento) return alert('Informe o vencimento da fatura.')
     if (itensSelecionadosFatura().length === 0 || totaisEmissor.totalBRL <= 0) {
@@ -2770,7 +2769,11 @@ export default function FaturasPage() {
       await garantirLoginVinculadoAoEmbarque()
       await salvarFinanceiroDaFatura(urlPdf)
 
-      alert('Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.')
+      const mensagemSucesso = emissorUsuarioId
+        ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+        : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
       limparEmissor()
       setAbaAtiva('FATURAS')
       carregar()
@@ -3010,7 +3013,7 @@ export default function FaturasPage() {
               <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
               <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
               <p className="mt-2 text-slate-400">
-                Primeiro selecione o embarque, depois o cliente fiscal, escolha os serviços cobrados e gere o PDF para o cliente.
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
               </p>
             </div>
 
@@ -3119,7 +3122,7 @@ export default function FaturasPage() {
 
               <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
                 <label className="text-sm font-black text-slate-300">
-                  Login que verá a fatura no portal
+                  Login do cliente no portal (opcional)
                   <input
                     value={buscaUsuarioEmissor}
                     onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
@@ -3132,7 +3135,7 @@ export default function FaturasPage() {
                     onChange={(e) => setEmissorUsuarioId(e.target.value)}
                     className="w-full"
                   >
-                    <option value="">Selecione o login do cliente</option>
+                    <option value="">Sem login vinculado no momento</option>
                     {usuariosPortalEmissor.map((usuario) => (
                       <option key={usuario.id} value={usuario.id}>
                         {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
@@ -3147,7 +3150,7 @@ export default function FaturasPage() {
                   </p>
                 ) : (
                   <p className="mt-3 text-xs text-yellow-300">
-                    Se a fatura for visível para o cliente, selecione o login para aparecer no portal.
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
                   </p>
                 )}
               </div>
@@ -3418,7 +3421,7 @@ export default function FaturasPage() {
               />
 
               <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
-                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O custo fica zerado até você lançar o custo real no financeiro.
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
               </div>
             </div>
 
