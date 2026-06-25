@@ -380,8 +380,8 @@ export default function RecebimentosParceiroPage() {
   }, [repasses])
 
   return (
-    <main className="min-h-screen bg-[#020817] p-6 text-white lg:p-10">
-      <div className="mx-auto max-w-7xl">
+    <main className="min-h-screen bg-[#020817] p-4 text-white sm:p-6 lg:p-8">
+      <div className="mx-auto w-full max-w-none">
         <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="mb-2 font-black text-blue-400">Financeiro</p>
@@ -427,7 +427,7 @@ export default function RecebimentosParceiroPage() {
           <Card titulo="Solicitados" valor={String(resumo.qtdSolicitados)} detalhe="Pedidos enviados" icone="📨" destaque="yellow" />
         </section>
 
-        <section className="rounded-3xl border border-blue-900 bg-[#071225] p-6">
+        <section className="w-full rounded-3xl border border-blue-900 bg-[#071225] p-4 sm:p-5 lg:p-6">
           <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h2 className="text-2xl font-black">Repasses liberados</h2>
@@ -603,9 +603,9 @@ function Card({ titulo, valor, detalhe, icone, destaque }: any) {
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 text-left font-black whitespace-nowrap">{children}</th>
+  return <th className="px-3 py-3 text-left font-black whitespace-nowrap">{children}</th>
 }
 
 function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-4 py-4 text-slate-300 whitespace-nowrap">{children}</td>
+  return <td className="px-3 py-4 text-slate-300 whitespace-nowrap">{children}</td>
 }
