@@ -2518,11 +2518,14 @@ export default function FaturasPage() {
       const itens = itensSelecionadosFatura()
       const dadosCliente = dadosClienteFiscal(emissorClienteSelecionado)
 
+      const codigoClientePdf = String(emissorClienteSelecionado.codigo_hc || '-').trim() || '-'
+      const numeroFaturaPdf = String(emissorNumeroFatura || '-').trim() || '-'
+
       pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(12)
+      pdf.setFontSize(11)
       pdf.text('FATURA DE SERVIÇO', margem, 34)
-      pdf.text(`CÓDIGO CLIENTE: ${emissorClienteSelecionado.codigo_hc || '-'}`, 185, 34)
-      pdf.text(`FATURA Nº: ${emissorNumeroFatura}`, 348, 34)
+      pdf.text(`CÓDIGO CLIENTE: ${codigoClientePdf}`, 210, 34)
+      pdf.text(`FATURA Nº: ${numeroFaturaPdf}`, larguraPagina - margem, 34, { align: 'right' })
 
       pdf.setFontSize(10)
       pdf.text(`DATA DA FATURA: ${dataBR(new Date().toISOString())}`, 430, 56)
