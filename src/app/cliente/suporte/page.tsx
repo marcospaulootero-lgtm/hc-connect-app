@@ -10,6 +10,7 @@ export default function SuporteClientePage() {
 
   const [chamados, setChamados] = useState<any[]>([])
   const [mensagens, setMensagens] = useState<any[]>([])
+  const [perfisMensagens, setPerfisMensagens] = useState<Record<string, any>>({})
   const [salvando, setSalvando] = useState(false)
   const [respondendoId, setRespondendoId] = useState<string | null>(null)
   const [respostaCliente, setRespostaCliente] = useState('')
@@ -143,6 +144,7 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
 
     if (ids.length === 0) {
       setMensagens([])
+      setPerfisMensagens({})
       return
     }
 
@@ -157,7 +159,40 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
       return
     }
 
-    setMensagens(data || [])
+    const listaMensagens = data || []
+    setMensagens(listaMensagens)
+
+    const idsAutoresAdmin = Array.from(
+      new Set(
+        listaMensagens
+          .filter((msg) => String(msg.autor || '').toUpperCase() !== 'CLIENTE')
+          .map((msg) => msg.usuario_id || msg.criado_por_id || msg.admin_id)
+          .filter(Boolean)
+      )
+    )
+
+    if (idsAutoresAdmin.length === 0) {
+      setPerfisMensagens({})
+      return
+    }
+
+    const { data: perfis, error: erroPerfis } = await supabase
+      .from('perfis')
+      .select('id, nome, email')
+      .in('id', idsAutoresAdmin)
+
+    if (erroPerfis) {
+      console.log('Não foi possível carregar os nomes dos atendentes:', erroPerfis)
+      return
+    }
+
+    const mapa: Record<string, any> = {}
+
+    ;(perfis || []).forEach((perfil) => {
+      mapa[perfil.id] = perfil
+    })
+
+    setPerfisMensagens(mapa)
   }
 
   function mensagensDoChamado(chamadoId: string) {
@@ -287,6 +322,25 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
     setRespondendoId(null)
 
     carregarChamados(usuario.id)
+  }
+
+  function nomeAutorMensagem(msg: any) {
+    const autor = String(msg.autor || '').toUpperCase()
+
+    if (autor === 'CLIENTE') return 'Você'
+
+    const idAutor = msg.usuario_id || msg.criado_por_id || msg.admin_id
+    const perfil = idAutor ? perfisMensagens[idAutor] : null
+
+    return (
+      perfil?.nome ||
+      msg.autor_nome ||
+      msg.nome_autor ||
+      msg.criado_por_nome ||
+      msg.atendente_nome ||
+      msg.email_autor ||
+      'Equipe HC'
+    )
   }
 
   function corStatus(status: string) {
@@ -640,7 +694,7 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
                                   }`}
                                 >
                                   <p className="text-xs opacity-80 mb-1">
-                                    {cliente ? 'Você' : 'HC Consultoria'}
+                                    {cliente ? 'Você' : `HC Consultoria • ${nomeAutorMensagem(msg)}`}
                                   </p>
 
                                   <p className="leading-7 whitespace-pre-wrap">
