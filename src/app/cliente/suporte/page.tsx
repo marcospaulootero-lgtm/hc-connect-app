@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function SuporteClientePage() {
@@ -15,6 +15,8 @@ export default function SuporteClientePage() {
   const [respostaCliente, setRespostaCliente] = useState('')
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [realtimeAtivo, setRealtimeAtivo] = useState(false)
+  const chamadosRef = useRef<any[]>([])
 
   const [form, setForm] = useState({
     categoria: 'Operacional',
@@ -46,10 +48,14 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
   }, [])
 
   useEffect(() => {
+    chamadosRef.current = chamados
+  }, [chamados])
+
+  useEffect(() => {
     if (!usuario?.id) return
 
     const channel = supabase
-      .channel(`suporte-cliente-${usuario.id}`)
+      .channel(`suporte-cliente-tempo-real-${usuario.id}`)
       .on(
         'postgres_changes',
         {
@@ -58,7 +64,9 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
           table: 'suporte',
           filter: `usuario_id=eq.${usuario.id}`,
         },
-        () => carregarChamados(usuario.id)
+        () => {
+          carregarChamados(usuario.id)
+        }
       )
       .on(
         'postgres_changes',
@@ -67,11 +75,23 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
           schema: 'public',
           table: 'mensagens_suporte',
         },
-        carregarMensagens
+        (payload) => {
+          const novo: any = payload.new || {}
+          const antigo: any = payload.old || {}
+          const chamadoId = String(novo.chamado_id || antigo.chamado_id || '')
+          const idsAtuais = chamadosRef.current.map((c) => String(c.id))
+
+          if (!chamadoId || idsAtuais.includes(chamadoId)) {
+            carregarChamados(usuario.id)
+          }
+        }
       )
-      .subscribe()
+      .subscribe((status) => {
+        setRealtimeAtivo(status === 'SUBSCRIBED')
+      })
 
     return () => {
+      setRealtimeAtivo(false)
       supabase.removeChannel(channel)
     }
   }, [usuario?.id])
@@ -88,7 +108,6 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
 
     setUsuario(user)
     carregarChamados(user.id)
-    carregarMensagens()
   }
 
   async function carregarChamados(usuarioId: string) {
@@ -103,13 +122,34 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
       return
     }
 
-    setChamados(data || [])
+    const lista = data || []
+    setChamados(lista)
+    chamadosRef.current = lista
+
+    const ids = lista.map((item) => item.id).filter(Boolean)
+
+    if (ids.length > 0) {
+      await carregarMensagens(ids)
+    } else {
+      setMensagens([])
+    }
   }
 
-  async function carregarMensagens() {
+  async function carregarMensagens(chamadoIds?: string[]) {
+    const ids =
+      chamadoIds && chamadoIds.length > 0
+        ? chamadoIds
+        : chamadosRef.current.map((item) => item.id).filter(Boolean)
+
+    if (ids.length === 0) {
+      setMensagens([])
+      return
+    }
+
     const { data, error } = await supabase
       .from('mensagens_suporte')
       .select('*')
+      .in('chamado_id', ids)
       .order('criado_em', { ascending: true })
 
     if (error) {
@@ -197,7 +237,6 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
     })
 
     carregarChamados(usuario.id)
-    carregarMensagens()
   }
 
   async function enviarMensagemCliente(chamado: any) {
@@ -208,7 +247,7 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
 
     const texto = respostaCliente.trim()
 
-    const { error: erroMensagem } = await supabase
+    const { data: mensagemNova, error: erroMensagem } = await supabase
       .from('mensagens_suporte')
       .insert([
         {
@@ -221,11 +260,22 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
           status: 'ABERTO',
         },
       ])
+      .select()
+      .single()
 
     if (erroMensagem) {
       console.log(erroMensagem)
       alert(erroMensagem.message || 'Erro ao enviar mensagem')
       return
+    }
+
+    if (mensagemNova) {
+      setMensagens((atuais) => {
+        const semDuplicar = atuais.filter((item) => item.id !== mensagemNova.id)
+        return [...semDuplicar, mensagemNova].sort((a, b) =>
+          String(a.criado_em || '').localeCompare(String(b.criado_em || ''))
+        )
+      })
     }
 
     await supabase
@@ -237,7 +287,6 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
     setRespondendoId(null)
 
     carregarChamados(usuario.id)
-    carregarMensagens()
   }
 
   function corStatus(status: string) {
@@ -295,12 +344,24 @@ Preciso de suporte referente ao embarque AWB ${awbParam}.`,
             </p>
           </div>
 
-          <a
-            href="/cliente"
-            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold h-fit"
-          >
-            Voltar ao portal
-          </a>
+          <div className="flex flex-col items-start lg:items-end gap-3">
+            <a
+              href="/cliente"
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl text-white font-bold h-fit"
+            >
+              Voltar ao portal
+            </a>
+
+            <span
+              className={
+                realtimeAtivo
+                  ? 'rounded-full border border-green-500 bg-green-600/20 px-4 py-2 text-xs font-black text-green-300'
+                  : 'rounded-full border border-yellow-500 bg-yellow-500/10 px-4 py-2 text-xs font-black text-yellow-300'
+              }
+            >
+              {realtimeAtivo ? 'Tempo real ativo' : 'Conectando tempo real...'}
+            </span>
+          </div>
         </div>
 
         <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">

@@ -10,6 +10,7 @@ export default function ClientePage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [faturas, setFaturas] = useState<any[]>([])
+  const [chamadosSuporte, setChamadosSuporte] = useState<any[]>([])
   const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<any>({})
   const [busca, setBusca] = useState('')
   const [filtroRapido, setFiltroRapido] = useState('TODOS')
@@ -17,6 +18,37 @@ export default function ClientePage() {
   useEffect(() => {
     carregarUsuario()
   }, [])
+
+  useEffect(() => {
+    if (!usuario?.id) return
+
+    const channel = supabase
+      .channel(`cliente-dashboard-suporte-${usuario.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'suporte',
+          filter: `usuario_id=eq.${usuario.id}`,
+        },
+        () => carregarSuporte(usuario.id)
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'mensagens_suporte',
+        },
+        () => carregarSuporte(usuario.id)
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [usuario?.id])
 
   async function carregarUsuario() {
     const {
@@ -55,6 +87,22 @@ export default function ClientePage() {
     carregarEmbarques(user.id)
     carregarCotacoes(user.id, user.email || '')
     carregarFaturas(user.id)
+    carregarSuporte(user.id)
+  }
+
+  async function carregarSuporte(usuarioId: string) {
+    const { data, error } = await supabase
+      .from('suporte')
+      .select('*')
+      .eq('usuario_id', usuarioId)
+      .order('criado_em', { ascending: false })
+
+    if (error) {
+      console.log('Erro ao carregar suporte do cliente:', error)
+      return
+    }
+
+    setChamadosSuporte(data || [])
   }
 
   async function carregarEmbarques(usuarioId: string) {
@@ -326,6 +374,11 @@ export default function ClientePage() {
   const ultimasCotacoes = cotacoes.slice(0, 4)
   const faturasDisponiveis = faturas.length
   const recibosDisponiveis = faturas.filter((f) => f.recibo_pdf).length
+  const suporteAbertos = chamadosSuporte.filter((c) => c.status === 'ABERTO').length
+  const suporteAnalise = chamadosSuporte.filter((c) => c.status === 'EM ANÁLISE').length
+  const suporteRespondidos = chamadosSuporte.filter((c) => c.status === 'RESPONDIDO').length
+  const suporteResolvidos = chamadosSuporte.filter((c) => c.status === 'RESOLVIDO').length
+  const suporteAtivos = chamadosSuporte.filter((c) => c.status !== 'RESOLVIDO').length
 
   return (
     <main className="min-h-screen bg-[#020817] text-white p-6 xl:p-10">
@@ -395,7 +448,7 @@ export default function ClientePage() {
           )}
         </header>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-5 mb-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-9 gap-5 mb-8">
           <Kpi
             titulo="Embarques"
             valor={embarques.length}
@@ -460,6 +513,16 @@ export default function ClientePage() {
             onClick={() => setFiltroRapido('DOCUMENTOS')}
           />
           <Kpi
+            titulo="Suporte"
+            valor={suporteAtivos}
+            detalhe={suporteRespondidos > 0 ? `${suporteRespondidos} respondido(s)` : 'Abrir chamados'}
+            icone="🎧"
+            cor="purple"
+            onClick={() => {
+              window.location.href = '/cliente/suporte'
+            }}
+          />
+          <Kpi
             titulo="Peso total"
             valor={`${pesoTotal.toFixed(2)} kg`}
             detalhe="Movimentado"
@@ -477,6 +540,7 @@ export default function ClientePage() {
               <Alerta titulo="Embarques em fiscalização" valor={fiscalizacao} icone="🛃" cor="yellow" />
               <Alerta titulo="Cotações disponíveis" valor={cotacoesDisponiveis} icone="📄" cor="green" />
               <Alerta titulo="Faturas disponíveis" valor={faturasDisponiveis} icone="🧾" cor="blue" />
+              <Alerta titulo="Suporte ativo" valor={suporteAtivos} icone="🎧" cor="purple" />
               <Alerta titulo="Documentos disponíveis" valor={documentosTotal} icone="📎" cor="purple" />
             </div>
           </div>
@@ -489,6 +553,8 @@ export default function ClientePage() {
               <Resumo titulo="Em análise" valor={cotacoesAnalise} />
               <Resumo titulo="Faturas liberadas" valor={faturasDisponiveis} />
               <Resumo titulo="Recibos liberados" valor={recibosDisponiveis} />
+              <Resumo titulo="Suporte aberto" valor={suporteAbertos + suporteAnalise} />
+              <Resumo titulo="Suporte respondido" valor={suporteRespondidos} />
               <Resumo titulo="Embarques ativos" valor={embarques.length - entregues} />
             </div>
           </div>
