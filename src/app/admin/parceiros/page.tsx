@@ -13,6 +13,9 @@ export default function ParceirosPage() {
   const [salvando, setSalvando] = useState(false)
   const [importando, setImportando] = useState(false)
   const [editando, setEditando] = useState<any>(null)
+  const [usuariosPortal, setUsuariosPortal] = useState<any[]>([])
+  const [parceiroUsuarioSelecionado, setParceiroUsuarioSelecionado] = useState('')
+  const [salvandoPortal, setSalvandoPortal] = useState(false)
 
   const [busca, setBusca] = useState('')
   const [buscaParceiro, setBuscaParceiro] = useState('')
@@ -26,11 +29,20 @@ export default function ParceirosPage() {
     debito_terceiro: '',
     pgta_terceiros: 'PENDENTE',
     mes_pgto: '',
+    visivel_parceiro: false,
+    observacao_parceiro: '',
   })
 
   useEffect(() => {
     carregar()
   }, [])
+
+  useEffect(() => {
+    const registrosDoParceiro = registros.filter((item) => nomeParceiroRegistro(item) === parceiroSelecionado)
+    const usuarioVinculado = registrosDoParceiro.find((item) => item.parceiro_usuario_id)?.parceiro_usuario_id || ''
+
+    setParceiroUsuarioSelecionado(usuarioVinculado)
+  }, [parceiroSelecionado, registros])
 
   function moeda(valor: any) {
     return Number(valor || 0).toLocaleString('pt-BR', {
@@ -42,6 +54,18 @@ export default function ParceirosPage() {
   function normalizarTexto(valor: any) {
     if (valor === null || valor === undefined) return ''
     return String(valor).trim()
+  }
+
+  function nomeParceiroRegistro(item: any) {
+    return item?.parceiro || item?.despachante || 'Sem parceiro'
+  }
+
+  function usuarioPortalLabel(usuario: any) {
+    const nome = normalizarTexto(usuario?.nome)
+    const email = normalizarTexto(usuario?.email)
+
+    if (nome && email) return `${nome} - ${email}`
+    return nome || email || usuario?.id || 'Usuário sem identificação'
   }
 
   function normalizarBusca(valor: any) {
@@ -183,6 +207,18 @@ export default function ParceirosPage() {
         'pt-BR'
       )
     )
+
+    const { data: usuariosData, error: usuariosError } = await supabase
+      .from('perfis')
+      .select('id, nome, email, tipo_acesso, ativo')
+      .neq('tipo_acesso', 'admin')
+      .order('nome', { ascending: true })
+
+    if (usuariosError) {
+      console.log('Erro ao carregar usuários do portal:', usuariosError)
+    } else {
+      setUsuariosPortal((usuariosData || []).filter((usuario: any) => usuario.ativo !== false))
+    }
 
     setRegistros(ordenados)
 
@@ -361,6 +397,8 @@ export default function ParceirosPage() {
       debito_terceiro: String(item.debito_terceiro || ''),
       pgta_terceiros: normalizarStatusParceiro(item.pgta_terceiros),
       mes_pgto: item.mes_pgto || '',
+      visivel_parceiro: !!item.visivel_parceiro,
+      observacao_parceiro: item.observacao_parceiro || '',
     })
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -373,6 +411,8 @@ export default function ParceirosPage() {
       debito_terceiro: '',
       pgta_terceiros: 'PENDENTE',
       mes_pgto: '',
+      visivel_parceiro: false,
+      observacao_parceiro: '',
     })
   }
 
@@ -390,6 +430,14 @@ export default function ParceirosPage() {
         debito_terceiro: normalizarNumero(form.debito_terceiro),
         pgta_terceiros: normalizarStatusParceiro(form.pgta_terceiros),
         mes_pgto: form.mes_pgto || null,
+        visivel_parceiro: !!form.visivel_parceiro,
+        observacao_parceiro: form.observacao_parceiro || null,
+        liberado_parceiro_em: form.visivel_parceiro
+          ? editando.liberado_parceiro_em || new Date().toISOString()
+          : null,
+        parceiro_usuario_id: form.visivel_parceiro
+          ? editando.parceiro_usuario_id || parceiroUsuarioSelecionado || null
+          : editando.parceiro_usuario_id || parceiroUsuarioSelecionado || null,
         atualizado_em: new Date().toISOString(),
       })
       .eq('id', editando.id)
@@ -404,6 +452,148 @@ export default function ParceirosPage() {
     cancelar()
     await carregar()
     setSalvando(false)
+  }
+
+  async function vincularLoginParceiro() {
+    if (!parceiroSelecionado) {
+      alert('Selecione um parceiro antes de vincular o login.')
+      return
+    }
+
+    if (!parceiroUsuarioSelecionado) {
+      alert('Selecione o login que irá visualizar os repasses deste parceiro.')
+      return
+    }
+
+    const registrosDoParceiro = registros.filter(
+      (item) => nomeParceiroRegistro(item) === parceiroSelecionado
+    )
+
+    if (registrosDoParceiro.length === 0) {
+      alert('Nenhum registro encontrado para este parceiro.')
+      return
+    }
+
+    if (
+      !confirm(
+        `Vincular o login selecionado ao parceiro ${parceiroSelecionado}?\n\nTodos os processos atuais deste parceiro receberão este vínculo, mas só ficarão visíveis no portal quando você clicar em Liberar.`
+      )
+    ) {
+      return
+    }
+
+    setSalvandoPortal(true)
+
+    const lotes = dividirEmLotes(
+      registrosDoParceiro.map((item) => item.id).filter(Boolean),
+      200
+    )
+
+    for (const lote of lotes) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update({
+          parceiro_usuario_id: parceiroUsuarioSelecionado,
+          atualizado_em: new Date().toISOString(),
+        })
+        .in('id', lote)
+
+      if (error) {
+        alert('Erro ao vincular login ao parceiro: ' + error.message)
+        setSalvandoPortal(false)
+        return
+      }
+    }
+
+    alert('Login vinculado ao parceiro com sucesso.')
+    await carregar()
+    setSalvandoPortal(false)
+  }
+
+  async function atualizarVisibilidadePortal(itens: any[], visivel: boolean) {
+    if (!itens.length) {
+      alert('Nenhum processo encontrado no filtro atual.')
+      return
+    }
+
+    if (visivel && !parceiroUsuarioSelecionado) {
+      alert('Selecione e vincule um login antes de liberar os repasses no portal.')
+      return
+    }
+
+    const textoAcao = visivel ? 'liberar no portal' : 'ocultar do portal'
+
+    if (
+      !confirm(
+        `Deseja ${textoAcao} ${itens.length} processo(s) do filtro atual?\n\nParceiro: ${
+          parceiroSelecionado || 'Todos'
+        }`
+      )
+    ) {
+      return
+    }
+
+    setSalvandoPortal(true)
+
+    const lotes = dividirEmLotes(
+      itens.map((item) => item.id).filter(Boolean),
+      200
+    )
+
+    for (const lote of lotes) {
+      const payload: any = {
+        visivel_parceiro: visivel,
+        liberado_parceiro_em: visivel ? new Date().toISOString() : null,
+        atualizado_em: new Date().toISOString(),
+      }
+
+      if (visivel && parceiroUsuarioSelecionado) {
+        payload.parceiro_usuario_id = parceiroUsuarioSelecionado
+      }
+
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update(payload)
+        .in('id', lote)
+
+      if (error) {
+        alert(`Erro ao ${textoAcao}: ${error.message}`)
+        setSalvandoPortal(false)
+        return
+      }
+    }
+
+    alert(visivel ? 'Repasses liberados no portal.' : 'Repasses ocultados do portal.')
+    await carregar()
+    setSalvandoPortal(false)
+  }
+
+  async function alternarVisibilidadePortal(item: any) {
+    const novoStatus = !item.visivel_parceiro
+
+    if (novoStatus && !item.parceiro_usuario_id && !parceiroUsuarioSelecionado) {
+      alert('Selecione o login do parceiro antes de liberar este repasse.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('financeiro_embarques')
+      .update({
+        visivel_parceiro: novoStatus,
+        parceiro_usuario_id: novoStatus
+          ? item.parceiro_usuario_id || parceiroUsuarioSelecionado || null
+          : item.parceiro_usuario_id || parceiroUsuarioSelecionado || null,
+        liberado_parceiro_em: novoStatus ? new Date().toISOString() : null,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq('id', item.id)
+
+    if (error) {
+      alert('Erro ao atualizar visibilidade no portal: ' + error.message)
+      return
+    }
+
+    await carregar()
   }
 
   async function gerarPdfFiltro() {
@@ -555,7 +745,7 @@ export default function ParceirosPage() {
     const mapa: any = {}
 
     registros.forEach((item) => {
-      const nome = item.parceiro || item.despachante || 'Sem parceiro'
+      const nome = nomeParceiroRegistro(item)
 
       if (!mapa[nome]) {
         mapa[nome] = {
@@ -595,7 +785,7 @@ export default function ParceirosPage() {
 
     return registros.filter(
       (item) =>
-        (item.parceiro || item.despachante || 'Sem parceiro') ===
+        nomeParceiroRegistro(item) ===
         parceiroSelecionado
     )
   }, [registros, parceiroSelecionado])
@@ -711,6 +901,10 @@ export default function ParceirosPage() {
       ticket: filtrados.length ? totalFiltrado / filtrados.length : 0,
     }
   }, [filtrados])
+
+  const totalVisiveisParceiro = dadosParceiroPeriodo.filter((item) => item.visivel_parceiro).length
+  const totalOcultosParceiro = dadosParceiroPeriodo.filter((item) => !item.visivel_parceiro).length
+  const usuarioParceiroAtual = usuariosPortal.find((usuario) => usuario.id === parceiroUsuarioSelecionado) || null
 
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
 
@@ -917,6 +1111,77 @@ export default function ParceirosPage() {
             </p>
           </section>
 
+          <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <p className="text-xs font-black tracking-widest text-blue-600">
+                  PORTAL DO PARCEIRO
+                </p>
+                <h3 className="mt-1 text-xl font-black text-slate-950">
+                  Disponibilizar repasses para visualização
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Escolha o login que representa este parceiro. Depois libere apenas os processos que devem aparecer no portal.
+                </p>
+              </div>
+
+              <div className="grid w-full gap-3 xl:max-w-[680px]">
+                <select
+                  value={parceiroUsuarioSelecionado}
+                  onChange={(e) => setParceiroUsuarioSelecionado(e.target.value)}
+                  disabled={!parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+                >
+                  <option value="">Selecionar login do parceiro...</option>
+                  {usuariosPortal.map((usuario) => (
+                    <option key={usuario.id} value={usuario.id}>
+                      {usuarioPortalLabel(usuario)}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={vincularLoginParceiro}
+                    disabled={salvandoPortal || !parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
+                    className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {salvandoPortal ? 'Salvando...' : 'Vincular login'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => atualizarVisibilidadePortal(filtrados, true)}
+                    disabled={salvandoPortal || !parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
+                    className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
+                  >
+                    Liberar filtrados
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => atualizarVisibilidadePortal(filtrados, false)}
+                    disabled={salvandoPortal || !parceiroSelecionado || parceiroSelecionado === 'Sem parceiro'}
+                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  >
+                    Ocultar filtrados
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <ResumoFiltroCard
+                titulo="Login vinculado"
+                valor={usuarioParceiroAtual ? usuarioPortalLabel(usuarioParceiroAtual) : 'Não definido'}
+              />
+              <ResumoFiltroCard titulo="Liberados no portal" valor={String(totalVisiveisParceiro)} destaque="green" />
+              <ResumoFiltroCard titulo="Ocultos" valor={String(totalOcultosParceiro)} destaque="orange" />
+              <ResumoFiltroCard titulo="Filtro atual" valor={`${filtrados.length} processos`} />
+            </div>
+          </section>
+
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
@@ -1056,6 +1321,36 @@ export default function ParceirosPage() {
                   />
                 </div>
 
+                <div>
+                  <label className="text-sm font-semibold text-slate-600">
+                    Portal parceiro
+                  </label>
+                  <label className="mt-1 flex min-h-[42px] items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-bold text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={form.visivel_parceiro}
+                      onChange={(e) =>
+                        setForm({ ...form, visivel_parceiro: e.target.checked })
+                      }
+                    />
+                    Visível
+                  </label>
+                </div>
+
+                <div className="md:col-span-4">
+                  <label className="text-sm font-semibold text-slate-600">
+                    Observação para o parceiro
+                  </label>
+                  <textarea
+                    value={form.observacao_parceiro}
+                    onChange={(e) =>
+                      setForm({ ...form, observacao_parceiro: e.target.value })
+                    }
+                    placeholder="Ex: Repasse previsto para o fechamento do mês."
+                    className="mt-1 min-h-[90px] w-full rounded-xl border border-slate-200 px-3 py-2"
+                  />
+                </div>
+
                 <div className="md:col-span-4 flex gap-3">
                   <button
                     disabled={salvando}
@@ -1165,7 +1460,7 @@ export default function ParceirosPage() {
             </section>
 
             <div className="overflow-x-auto">
-              <table className="min-w-[1450px] w-full text-sm">
+              <table className="min-w-[1680px] w-full text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <Th>AWB</Th>
@@ -1174,6 +1469,8 @@ export default function ParceirosPage() {
                     <Th>Valor Terceiro</Th>
                     <Th>Status Pgto Terceiro</Th>
                     <Th>Mês Pgto Terceiro</Th>
+                    <Th>Portal parceiro</Th>
+                    <Th>Observação parceiro</Th>
                     <Th>Ações</Th>
                   </tr>
                 </thead>
@@ -1181,13 +1478,13 @@ export default function ParceirosPage() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center">
+                      <td colSpan={9} className="p-8 text-center">
                         Carregando registros...
                       </td>
                     </tr>
                   ) : paginados.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-500">
+                      <td colSpan={9} className="p-8 text-center text-slate-500">
                         Nenhum profit de parceiro encontrado.
                       </td>
                     </tr>
@@ -1213,6 +1510,17 @@ export default function ParceirosPage() {
                           </Td>
                           <Td>{item.mes_pgto || '-'}</Td>
                           <Td>
+                            <Badge
+                              texto={item.visivel_parceiro ? 'VISÍVEL' : 'OCULTO'}
+                              classe={
+                                item.visivel_parceiro
+                                  ? 'bg-green-50 text-green-700 border-green-200'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                              }
+                            />
+                          </Td>
+                          <Td>{item.observacao_parceiro || '-'}</Td>
+                          <Td>
                             <div className="flex gap-2">
                               {statusAtual === 'PAGO' ? (
                                 <button
@@ -1235,6 +1543,17 @@ export default function ParceirosPage() {
                                 className="min-w-[90px] rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 font-black text-blue-600 hover:bg-blue-100"
                               >
                                 Editar
+                              </button>
+
+                              <button
+                                onClick={() => alternarVisibilidadePortal(item)}
+                                className={`min-w-[120px] rounded-lg border px-4 py-2 font-black ${
+                                  item.visivel_parceiro
+                                    ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+                                    : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
+                                }`}
+                              >
+                                {item.visivel_parceiro ? 'Ocultar' : 'Liberar'}
                               </button>
                             </div>
                           </Td>
