@@ -2116,6 +2116,16 @@ export default function FaturasPage() {
     }
   }
 
+  function abrirEmissaoFaturaDireta(embarque: Embarque) {
+    setAbaAtiva('EMISSOR')
+    setBuscaEmissorAwb(String(embarque.awb || embarque.cliente_final || embarque.importador || ''))
+    selecionarEmbarqueEmissor(embarque.id)
+
+    setTimeout(() => {
+      document.getElementById('emissor_fatura')?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }
+
   function atualizarItemFatura(id: string, campo: keyof ItemFaturaServico, valor: string | boolean) {
     setItensFatura((atuais) =>
       atuais.map((item) => {
@@ -2860,7 +2870,7 @@ export default function FaturasPage() {
     const usuarioPortal = emissorUsuarioSelecionado
 
     return (
-      <section className="space-y-6">
+      <section id="emissor_fatura" className="space-y-6">
         <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
           <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
             <div>
@@ -3559,7 +3569,13 @@ export default function FaturasPage() {
                             ) : null}
                           </div>
                         ) : (
-                          <span className="text-slate-500">Sem fatura</span>
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                          >
+                            Emitir fatura
+                          </button>
                         )}
                       </td>
                       <td>
@@ -3585,7 +3601,14 @@ export default function FaturasPage() {
                             Emitir
                           </button>
                         ) : (
-                          <span className="text-slate-500">-</span>
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
                         )}
                       </td>
                       <td>
@@ -3630,8 +3653,11 @@ export default function FaturasPage() {
                             Ver embarque
                           </Link>
 
-                          <button onClick={() => abrirFormulario(embarque)} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black">
-                            {fatura ? 'Editar' : 'Anexar'}
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
                           </button>
 
                           {fatura?.arquivo_pdf && (
