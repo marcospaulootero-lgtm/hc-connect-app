@@ -14,7 +14,7 @@ export default function ClientePage() {
   const [chamadosSuporte, setChamadosSuporte] = useState<any[]>([])
   const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<any>({})
   const [busca, setBusca] = useState('')
-  const [filtroRapido, setFiltroRapido] = useState('TODOS')
+  const [filtroRapido, setFiltroRapido] = useState('NENHUM')
 
   useEffect(() => {
     carregarUsuario()
@@ -311,6 +311,7 @@ export default function ClientePage() {
     const status = normalizarTexto(item.status_operacional)
     const documentos = documentosPorEmbarque[item.id] || []
 
+    if (filtroRapido === 'NENHUM') return false
     if (filtroRapido === 'TODOS') return true
 
     if (filtroRapido === 'AGUARDANDO_COLETA') {
@@ -342,6 +343,7 @@ export default function ClientePage() {
 
   function nomeFiltroRapido() {
     const nomes: Record<string, string> = {
+      NENHUM: 'Nenhum filtro selecionado',
       TODOS: 'Todos os embarques',
       AGUARDANDO_COLETA: 'Aguardando coleta',
       EM_TRANSITO: 'Em trânsito',
@@ -351,10 +353,12 @@ export default function ClientePage() {
       DOCUMENTOS: 'Com documentos',
     }
 
-    return nomes[filtroRapido] || 'Todos os embarques'
+    return nomes[filtroRapido] || 'Nenhum filtro selecionado'
   }
 
-  const filtrados = embarques.filter((item) => {
+  const temFiltroAtivo = filtroRapido !== 'NENHUM' || busca.trim().length > 0
+
+  const filtrados = temFiltroAtivo ? embarques.filter((item) => {
     const texto = `
       ${item.awb}
       ${item.transportadora}
@@ -373,7 +377,7 @@ export default function ClientePage() {
     const passaBusca = texto.includes(busca.toLowerCase())
 
     return passaBusca && passaFiltroRapido(item)
-  })
+  }) : []
 
   const documentosTotal = Object.values(documentosPorEmbarque).reduce(
     (acc: number, lista: any) => acc + Number(lista?.length || 0),
@@ -713,10 +717,10 @@ export default function ClientePage() {
 
         <section id="meus-embarques" className="card mb-8">
           <div className="mb-6">
-            <h2 className="text-2xl font-black">Meus embarques</h2>
+            <h2 className="text-2xl font-black">Resultados filtrados</h2>
 
             <p className="text-slate-400 mt-1 mb-4">
-              Consulte status, rastreio, documentos, responsável HC e atualizações operacionais.
+              Selecione um card acima ou use a busca para carregar somente os embarques filtrados.
             </p>
 
             <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3 border border-blue-900 bg-[#020817] rounded-2xl p-4">
@@ -727,12 +731,15 @@ export default function ClientePage() {
 
               <div className="flex items-center gap-3">
                 <span className="text-slate-400 text-sm">
-                  {filtrados.length} de {embarques.length} embarque(s)
+                  {temFiltroAtivo ? `${filtrados.length} de ${embarques.length} embarque(s)` : `${embarques.length} embarque(s) disponíveis`}
                 </span>
 
-                {filtroRapido !== 'TODOS' && (
+                {temFiltroAtivo && (
                   <button
-                    onClick={() => setFiltroRapido('TODOS')}
+                    onClick={() => {
+                      setFiltroRapido('NENHUM')
+                      setBusca('')
+                    }}
                     className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-bold text-sm"
                   >
                     Limpar filtro
@@ -751,9 +758,14 @@ export default function ClientePage() {
         </section>
 
         <section className="grid gap-6">
-          {filtrados.length === 0 ? (
+          {!temFiltroAtivo ? (
             <div className="card text-center">
-              <p className="text-slate-400">Nenhum embarque encontrado.</p>
+              <p className="text-slate-300 font-black text-lg">Selecione um filtro para visualizar os embarques.</p>
+              <p className="text-slate-500 mt-2">A página inicial não lista mais todos os processos automaticamente para ficar mais leve e objetiva.</p>
+            </div>
+          ) : filtrados.length === 0 ? (
+            <div className="card text-center">
+              <p className="text-slate-400">Nenhum embarque encontrado para o filtro selecionado.</p>
             </div>
           ) : (
             filtrados.map((item) => {
