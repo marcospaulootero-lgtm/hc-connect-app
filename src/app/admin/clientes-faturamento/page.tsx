@@ -353,7 +353,7 @@ export default function ClientesFaturamentoPage() {
               'Nome da empresa',
               'NOME DA EMPRESA',
               'EMPRESA',
-              'RAZÃO SOCIAL',
+              'RAZÃƒO SOCIAL',
               'RAZAO SOCIAL',
               'CLIENTE',
             ]) || ''
@@ -363,10 +363,10 @@ export default function ClientesFaturamentoPage() {
           const cpf = formatarCpf(pegarCampoExcel(linha, ['CPF']))
 
           return {
-            codigo_hc: String(pegarCampoExcel(linha, ['ID', 'CODIGO', 'CÓDIGO', 'Código HC', 'CODIGO HC']) || '').trim() || null,
+            codigo_hc: String(pegarCampoExcel(linha, ['ID', 'CODIGO', 'CÃ“DIGO', 'Código HC', 'CODIGO HC']) || '').trim() || null,
             nome_empresa: nomeEmpresa,
             nome_contato: String(pegarCampoExcel(linha, ['Nome de Contato', 'NOME DE CONTATO', 'CONTATO NOME', 'Responsável']) || '').trim() || null,
-            endereco: String(pegarCampoExcel(linha, ['Endereço', 'ENDEREÇO', 'ENDERECO', 'Endereco', 'LOGRADOURO']) || '').trim() || null,
+            endereco: String(pegarCampoExcel(linha, ['Endereço', 'ENDEREÃ‡O', 'ENDERECO', 'Endereco', 'LOGRADOURO']) || '').trim() || null,
             cidade: String(pegarCampoExcel(linha, ['Cidade', 'CIDADE', 'MUNICÍPIO', 'MUNICIPIO']) || '').trim() || null,
             estado: String(pegarCampoExcel(linha, ['Estado', 'ESTADO', 'UF']) || '').trim() || null,
             cep: formatarCep(pegarCampoExcel(linha, ['CEP', 'Cep'])) || null,
@@ -374,9 +374,9 @@ export default function ClientesFaturamentoPage() {
             cpf: cpf || null,
             email: String(pegarCampoExcel(linha, ['Email', 'E-mail', 'EMAIL', 'E-MAIL']) || '').trim() || null,
             contato: String(pegarCampoExcel(linha, ['Contato', 'CONTATO', 'Telefone', 'TELEFONE', 'CELULAR']) || '').trim() || null,
-            inscricao_estadual: String(pegarCampoExcel(linha, ['INSCR. ESTADUAL Nº', 'INSCR ESTADUAL', 'INSCRICAO ESTADUAL', 'INSCRIÇÃO ESTADUAL', 'IE']) || '').trim() || null,
-            inscricao_municipal: String(pegarCampoExcel(linha, ['INSCR. MUNICIPAL Nº', 'INSCR MUNICIPAL', 'INSCRICAO MUNICIPAL', 'INSCRIÇÃO MUNICIPAL', 'IM']) || '').trim() || null,
-            observacoes: String(pegarCampoExcel(linha, ['Observações', 'OBSERVAÇÕES', 'OBSERVACOES', 'OBS']) || '').trim() || null,
+            inscricao_estadual: String(pegarCampoExcel(linha, ['INSCR. ESTADUAL Nº', 'INSCR ESTADUAL', 'INSCRICAO ESTADUAL', 'INSCRIÃ‡ÃƒO ESTADUAL', 'IE']) || '').trim() || null,
+            inscricao_municipal: String(pegarCampoExcel(linha, ['INSCR. MUNICIPAL Nº', 'INSCR MUNICIPAL', 'INSCRICAO MUNICIPAL', 'INSCRIÃ‡ÃƒO MUNICIPAL', 'IM']) || '').trim() || null,
+            observacoes: String(pegarCampoExcel(linha, ['Observações', 'OBSERVAÃ‡Ã•ES', 'OBSERVACOES', 'OBS']) || '').trim() || null,
             ativo: true,
           }
         })
@@ -567,12 +567,12 @@ export default function ClientesFaturamentoPage() {
       </div>
 
       <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
-        <KpiCard titulo="Total" valor={totais.total} detalhe="Cadastros fiscais" icone="🏢" />
-        <KpiCard titulo="Ativos" valor={totais.ativos} detalhe="Disponíveis para fatura" icone="✅" />
-        <KpiCard titulo="Inativos" valor={totais.inativos} detalhe="Ocultos na emissão" icone="🚫" />
-        <KpiCard titulo="Cidades" valor={totais.cidades} detalhe="Bases cadastradas" icone="🏙️" />
-        <KpiCard titulo="Estados" valor={totais.estados} detalhe="UFs na lista" icone="🗺️" />
-        <KpiCard titulo="Com e-mail" valor={totais.comEmail} detalhe="Contato fiscal" icone="📧" />
+        <KpiCard titulo="Total" valor={totais.total} detalhe="Cadastros fiscais" icone="ðŸ¢" />
+        <KpiCard titulo="Ativos" valor={totais.ativos} detalhe="Disponíveis para fatura" icone="âœ…" />
+        <KpiCard titulo="Inativos" valor={totais.inativos} detalhe="Ocultos na emissão" icone="ðŸš«" />
+        <KpiCard titulo="Cidades" valor={totais.cidades} detalhe="Bases cadastradas" icone="ðŸ™ï¸" />
+        <KpiCard titulo="Estados" valor={totais.estados} detalhe="UFs na lista" icone="ðŸ—ºï¸" />
+        <KpiCard titulo="Com e-mail" valor={totais.comEmail} detalhe="Contato fiscal" icone="ðŸ“§" />
       </section>
 
       <section id="form_cliente_faturamento" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">

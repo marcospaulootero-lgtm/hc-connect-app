@@ -95,7 +95,7 @@ const MES_MAXIMO_FINANCEIRO = `${ANO_ATUAL_FINANCEIRO}-12`
 const EMPRESTIMOS_HC = [
   {
     contrato: '2925262376',
-    banco: 'ItaÃº',
+    banco: 'Itaú',
     valorContratado: 50956.16,
     saldoDevedor: 45012.20,
     valorParcela: 1654.19,
@@ -104,7 +104,7 @@ const EMPRESTIMOS_HC = [
   },
   {
     contrato: '2715959991',
-    banco: 'ItaÃº',
+    banco: 'Itaú',
     valorContratado: 37252.87,
     saldoDevedor: 36613.48,
     valorParcela: 1008.26,
@@ -125,13 +125,13 @@ const TOTAL_SALDO_DEVEDOR_EMPRESTIMOS_HC = EMPRESTIMOS_HC.reduce(
 
 const TIPOS_MOVIMENTACAO = [
   { value: 'DESPESA', label: 'Despesa da empresa' },
-  { value: 'PAGAMENTO_EMPRESTIMO', label: 'Pagamento de emprÃ©stimo' },
-  { value: 'RETIRADA_SOCIO', label: 'Retirada de sÃ³cio' },
-  { value: 'PAGAMENTO_SOCIO', label: 'Pagamento de sÃ³cio' },
-  { value: 'REEMBOLSO_SOCIO', label: 'Reembolso de sÃ³cio' },
-  { value: 'APORTE_SOCIO', label: 'Aporte de sÃ³cio' },
+  { value: 'PAGAMENTO_EMPRESTIMO', label: 'Pagamento de empréstimo' },
+  { value: 'RETIRADA_SOCIO', label: 'Retirada de sócio' },
+  { value: 'PAGAMENTO_SOCIO', label: 'Pagamento de sócio' },
+  { value: 'REEMBOLSO_SOCIO', label: 'Reembolso de sócio' },
+  { value: 'APORTE_SOCIO', label: 'Aporte de sócio' },
   { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entrada no fundo de caixa' },
-  { value: 'FUNDO_CAIXA_SAIDA', label: 'SaÃ­da do fundo de caixa' },
+  { value: 'FUNDO_CAIXA_SAIDA', label: 'Saída do fundo de caixa' },
   { value: 'AJUSTE_CAIXA', label: 'Ajuste de caixa' },
 ]
 
@@ -139,18 +139,18 @@ const CATEGORIAS_DESPESA = [
   'Aluguel',
   'Contador',
   'Impostos',
-  'EmprÃ©stimos',
+  'Empréstimos',
   'Sistema',
   'Internet',
   'Telefone',
   'Marketing',
-  'Tarifa bancÃ¡ria',
-  'CombustÃ­vel',
-  'Material de escritÃ³rio',
-  'ManutenÃ§Ã£o',
-  'CartÃ£o empresa',
-  'VeÃ­culo',
-  'Plano de saÃºde',
+  'Tarifa bancária',
+  'Combustível',
+  'Material de escritório',
+  'Manutenção',
+  'Cartão empresa',
+  'Veículo',
+  'Plano de saúde',
   'Outros',
 ]
 
@@ -169,18 +169,18 @@ const STATUS_MOVIMENTOS = [
 
 const SOCIOS_OPCOES = [
   { value: 'MARCOS', label: 'Marcos' },
-  { value: 'HERICA', label: 'HÃ©rica' },
+  { value: 'HERICA', label: 'Hérica' },
 ]
 
 const TIPOS_EXTRATO = [
   { value: 'RECEBIMENTO_PROCESSO', label: 'Recebimentos de processos' },
   { value: 'DESPESA', label: 'Despesas' },
-  { value: 'PAGAMENTO_EMPRESTIMO', label: 'Pagamentos de emprÃ©stimo' },
-  { value: 'RETIRADA_SOCIO', label: 'Retiradas de sÃ³cio' },
-  { value: 'REEMBOLSO_SOCIO', label: 'Reembolsos de sÃ³cio' },
+  { value: 'PAGAMENTO_EMPRESTIMO', label: 'Pagamentos de empréstimo' },
+  { value: 'RETIRADA_SOCIO', label: 'Retiradas de sócio' },
+  { value: 'REEMBOLSO_SOCIO', label: 'Reembolsos de sócio' },
   { value: 'APORTE_SOCIO', label: 'Aportes' },
   { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entradas no fundo' },
-  { value: 'FUNDO_CAIXA_SAIDA', label: 'SaÃ­das do fundo' },
+  { value: 'FUNDO_CAIXA_SAIDA', label: 'Saídas do fundo' },
   { value: 'AJUSTE_CAIXA', label: 'Ajustes de caixa' },
 ]
 
@@ -301,8 +301,8 @@ export default function FinanceiroPage() {
       setAbaPrincipal('PROCESSOS')
       setBusca(buscaUrl?.trim() || '')
 
-      // O filtro mÃºltiplo funciona para ATRASADO, EM ABERTO, PAGO
-      // e tambÃ©m para AGUARDANDO_CUSTO.
+      // O filtro múltiplo funciona para ATRASADO, EM ABERTO, PAGO
+      // e também para AGUARDANDO_CUSTO.
       setAba('TODOS')
       setFiltroStatusProcessos(
         statusValido ? [statusNormalizado] : []
@@ -534,8 +534,8 @@ export default function FinanceiroPage() {
     if (texto.includes('IMPORTACAO COURIER')) return 'IMPORTAÃ‡ÃƒO COURIER'
     if (texto.includes('EXPORTACAO COURIER')) return 'EXPORTAÃ‡ÃƒO COURIER'
 
-    // ImportaÃ§Ã£o simples, importaÃ§Ã£o formal e formal sÃ£o serviÃ§os diferentes.
-    // FORMAL Ã© usado quando o processo Ã© com agente de carga.
+    // Importação simples, importação formal e formal são serviços diferentes.
+    // FORMAL é usado quando o processo é com agente de carga.
     if (texto === 'IMPORTACAO FORMAL' || texto.includes('IMPORTACAO FORMAL')) {
       return 'IMPORTAÃ‡ÃƒO FORMAL'
     }
@@ -765,7 +765,7 @@ export default function FinanceiroPage() {
         return
       }
 
-      alert('LanÃ§amento atualizado com sucesso.')
+      alert('Lançamento atualizado com sucesso.')
     } else {
       const { error } = await supabase.from('financeiro_embarques').insert(payload)
 
@@ -775,7 +775,7 @@ export default function FinanceiroPage() {
         return
       }
 
-      alert('LanÃ§amento salvo com sucesso.')
+      alert('Lançamento salvo com sucesso.')
     }
 
     setForm(formVazio)
@@ -788,7 +788,7 @@ export default function FinanceiroPage() {
     e.preventDefault()
 
     if (!formMovimento.descricao.trim()) {
-      alert('Informe uma descriÃ§Ã£o.')
+      alert('Informe uma descrição.')
       return
     }
 
@@ -807,22 +807,22 @@ export default function FinanceiroPage() {
         .eq('id', editandoMovimentoId)
 
       if (error) {
-        alert('Erro ao atualizar movimentaÃ§Ã£o: ' + error.message)
+        alert('Erro ao atualizar movimentação: ' + error.message)
         setSalvandoMovimento(false)
         return
       }
 
-      alert('MovimentaÃ§Ã£o atualizada com sucesso.')
+      alert('Movimentação atualizada com sucesso.')
     } else {
       const { error } = await supabase.from('financeiro_movimentacoes').insert(payload)
 
       if (error) {
-        alert('Erro ao salvar movimentaÃ§Ã£o: ' + error.message)
+        alert('Erro ao salvar movimentação: ' + error.message)
         setSalvandoMovimento(false)
         return
       }
 
-      alert('MovimentaÃ§Ã£o salva com sucesso.')
+      alert('Movimentação salva com sucesso.')
     }
 
     setFormMovimento(movimentacaoVazia)
@@ -929,7 +929,7 @@ export default function FinanceiroPage() {
 
   function mesReferenciaExcel(linha: any) {
     const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
-    const mesTexto = normalizarBusca(pegarCampoExcel(linha, ['MÃŠS', 'MES', 'MÃªs', 'Mes']))
+    const mesTexto = normalizarBusca(pegarCampoExcel(linha, ['MÃŠS', 'MES', 'Mês', 'Mes']))
     const anoTexto = normalizarTexto(pegarCampoExcel(linha, ['ANO', 'Ano']))
 
     const meses: Record<string, string> = {
@@ -986,7 +986,7 @@ export default function FinanceiroPage() {
 
     const categoria = categoriaDespesaExcel(descricaoOriginal)
 
-    if (categoria === 'EmprÃ©stimos') {
+    if (categoria === 'Empréstimos') {
       return {
         tipo: 'PAGAMENTO_EMPRESTIMO',
         socio: null,
@@ -1010,7 +1010,7 @@ export default function FinanceiroPage() {
 
     if (descricao.includes('ALUGUEL')) return 'Aluguel'
     if (descricao.includes('CONTABILIDADE') || descricao.includes('CONTADOR')) return 'Contador'
-    if (descricao.includes('EMPRESTIMO') || descricao.includes('EMPRÃ‰STIMO') || descricao.includes('PRONAMPE') || descricao.includes('CREDITO') || descricao.includes('CRÃ‰DITO')) return 'EmprÃ©stimos'
+    if (descricao.includes('EMPRESTIMO') || descricao.includes('EMPRÃ‰STIMO') || descricao.includes('PRONAMPE') || descricao.includes('CREDITO') || descricao.includes('CRÃ‰DITO')) return 'Empréstimos'
     if (
       descricao.includes('IMPOSTO') ||
       descricao.includes('DAS') ||
@@ -1043,19 +1043,19 @@ export default function FinanceiroPage() {
       descricao.includes('BOLETO') ||
       descricao.includes('TARIFA') ||
       descricao.includes('CARTAO EMPRESA')
-    ) return descricao.includes('CARTAO EMPRESA') ? 'CartÃ£o empresa' : 'Tarifa bancÃ¡ria'
+    ) return descricao.includes('CARTAO EMPRESA') ? 'Cartão empresa' : 'Tarifa bancária'
     if (
       descricao.includes('CARRO') ||
       descricao.includes('SEGURO CARRO') ||
       descricao.includes('FINANCIAMENTO CARRO') ||
       descricao.includes('UBER') ||
       descricao.includes('ESTACIONAMENTO')
-    ) return 'VeÃ­culo'
+    ) return 'Veículo'
     if (
       descricao.includes('COMBUSTIVEL') ||
       descricao.includes('GASOLINA') ||
       descricao.includes('ETANOL')
-    ) return 'CombustÃ­vel'
+    ) return 'Combustível'
     if (
       descricao.includes('FOLHA') ||
       descricao.includes('PAPEL') ||
@@ -1063,9 +1063,9 @@ export default function FinanceiroPage() {
       descricao.includes('BLOCO') ||
       descricao.includes('IMPRESSORA') ||
       descricao.includes('MATERIAL')
-    ) return 'Material de escritÃ³rio'
-    if (descricao.includes('CONSERTO') || descricao.includes('MANUTENCAO')) return 'ManutenÃ§Ã£o'
-    if (descricao.includes('PLANO DE SAUDE') || descricao.includes('SAUDE')) return 'Plano de saÃºde'
+    ) return 'Material de escritório'
+    if (descricao.includes('CONSERTO') || descricao.includes('MANUTENCAO')) return 'Manutenção'
+    if (descricao.includes('PLANO DE SAUDE') || descricao.includes('SAUDE')) return 'Plano de saúde'
 
     return 'Outros'
   }
@@ -1086,7 +1086,7 @@ export default function FinanceiroPage() {
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (!confirm('Importar este Excel para Despesas/SÃ³cios? Os processos faturados nÃ£o serÃ£o alterados.')) return
+    if (!confirm('Importar este Excel para Despesas/Sócios? Os processos faturados não serão alterados.')) return
 
     setImportando(true)
 
@@ -1099,7 +1099,7 @@ export default function FinanceiroPage() {
 
       const registros = linhas
         .map((linha) => {
-          const descricao = normalizarTexto(pegarCampoExcel(linha, ['DESCRIÃ‡ÃƒO', 'DESCRICAO', 'DescriÃ§Ã£o', 'Descricao']))
+          const descricao = normalizarTexto(pegarCampoExcel(linha, ['DESCRIÃ‡ÃƒO', 'DESCRICAO', 'Descrição', 'Descricao']))
           const valor = numero(pegarCampoExcel(linha, ['VALOR', 'Valor']))
           const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
           const classificacao = classificarMovimentoDespesaExcel(descricao)
@@ -1124,7 +1124,7 @@ export default function FinanceiroPage() {
         .filter((item) => item.descricao && item.valor > 0)
 
       if (registros.length === 0) {
-        alert('Nenhuma despesa vÃ¡lida encontrada no Excel.')
+        alert('Nenhuma despesa válida encontrada no Excel.')
         setImportando(false)
         return
       }
@@ -1146,7 +1146,7 @@ export default function FinanceiroPage() {
       })
 
       if (registrosUnicos.length === 0) {
-        alert(`Nenhuma nova movimentaÃ§Ã£o importada. ${duplicados} linhas jÃ¡ existiam no sistema.`)
+        alert(`Nenhuma nova movimentação importada. ${duplicados} linhas já existiam no sistema.`)
         setImportando(false)
         event.target.value = ''
         return
@@ -1165,7 +1165,7 @@ export default function FinanceiroPage() {
       }
 
       alert(
-        `ImportaÃ§Ã£o concluÃ­da: ${registrosUnicos.length} movimentaÃ§Ãµes importadas.` +
+        `Importação concluída: ${registrosUnicos.length} movimentações importadas.` +
           (duplicados > 0 ? ` ${duplicados} duplicadas foram ignoradas.` : '')
       )
 
@@ -1184,7 +1184,7 @@ export default function FinanceiroPage() {
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (!confirm('Importar este Excel para SÃ³cios / Retiradas? As colunas SALÃRIO e TOTAL RECEBIDO serÃ£o ignoradas.')) return
+    if (!confirm('Importar este Excel para Sócios / Retiradas? As colunas SALÁRIO e TOTAL RECEBIDO serão ignoradas.')) return
 
     setImportando(true)
 
@@ -1197,7 +1197,7 @@ export default function FinanceiroPage() {
       const nomeArquivo = normalizarBusca(file.name)
 
       function identificarSocio(linha: any) {
-        const beneficiario = normalizarBusca(pegarCampoExcel(linha, ['BENEFICIARIO', 'BENEFICIÃRIO', 'BeneficiÃ¡rio', 'Beneficiario']))
+        const beneficiario = normalizarBusca(pegarCampoExcel(linha, ['BENEFICIARIO', 'BENEFICIÁRIO', 'Beneficiário', 'Beneficiario']))
 
         if (beneficiario.includes('HERICA')) return 'HERICA'
         if (beneficiario.includes('MARCOS') || beneficiario.includes('PAULO')) return 'MARCOS'
@@ -1208,7 +1208,7 @@ export default function FinanceiroPage() {
       }
 
       const registros = linhas.flatMap((linha) => {
-        const beneficiarioOriginal = normalizarTexto(pegarCampoExcel(linha, ['BENEFICIARIO', 'BENEFICIÃRIO', 'BeneficiÃ¡rio', 'Beneficiario']))
+        const beneficiarioOriginal = normalizarTexto(pegarCampoExcel(linha, ['BENEFICIARIO', 'BENEFICIÁRIO', 'Beneficiário', 'Beneficiario']))
         const beneficiarioBusca = normalizarBusca(beneficiarioOriginal)
 
         if (!beneficiarioOriginal || beneficiarioBusca.includes('TOTAL')) return []
@@ -1218,9 +1218,9 @@ export default function FinanceiroPage() {
 
         const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
         const mesReferencia = mesReferenciaExcel(linha)
-        const valorSaida = numero(pegarCampoExcel(linha, ['VALOR DE SAIDA', 'VALOR DE SAÃDA', 'Valor de saÃ­da', 'Valor de Saida']))
+        const valorSaida = numero(pegarCampoExcel(linha, ['VALOR DE SAIDA', 'VALOR DE SAÍDA', 'Valor de saída', 'Valor de Saida']))
         const reembolso = numero(pegarCampoExcel(linha, ['REEMBOLSO', 'Reembolso']))
-        const nomeSocio = socio === 'HERICA' ? 'HÃ©rica' : 'Marcos'
+        const nomeSocio = socio === 'HERICA' ? 'Hérica' : 'Marcos'
         const registrosLinha: any[] = []
 
         if (valorSaida > 0) {
@@ -1237,7 +1237,7 @@ export default function FinanceiroPage() {
             forma_pagamento: '',
             impacta_resultado: false,
             impacta_caixa: true,
-            observacoes: 'Importado do Excel de retiradas. SalÃ¡rio e total recebido ignorados pela regra 50% caixa / 25% Marcos / 25% HÃ©rica.',
+            observacoes: 'Importado do Excel de retiradas. Salário e total recebido ignorados pela regra 50% caixa / 25% Marcos / 25% Hérica.',
             comprovante_url: '',
           })
         }
@@ -1256,7 +1256,7 @@ export default function FinanceiroPage() {
             forma_pagamento: '',
             impacta_resultado: false,
             impacta_caixa: true,
-            observacoes: 'Importado do Excel de retiradas de sÃ³cios.',
+            observacoes: 'Importado do Excel de retiradas de sócios.',
             comprovante_url: '',
           })
         }
@@ -1265,7 +1265,7 @@ export default function FinanceiroPage() {
       })
 
       if (registros.length === 0) {
-        alert('Nenhuma retirada vÃ¡lida encontrada no Excel.')
+        alert('Nenhuma retirada válida encontrada no Excel.')
         setImportando(false)
         return
       }
@@ -1287,7 +1287,7 @@ export default function FinanceiroPage() {
       })
 
       if (registrosUnicos.length === 0) {
-        alert(`Nenhuma nova retirada importada. ${duplicados} linhas jÃ¡ existiam no sistema.`)
+        alert(`Nenhuma nova retirada importada. ${duplicados} linhas já existiam no sistema.`)
         setImportando(false)
         event.target.value = ''
         return
@@ -1306,7 +1306,7 @@ export default function FinanceiroPage() {
       }
 
       alert(
-        `ImportaÃ§Ã£o concluÃ­da: ${registrosUnicos.length} retiradas/reembolsos importados.` +
+        `Importação concluída: ${registrosUnicos.length} retiradas/reembolsos importados.` +
           (duplicados > 0 ? ` ${duplicados} duplicados foram ignorados.` : '')
       )
 
@@ -1344,8 +1344,8 @@ export default function FinanceiroPage() {
             linha['FATURA'] ||
               linha['Fatura'] ||
               linha['NUMERO_FATURA'] ||
-              linha['NÂº FATURA'] ||
-              linha['NÂ° FATURA'] ||
+              linha['Nº FATURA'] ||
+              linha['N° FATURA'] ||
               linha['NUMERO DA FATURA'] ||
               linha['NÃšMERO DA FATURA']
           ),
@@ -1362,7 +1362,7 @@ export default function FinanceiroPage() {
         .filter((item) => item.awb || item.cliente || item.valor_cobranca > 0)
 
       if (registros.length === 0) {
-        alert('Nenhuma linha vÃ¡lida encontrada no Excel.')
+        alert('Nenhuma linha válida encontrada no Excel.')
         setImportando(false)
         return
       }
@@ -1379,7 +1379,7 @@ export default function FinanceiroPage() {
         }
       }
 
-      alert(`ImportaÃ§Ã£o concluÃ­da: ${registros.length} lanÃ§amentos importados.`)
+      alert(`Importação concluída: ${registros.length} lançamentos importados.`)
       await carregarFinanceiro()
     } catch (error: any) {
       alert('Erro ao importar Excel: ' + error.message)
@@ -1390,7 +1390,7 @@ export default function FinanceiroPage() {
   }
 
   async function excluir(id: string) {
-    if (!confirm('Deseja excluir este lanÃ§amento financeiro?')) return
+    if (!confirm('Deseja excluir este lançamento financeiro?')) return
 
     const { error } = await supabase
       .from('financeiro_embarques')
@@ -1406,7 +1406,7 @@ export default function FinanceiroPage() {
   }
 
   async function excluirMovimentacao(id: string) {
-    if (!confirm('Deseja excluir esta movimentaÃ§Ã£o?')) return
+    if (!confirm('Deseja excluir esta movimentação?')) return
 
     const { error } = await supabase
       .from('financeiro_movimentacoes')
@@ -1414,7 +1414,7 @@ export default function FinanceiroPage() {
       .eq('id', id)
 
     if (error) {
-      alert('Erro ao excluir movimentaÃ§Ã£o: ' + error.message)
+      alert('Erro ao excluir movimentação: ' + error.message)
       return
     }
 
@@ -1460,19 +1460,19 @@ export default function FinanceiroPage() {
 
   async function gerarFechamentoMensal() {
     if (!mesResultado) {
-      alert('Selecione o mÃªs do resultado antes de gerar o fechamento.')
+      alert('Selecione o mês do resultado antes de gerar o fechamento.')
       return
     }
 
     if (resultadoGeral.resultadoOperacional <= 0) {
-      alert('Este mÃªs nÃ£o possui lucro lÃ­quido positivo para distribuir. Confira Profit HC e despesas pagas antes de fechar.')
+      alert('Este mês não possui lucro líquido positivo para distribuir. Confira Profit HC e despesas pagas antes de fechar.')
       return
     }
 
     const valorReserva = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
 
     if (valorReserva <= 0) {
-      alert('O fundo de caixa deste mÃªs jÃ¡ estÃ¡ reservado ou foi reservado acima dos 50%.')
+      alert('O fundo de caixa deste mês já está reservado ou foi reservado acima dos 50%.')
       return
     }
 
@@ -1489,18 +1489,18 @@ export default function FinanceiroPage() {
     })
 
     if (fechamentoJaLancado) {
-      alert('JÃ¡ existe um fechamento mensal lanÃ§ado para este mÃªs. Se precisar corrigir, exclua ou edite o lanÃ§amento no Fundo de Caixa.')
+      alert('Já existe um fechamento mensal lançado para este mês. Se precisar corrigir, exclua ou edite o lançamento no Fundo de Caixa.')
       return
     }
 
     const mensagem =
       `Gerar fechamento de ${mesResultado}?\n\n` +
-      `Lucro lÃ­quido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
+      `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
       `Fundo de caixa 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}\n` +
-      `JÃ¡ reservado no fundo: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
-      `Valor que serÃ¡ lanÃ§ado agora: ${moeda(valorReserva)}\n\n` +
+      `Já reservado no fundo: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
+      `Valor que será lançado agora: ${moeda(valorReserva)}\n\n` +
       `Parte Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}\n` +
-      `Parte HÃ©rica 25%: ${moeda(resultadoGeral.parteHerica)}`
+      `Parte Hérica 25%: ${moeda(resultadoGeral.parteHerica)}`
 
     if (!confirm(mensagem)) return
 
@@ -1518,19 +1518,19 @@ export default function FinanceiroPage() {
       mes_referencia: mesResultado,
       status: 'PAGO',
       socio: null,
-      forma_pagamento: 'Fechamento automÃ¡tico',
+      forma_pagamento: 'Fechamento automático',
       impacta_resultado: false,
       impacta_caixa: true,
       observacoes:
         `Fechamento gerado pelo Resultado Mensal. ` +
         `Profit HC recebido: ${moeda(resultadoGeral.profitRecebido)}. ` +
         `Despesas pagas: ${moeda(resultadoGeral.despesasPagas)}. ` +
-        `Lucro lÃ­quido: ${moeda(resultadoGeral.resultadoOperacional)}. ` +
+        `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}. ` +
         `Fundo 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}. ` +
         `Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}. ` +
-        `HÃ©rica 25%: ${moeda(resultadoGeral.parteHerica)}. ` +
+        `Hérica 25%: ${moeda(resultadoGeral.parteHerica)}. ` +
         `Retirado Marcos: ${moeda(resultadoGeral.retiradasMarcos)}. ` +
-        `Retirado HÃ©rica: ${moeda(resultadoGeral.retiradasHerica)}.`,
+        `Retirado Hérica: ${moeda(resultadoGeral.retiradasHerica)}.`,
       comprovante_url: '',
     })
 
@@ -1544,7 +1544,7 @@ export default function FinanceiroPage() {
     setFiltroMesMovimento([mesResultado])
     setGerandoFechamento(false)
 
-    alert('Fechamento mensal gerado com sucesso. A reserva de 50% foi lanÃ§ada no Fundo de Caixa.')
+    alert('Fechamento mensal gerado com sucesso. A reserva de 50% foi lançada no Fundo de Caixa.')
   }
 
 
@@ -1657,7 +1657,7 @@ export default function FinanceiroPage() {
       .sort((a: any, b: any) => String(a).localeCompare(String(b)))
 
     if (meses.length === 0) {
-      alert('Nenhum mÃªs anterior encontrado para fechamento retroativo no ano selecionado.')
+      alert('Nenhum mês anterior encontrado para fechamento retroativo no ano selecionado.')
       return
     }
 
@@ -1684,7 +1684,7 @@ export default function FinanceiroPage() {
     if (candidatos.length === 0) {
       alert(
         'Nenhum fechamento retroativo pendente encontrado.\n\n' +
-          'Os meses anteriores jÃ¡ estÃ£o fechados, nÃ£o tiveram lucro positivo ou jÃ¡ possuem reserva suficiente no fundo.'
+          'Os meses anteriores já estão fechados, não tiveram lucro positivo ou já possuem reserva suficiente no fundo.'
       )
       return
     }
@@ -1702,12 +1702,12 @@ export default function FinanceiroPage() {
       .join('\n')
 
     const avisoSaldoInicial = existeSaldoInicial
-      ? '\n\nATENÃ‡ÃƒO: existe lanÃ§amento de saldo inicial/fundo inicial no caixa. Se esse valor jÃ¡ representa os meses antigos, gerar retroativos pode duplicar o fundo. Confirme somente se deseja detalhar mÃªs a mÃªs.'
+      ? '\n\nATENÃ‡ÃƒO: existe lançamento de saldo inicial/fundo inicial no caixa. Se esse valor já representa os meses antigos, gerar retroativos pode duplicar o fundo. Confirme somente se deseja detalhar mês a mês.'
       : ''
 
     const confirmar = confirm(
       `Gerar fechamentos retroativos de ${anoFinanceiroAtivo()}?\n\n` +
-        `Meses que serÃ£o lanÃ§ados: ${candidatos.length}\n` +
+        `Meses que serão lançados: ${candidatos.length}\n` +
         `Total a reservar no fundo: ${moeda(totalReservar)}\n\n` +
         listaMeses +
         avisoSaldoInicial
@@ -1718,7 +1718,7 @@ export default function FinanceiroPage() {
     if (existeSaldoInicial) {
       const confirmarSaldoInicial = confirm(
         'Confirma mesmo assim?\n\n' +
-          'Foi encontrado saldo inicial/fundo inicial. Para evitar duplicidade, sÃ³ continue se esse saldo inicial NÃƒO representa esses fechamentos mensais.'
+          'Foi encontrado saldo inicial/fundo inicial. Para evitar duplicidade, só continue se esse saldo inicial NÃƒO representa esses fechamentos mensais.'
       )
 
       if (!confirmarSaldoInicial) return
@@ -1748,12 +1748,12 @@ export default function FinanceiroPage() {
           `Valor recebido: ${moeda(item.valorRecebido)}. ` +
           `Profit HC recebido: ${moeda(item.profitRecebido)}. ` +
           `Despesas pagas: ${moeda(item.despesasPagas)}. ` +
-          `EmprÃ©stimos pagos: ${moeda(item.emprestimosPagos)}. ` +
-          `Lucro lÃ­quido: ${moeda(item.resultadoOperacional)}. ` +
+          `Empréstimos pagos: ${moeda(item.emprestimosPagos)}. ` +
+          `Lucro líquido: ${moeda(item.resultadoOperacional)}. ` +
           `Fundo previsto 50%: ${moeda(item.fundoPrevistoMes)}. ` +
-          `JÃ¡ reservado anteriormente: ${moeda(item.reservasFundoMes)}. ` +
-          `Valor lanÃ§ado agora: ${moeda(valorReserva)}. ` +
-          `Processos pagos sem custo no mÃªs: ${item.semCusto}.`,
+          `Já reservado anteriormente: ${moeda(item.reservasFundoMes)}. ` +
+          `Valor lançado agora: ${moeda(valorReserva)}. ` +
+          `Processos pagos sem custo no mês: ${item.semCusto}.`,
         comprovante_url: '',
       }
     })
@@ -1777,7 +1777,7 @@ export default function FinanceiroPage() {
 
     alert(
       `Fechamentos retroativos gerados com sucesso.\n\n` +
-        `Meses lanÃ§ados: ${registros.length}\n` +
+        `Meses lançados: ${registros.length}\n` +
         `Total reservado no fundo: ${moeda(totalReservar)}`
     )
   }
@@ -2112,13 +2112,13 @@ export default function FinanceiroPage() {
     const saldoMarcos = parteMarcos - retiradasMarcos
     const saldoHerica = parteHerica - retiradasHerica
 
-    // Reserva operacional Ã© somente o fechamento mensal dos 50% do lucro.
-    // Entradas nÃ£o operacionais, como venda de carro, aumentam caixa,
-    // mas nÃ£o contam como reserva mensal dos 50%.
+    // Reserva operacional é somente o fechamento mensal dos 50% do lucro.
+    // Entradas não operacionais, como venda de carro, aumentam caixa,
+    // mas não contam como reserva mensal dos 50%.
     const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
 
-    // Caixa real do mÃªs considera lucro operacional, entradas nÃ£o operacionais,
-    // aportes, retiradas dos sÃ³cios e saÃ­das reais do fundo/caixa.
+    // Caixa real do mês considera lucro operacional, entradas não operacionais,
+    // aportes, retiradas dos sócios e saídas reais do fundo/caixa.
     const saldoCaixaRealMes =
       resultadoOperacional +
       entradasNaoOperacionaisMes +
@@ -2336,8 +2336,8 @@ export default function FinanceiroPage() {
     const caixaProtegido = terceirosProtegidos + custosOperacionaisProtegidos
     const saldoMovimentado = entradas - saidas
 
-    // Saldo gerencial Ã© o saldo estimado do movimento.
-    // Ele pode existir, mas nÃ£o significa que Ã© dinheiro livre da HC.
+    // Saldo gerencial é o saldo estimado do movimento.
+    // Ele pode existir, mas não significa que é dinheiro livre da HC.
     const saldoGerencial = profitHC - despesas - emprestimosPagos + entradasNaoOperacionais + aportes - retiradasMarcos - retiradasHerica - saidasFundo
     const usoCaixaProtegido = Math.max(saldoGerencial * -1, 0)
 
@@ -2371,8 +2371,8 @@ export default function FinanceiroPage() {
     const caixaAcimaDoMinimo = Math.max(saldoGerencial - caixaMinimoRecomendado - emprestimosMensaisHC, 0)
     const saldoPositivoSocios = Math.max(saldoMarcos, 0) + Math.max(saldoHerica, 0)
 
-    // Caixa livre da HC sÃ³ existe depois de:
-    // 1) proteger terceiros/custos, 2) recompor caixa mÃ­nimo, 3) nÃ£o existir retirada acima do permitido.
+    // Caixa livre da HC só existe depois de:
+    // 1) proteger terceiros/custos, 2) recompor caixa mínimo, 3) não existir retirada acima do permitido.
     const caixaLivreHC = excessoRetiradasSocios > 0 || faltaReporCaixa > 0
       ? 0
       : Math.min(caixaAcimaDoMinimo, saldoPositivoSocios || caixaAcimaDoMinimo)
@@ -2396,29 +2396,29 @@ export default function FinanceiroPage() {
         : qtdProcessosSemCompra > 0
           ? 'Processos pagos sem custo'
           : faltaReservaHC > 0
-            ? 'Caixa abaixo do mÃ­nimo'
-            : 'Sem erro crÃ­tico'
+            ? 'Caixa abaixo do mínimo'
+            : 'Sem erro crítico'
 
     let statusDono = 'CONTROLADO'
     let mensagemDono = 'Caixa dentro da regra. Manter controle antes de novas retiradas.'
-    let acaoRecomendada = 'Manter a regra 50% caixa / 25% Marcos / 25% HÃ©rica.'
+    let acaoRecomendada = 'Manter a regra 50% caixa / 25% Marcos / 25% Hérica.'
 
     if (usoCaixaProtegido > 0) {
-      statusDono = 'CRÃTICO'
+      statusDono = 'CRÍTICO'
       mensagemDono = 'A HC usou dinheiro protegido de terceiros/custos. Bloquear retiradas agora.'
-      acaoRecomendada = 'Repor primeiro o dinheiro protegido, depois recompor o caixa mÃ­nimo.'
+      acaoRecomendada = 'Repor primeiro o dinheiro protegido, depois recompor o caixa mínimo.'
     } else if (excessoRetiradasSocios > 0) {
       statusDono = 'ATENÃ‡ÃƒO'
-      mensagemDono = 'O caixa da HC nÃ£o estÃ¡ livre: retiradas acima do permitido e emprÃ©stimos consomem a reserva.'
-      acaoRecomendada = 'Bloquear retiradas, pagar emprÃ©stimos e recompor o caixa mÃ­nimo antes de qualquer gasto livre.'
+      mensagemDono = 'O caixa da HC não está livre: retiradas acima do permitido e empréstimos consomem a reserva.'
+      acaoRecomendada = 'Bloquear retiradas, pagar empréstimos e recompor o caixa mínimo antes de qualquer gasto livre.'
     } else if (faltaReservaHC > 0) {
       statusDono = 'ATENÃ‡ÃƒO'
-      mensagemDono = 'Existe saldo gerencial, mas ele ainda precisa cobrir caixa mÃ­nimo e emprÃ©stimos.'
-      acaoRecomendada = 'Economizar primeiro atÃ© recompor o caixa mÃ­nimo e cobrir a parcela mensal dos emprÃ©stimos.'
+      mensagemDono = 'Existe saldo gerencial, mas ele ainda precisa cobrir caixa mínimo e empréstimos.'
+      acaoRecomendada = 'Economizar primeiro até recompor o caixa mínimo e cobrir a parcela mensal dos empréstimos.'
     } else if (podeRetirarAgora > 0) {
-      statusDono = 'SAUDÃVEL'
-      mensagemDono = 'Existe caixa acima da reserva e saldo positivo para distribuiÃ§Ã£o.'
-      acaoRecomendada = 'Retirada permitida somente atÃ© o limite calculado.'
+      statusDono = 'SAUDÁVEL'
+      mensagemDono = 'Existe caixa acima da reserva e saldo positivo para distribuição.'
+      acaoRecomendada = 'Retirada permitida somente até o limite calculado.'
     }
 
     return {
@@ -2546,7 +2546,7 @@ export default function FinanceiroPage() {
     const nomes: Record<string, string> = {
       '01': 'janeiro',
       '02': 'fevereiro',
-      '03': 'marÃ§o',
+      '03': 'março',
       '04': 'abril',
       '05': 'maio',
       '06': 'junho',
@@ -2755,7 +2755,7 @@ export default function FinanceiroPage() {
           ${tabelaHtml}
 
           <div class="footer">
-            RelatÃ³rio gerado a partir dos filtros aplicados no HC Connect. Valores em reais (BRL).
+            Relatório gerado a partir dos filtros aplicados no HC Connect. Valores em reais (BRL).
           </div>
         </body>
       </html>
@@ -2770,16 +2770,16 @@ export default function FinanceiroPage() {
     if (abaPrincipal === 'PROCESSOS') {
       abrirPdfDoFiltro({
         titulo: 'Processos faturados filtrados',
-        subtitulo: 'RelatÃ³rio de processos, recebimentos, custos e Profit HC conforme os filtros aplicados.',
+        subtitulo: 'Relatório de processos, recebimentos, custos e Profit HC conforme os filtros aplicados.',
         filtros: [
           { label: 'Status', valor: filtroStatusProcessos.length > 0 ? textoFiltroMultiplo(filtroStatusProcessos, STATUS_PROCESSOS) : (aba === 'TODOS' ? 'Todos' : aba) },
           { label: 'Busca', valor: busca || 'Todas' },
           { label: 'Transportadora', valor: textoFiltroMultiplo(filtroTransportadora, transportadoras.map((item: any) => ({ value: String(item), label: String(item) })), 'Todas') },
           { label: 'Despachante', valor: textoFiltroMultiplo(filtroDespachante, despachantes.map((item: any) => ({ value: String(item), label: String(item) })), 'Todos') },
-          { label: 'ServiÃ§o', valor: textoFiltroMultiplo(filtroServico, servicos.map((item: any) => ({ value: String(item), label: String(item) })), 'Todos') },
+          { label: 'Serviço', valor: textoFiltroMultiplo(filtroServico, servicos.map((item: any) => ({ value: String(item), label: String(item) })), 'Todos') },
         ],
         cards: [
-          { label: 'Valor faturado', valor: moeda(resumoFiltrado.totalValorFaturado), detalhe: `${resumoFiltrado.qtd} lanÃ§amentos` },
+          { label: 'Valor faturado', valor: moeda(resumoFiltrado.totalValorFaturado), detalhe: `${resumoFiltrado.qtd} lançamentos` },
           { label: 'Valor compra', valor: moeda(resumoFiltrado.totalValorCompra), detalhe: 'Custo HC' },
           { label: 'Profit HC', valor: moeda(resumoFiltrado.totalProfitHC), detalhe: `${resumoFiltrado.aguardandoCusto} sem custo` },
           { label: 'Recebido', valor: moeda(resumoFiltrado.pago.total), detalhe: `${resumoFiltrado.pago.qtd} pagos` },
@@ -2790,7 +2790,7 @@ export default function FinanceiroPage() {
           'AWB',
           'Fatura',
           'Transportadora',
-          'ServiÃ§o',
+          'Serviço',
           'Valor faturado',
           'DTA/DOC/Impostos',
           'Terceiros',
@@ -2829,37 +2829,37 @@ export default function FinanceiroPage() {
     if (abaPrincipal === 'EXTRATO') {
       abrirPdfDoFiltro({
         titulo: `Extrato geral ${anoExtrato}`,
-        subtitulo: 'VisÃ£o anual das movimentaÃ§Ãµes lanÃ§adas no financeiro, incluindo processos recebidos, despesas, retiradas, aportes e fundo de caixa.',
+        subtitulo: 'Visão anual das movimentações lançadas no financeiro, incluindo processos recebidos, despesas, retiradas, aportes e fundo de caixa.',
         filtros: [
           { label: 'Ano', valor: anoExtrato },
           { label: 'Busca', valor: buscaExtrato || 'Todas' },
           { label: 'Tipo', valor: textoFiltroMultiplo(tipoExtrato, TIPOS_EXTRATO, 'Todos') },
           { label: 'Status', valor: textoFiltroMultiplo(filtroStatusExtrato, STATUS_MOVIMENTOS, 'Todos') },
-          { label: 'SÃ³cio', valor: textoFiltroMultiplo(filtroSocioExtrato, SOCIOS_OPCOES, 'Todos') },
+          { label: 'Sócio', valor: textoFiltroMultiplo(filtroSocioExtrato, SOCIOS_OPCOES, 'Todos') },
         ],
         cards: [
           { label: 'Caixa livre HC', valor: moeda(resumoExtratoGeralAno.caixaLivreHC), detalhe: resumoExtratoGeralAno.mensagemDono },
           { label: 'Caixa protegido', valor: moeda(resumoExtratoGeralAno.caixaProtegido), detalhe: 'Terceiros + custos operacionais dos processos pagos' },
-          { label: 'Terceiros a pagar/proteger', valor: moeda(resumoExtratoGeralAno.terceirosProtegidos), detalhe: 'Dinheiro que nÃ£o pertence Ã  HC' },
+          { label: 'Terceiros a pagar/proteger', valor: moeda(resumoExtratoGeralAno.terceirosProtegidos), detalhe: 'Dinheiro que não pertence à HC' },
           { label: 'Uso de caixa protegido', valor: moeda(resumoExtratoGeralAno.usoCaixaProtegido), detalhe: 'Quando o caixa livre da HC fica negativo' },
-          { label: 'Caixa mÃ­nimo recomendado', valor: moeda(resumoExtratoGeralAno.caixaMinimoRecomendado), detalhe: '50% do lucro operacional positivo' },
-          { label: 'EmprÃ©stimos mensais', valor: moeda(resumoExtratoGeralAno.emprestimosMensaisHC), detalhe: `${resumoExtratoGeralAno.qtdEmprestimosHC} contratos ativos` },
+          { label: 'Caixa mínimo recomendado', valor: moeda(resumoExtratoGeralAno.caixaMinimoRecomendado), detalhe: '50% do lucro operacional positivo' },
+          { label: 'Empréstimos mensais', valor: moeda(resumoExtratoGeralAno.emprestimosMensaisHC), detalhe: `${resumoExtratoGeralAno.qtdEmprestimosHC} contratos ativos` },
           { label: 'Precisa economizar/repor', valor: moeda(resumoExtratoGeralAno.faltaReporCaixa), detalhe: resumoExtratoGeralAno.acaoRecomendada },
-          { label: 'Pode retirar agora', valor: moeda(resumoExtratoGeralAno.podeRetirarAgora), detalhe: 'Limite seguro total dos sÃ³cios' },
-          { label: 'Pode gastar livre', valor: moeda(resumoExtratoGeralAno.gastoLivrePermitido), detalhe: 'ApÃ³s caixa mÃ­nimo e retiradas permitidas' },
+          { label: 'Pode retirar agora', valor: moeda(resumoExtratoGeralAno.podeRetirarAgora), detalhe: 'Limite seguro total dos sócios' },
+          { label: 'Pode gastar livre', valor: moeda(resumoExtratoGeralAno.gastoLivrePermitido), detalhe: 'Após caixa mínimo e retiradas permitidas' },
           { label: 'Profit HC', valor: moeda(resumoExtratoGeralAno.profitHC), detalhe: `${moeda(resumoExtratoGeralAno.valorRecebido)} recebido` },
           { label: 'Despesas', valor: moeda(resumoExtratoGeralAno.despesas), detalhe: 'Despesas pagas no ano' },
           { label: 'Status', valor: resumoExtratoGeralAno.statusDono, detalhe: 'Regra 50% / 25% / 25%' },
         ],
         cabecalhos: [
           'Data',
-          'MÃªs',
+          'Mês',
           'Tipo',
           'Categoria',
-          'DescriÃ§Ã£o',
-          'SÃ³cio',
+          'Descrição',
+          'Sócio',
           'Entrada',
-          'SaÃ­da',
+          'Saída',
           'Status',
           'Forma',
         ],
@@ -2882,39 +2882,39 @@ export default function FinanceiroPage() {
 
     if (abaPrincipal === 'RESULTADO') {
       abrirPdfDoFiltro({
-        titulo: 'Resultado geral do mÃªs',
-        subtitulo: 'DistribuiÃ§Ã£o do lucro pela regra 50% fundo de caixa, 25% Marcos e 25% HÃ©rica.',
+        titulo: 'Resultado geral do mês',
+        subtitulo: 'Distribuição do lucro pela regra 50% fundo de caixa, 25% Marcos e 25% Hérica.',
         filtros: [
-          { label: 'MÃªs', valor: formatarMesVisual(mesResultado) },
+          { label: 'Mês', valor: formatarMesVisual(mesResultado) },
         ],
         cards: [
           { label: 'Valor recebido', valor: moeda(resultadoGeral.valorRecebido), detalhe: `${resultadoGeral.processos} processos pagos` },
           { label: 'Profit HC', valor: moeda(resultadoGeral.profitRecebido), detalhe: `${resultadoGeral.semCusto} sem custo` },
           { label: 'Despesas pagas', valor: moeda(resultadoGeral.despesasPagas), detalhe: `${moeda(resultadoGeral.despesasPendentes)} pendente` },
-          { label: 'EmprÃ©stimos pagos', valor: moeda(resultadoGeral.emprestimosPagos), detalhe: `${moeda(resultadoGeral.emprestimosPendentes)} pendente` },
-          { label: 'Lucro lÃ­quido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - emprÃ©stimos' },
+          { label: 'Empréstimos pagos', valor: moeda(resultadoGeral.emprestimosPagos), detalhe: `${moeda(resultadoGeral.emprestimosPendentes)} pendente` },
+          { label: 'Lucro líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - empréstimos' },
           { label: 'Fundo 50%', valor: moeda(resultadoGeral.fundoPrevistoMes), detalhe: `${moeda(resultadoGeral.reservasFundoMes)} reservado` },
           { label: 'Parte Marcos 25%', valor: moeda(resultadoGeral.parteMarcos), detalhe: `${moeda(resultadoGeral.retiradasMarcos)} retirado` },
-          { label: 'Parte HÃ©rica 25%', valor: moeda(resultadoGeral.parteHerica), detalhe: `${moeda(resultadoGeral.retiradasHerica)} retirado` },
+          { label: 'Parte Hérica 25%', valor: moeda(resultadoGeral.parteHerica), detalhe: `${moeda(resultadoGeral.retiradasHerica)} retirado` },
           { label: 'Fundo atual', valor: moeda(resultadoGeral.fundoAtual), detalhe: 'Acumulado' },
         ],
-        cabecalhos: ['DescriÃ§Ã£o', 'Valor'],
+        cabecalhos: ['Descrição', 'Valor'],
         linhas: [
           ['Profit HC dos processos recebidos', moeda(resultadoGeral.profitRecebido)],
           ['Despesas pagas da empresa', `- ${moeda(resultadoGeral.despesasPagas)}`],
-          ['EmprÃ©stimos pagos da HC', `- ${moeda(resultadoGeral.emprestimosPagos)}`],
-          ['Lucro lÃ­quido para distribuiÃ§Ã£o', moeda(resultadoGeral.resultadoOperacional)],
+          ['Empréstimos pagos da HC', `- ${moeda(resultadoGeral.emprestimosPagos)}`],
+          ['Lucro líquido para distribuição', moeda(resultadoGeral.resultadoOperacional)],
           ['50% para fundo de caixa', moeda(resultadoGeral.fundoPrevistoMes)],
           ['25% parte Marcos', moeda(resultadoGeral.parteMarcos)],
-          ['25% parte HÃ©rica', moeda(resultadoGeral.parteHerica)],
-          ['Retirado Marcos no mÃªs', `- ${moeda(resultadoGeral.retiradasMarcos)}`],
+          ['25% parte Hérica', moeda(resultadoGeral.parteHerica)],
+          ['Retirado Marcos no mês', `- ${moeda(resultadoGeral.retiradasMarcos)}`],
           ['Saldo Marcos a retirar', moeda(resultadoGeral.saldoMarcos)],
-          ['Retirado HÃ©rica no mÃªs', `- ${moeda(resultadoGeral.retiradasHerica)}`],
-          ['Saldo HÃ©rica a retirar', moeda(resultadoGeral.saldoHerica)],
-          ['Reservado no fundo no mÃªs', moeda(resultadoGeral.reservasFundoMes)],
-          ['Entradas nÃ£o operacionais no caixa', moeda(resultadoGeral.entradasNaoOperacionaisMes)],
+          ['Retirado Hérica no mês', `- ${moeda(resultadoGeral.retiradasHerica)}`],
+          ['Saldo Hérica a retirar', moeda(resultadoGeral.saldoHerica)],
+          ['Reservado no fundo no mês', moeda(resultadoGeral.reservasFundoMes)],
+          ['Entradas não operacionais no caixa', moeda(resultadoGeral.entradasNaoOperacionaisMes)],
           ['Saldo para reservar no fundo', moeda(resultadoGeral.saldoFundoMes)],
-          ['Saldo real do caixa no mÃªs', moeda(resultadoGeral.saldoCaixaRealMes)],
+          ['Saldo real do caixa no mês', moeda(resultadoGeral.saldoCaixaRealMes)],
         ],
       })
 
@@ -2923,32 +2923,32 @@ export default function FinanceiroPage() {
 
     const tituloAba: Record<string, string> = {
       DESPESAS: 'Despesas filtradas',
-      SOCIOS: 'SÃ³cios / Retiradas filtradas',
+      SOCIOS: 'Sócios / Retiradas filtradas',
       FUNDO: 'Fundo de caixa filtrado',
     }
 
     abrirPdfDoFiltro({
-      titulo: tituloAba[abaPrincipal] || 'MovimentaÃ§Ãµes filtradas',
-      subtitulo: 'RelatÃ³rio das movimentaÃ§Ãµes conforme os filtros aplicados na tela.',
+      titulo: tituloAba[abaPrincipal] || 'Movimentações filtradas',
+      subtitulo: 'Relatório das movimentações conforme os filtros aplicados na tela.',
       filtros: [
         { label: 'Busca', valor: buscaMovimento || 'Todas' },
-        { label: 'MÃªs', valor: textoMesesSelecionados(filtroMesMovimento) },
+        { label: 'Mês', valor: textoMesesSelecionados(filtroMesMovimento) },
         { label: 'Status', valor: textoFiltroMultiplo(filtroStatusMovimento, STATUS_MOVIMENTOS, 'Todos') },
-        { label: 'SÃ³cio', valor: textoFiltroMultiplo(filtroSocioMovimento, SOCIOS_OPCOES, 'Todos') },
+        { label: 'Sócio', valor: textoFiltroMultiplo(filtroSocioMovimento, SOCIOS_OPCOES, 'Todos') },
       ],
       cards: [
-        { label: 'Total filtrado', valor: moeda(resumoMovimentosFiltrados.total), detalhe: `${resumoMovimentosFiltrados.qtd} lanÃ§amentos` },
-        { label: 'Pagos', valor: moeda(resumoMovimentosFiltrados.pago.total), detalhe: `${resumoMovimentosFiltrados.pago.qtd} lanÃ§amentos` },
-        { label: 'Pendentes', valor: moeda(resumoMovimentosFiltrados.pendente.total), detalhe: `${resumoMovimentosFiltrados.pendente.qtd} lanÃ§amentos` },
-        { label: 'Vencidos', valor: moeda(resumoMovimentosFiltrados.vencido.total), detalhe: `${resumoMovimentosFiltrados.vencido.qtd} lanÃ§amentos` },
+        { label: 'Total filtrado', valor: moeda(resumoMovimentosFiltrados.total), detalhe: `${resumoMovimentosFiltrados.qtd} lançamentos` },
+        { label: 'Pagos', valor: moeda(resumoMovimentosFiltrados.pago.total), detalhe: `${resumoMovimentosFiltrados.pago.qtd} lançamentos` },
+        { label: 'Pendentes', valor: moeda(resumoMovimentosFiltrados.pendente.total), detalhe: `${resumoMovimentosFiltrados.pendente.qtd} lançamentos` },
+        { label: 'Vencidos', valor: moeda(resumoMovimentosFiltrados.vencido.total), detalhe: `${resumoMovimentosFiltrados.vencido.qtd} lançamentos` },
       ],
       cabecalhos: [
         'Tipo',
         'Categoria',
-        'DescriÃ§Ã£o',
-        'SÃ³cio',
+        'Descrição',
+        'Sócio',
         'Valor',
-        'MÃªs',
+        'Mês',
         'Vencimento',
         'Pagamento',
         'Status',
@@ -2977,7 +2977,7 @@ export default function FinanceiroPage() {
         <div className="mb-4 flex flex-col md:flex-row md:items-start md:justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-gray-950">
-              {editandoMovimentoId ? 'Editando movimentaÃ§Ã£o' : titulo}
+              {editandoMovimentoId ? 'Editando movimentação' : titulo}
             </h2>
             <p className="text-sm text-gray-500">{subtitulo}</p>
           </div>
@@ -2994,7 +2994,7 @@ export default function FinanceiroPage() {
             {abaPrincipal === 'FUNDO' && (
               <>
                 <button type="button" onClick={() => prepararFundo('FUNDO_CAIXA_ENTRADA')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Entrada</button>
-                <button type="button" onClick={() => prepararFundo('FUNDO_CAIXA_SAIDA')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">SaÃ­da</button>
+                <button type="button" onClick={() => prepararFundo('FUNDO_CAIXA_SAIDA')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Saída</button>
                 <button type="button" onClick={() => prepararFundo('AJUSTE_CAIXA')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Ajuste</button>
               </>
             )}
@@ -3035,18 +3035,18 @@ export default function FinanceiroPage() {
             )}
           </div>
 
-          <Input label="DescriÃ§Ã£o" value={formMovimento.descricao} onChange={(v) => setFormMovimento({ ...formMovimento, descricao: v })} />
+          <Input label="Descrição" value={formMovimento.descricao} onChange={(v) => setFormMovimento({ ...formMovimento, descricao: v })} />
           <InputMoney label="Valor R$" value={formMovimento.valor} onChange={(v) => setFormMovimento({ ...formMovimento, valor: v })} />
 
           <Input type="date" label="Vencimento" value={formMovimento.data_vencimento} onChange={(v) => setFormMovimento({ ...formMovimento, data_vencimento: v })} />
           <Input type="date" label="Pagamento" value={formMovimento.data_pagamento} onChange={(v) => setFormMovimento({ ...formMovimento, data_pagamento: v, status: v ? 'PAGO' : formMovimento.status })} />
           <Input
             type="month"
-            label="MÃªs referÃªncia"
+            label="Mês referência"
             value={formMovimento.mes_referencia}
             onChange={(v) => {
               if (!mesFinanceiroPermitido(v)) {
-                alert(`O financeiro estÃ¡ limitado a ${textoAnosFinanceiroPermitidos()}.`)
+                alert(`O financeiro está limitado a ${textoAnosFinanceiroPermitidos()}.`)
                 return
               }
 
@@ -3068,7 +3068,7 @@ export default function FinanceiroPage() {
 
           {mostrarSocio && (
             <div>
-              <label className="text-sm font-semibold text-gray-600">SÃ³cio</label>
+              <label className="text-sm font-semibold text-gray-600">Sócio</label>
               <select
                 value={formMovimento.socio}
                 onChange={(e) => setFormMovimento({ ...formMovimento, socio: e.target.value })}
@@ -3076,12 +3076,12 @@ export default function FinanceiroPage() {
               >
                 <option value="">Selecione</option>
                 <option value="MARCOS">Marcos</option>
-                <option value="HERICA">HÃ©rica</option>
+                <option value="HERICA">Hérica</option>
               </select>
             </div>
           )}
 
-          <Input label="Forma de pagamento" value={formMovimento.forma_pagamento} onChange={(v) => setFormMovimento({ ...formMovimento, forma_pagamento: v })} placeholder="Pix, boleto, cartÃ£o..." />
+          <Input label="Forma de pagamento" value={formMovimento.forma_pagamento} onChange={(v) => setFormMovimento({ ...formMovimento, forma_pagamento: v })} placeholder="Pix, boleto, cartão..." />
           <Input label="Link do comprovante" value={formMovimento.comprovante_url} onChange={(v) => setFormMovimento({ ...formMovimento, comprovante_url: v })} />
 
           <div className="md:col-span-2 flex flex-col justify-end gap-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
@@ -3105,7 +3105,7 @@ export default function FinanceiroPage() {
           </div>
 
           <div className="md:col-span-4">
-            <label className="text-sm font-semibold text-gray-600">ObservaÃ§Ãµes</label>
+            <label className="text-sm font-semibold text-gray-600">Observações</label>
             <textarea
               value={formMovimento.observacoes}
               onChange={(e) => setFormMovimento({ ...formMovimento, observacoes: e.target.value })}
@@ -3119,7 +3119,7 @@ export default function FinanceiroPage() {
               disabled={salvandoMovimento}
               className="bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 font-bold"
             >
-              {salvandoMovimento ? 'Salvando...' : editandoMovimentoId ? 'Salvar alteraÃ§Ãµes' : 'Salvar movimentaÃ§Ã£o'}
+              {salvandoMovimento ? 'Salvando...' : editandoMovimentoId ? 'Salvar alterações' : 'Salvar movimentação'}
             </button>
 
             {editandoMovimentoId && (
@@ -3144,12 +3144,12 @@ export default function FinanceiroPage() {
           <input
             value={buscaMovimento}
             onChange={(e) => { setBuscaMovimento(e.target.value); setPaginaMovimentos(1) }}
-            placeholder="Buscar descriÃ§Ã£o, categoria, sÃ³cio..."
+            placeholder="Buscar descrição, categoria, sócio..."
             className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
           <MultiSelect
-            label="MÃªs"
+            label="Mês"
             values={filtroMesMovimento}
             onChange={(valores) => { setFiltroMesMovimento(valores); setPaginaMovimentos(1) }}
             options={mesesMovimentacoes.map((item: any) => ({ value: String(item), label: formatarMesVisual(item) }))}
@@ -3165,11 +3165,11 @@ export default function FinanceiroPage() {
           />
 
           <MultiSelect
-            label="SÃ³cios"
+            label="Sócios"
             values={filtroSocioMovimento}
             onChange={(valores) => { setFiltroSocioMovimento(valores); setPaginaMovimentos(1) }}
             options={SOCIOS_OPCOES}
-            placeholder="Todos sÃ³cios"
+            placeholder="Todos sócios"
           />
 
           <button type="button" onClick={limparFiltrosMovimentos} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
@@ -3179,10 +3179,10 @@ export default function FinanceiroPage() {
 
         <section className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <FiltroResumoCard titulo="Total filtrado" valor={moeda(resumoMovimentosFiltrados.total)} detalhe={`${resumoMovimentosFiltrados.qtd} lanÃ§amentos`} classe="bg-white text-blue-700 border-blue-100" />
-            <FiltroResumoCard titulo="Pagos" valor={moeda(resumoMovimentosFiltrados.pago.total)} detalhe={`${resumoMovimentosFiltrados.pago.qtd} lanÃ§amentos`} classe="bg-white text-green-700 border-green-100" />
-            <FiltroResumoCard titulo="Pendentes" valor={moeda(resumoMovimentosFiltrados.pendente.total)} detalhe={`${resumoMovimentosFiltrados.pendente.qtd} lanÃ§amentos`} classe="bg-white text-yellow-700 border-yellow-100" />
-            <FiltroResumoCard titulo="Vencidos" valor={moeda(resumoMovimentosFiltrados.vencido.total)} detalhe={`${resumoMovimentosFiltrados.vencido.qtd} lanÃ§amentos`} classe="bg-white text-red-700 border-red-100" />
+            <FiltroResumoCard titulo="Total filtrado" valor={moeda(resumoMovimentosFiltrados.total)} detalhe={`${resumoMovimentosFiltrados.qtd} lançamentos`} classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Pagos" valor={moeda(resumoMovimentosFiltrados.pago.total)} detalhe={`${resumoMovimentosFiltrados.pago.qtd} lançamentos`} classe="bg-white text-green-700 border-green-100" />
+            <FiltroResumoCard titulo="Pendentes" valor={moeda(resumoMovimentosFiltrados.pendente.total)} detalhe={`${resumoMovimentosFiltrados.pendente.qtd} lançamentos`} classe="bg-white text-yellow-700 border-yellow-100" />
+            <FiltroResumoCard titulo="Vencidos" valor={moeda(resumoMovimentosFiltrados.vencido.total)} detalhe={`${resumoMovimentosFiltrados.vencido.qtd} lançamentos`} classe="bg-white text-red-700 border-red-100" />
           </div>
         </section>
 
@@ -3192,23 +3192,23 @@ export default function FinanceiroPage() {
               <tr>
                 <Th>Tipo</Th>
                 <Th>Categoria</Th>
-                <Th>DescriÃ§Ã£o</Th>
-                <Th>SÃ³cio</Th>
+                <Th>Descrição</Th>
+                <Th>Sócio</Th>
                 <Th>Valor</Th>
-                <Th>MÃªs</Th>
+                <Th>Mês</Th>
                 <Th>Vencimento</Th>
                 <Th>Pagamento</Th>
                 <Th>Status</Th>
                 <Th>Forma</Th>
-                <Th>AÃ§Ãµes</Th>
+                <Th>Ações</Th>
               </tr>
             </thead>
 
             <tbody>
               {loadingMovimentos ? (
-                <tr><td colSpan={11} className="p-6 text-center">Carregando movimentaÃ§Ãµes...</td></tr>
+                <tr><td colSpan={11} className="p-6 text-center">Carregando movimentações...</td></tr>
               ) : movimentosPaginados.length === 0 ? (
-                <tr><td colSpan={11} className="p-6 text-center text-gray-500">Nenhuma movimentaÃ§Ã£o encontrada.</td></tr>
+                <tr><td colSpan={11} className="p-6 text-center text-gray-500">Nenhuma movimentação encontrada.</td></tr>
               ) : (
                 movimentosPaginados.map((item) => {
                   const status = statusMovimento(item)
@@ -3249,11 +3249,11 @@ export default function FinanceiroPage() {
     const resumoDono = resumoExtratoGeralAno
 
     const statusClasse =
-      resumoDono.statusDono === 'CRÃTICO'
+      resumoDono.statusDono === 'CRÍTICO'
         ? 'bg-red-50 text-red-700 border-red-200'
         : resumoDono.statusDono === 'ATENÃ‡ÃƒO'
           ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
-          : resumoDono.statusDono === 'SAUDÃVEL'
+          : resumoDono.statusDono === 'SAUDÁVEL'
             ? 'bg-green-50 text-green-700 border-green-200'
             : 'bg-blue-50 text-blue-700 border-blue-200'
 
@@ -3271,7 +3271,7 @@ export default function FinanceiroPage() {
             <div>
               <h2 className="text-2xl font-black text-gray-950">Painel do Dono</h2>
               <p className="text-sm font-semibold text-gray-500">
-                Somente os nÃºmeros que importam para decidir retirada, gasto e recomposiÃ§Ã£o do caixa.
+                Somente os números que importam para decidir retirada, gasto e recomposição do caixa.
               </p>
             </div>
 
@@ -3297,10 +3297,10 @@ export default function FinanceiroPage() {
           <section className="rounded-3xl border border-slate-800 bg-slate-950 p-5 text-white shadow-sm">
             <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-5">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-200">DecisÃ£o direta</p>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-200">Decisão direta</p>
                 <h3 className="mt-2 text-2xl font-black">A HC tem dinheiro livre para usar?</h3>
                 <p className="mt-2 text-sm font-semibold text-slate-300">
-                  A regra agora Ã© simples: primeiro protege terceiros, paga obrigaÃ§Ãµes e emprÃ©stimos, recompÃµe caixa mÃ­nimo e sÃ³ depois libera retirada.
+                  A regra agora é simples: primeiro protege terceiros, paga obrigações e empréstimos, recompõe caixa mínimo e só depois libera retirada.
                 </p>
               </div>
 
@@ -3313,7 +3313,7 @@ export default function FinanceiroPage() {
               <DonoResumoCard
                 titulo="Caixa livre real da HC"
                 valor={moeda(resumoDono.caixaLivreHC)}
-                detalhe="Dinheiro realmente liberado depois de reservas, emprÃ©stimos e regra dos sÃ³cios."
+                detalhe="Dinheiro realmente liberado depois de reservas, empréstimos e regra dos sócios."
                 classe={resumoDono.caixaLivreHC > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
                 destaque
               />
@@ -3329,7 +3329,7 @@ export default function FinanceiroPage() {
               <DonoResumoCard
                 titulo="Posso retirar agora"
                 valor={moeda(resumoDono.podeRetirarAgora)}
-                detalhe={resumoDono.podeRetirarAgora > 0 ? 'Limite seguro de retirada pela regra.' : 'Retirada bloqueada atÃ© recompor o caixa.'}
+                detalhe={resumoDono.podeRetirarAgora > 0 ? 'Limite seguro de retirada pela regra.' : 'Retirada bloqueada até recompor o caixa.'}
                 classe={resumoDono.podeRetirarAgora > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
                 destaque
               />
@@ -3337,35 +3337,35 @@ export default function FinanceiroPage() {
               <DonoResumoCard
                 titulo="Terceiros a proteger"
                 valor={moeda(resumoDono.terceirosProtegidos)}
-                detalhe="Valor que nÃ£o pertence Ã  HC. NÃ£o entra em retirada nem gasto livre."
+                detalhe="Valor que não pertence à HC. Não entra em retirada nem gasto livre."
                 classe="bg-orange-50 text-orange-700 border-orange-200"
               />
 
               <DonoResumoCard
-                titulo="EmprÃ©stimos da HC"
+                titulo="Empréstimos da HC"
                 valor={moeda(resumoDono.emprestimosMensaisHC)}
-                detalhe={`Parcela mensal fixa. DÃ­vida atual: ${moeda(resumoDono.saldoDevedorEmprestimosHC)}`}
+                detalhe={`Parcela mensal fixa. Dívida atual: ${moeda(resumoDono.saldoDevedorEmprestimosHC)}`}
                 classe="bg-purple-50 text-purple-700 border-purple-200"
               />
 
               <DonoResumoCard
                 titulo="Posso gastar livre"
                 valor={moeda(resumoDono.gastoLivrePermitido)}
-                detalhe={resumoDono.gastoLivrePermitido > 0 ? 'Sobra segura para gasto nÃ£o obrigatÃ³rio.' : 'Sem gasto livre. Apenas obrigaÃ§Ãµes essenciais.'}
+                detalhe={resumoDono.gastoLivrePermitido > 0 ? 'Sobra segura para gasto não obrigatório.' : 'Sem gasto livre. Apenas obrigações essenciais.'}
                 classe={resumoDono.gastoLivrePermitido > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
               />
             </div>
 
             <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
               <div className="flex items-center justify-between gap-3 mb-2">
-                <p className="text-sm font-black text-slate-200">Cobertura mÃ­nima para voltar a respirar</p>
+                <p className="text-sm font-black text-slate-200">Cobertura mínima para voltar a respirar</p>
                 <p className="text-sm font-black text-white">{resumoDono.percentualCaixa.toFixed(0)}%</p>
               </div>
               <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
                 <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${resumoDono.percentualCaixa}%` }} />
               </div>
               <p className="mt-2 text-xs font-bold text-slate-400">
-                Caixa mÃ­nimo: {moeda(resumoDono.caixaMinimoRecomendado)} | EmprÃ©stimos do mÃªs: {moeda(resumoDono.emprestimosMensaisHC)} | RegularizaÃ§Ã£o real: {moeda(resumoDono.caixaNegativoRealRegularizar)}
+                Caixa mínimo: {moeda(resumoDono.caixaMinimoRecomendado)} | Empréstimos do mês: {moeda(resumoDono.emprestimosMensaisHC)} | Regularização real: {moeda(resumoDono.caixaNegativoRealRegularizar)}
               </p>
             </div>
           </section>
@@ -3381,7 +3381,7 @@ export default function FinanceiroPage() {
             </div>
 
             <div className="rounded-2xl border border-red-200 bg-white px-4 py-3">
-              <p className="text-xs font-black uppercase tracking-wide text-red-500">Maior ponto de atenÃ§Ã£o</p>
+              <p className="text-xs font-black uppercase tracking-wide text-red-500">Maior ponto de atenção</p>
               <p className="text-lg font-black text-red-900">{resumoDono.maiorErroFinanceiro}</p>
             </div>
           </div>
@@ -3390,28 +3390,28 @@ export default function FinanceiroPage() {
             <ErroCard
               titulo="Retiradas acima do permitido"
               valor={moeda(resumoDono.excessoRetiradasSocios)}
-              detalhe={`Marcos: ${moeda(resumoDono.excessoRetiradasMarcos)} | HÃ©rica: ${moeda(resumoDono.excessoRetiradasHerica)}`}
+              detalhe={`Marcos: ${moeda(resumoDono.excessoRetiradasMarcos)} | Hérica: ${moeda(resumoDono.excessoRetiradasHerica)}`}
               ruim={resumoDono.excessoRetiradasSocios > 0}
             />
 
             <ErroCard
-              titulo="Caixa mÃ­nimo faltando"
+              titulo="Caixa mínimo faltando"
               valor={moeda(resumoDono.faltaReservaHC)}
-              detalhe={`MÃ­nimo obrigatÃ³rio: ${moeda(resumoDono.caixaMinimoRecomendado)}`}
+              detalhe={`Mínimo obrigatório: ${moeda(resumoDono.caixaMinimoRecomendado)}`}
               ruim={resumoDono.faltaReservaHC > 0}
             />
 
             <ErroCard
               titulo="Caixa negativo real"
               valor={moeda(resumoDono.caixaNegativoRealRegularizar)}
-              detalhe="Terceiros + caixa mÃ­nimo + emprÃ©stimos para regularizar."
+              detalhe="Terceiros + caixa mínimo + empréstimos para regularizar."
               ruim={resumoDono.caixaNegativoRealRegularizar > 0}
             />
 
             <ErroCard
-              titulo="EmprÃ©stimos fixos"
+              titulo="Empréstimos fixos"
               valor={moeda(resumoDono.emprestimosMensaisHC)}
-              detalhe="Esse valor sai todo mÃªs antes de retirada dos sÃ³cios."
+              detalhe="Esse valor sai todo mês antes de retirada dos sócios."
               ruim={resumoDono.emprestimosMensaisHC > 0}
             />
 
@@ -3426,7 +3426,7 @@ export default function FinanceiroPage() {
 
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
           <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h3 className="text-xl font-black text-gray-950">Plano de correÃ§Ã£o</h3>
+            <h3 className="text-xl font-black text-gray-950">Plano de correção</h3>
             <p className="text-sm font-semibold text-gray-500 mt-1">
               Ordem para a HC voltar a ter caixa livre real.
             </p>
@@ -3434,32 +3434,32 @@ export default function FinanceiroPage() {
             <div className="mt-5 space-y-3">
               <DecisionRow label="1. Bloquear retirada" valor={resumoDono.podeRetirarAgora > 0 ? 'Liberado com limite' : 'Bloqueado agora'} perigo={resumoDono.podeRetirarAgora <= 0} sucesso={resumoDono.podeRetirarAgora > 0} />
               <DecisionRow label="2. Proteger terceiros" valor={moeda(resumoDono.terceirosProtegidos)} destaque />
-              <DecisionRow label="3. Cobrir emprÃ©stimos do mÃªs" valor={moeda(resumoDono.emprestimosMensaisHC)} perigo={resumoDono.emprestimosMensaisHC > 0} />
-              <DecisionRow label="4. Repor caixa mÃ­nimo" valor={moeda(resumoDono.faltaReservaHC)} perigo={resumoDono.faltaReservaHC > 0} sucesso={resumoDono.faltaReservaHC <= 0} />
-              <DecisionRow label="5. Nova retirada sÃ³ depois de" valor={moeda(resumoDono.caixaNegativoRealRegularizar)} perigo={resumoDono.caixaNegativoRealRegularizar > 0} sucesso={resumoDono.caixaNegativoRealRegularizar <= 0} />
+              <DecisionRow label="3. Cobrir empréstimos do mês" valor={moeda(resumoDono.emprestimosMensaisHC)} perigo={resumoDono.emprestimosMensaisHC > 0} />
+              <DecisionRow label="4. Repor caixa mínimo" valor={moeda(resumoDono.faltaReservaHC)} perigo={resumoDono.faltaReservaHC > 0} sucesso={resumoDono.faltaReservaHC <= 0} />
+              <DecisionRow label="5. Nova retirada só depois de" valor={moeda(resumoDono.caixaNegativoRealRegularizar)} perigo={resumoDono.caixaNegativoRealRegularizar > 0} sucesso={resumoDono.caixaNegativoRealRegularizar <= 0} />
             </div>
 
             <div className="mt-5 rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
-              <p className="text-sm font-black text-yellow-900">AÃ§Ã£o recomendada</p>
+              <p className="text-sm font-black text-yellow-900">Ação recomendada</p>
               <p className="mt-1 text-sm font-semibold text-yellow-800">{resumoDono.acaoRecomendada}</p>
             </div>
           </section>
 
           <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h3 className="text-xl font-black text-gray-950">SÃ³cios pela regra 25% / 25%</h3>
+            <h3 className="text-xl font-black text-gray-950">Sócios pela regra 25% / 25%</h3>
             <p className="text-sm font-semibold text-gray-500 mt-1">
-              Retirada Ã© abatimento da parte de cada sÃ³cio, nÃ£o despesa da empresa.
+              Retirada é abatimento da parte de cada sócio, não despesa da empresa.
             </p>
 
             <div className="mt-5 overflow-x-auto">
               <table className="min-w-[620px] w-full text-sm">
                 <thead className="bg-gray-50 text-gray-500">
                   <tr>
-                    <Th>SÃ³cio</Th>
+                    <Th>Sócio</Th>
                     <Th>Direito</Th>
-                    <Th>JÃ¡ retirou</Th>
+                    <Th>Já retirou</Th>
                     <Th>Saldo</Th>
-                    <Th>SituaÃ§Ã£o</Th>
+                    <Th>Situação</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3471,7 +3471,7 @@ export default function FinanceiroPage() {
                     <Td><Badge texto={resumoDono.saldoMarcos >= 0 ? 'DENTRO DA REGRA' : 'ADIANTADO'} classe={resumoDono.saldoMarcos >= 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'} /></Td>
                   </tr>
                   <tr className="border-b border-gray-100">
-                    <Td>HÃ©rica</Td>
+                    <Td>Hérica</Td>
                     <Td>{moeda(resumoDono.direitoHerica)}</Td>
                     <Td><span className="font-black text-red-700">{moeda(resumoDono.retiradasHerica)}</span></Td>
                     <Td><span className={resumoDono.saldoHerica >= 0 ? 'font-black text-green-700' : 'font-black text-red-700'}>{moeda(resumoDono.saldoHerica)}</span></Td>
@@ -3492,7 +3492,7 @@ export default function FinanceiroPage() {
         <div>
           <h1 className="text-2xl font-black text-gray-950">Financeiro</h1>
           <p className="text-sm text-gray-500">
-            Painel do Dono, resultado mensal, terceiros, processos faturados e movimentaÃ§Ãµes financeiras
+            Painel do Dono, resultado mensal, terceiros, processos faturados e movimentações financeiras
           </p>
         </div>
 
@@ -3559,9 +3559,9 @@ export default function FinanceiroPage() {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Filtro geral do financeiro</p>
-            <h2 className="text-xl font-black text-gray-950">Ano em anÃ¡lise: {anoFinanceiroAtivo()}</h2>
+            <h2 className="text-xl font-black text-gray-950">Ano em análise: {anoFinanceiroAtivo()}</h2>
             <p className="text-sm font-semibold text-gray-500">
-              Todas as abas abaixo usam este ano como base: Painel do Dono, Resultado, Processos, Despesas, SÃ³cios e Caixa/Fundo.
+              Todas as abas abaixo usam este ano como base: Painel do Dono, Resultado, Processos, Despesas, Sócios e Caixa/Fundo.
             </p>
           </div>
 
@@ -3582,7 +3582,7 @@ export default function FinanceiroPage() {
             </label>
 
             <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
-              PerÃ­odo permitido: {textoAnosFinanceiroPermitidos()}
+              Período permitido: {textoAnosFinanceiroPermitidos()}
             </div>
           </div>
         </div>
@@ -3593,7 +3593,7 @@ export default function FinanceiroPage() {
         <TabButton ativo={abaPrincipal === 'RESULTADO'} onClick={() => mudarAbaPrincipal('RESULTADO')}>Resultado Mensal</TabButton>
         <TabButton ativo={abaPrincipal === 'PROCESSOS'} onClick={() => mudarAbaPrincipal('PROCESSOS')}>Processos Faturados</TabButton>
         <TabButton ativo={abaPrincipal === 'DESPESAS'} onClick={() => mudarAbaPrincipal('DESPESAS')}>Despesas</TabButton>
-        <TabButton ativo={abaPrincipal === 'SOCIOS'} onClick={() => mudarAbaPrincipal('SOCIOS')}>Retiradas / SÃ³cios</TabButton>
+        <TabButton ativo={abaPrincipal === 'SOCIOS'} onClick={() => mudarAbaPrincipal('SOCIOS')}>Retiradas / Sócios</TabButton>
         <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Caixa / Fundo</TabButton>
       </section>
 
@@ -3611,7 +3611,7 @@ export default function FinanceiroPage() {
             <BigCard
               titulo="VALOR EM ATRASO"
               valor={moeda(resumo.atrasado.total)}
-              subtitulo="Valor vencido nÃ£o recebido"
+              subtitulo="Valor vencido não recebido"
               icone="â°"
               classe="bg-red-50 border-red-200 text-red-600"
             />
@@ -3627,17 +3627,17 @@ export default function FinanceiroPage() {
 
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-6">
             <h2 className="text-lg font-bold mb-4">
-              {editandoId ? 'Editando lanÃ§amento' : 'Novo lanÃ§amento'}
+              {editandoId ? 'Editando lançamento' : 'Novo lançamento'}
             </h2>
 
             <form onSubmit={salvar} className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Input label="Cliente" value={form.cliente} onChange={(v) => setForm({ ...form, cliente: v })} />
               <Input label="Despachante" value={form.despachante} onChange={(v) => setForm({ ...form, despachante: v })} />
               <Input label="AWB" value={form.awb} onChange={(v) => setForm({ ...form, awb: v })} />
-              <Input label="NÃºmero da Fatura" value={form.fatura} onChange={(v) => setForm({ ...form, fatura: v })} />
+              <Input label="Número da Fatura" value={form.fatura} onChange={(v) => setForm({ ...form, fatura: v })} />
 
               <Input label="Transportadora" value={form.transportadora} onChange={(v) => setForm({ ...form, transportadora: v })} />
-              <Input label="ServiÃ§o" value={form.servico} onChange={(v) => setForm({ ...form, servico: v })} />
+              <Input label="Serviço" value={form.servico} onChange={(v) => setForm({ ...form, servico: v })} />
               <InputMoney label="Valor faturado ao cliente R$" value={form.valor_cobranca} onChange={(v) => setForm({ ...form, valor_cobranca: v })} />
               <InputMoney label="DTA / DOC / Impostos R$" value={form.doc_dta} onChange={(v) => setForm({ ...form, doc_dta: v })} />
 
@@ -3647,7 +3647,7 @@ export default function FinanceiroPage() {
               <Input type="date" label="Recebimento cliente" value={form.recebimento} onChange={(v) => setForm({ ...form, recebimento: v })} />
 
               <div className="md:col-span-4">
-                <label className="text-sm font-semibold text-gray-600">ObservaÃ§Ãµes</label>
+                <label className="text-sm font-semibold text-gray-600">Observações</label>
                 <textarea
                   value={form.observacoes}
                   onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
@@ -3661,7 +3661,7 @@ export default function FinanceiroPage() {
                   disabled={salvando}
                   className="bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 font-bold"
                 >
-                  {salvando ? 'Salvando...' : editandoId ? 'Salvar alteraÃ§Ãµes' : 'Salvar lanÃ§amento'}
+                  {salvando ? 'Salvando...' : editandoId ? 'Salvar alterações' : 'Salvar lançamento'}
                 </button>
 
                 {editandoId && (
@@ -3679,7 +3679,7 @@ export default function FinanceiroPage() {
 
           <section id="processos_faturados" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-5">
-              <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviÃ§o..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviço..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
               <MultiSelect
                 label="Status"
@@ -3706,11 +3706,11 @@ export default function FinanceiroPage() {
               />
 
               <MultiSelect
-                label="ServiÃ§os"
+                label="Serviços"
                 values={filtroServico}
                 onChange={(valores) => { setFiltroServico(valores); setPagina(1) }}
                 options={servicos.map((item: any) => ({ value: String(item), label: String(item) }))}
-                placeholder="Todos serviÃ§os"
+                placeholder="Todos serviços"
               />
 
               <button type="button" onClick={limparFiltros} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
@@ -3723,12 +3723,12 @@ export default function FinanceiroPage() {
                 <div>
                   <h3 className="text-lg font-black text-gray-950">Resumo dos filtros aplicados</h3>
                   <p className="text-sm text-gray-500">
-                    SomatÃ³rio calculado somente com os registros exibidos no filtro atual.
+                    Somatório calculado somente com os registros exibidos no filtro atual.
                   </p>
                 </div>
 
                 <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-black text-blue-700 border border-blue-100">
-                  {resumoFiltrado.qtd} lanÃ§amentos filtrados
+                  {resumoFiltrado.qtd} lançamentos filtrados
                 </span>
               </div>
 
@@ -3767,7 +3767,7 @@ export default function FinanceiroPage() {
                   detalhe={
                     resumoFiltrado.aguardandoCusto > 0
                       ? `${resumoFiltrado.aguardandoCusto} sem custo`
-                      : 'Com custo lanÃ§ado'
+                      : 'Com custo lançado'
                   }
                   classe={
                     resumoFiltrado.totalProfitHC >= 0
@@ -3809,7 +3809,7 @@ export default function FinanceiroPage() {
                 <FiltroMiniStatus
                   titulo="Aguardando custo"
                   quantidade={resumoFiltrado.aguardandoCusto}
-                  valor="sem custo lanÃ§ado"
+                  valor="sem custo lançado"
                   classe="bg-orange-50 text-orange-700 border-orange-200"
                 />
               </div>
@@ -3822,9 +3822,9 @@ export default function FinanceiroPage() {
                     <Th>Cliente</Th>
                     <Th>Despachante</Th>
                     <Th>AWB</Th>
-                    <Th>NÂº Fatura</Th>
+                    <Th>Nº Fatura</Th>
                     <Th>Transportadora</Th>
-                    <Th>ServiÃ§o</Th>
+                    <Th>Serviço</Th>
                     <Th>Valor Faturado</Th>
                     <Th>DTA/DOC/Impostos</Th>
                     <Th>Terceiros</Th>
@@ -3833,7 +3833,7 @@ export default function FinanceiroPage() {
                     <Th>Venc. Cliente</Th>
                     <Th>Recebimento</Th>
                     <Th>Status</Th>
-                    <Th>AÃ§Ãµes</Th>
+                    <Th>Ações</Th>
                   </tr>
                 </thead>
 
@@ -3841,7 +3841,7 @@ export default function FinanceiroPage() {
                   {loading ? (
                     <tr><td colSpan={15} className="p-6 text-center">Carregando todos os registros...</td></tr>
                   ) : filtradosPaginados.length === 0 ? (
-                    <tr><td colSpan={15} className="p-6 text-center text-gray-500">Nenhum lanÃ§amento encontrado.</td></tr>
+                    <tr><td colSpan={15} className="p-6 text-center text-gray-500">Nenhum lançamento encontrado.</td></tr>
                   ) : (
                     filtradosPaginados.map((item) => {
                       const cobranca = statusCobranca(item)
@@ -3885,14 +3885,14 @@ export default function FinanceiroPage() {
 
       {abaPrincipal === 'DESPESAS' && (
         <>
-          {renderFormularioMovimento('Nova despesa', 'Lance despesas fixas ou variÃ¡veis da empresa, sem misturar com os processos faturados.')}
+          {renderFormularioMovimento('Nova despesa', 'Lance despesas fixas ou variáveis da empresa, sem misturar com os processos faturados.')}
           {renderTabelaMovimentos()}
         </>
       )}
 
       {abaPrincipal === 'SOCIOS' && (
         <>
-          {renderFormularioMovimento('Nova movimentaÃ§Ã£o de sÃ³cio', 'Controle retiradas, reembolsos e aportes de Marcos e HÃ©rica. As retiradas abatem a parte de cada sÃ³cio no lucro.')}
+          {renderFormularioMovimento('Nova movimentação de sócio', 'Controle retiradas, reembolsos e aportes de Marcos e Hérica. As retiradas abatem a parte de cada sócio no lucro.')}
           {renderTabelaMovimentos()}
         </>
       )}
@@ -3908,29 +3908,29 @@ export default function FinanceiroPage() {
               classe="bg-blue-50 border-blue-200 text-blue-700"
             />
             <BigCard
-              titulo="ENTRADAS DO PERÃODO"
+              titulo="ENTRADAS DO PERÍODO"
               valor={moeda(resumoFundoFiltro.entradas)}
               subtitulo={textoPeriodoFundo()}
               icone="â¬†ï¸"
               classe="bg-green-50 border-green-200 text-green-700"
             />
             <BigCard
-              titulo="SAÃDAS DO PERÃODO"
+              titulo="SAÍDAS DO PERÍODO"
               valor={moeda(resumoFundoFiltro.saidas)}
               subtitulo={textoPeriodoFundo()}
               icone="â¬‡ï¸"
               classe="bg-red-50 border-red-200 text-red-700"
             />
             <BigCard
-              titulo="SALDO DO PERÃODO"
+              titulo="SALDO DO PERÍODO"
               valor={moeda(resumoFundoFiltro.saldoPeriodo)}
-              subtitulo="Entradas - saÃ­das + ajustes"
+              subtitulo="Entradas - saídas + ajustes"
               icone={resumoFundoFiltro.saldoPeriodo >= 0 ? 'âœ…' : 'âš ï¸'}
               classe={resumoFundoFiltro.saldoPeriodo >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
             />
           </section>
 
-          {renderFormularioMovimento('Nova movimentaÃ§Ã£o do fundo de caixa', 'Registre entradas, saÃ­das e ajustes do fundo de caixa da empresa.')}
+          {renderFormularioMovimento('Nova movimentação do fundo de caixa', 'Registre entradas, saídas e ajustes do fundo de caixa da empresa.')}
           {renderTabelaMovimentos()}
         </>
       )}
@@ -3943,13 +3943,13 @@ export default function FinanceiroPage() {
             <div>
               <h2 className="text-xl font-black text-gray-950">Resultado Mensal</h2>
               <p className="text-sm text-gray-500">
-                VisÃ£o do mÃªs pela regra: lucro lÃ­quido = Profit HC - despesas; 50% fica no caixa, 25% Marcos e 25% HÃ©rica.
+                Visão do mês pela regra: lucro líquido = Profit HC - despesas; 50% fica no caixa, 25% Marcos e 25% Hérica.
               </p>
             </div>
 
             <div className="flex flex-col md:flex-row md:items-end gap-3">
               <div>
-                <label className="text-sm font-semibold text-gray-600">MÃªs do resultado</label>
+                <label className="text-sm font-semibold text-gray-600">Mês do resultado</label>
                 <input
                   type="month"
                   min={`${anoFinanceiroAtivo()}-01`}
@@ -3957,7 +3957,7 @@ export default function FinanceiroPage() {
                   value={mesResultado}
                   onChange={(e) => {
                     if (!mesFinanceiroPermitido(e.target.value)) {
-                      alert(`O financeiro estÃ¡ limitado a ${textoAnosFinanceiroPermitidos()}.`)
+                      alert(`O financeiro está limitado a ${textoAnosFinanceiroPermitidos()}.`)
                       return
                     }
 
@@ -3974,7 +3974,7 @@ export default function FinanceiroPage() {
                 disabled={gerandoFechamento || resultadoGeral.saldoFundoMes <= 0 || resultadoGeral.resultadoOperacional <= 0}
                 className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
               >
-                {gerandoFechamento ? 'Gerando...' : 'Gerar fechamento do mÃªs'}
+                {gerandoFechamento ? 'Gerando...' : 'Gerar fechamento do mês'}
               </button>
 
               <button
@@ -3990,16 +3990,16 @@ export default function FinanceiroPage() {
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <FiltroResumoCard titulo="Valor recebido" valor={moeda(resultadoGeral.valorRecebido)} detalhe={`${resultadoGeral.processos} processos pagos`} classe="bg-white text-blue-700 border-blue-100" />
-            <FiltroResumoCard titulo="Profit HC recebido" valor={moeda(resultadoGeral.profitRecebido)} detalhe={resultadoGeral.semCusto > 0 ? `${resultadoGeral.semCusto} sem custo` : 'Com custo lanÃ§ado'} classe="bg-white text-green-700 border-green-100" />
+            <FiltroResumoCard titulo="Profit HC recebido" valor={moeda(resultadoGeral.profitRecebido)} detalhe={resultadoGeral.semCusto > 0 ? `${resultadoGeral.semCusto} sem custo` : 'Com custo lançado'} classe="bg-white text-green-700 border-green-100" />
             <FiltroResumoCard titulo="Despesas pagas" valor={moeda(resultadoGeral.despesasPagas)} detalhe={`${moeda(resultadoGeral.despesasPendentes)} pendente`} classe="bg-white text-red-700 border-red-100" />
-            <FiltroResumoCard titulo="EmprÃ©stimos pagos" valor={moeda(resultadoGeral.emprestimosPagos)} detalhe={`Parcela mensal fixa: ${moeda(resultadoGeral.parcelaEmprestimosMensal)}`} classe="bg-white text-purple-700 border-purple-100" />
-            <FiltroResumoCard titulo="Lucro lÃ­quido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas - emprÃ©stimos" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+            <FiltroResumoCard titulo="Empréstimos pagos" valor={moeda(resultadoGeral.emprestimosPagos)} detalhe={`Parcela mensal fixa: ${moeda(resultadoGeral.parcelaEmprestimosMensal)}`} classe="bg-white text-purple-700 border-purple-100" />
+            <FiltroResumoCard titulo="Lucro líquido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas - empréstimos" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <FiltroResumoCard titulo="Fundo de caixa 50%" valor={moeda(resultadoGeral.fundoPrevistoMes)} detalhe={`${moeda(resultadoGeral.reservasFundoMes)} jÃ¡ reservado dos 50%`} classe="bg-white text-blue-700 border-blue-100" />
-            <FiltroResumoCard titulo="Parte Marcos 25%" valor={moeda(resultadoGeral.parteMarcos)} detalhe={`${moeda(resultadoGeral.retiradasMarcos)} jÃ¡ retirado`} classe="bg-white text-slate-700 border-slate-100" />
-            <FiltroResumoCard titulo="Parte HÃ©rica 25%" valor={moeda(resultadoGeral.parteHerica)} detalhe={`${moeda(resultadoGeral.retiradasHerica)} jÃ¡ retirado`} classe="bg-white text-slate-700 border-slate-100" />
+            <FiltroResumoCard titulo="Fundo de caixa 50%" valor={moeda(resultadoGeral.fundoPrevistoMes)} detalhe={`${moeda(resultadoGeral.reservasFundoMes)} já reservado dos 50%`} classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Parte Marcos 25%" valor={moeda(resultadoGeral.parteMarcos)} detalhe={`${moeda(resultadoGeral.retiradasMarcos)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
+            <FiltroResumoCard titulo="Parte Hérica 25%" valor={moeda(resultadoGeral.parteHerica)} detalhe={`${moeda(resultadoGeral.retiradasHerica)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
             <FiltroResumoCard titulo="Fundo atual" valor={moeda(resultadoGeral.fundoAtual)} detalhe="Saldo reservado acumulado" classe="bg-white text-blue-700 border-blue-100" />
           </section>
 
@@ -4012,14 +4012,14 @@ export default function FinanceiroPage() {
             />
 
             <FiltroResumoCard
-              titulo="Saldo HÃ©rica"
+              titulo="Saldo Hérica"
               valor={moeda(resultadoGeral.saldoHerica)}
               detalhe={resultadoGeral.saldoHerica >= 0 ? 'Ainda pode retirar' : 'Retirou acima da parte'}
               classe={resultadoGeral.saldoHerica >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'}
             />
 
             <FiltroResumoCard
-              titulo="Saldo fundo do mÃªs"
+              titulo="Saldo fundo do mês"
               valor={moeda(resultadoGeral.saldoFundoMes)}
               detalhe={resultadoGeral.saldoFundoMes >= 0 ? 'Ainda falta reservar' : 'Reservado acima dos 50%'}
               classe={resultadoGeral.saldoFundoMes >= 0 ? 'bg-white text-orange-700 border-orange-100' : 'bg-white text-blue-700 border-blue-100'}
@@ -4027,30 +4027,30 @@ export default function FinanceiroPage() {
           </section>
 
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-black text-gray-950 mb-4">DistribuiÃ§Ã£o do lucro do mÃªs</h3>
+            <h3 className="text-lg font-black text-gray-950 mb-4">Distribuição do lucro do mês</h3>
 
             <div className="space-y-3 text-sm">
               <LinhaResultado label="Profit HC dos processos recebidos" valor={resultadoGeral.profitRecebido} positivo />
               <LinhaResultado label="Despesas pagas da empresa" valor={resultadoGeral.despesasPagas} negativo />
-              <LinhaResultado label="Lucro lÃ­quido para distribuiÃ§Ã£o" valor={resultadoGeral.resultadoOperacional} destaque />
+              <LinhaResultado label="Lucro líquido para distribuição" valor={resultadoGeral.resultadoOperacional} destaque />
               <LinhaResultado label="50% para fundo de caixa" valor={resultadoGeral.fundoPrevistoMes} negativo />
               <LinhaResultado label="25% parte Marcos" valor={resultadoGeral.parteMarcos} negativo />
-              <LinhaResultado label="25% parte HÃ©rica" valor={resultadoGeral.parteHerica} negativo />
+              <LinhaResultado label="25% parte Hérica" valor={resultadoGeral.parteHerica} negativo />
 
               <div className="border-t border-gray-200 pt-4 mt-4 space-y-3">
-                <LinhaResultado label="Retirado Marcos no mÃªs" valor={resultadoGeral.retiradasMarcos} negativo />
+                <LinhaResultado label="Retirado Marcos no mês" valor={resultadoGeral.retiradasMarcos} negativo />
                 <LinhaResultado label="Saldo Marcos a retirar" valor={resultadoGeral.saldoMarcos} destaque />
-                <LinhaResultado label="Retirado HÃ©rica no mÃªs" valor={resultadoGeral.retiradasHerica} negativo />
-                <LinhaResultado label="Saldo HÃ©rica a retirar" valor={resultadoGeral.saldoHerica} destaque />
-                <LinhaResultado label="Reservado no fundo no mÃªs" valor={resultadoGeral.reservasFundoMes} negativo />
-                <LinhaResultado label="Entradas nÃ£o operacionais no caixa" valor={resultadoGeral.entradasNaoOperacionaisMes} positivo />
+                <LinhaResultado label="Retirado Hérica no mês" valor={resultadoGeral.retiradasHerica} negativo />
+                <LinhaResultado label="Saldo Hérica a retirar" valor={resultadoGeral.saldoHerica} destaque />
+                <LinhaResultado label="Reservado no fundo no mês" valor={resultadoGeral.reservasFundoMes} negativo />
+                <LinhaResultado label="Entradas não operacionais no caixa" valor={resultadoGeral.entradasNaoOperacionaisMes} positivo />
                 <LinhaResultado label="Saldo para reservar no fundo" valor={resultadoGeral.saldoFundoMes} destaque />
               </div>
 
               <div className="border-t border-gray-200 pt-4 mt-4 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-base font-black text-gray-950">Saldo real do caixa no mÃªs</p>
-                  <p className="text-xs font-bold text-gray-500">Lucro lÃ­quido + entradas nÃ£o operacionais + aportes - retiradas - saÃ­das do caixa/fundo</p>
+                  <p className="text-base font-black text-gray-950">Saldo real do caixa no mês</p>
+                  <p className="text-xs font-bold text-gray-500">Lucro líquido + entradas não operacionais + aportes - retiradas - saídas do caixa/fundo</p>
                 </div>
                 <p className={`text-2xl font-black ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                   {moeda(resultadoGeral.saldoCaixaRealMes)}
@@ -4118,7 +4118,7 @@ function FiltroMiniStatus({ titulo, quantidade, valor, classe }: any) {
     <div className={`rounded-xl border px-4 py-3 flex items-center justify-between ${classe}`}>
       <div>
         <p className="text-sm font-black">{titulo}</p>
-        <p className="text-xs font-bold opacity-75">{quantidade} lanÃ§amentos</p>
+        <p className="text-xs font-bold opacity-75">{quantidade} lançamentos</p>
       </div>
 
       <p className="text-sm font-black">{valor}</p>
@@ -4250,7 +4250,7 @@ function Paginacao({ pagina, totalPaginas, onAnterior, onProxima }: any) {
   return (
     <div className="mt-5 flex items-center justify-between gap-3">
       <p className="text-sm font-bold text-gray-500">
-        PÃ¡gina {pagina} de {totalPaginas}
+        Página {pagina} de {totalPaginas}
       </p>
 
       <div className="flex gap-2">
@@ -4268,7 +4268,7 @@ function Paginacao({ pagina, totalPaginas, onAnterior, onProxima }: any) {
           disabled={pagina >= totalPaginas}
           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black disabled:opacity-40 hover:bg-gray-50"
         >
-          PrÃ³xima
+          Próxima
         </button>
       </div>
     </div>

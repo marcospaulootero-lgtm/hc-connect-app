@@ -712,7 +712,7 @@ export default function ClientesPerformancePage() {
           titulo="Clientes analisados"
           valor={resumo.totalClientes}
           detalhe="pela coluna cliente"
-          icone="👥"
+          icone="ðŸ‘¥"
           ativo={rankingPor === 'PROFIT'}
           onClick={() => setRankingPor('PROFIT')}
         />
@@ -721,7 +721,7 @@ export default function ClientesPerformancePage() {
           titulo="Profit HC total"
           valor={moeda(resumo.profitTotal)}
           detalhe="Processos Faturados"
-          icone="💰"
+          icone="ðŸ’°"
           ativo={rankingPor === 'PROFIT'}
           onClick={() => setRankingPor('PROFIT')}
         />
@@ -730,7 +730,7 @@ export default function ClientesPerformancePage() {
           titulo="Processos faturados"
           valor={resumo.processosFaturados}
           detalhe="base do ranking"
-          icone="🧾"
+          icone="ðŸ§¾"
           ativo={rankingPor === 'FATURADOS'}
           onClick={() => setRankingPor('FATURADOS')}
         />
@@ -739,7 +739,7 @@ export default function ClientesPerformancePage() {
           titulo="Ticket médio Profit"
           valor={moeda(resumo.ticketMedioProfit)}
           detalhe="média por processo com custo"
-          icone="🎯"
+          icone="ðŸŽ¯"
           ativo={rankingPor === 'TICKET'}
           onClick={() => setRankingPor('TICKET')}
         />
@@ -748,7 +748,7 @@ export default function ClientesPerformancePage() {
           titulo="Com Profit HC"
           valor={resumo.comProfitHC}
           detalhe="valor compra preenchido"
-          icone="✅"
+          icone="âœ…"
           ativo={rankingPor === 'PROFIT'}
           onClick={() => setRankingPor('PROFIT')}
         />
@@ -757,7 +757,7 @@ export default function ClientesPerformancePage() {
           titulo="Aguardando custo"
           valor={resumo.aguardandoCusto}
           detalhe="não entra no Profit"
-          icone="⏳"
+          icone="â³"
           ativo={rankingPor === 'MENOR_PROFIT'}
           onClick={() => setRankingPor('MENOR_PROFIT')}
         />
@@ -807,7 +807,7 @@ export default function ClientesPerformancePage() {
               Período usa vencimento, recebimento ou data de criação dos registros em Processos Faturados.
             </p>
             <p className="text-blue-300 text-xs font-bold mt-2">
-              Última alteração dos filtros salva: {dataHoraBR(ultimaAlteracaoFiltros)}
+              Ãšltima alteração dos filtros salva: {dataHoraBR(ultimaAlteracaoFiltros)}
             </p>
           </div>
 
@@ -885,7 +885,7 @@ export default function ClientesPerformancePage() {
                   <th>Ticket médio</th>
                   <th>Status financeiro</th>
                   <th>Aguardando custo</th>
-                  <th>Último registro</th>
+                  <th>Ãšltimo registro</th>
                   <th>Ações</th>
                 </tr>
               </thead>
