@@ -77,23 +77,18 @@ export default function DetalheCliente() {
       console.log(docsError)
     }
 
-    const documentosSemFatura = (docs || []).filter((doc) => {
-      const nome = (doc.nome || '').toLowerCase()
-      const url = (doc.url || '').toLowerCase()
-
-      return (
-        !nome.includes('fatura') &&
-        !nome.includes('invoice') &&
-        !url.includes('fatura') &&
-        !url.includes('invoice')
-      )
-    })
-
-    const documentosOrdenados = documentosSemFatura.sort((a, b) => {
+    const documentosOrdenados = [...(docs || [])].sort((a, b) => {
       const aConhecimento = documentoEhConhecimento(a) ? 1 : 0
       const bConhecimento = documentoEhConhecimento(b) ? 1 : 0
 
-      return bConhecimento - aConhecimento
+      if (aConhecimento !== bConhecimento) {
+        return bConhecimento - aConhecimento
+      }
+
+      const dataA = new Date(a.criado_em || 0).getTime()
+      const dataB = new Date(b.criado_em || 0).getTime()
+
+      return dataB - dataA
     })
 
     setDocumentos(documentosOrdenados)
