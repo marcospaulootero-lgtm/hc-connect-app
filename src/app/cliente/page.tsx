@@ -136,9 +136,29 @@ export default function ClientePage() {
     const todos = [...(diretos || []), ...vinculados]
     const unicos = Array.from(new Map(todos.map((e) => [e.id, e])).values())
 
-    setEmbarques(unicos)
+    const ordenados = unicos.sort((a, b) => {
+      const dataA = new Date(
+        a.criado_em ||
+          a.ultima_atualizacao ||
+          a.atualizado_em ||
+          a.created_at ||
+          0
+      ).getTime()
 
-    const ids = unicos.map((e) => e.id)
+      const dataB = new Date(
+        b.criado_em ||
+          b.ultima_atualizacao ||
+          b.atualizado_em ||
+          b.created_at ||
+          0
+      ).getTime()
+
+      return dataB - dataA
+    })
+
+    setEmbarques(ordenados)
+
+    const ids = ordenados.map((e) => e.id)
 
     if (ids.length > 0) {
       const { data: docs } = await supabase
