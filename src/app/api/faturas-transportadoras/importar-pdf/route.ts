@@ -17,6 +17,7 @@ type PreviewPdf = {
   emissao: string | null
   vencimento: string | null
   valor_total: number
+  tipo_lancamento: 'COMPRA' | 'IMPOSTOS'
   itens: ItemPdf[]
 }
 
@@ -155,7 +156,7 @@ async function buscarFinanceiroPorAwb(supabase: any, awbOriginal: string) {
 
   const { data, error } = await supabase
     .from('financeiro_embarques')
-    .select('id, awb, valor_compra')
+    .select('id, awb, valor_compra, doc_dta')
     .eq('awb', awb)
     .limit(10)
 
@@ -186,6 +187,10 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
   const totalItens = preview.itens.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
   const totalFatura = Number(preview.valor_total || totalItens || 0)
 
+  const tipoLancamento = preview.tipo_lancamento || 'COMPRA'
+  const campoFinanceiro = tipoLancamento === 'IMPOSTOS' ? 'doc_dta' : 'valor_compra'
+  const nomeCampoFinanceiro = tipoLancamento === 'IMPOSTOS' ? 'DTA/DOC/Impostos' : 'Valor Compra'
+
   const payloadFatura = {
     transportadora: preview.transportadora,
     conta: preview.conta || null,
@@ -196,7 +201,7 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
     total: totalFatura,
     saldo: totalFatura,
     moeda: 'BRL',
-    observacoes: `Importada por PDF com ${preview.itens.length} AWB(s).`,
+    observacoes: `${tipoLancamento === 'IMPOSTOS' ? 'Fatura FedEx de impostos/taxas' : 'Fatura de frete/compra'} importada por PDF com ${preview.itens.length} AWB(s).`,
     atualizado_em: agora,
   }
 
@@ -246,7 +251,7 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
     if (!awb || Number(item.valor_compra || 0) <= 0) continue
 
     const financeiro = await buscarFinanceiroPorAwb(supabase, awb)
-    const valorAnterior = Number(financeiro?.valor_compra || 0)
+    const valorAnterior = Number(financeiro?.[campoFinanceiro] || 0)
     let financeiroId = financeiro?.id || null
     let statusLancamento = 'AGUARDANDO_PROCESSO'
     let observacao = 'AWB ainda não encontrado em processos faturados. Será lançado quando o processo for criado.'
@@ -255,7 +260,7 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
       const { error } = await supabase
         .from('financeiro_embarques')
         .update({
-          valor_compra: item.valor_compra,
+          [campoFinanceiro]: item.valor_compra,
           atualizado_em: agora,
         })
         .eq('id', financeiroId)
@@ -265,11 +270,11 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
       }
 
       statusLancamento = 'LANÇADO'
-      observacao = 'Valor de compra lançado automaticamente pela importação da fatura.'
+      observacao = `${nomeCampoFinanceiro} lançado automaticamente pela importação da fatura.`
       custosLancados++
     } else if (financeiroId && valorAnterior > 0) {
       statusLancamento = 'PROCESSO_JA_TINHA_CUSTO'
-      observacao = `Processo já tinha custo lançado: ${valorAnterior}.`
+      observacao = `Processo já tinha valor em ${nomeCampoFinanceiro}: ${valorAnterior}.`
       jaTinhamCusto++
     } else {
       aguardandoProcesso++
@@ -283,6 +288,7 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
       referencia: item.referencia || null,
       data_envio: item.data_envio || null,
       valor_compra: item.valor_compra,
+      tipo_lancamento: tipoLancamento,
       financeiro_embarque_id: financeiroId,
       valor_compra_anterior: valorAnterior,
       status_lancamento: statusLancamento,
@@ -357,6 +363,12 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
     numeroBR(texto.match(/Valor\s+Total\s+USD\s+[0-9.,]+\s+R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
     numeroBR(texto.match(/Valor\s+do\s+Documento:\s*([0-9.]+,\d{2})/i)?.[1])
 
+  const ehFaturaImpostosTaxas =
+    /TAXAS,\s*IMPOSTOS,\s*E\s*OUTROS\s*ENCARGOS/i.test(texto) ||
+    /Sumário\s+de\s+Taxas/i.test(texto) ||
+    /Tarifa\s+de\s+transferência\s+de\s+aeroporto/i.test(texto) ||
+    /Cobranças\s+de\s+Serviços\s+Adicionais/i.test(texto)
+
   const itens: ItemPdf[] = []
 
   let marcadores = Array.from(
@@ -430,6 +442,7 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
     emissao,
     vencimento,
     valor_total: valorTotal,
+    tipo_lancamento: ehFaturaImpostosTaxas ? 'IMPOSTOS' : 'COMPRA',
     itens: unicosPorAwb(itens),
   }
 }
@@ -500,6 +513,7 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     emissao,
     vencimento,
     valor_total: valorTotal,
+    tipo_lancamento: 'COMPRA',
     itens: unicosPorAwb(itens),
   }
 }
