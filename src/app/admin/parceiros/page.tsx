@@ -122,12 +122,61 @@ export default function ParceirosPage() {
     return 'bg-slate-50 text-slate-600 border-slate-200'
   }
 
+  function clienteQuitouProcesso(item: any) {
+    const valores = [
+      item?.recebimento,
+      item?.recebimento_cliente,
+      item?.data_recebimento,
+      item?.data_pagamento_cliente,
+    ]
+
+    for (const valor of valores) {
+      const textoOriginal = normalizarTexto(valor)
+      const texto = normalizarBusca(valor)
+
+      if (!texto) continue
+
+      const bloqueados = [
+        '-',
+        'pendente',
+        'em aberto',
+        'aberto',
+        'atrasado',
+        'nao pago',
+        'não pago',
+        'sem pagamento',
+      ]
+
+      if (bloqueados.includes(texto)) continue
+
+      if (
+        texto.includes('pago') ||
+        texto.includes('recebido') ||
+        texto.includes('quitado')
+      ) {
+        return true
+      }
+
+      if (/^\d{4}-\d{2}-\d{2}/.test(textoOriginal)) {
+        return true
+      }
+
+      if (/^\d{2}\/\d{2}\/\d{4}/.test(textoOriginal)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
   function acessosDoItem(item: any) {
     if (!item?.id) return []
     return acessosPortal.filter((acesso) => acesso.financeiro_embarque_id === item.id)
   }
 
   function acessosAtivosDoItem(item: any) {
+    if (!clienteQuitouProcesso(item)) return []
+
     return acessosDoItem(item).filter((acesso) => acesso.ativo !== false)
   }
 
@@ -137,6 +186,7 @@ export default function ParceirosPage() {
     const idsFinanceiros = new Set(
       registros
         .filter((item) => nomeParceiroRegistro(item) === parceiro)
+        .filter((item) => clienteQuitouProcesso(item))
         .map((item) => item.id)
         .filter(Boolean)
     )
@@ -723,11 +773,32 @@ export default function ParceirosPage() {
       return
     }
 
+    const itensQuitados = itens.filter((item) => clienteQuitouProcesso(item))
+    const itensBloqueados = itens.filter((item) => !clienteQuitouProcesso(item))
+
+    if (itensQuitados.length === 0) {
+      alert(
+        'Nenhum processo pode ser liberado.\n\n' +
+          'Regra HC: o profit do parceiro só fica disponível depois que o cliente quitou o processo.'
+      )
+      return
+    }
+
+    const resumoBloqueados = itensBloqueados
+      .slice(0, 8)
+      .map((item) => `• AWB ${item.awb || '-'} - ${item.cliente || '-'}`)
+      .join('\n')
+
+    const avisoBloqueados = itensBloqueados.length > 0
+      ? `\n\nAtenção: ${itensBloqueados.length} processo(s) serão ignorados porque o cliente ainda não quitou.\n${resumoBloqueados}${itensBloqueados.length > 8 ? '\n...' : ''}`
+      : ''
+
     if (
       !confirm(
-        `Liberar ${itens.length} processo(s) para ${usuariosSelecionadosPortal.length} login(s)?\n\nParceiro: ${
-          parceiroSelecionado || 'Todos'
-        }\n\nCada login selecionado passará a visualizar estes repasses no portal.`
+        `Liberar ${itensQuitados.length} processo(s) quitado(s) para ${usuariosSelecionadosPortal.length} login(s)?\n\n` +
+          `Parceiro: ${parceiroSelecionado || 'Todos'}\n\n` +
+          'Cada login selecionado passará a visualizar somente os repasses de processos já quitados pelo cliente.' +
+          avisoBloqueados
       )
     ) {
       return
@@ -740,7 +811,7 @@ export default function ParceirosPage() {
     } = await supabase.auth.getUser()
 
     const agora = new Date().toISOString()
-    const linhas = itens.flatMap((item) =>
+    const linhas = itensQuitados.flatMap((item) =>
       usuariosSelecionadosPortal.map((usuarioId) => ({
         financeiro_embarque_id: item.id,
         usuario_id: usuarioId,
@@ -766,7 +837,12 @@ export default function ParceirosPage() {
       }
     }
 
-    alert('Repasses liberados para os logins selecionados.')
+    alert(
+      'Repasses liberados para os logins selecionados.\n\n' +
+        `Liberados: ${itensQuitados.length}\n` +
+        `Bloqueados por falta de recebimento do cliente: ${itensBloqueados.length}`
+    )
+
     await carregar()
     setSalvandoPortal(false)
   }
@@ -2021,7 +2097,14 @@ export default function ParceirosPage() {
 
                         <Td>
                           <div className="max-w-[340px] space-y-2">
-                            {acessosAtivos.length > 0 ? (
+                            {!clienteQuitouProcesso(item) ? (
+                              <>
+                                <Badge texto="AGUARDANDO RECEBIMENTO" classe="bg-orange-50 text-orange-700 border-orange-200" />
+                                <p className="text-xs font-bold text-orange-600">
+                                  Profit bloqueado. Cliente ainda não quitou este processo.
+                                </p>
+                              </>
+                            ) : acessosAtivos.length > 0 ? (
                               <>
                                 <Badge texto="LIBERADO" classe="bg-green-50 text-green-700 border-green-200" />
                                 <div className="flex flex-wrap gap-1">
@@ -2081,7 +2164,14 @@ export default function ParceirosPage() {
                               <button onClick={() => marcarPago(item)} className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-black text-green-700 hover:bg-green-100">✓ Pago</button>
                             )}
                             <button onClick={() => editar(item)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-600 hover:bg-blue-100">Editar</button>
-                            <button onClick={() => liberarPortalParceiro([item])} disabled={usuariosSelecionadosPortal.length === 0} className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-black text-purple-700 hover:bg-purple-100 disabled:opacity-50">Liberar</button>
+                            <button
+                              onClick={() => liberarPortalParceiro([item])}
+                              disabled={usuariosSelecionadosPortal.length === 0 || !clienteQuitouProcesso(item)}
+                              title={!clienteQuitouProcesso(item) ? 'Cliente ainda não quitou este processo.' : ''}
+                              className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-black text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                            >
+                              {clienteQuitouProcesso(item) ? 'Liberar' : 'Aguardando cliente'}
+                            </button>
                             <button onClick={() => ocultarPortalParceiro([item], usuariosSelecionadosPortal.length > 0)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100">Ocultar</button>
                           </div>
                         </Td>
