@@ -1086,6 +1086,42 @@ export default function ParceirosPage() {
   }, [filtrados])
 
 
+  const awbsDuplicados = useMemo(() => {
+    const mapa = new Map<string, any[]>()
+
+    filtrados.forEach((item) => {
+      const awb = normalizarTexto(item.awb)
+        .toUpperCase()
+        .replace(/\s/g, '')
+        .replace(/[^A-Z0-9]/g, '')
+
+      if (
+        !awb ||
+        awb === '-' ||
+        awb === 'NA' ||
+        awb === 'N/A' ||
+        awb === 'SEMAWB' ||
+        awb === 'AGUARDANDOAWB'
+      ) {
+        return
+      }
+
+      const atuais = mapa.get(awb) || []
+      atuais.push(item)
+      mapa.set(awb, atuais)
+    })
+
+    return Array.from(mapa.entries())
+      .filter(([, itens]) => itens.length > 1)
+      .map(([awb, itens]) => ({
+        awb,
+        qtd: itens.length,
+        total: itens.reduce((acc, item) => acc + Number(item.debito_terceiro || 0), 0),
+        clientes: Array.from(new Set(itens.map((item) => item.cliente || '-'))).slice(0, 4),
+      }))
+      .sort((a, b) => b.qtd - a.qtd || b.total - a.total)
+  }, [filtrados])
+
   const resumoPortalParceiro = useMemo(() => {
     const idsPeriodo = new Set(dadosParceiroPeriodo.map((item) => item.id).filter(Boolean))
     const acessosPeriodo = acessosPortal.filter(
@@ -1485,6 +1521,61 @@ export default function ParceirosPage() {
               <ResumoFiltroCard titulo="Ticket médio" valor={moeda(resumoFiltrado.ticket)} />
             </div>
           </section>
+
+          {awbsDuplicados.length > 0 && (
+            <section className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4">
+              <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h4 className="text-base font-black text-red-700">
+                    🚨 AWB duplicado encontrado
+                  </h4>
+                  <p className="text-sm font-bold text-red-600">
+                    Revise antes de gerar PDF ou marcar pagamento. Pode existir processo lançado em duplicidade.
+                  </p>
+                </div>
+
+                <span className="rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-black text-red-700">
+                  {awbsDuplicados.length} AWB(s) duplicado(s)
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {awbsDuplicados.slice(0, 8).map((item) => (
+                  <div
+                    key={item.awb}
+                    className="flex flex-col gap-3 rounded-xl border border-red-200 bg-white p-3 lg:flex-row lg:items-center lg:justify-between"
+                  >
+                    <div>
+                      <p className="font-black text-slate-950">AWB {item.awb}</p>
+                      <p className="text-sm font-bold text-slate-600">
+                        {item.qtd} registros · Total {moeda(item.total)}
+                      </p>
+                      <p className="text-xs font-bold text-slate-500">
+                        Clientes: {item.clientes.join(', ')}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBusca(item.awb)
+                        setPagina(1)
+                      }}
+                      className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 hover:bg-red-100"
+                    >
+                      Filtrar este AWB
+                    </button>
+                  </div>
+                ))}
+
+                {awbsDuplicados.length > 8 && (
+                  <p className="text-sm font-bold text-red-600">
+                    +{awbsDuplicados.length - 8} duplicidade(s) adicional(is). Use a busca para conferir.
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
             <table className="w-full min-w-[1180px] text-sm">
