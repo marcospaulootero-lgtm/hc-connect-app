@@ -167,7 +167,7 @@ export default function DashboardPage() {
 
       await buscarDados(false)
     } catch (err) {
-      console.error('Erro geral atualizaÃ§Ã£o:', err)
+      console.error('Erro geral atualização:', err)
     }
 
     setRodandoRastreio(false)
@@ -357,7 +357,7 @@ export default function DashboardPage() {
     return campoFaturaTransportadora(item, [
       'numero_fatura',
       'n_fatura',
-      'nÂº_fatura',
+      'nº_fatura',
       'nro_fatura',
       'fatura',
       'invoice',
@@ -420,7 +420,7 @@ export default function DashboardPage() {
   }
 
   function transportadoraFaturaTransportadora(item: any) {
-    return campoFaturaTransportadora(item, ['transportadora', 'empresa', 'carrier']) || 'NÃ£o informado'
+    return campoFaturaTransportadora(item, ['transportadora', 'empresa', 'carrier']) || 'Não informado'
   }
 
   function nomeTransportadoraFaturaCurto(item: any) {
@@ -445,8 +445,8 @@ export default function DashboardPage() {
 
   function statusFaturaTransportadora(item: any) {
     // Mesma regra usada em /admin/faturas-transportadoras:
-    // pagamento/situaÃ§Ã£o paga primeiro, depois cancelada, contestada e sÃ³ entÃ£o vencida pela data.
-    const situacao = normalizarBusca(campoFaturaTransportadora(item, ['situacao', 'situaÃ§Ã£o', 'status']))
+    // pagamento/situação paga primeiro, depois cancelada, contestada e só então vencida pela data.
+    const situacao = normalizarBusca(campoFaturaTransportadora(item, ['situacao', 'situação', 'status']))
 
     if (pagamentoFaturaTransportadora(item)) return 'PAGA'
     if (situacao.includes('PAGO') || situacao.includes('PAGA') || situacao.includes('BAIXADO')) return 'PAGA'
@@ -475,7 +475,7 @@ export default function DashboardPage() {
       item.cliente_final ||
       item.cliente_nome ||
       item.empresa_nome ||
-      'NÃ£o informado'
+      'Não informado'
     )
   }
 
@@ -499,7 +499,7 @@ export default function DashboardPage() {
   }
 
   function diaSemanaCurto(data: Date) {
-    const dias = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÃB']
+    const dias = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
     return dias[data.getDay()] || '-'
   }
 
@@ -513,23 +513,23 @@ export default function DashboardPage() {
     if (periodoGrafico === '30D') {
       const inicio = new Date(hojeBase)
       inicio.setDate(inicio.getDate() - 29)
-      return { inicio, fim: fimDoDia(hojeBase), label: 'Ãšltimos 30 dias' }
+      return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 30 dias' }
     }
 
     if (periodoGrafico === 'MES_ATUAL') {
       const inicio = new Date(hojeBase.getFullYear(), hojeBase.getMonth(), 1)
-      return { inicio, fim: fimDoDia(hojeBase), label: 'MÃªs atual' }
+      return { inicio, fim: fimDoDia(hojeBase), label: 'Mês atual' }
     }
 
     if (periodoGrafico === 'MES_ANTERIOR') {
       const inicio = new Date(hojeBase.getFullYear(), hojeBase.getMonth() - 1, 1)
       const fim = new Date(hojeBase.getFullYear(), hojeBase.getMonth(), 0)
-      return { inicio, fim: fimDoDia(fim), label: 'MÃªs anterior' }
+      return { inicio, fim: fimDoDia(fim), label: 'Mês anterior' }
     }
 
     const inicio = new Date(hojeBase)
     inicio.setDate(inicio.getDate() - 6)
-    return { inicio, fim: fimDoDia(hojeBase), label: 'Ãšltimos 7 dias' }
+    return { inicio, fim: fimDoDia(hojeBase), label: 'Últimos 7 dias' }
   }
 
   const hoje = new Date()
@@ -552,7 +552,7 @@ export default function DashboardPage() {
       return mesBase === mesAtual
     })
 
-    // Entrada bruta de clientes. NÃ£o representa lucro nem caixa livre.
+    // Entrada bruta de clientes. Não representa lucro nem caixa livre.
     const valorRecebidoMes = pagosMes.reduce((acc, item) => acc + numero(item.valor_cobranca), 0)
 
     // Profit bruto dos processos: recebido do cliente menos custos diretos do processo.
@@ -664,8 +664,8 @@ export default function DashboardPage() {
     const limite = new Date(hojeIso() + 'T00:00:00')
     limite.setDate(limite.getDate() + DIAS_ALERTA_FATURAS)
 
-    // Usa a mesma origem e a mesma lÃ³gica da aba /admin/faturas-transportadoras.
-    // NÃ£o usa financeiro_embarques, porque ali ficam faturas/recebimentos de clientes.
+    // Usa a mesma origem e a mesma lógica da aba /admin/faturas-transportadoras.
+    // Não usa financeiro_embarques, porque ali ficam faturas/recebimentos de clientes.
     const todasDhlFedex = faturasTransportadoras.filter((item) => ehDhlFedexFaturaTransportadora(item))
     const ativas = todasDhlFedex.filter((item) => faturaTransportadoraAtiva(item))
     const abertas = ativas.filter((item) => statusFaturaTransportadora(item) === 'EM ABERTO')
@@ -684,7 +684,7 @@ export default function DashboardPage() {
         return dataA.localeCompare(dataB)
       })
 
-    // Espelha a tela Faturas DHL/FedEx: contestadas/canceladas/pagas nÃ£o viram vencidas.
+    // Espelha a tela Faturas DHL/FedEx: contestadas/canceladas/pagas não viram vencidas.
     const vencidas = ativas
       .filter((item) => statusFaturaTransportadora(item) === 'VENCIDA')
       .sort((a, b) => {
@@ -755,8 +755,8 @@ export default function DashboardPage() {
 
     const aguardandoColeta = embarques.filter((e) => statusEh(e, ['Aguardando coleta'])).length
     const coletados = embarques.filter((e) => statusEh(e, ['Coletado'])).length
-    const transito = embarques.filter((e) => statusEh(e, ['Em trÃ¢nsito', 'Em transito'])).length
-    const fiscalizacao = embarques.filter((e) => statusEh(e, ['FiscalizaÃ§Ã£o', 'Fiscalizacao'])).length
+    const transito = embarques.filter((e) => statusEh(e, ['Em trânsito', 'Em transito'])).length
+    const fiscalizacao = embarques.filter((e) => statusEh(e, ['Fiscalização', 'Fiscalizacao'])).length
     const liberados = embarques.filter((e) => statusEh(e, ['Liberado'])).length
     const entregues = embarques.filter((e) => statusEh(e, ['Entregue'])).length
     const ativos = embarques.filter((e) => !statusEh(e, ['Entregue'])).length
@@ -776,7 +776,7 @@ export default function DashboardPage() {
   const suporteResumo = useMemo(() => {
     return {
       abertos: suporte.filter((s) => s.status === 'ABERTO').length,
-      analise: suporte.filter((s) => s.status === 'EM ANÃLISE').length,
+      analise: suporte.filter((s) => s.status === 'EM ANÁLISE').length,
       respondidos: suporte.filter((s) => s.status === 'RESPONDIDO').length,
       resolvidos: suporte.filter((s) => s.status === 'RESOLVIDO').length,
       ultimo: suporte[0],
@@ -786,8 +786,8 @@ export default function DashboardPage() {
   const cotacoesPendentes = useMemo(() => {
     return cotacoes.filter(
       (c) =>
-        c.status === 'AGUARDANDO ANÃLISE' ||
-        c.status === 'EM ANÃLISE' ||
+        c.status === 'AGUARDANDO ANÁLISE' ||
+        c.status === 'EM ANÁLISE' ||
         c.status === 'AGUARDANDO TRANSPORTADORA'
     ).length
   }, [cotacoes])
@@ -809,7 +809,7 @@ export default function DashboardPage() {
         titulo: 'Faturas DHL/FedEx vencidas',
         valor: faturasResumo.vencidas.length,
         detalhe: `${moeda(faturasResumo.totalVencidas)} em aberto`,
-        icone: 'ðŸ”´',
+        icone: '🔴',
         cor: 'red',
         href: '/admin/faturas-transportadoras',
         acao: 'Regularizar agora',
@@ -821,7 +821,7 @@ export default function DashboardPage() {
         titulo: 'Faturas para pagar hoje',
         valor: moeda(faturasResumo.totalHoje),
         detalhe: `${faturasResumo.hojeVencem.length} fatura(s) DHL/FedEx vencem hoje`,
-        icone: 'ðŸš¨',
+        icone: '🚨',
         cor: 'red',
         onClick: () => setModalFaturas(true),
         acao: 'Pagar hoje',
@@ -830,10 +830,10 @@ export default function DashboardPage() {
 
     if (faturasResumo.amanhaVencem.length > 0) {
       alertas.push({
-        titulo: 'Faturas para pagar amanhÃ£',
+        titulo: 'Faturas para pagar amanhã',
         valor: moeda(faturasResumo.totalAmanha),
         detalhe: `${faturasResumo.amanhaVencem.length} fatura(s) para se programar`,
-        icone: 'ðŸ“…',
+        icone: '📅',
         cor: 'orange',
         onClick: () => setModalFaturas(true),
         acao: 'Programar',
@@ -842,12 +842,12 @@ export default function DashboardPage() {
 
     if (faturasResumo.proximas.length > 0) {
       alertas.push({
-        titulo: 'Faturas DHL/FedEx prÃ³ximas',
+        titulo: 'Faturas DHL/FedEx próximas',
         valor: faturasResumo.proximas.length,
-        detalhe: `Vencem em atÃ© ${DIAS_ALERTA_FATURAS} dias`,
-        icone: 'ðŸŸ ',
+        detalhe: `Vencem em até ${DIAS_ALERTA_FATURAS} dias`,
+        icone: '🟠',
         cor: 'orange',
-        href: '/admin/faturas-transportadoras?origem=dashboard&prazo=PROXIMOS_7_DIAS&arquivadas=ATIVAS',
+        onClick: () => setModalFaturas(true),
         acao: 'Ver faturas',
       })
     }
@@ -857,19 +857,19 @@ export default function DashboardPage() {
         titulo: 'Faturas sem vencimento',
         valor: faturasResumo.semData.length,
         detalhe: 'DHL/FedEx sem data informada',
-        icone: 'âšª',
+        icone: '⚪',
         cor: 'slate',
-        href: '/admin/faturas-transportadoras?origem=dashboard&prazo=SEM_DATA&arquivadas=ATIVAS',
+        onClick: () => setModalFaturas(true),
         acao: 'Conferir',
       })
     }
 
     if (financeiroResumo.lucroOperacionalMes < 0) {
       alertas.push({
-        titulo: 'MÃªs negativo na operaÃ§Ã£o',
+        titulo: 'Mês negativo na operação',
         valor: moeda(financeiroResumo.lucroOperacionalMes),
-        detalhe: 'Profit bruto menor que despesas e emprÃ©stimos',
-        icone: 'ðŸ“‰',
+        detalhe: 'Profit bruto menor que despesas e empréstimos',
+        icone: '📉',
         cor: 'red',
         href: '/admin/financeiro?aba=RESULTADO',
         acao: 'Ver resultado',
@@ -878,13 +878,13 @@ export default function DashboardPage() {
 
     if (financeiroResumo.resultadoAposRetiradasMes < 0) {
       alertas.push({
-        titulo: 'Negativo apÃ³s retiradas',
+        titulo: 'Negativo após retiradas',
         valor: moeda(financeiroResumo.resultadoAposRetiradasMes),
-        detalhe: 'MÃªs ficou negativo depois das retiradas dos sÃ³cios',
-        icone: 'ðŸš¨',
+        detalhe: 'Mês ficou negativo depois das retiradas dos sócios',
+        icone: '🚨',
         cor: 'red',
-        href: '/admin/financeiro?aba=RESULTADO',
-        acao: 'Ver sÃ³cios',
+        href: '/admin/financeiro?aba=EXTRATO',
+        acao: 'Ver sócios',
       })
     }
 
@@ -893,10 +893,10 @@ export default function DashboardPage() {
         titulo: 'Processos aguardando custo',
         valor: financeiroResumo.aguardandoCusto.length,
         detalhe: `${moeda(financeiroResumo.totalAguardandoCusto)} sem compra`,
-        icone: 'âš ï¸',
+        icone: '⚠️',
         cor: 'yellow',
         href: '/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO',
-        acao: 'LanÃ§ar custo',
+        acao: 'Lançar custo',
       })
     }
 
@@ -905,7 +905,7 @@ export default function DashboardPage() {
         titulo: 'Clientes vencidos',
         valor: financeiroResumo.atrasado.length,
         detalhe: `${moeda(financeiroResumo.vencido)} a receber`,
-        icone: 'â°',
+        icone: '⏰',
         cor: 'red',
         href: '/admin/financeiro?aba=PROCESSOS&status=ATRASADO',
         acao: 'Cobrar',
@@ -916,8 +916,8 @@ export default function DashboardPage() {
       alertas.push({
         titulo: 'Rastreios com erro',
         valor: Number(ultimoRastreio?.total_erro || 0),
-        detalhe: 'Ãšltima execuÃ§Ã£o',
-        icone: 'ðŸ“¡',
+        detalhe: 'Última execução',
+        icone: '📡',
         cor: 'red',
         onClick: () => setModalErrosRastreio(true),
         acao: 'Ver erros',
@@ -929,7 +929,7 @@ export default function DashboardPage() {
         titulo: 'Chamados abertos',
         valor: suporteResumo.abertos,
         detalhe: 'Aguardando resposta',
-        icone: 'ðŸ’¬',
+        icone: '💬',
         cor: 'purple',
         href: '/admin/suporte?status=ABERTO',
         acao: 'Responder',
@@ -938,10 +938,10 @@ export default function DashboardPage() {
 
     if (cotacoesPendentes > 0) {
       alertas.push({
-        titulo: 'CotaÃ§Ãµes pendentes',
+        titulo: 'Cotações pendentes',
         valor: cotacoesPendentes,
-        detalhe: 'Aguardando aÃ§Ã£o',
-        icone: 'ðŸ“„',
+        detalhe: 'Aguardando ação',
+        icone: '📄',
         cor: 'blue',
         href: '/admin/cotacoes?status=PENDENTES',
         acao: 'Analisar',
@@ -1039,14 +1039,14 @@ export default function DashboardPage() {
 
     const analise =
       totalPeriodo === 0
-        ? 'Nenhum embarque no perÃ­odo. AÃ§Ã£o: revisar clientes parados, cotaÃ§Ãµes abertas e prospecÃ§Ã£o.'
+        ? 'Nenhum embarque no período. Ação: revisar clientes parados, cotações abertas e prospecção.'
         : clientesPeriodo <= 3
-          ? 'OperaÃ§Ã£o concentrada em poucos clientes. AÃ§Ã£o: recuperar clientes parados e aumentar recorrÃªncia.'
+          ? 'Operação concentrada em poucos clientes. Ação: recuperar clientes parados e aumentar recorrência.'
           : concentracaoTopCliente >= 40
-            ? `AtenÃ§Ã£o: ${clienteMaisAtivo?.nome} concentra ${concentracaoTopCliente.toFixed(0)}% dos embarques.`
+            ? `Atenção: ${clienteMaisAtivo?.nome} concentra ${concentracaoTopCliente.toFixed(0)}% dos embarques.`
             : diasSemEmbarque > dias.length * 0.45
-              ? 'OperaÃ§Ã£o irregular: muitos dias sem embarque. AÃ§Ã£o: aumentar recorrÃªncia dos clientes ativos.'
-              : `Volume dentro da mÃ©dia esperada. Pico em ${melhorDiaTexto}.`
+              ? 'Operação irregular: muitos dias sem embarque. Ação: aumentar recorrência dos clientes ativos.'
+              : `Volume dentro da média esperada. Pico em ${melhorDiaTexto}.`
 
     return {
       label,
@@ -1109,8 +1109,8 @@ export default function DashboardPage() {
     const lista = [
       { nome: 'Aguardando coleta', total: operacionalResumo.aguardandoColeta, cor: 'orange' },
       { nome: 'Coletados', total: operacionalResumo.coletados, cor: 'purple' },
-      { nome: 'Em trÃ¢nsito', total: operacionalResumo.transito, cor: 'blue' },
-      { nome: 'FiscalizaÃ§Ã£o', total: operacionalResumo.fiscalizacao, cor: 'yellow' },
+      { nome: 'Em trânsito', total: operacionalResumo.transito, cor: 'blue' },
+      { nome: 'Fiscalização', total: operacionalResumo.fiscalizacao, cor: 'yellow' },
       { nome: 'Liberados', total: operacionalResumo.liberados, cor: 'green' },
       { nome: 'Entregues', total: operacionalResumo.entregues, cor: 'green' },
     ]
@@ -1153,7 +1153,7 @@ export default function DashboardPage() {
               </span>
 
               <span className="text-sm font-bold text-slate-400">
-                ðŸ•’ {agora.toLocaleString('pt-BR')}
+                🕒 {agora.toLocaleString('pt-BR')}
               </span>
             </div>
 
@@ -1162,7 +1162,7 @@ export default function DashboardPage() {
             </h1>
 
             <p className="mt-3 max-w-3xl text-base xl:text-lg font-semibold text-slate-400">
-              Central de controle da operaÃ§Ã£o, financeiro, faturas DHL/FedEx, rastreio automÃ¡tico e pendÃªncias crÃ­ticas da HC.
+              Central de controle da operação, financeiro, faturas DHL/FedEx, rastreio automático e pendências críticas da HC.
             </p>
           </div>
 
@@ -1173,7 +1173,7 @@ export default function DashboardPage() {
               disabled={carregando}
               className="rounded-2xl bg-blue-600 px-5 py-4 font-black text-white shadow-[0_0_24px_rgba(37,99,235,0.25)] hover:bg-blue-500 disabled:opacity-60"
             >
-              {carregando ? 'Atualizando...' : 'â†» Atualizar dashboard'}
+              {carregando ? 'Atualizando...' : '↻ Atualizar dashboard'}
             </button>
 
             <button
@@ -1182,14 +1182,14 @@ export default function DashboardPage() {
               disabled={rodandoRastreio}
               className="rounded-2xl border border-blue-800 bg-[#071225] px-5 py-4 font-black text-blue-100 hover:bg-blue-600/20 disabled:opacity-60"
             >
-              {rodandoRastreio ? 'Rodando rastreio...' : 'ðŸ“¡ Rodar rastreio'}
+              {rodandoRastreio ? 'Rodando rastreio...' : '📡 Rodar rastreio'}
             </button>
 
-            <a href="/admin/embarques?origem=dashboard&aba=CADASTRO" className="rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white hover:bg-emerald-500">
+            <a href="/admin/embarques" className="rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white hover:bg-emerald-500">
               + Novo embarque
             </a>
 
-            <a href="/admin/financeiro?origem=dashboard" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-4 font-black text-white hover:bg-slate-700">
+            <a href="/admin/financeiro" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-4 font-black text-white hover:bg-slate-700">
               Financeiro
             </a>
           </div>
@@ -1200,16 +1200,16 @@ export default function DashboardPage() {
             titulo="A receber"
             valor={moeda(financeiroResumo.aReceber)}
             detalhe={`${financeiroResumo.emAberto.length} processos em aberto`}
-            icone="ðŸ’°"
+            icone="💰"
             cor="blue"
-            href="/admin/financeiro?origem=dashboard&aba=PROCESSOS&status=EM%20ABERTO"
+            href="/admin/financeiro?aba=PROCESSOS&status=EM%20ABERTO"
           />
 
           <HeroCard
             titulo="Recebido de clientes"
             valor={moeda(financeiroResumo.valorRecebidoMes)}
-            detalhe={`${financeiroResumo.pagosMes.length} processos pagos no mÃªs`}
-            icone="âœ…"
+            detalhe={`${financeiroResumo.pagosMes.length} processos pagos no mês`}
+            icone="✅"
             cor="green"
             href="/admin/financeiro?aba=RESULTADO"
           />
@@ -1222,7 +1222,7 @@ export default function DashboardPage() {
                 ? `${financeiroResumo.processosPagosSemCusto.length} pagos sem custo`
                 : 'Antes das despesas da HC'
             }
-            icone="ðŸ“ˆ"
+            icone="📈"
             cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'}
             href="/admin/financeiro?aba=RESULTADO"
           />
@@ -1230,17 +1230,17 @@ export default function DashboardPage() {
           <HeroCard
             titulo="Lucro operacional"
             valor={moeda(financeiroResumo.lucroOperacionalMes)}
-            detalhe="Profit bruto - despesas - emprÃ©stimos"
-            icone={financeiroResumo.lucroOperacionalMes >= 0 ? 'ðŸ¦' : 'ðŸ“‰'}
+            detalhe="Profit bruto - despesas - empréstimos"
+            icone={financeiroResumo.lucroOperacionalMes >= 0 ? '🏦' : '📉'}
             cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'}
             href="/admin/financeiro?aba=EXTRATO"
           />
 
           <HeroCard
-            titulo="ApÃ³s retiradas"
+            titulo="Após retiradas"
             valor={moeda(financeiroResumo.resultadoAposRetiradasMes)}
-            detalhe={`Marcos ${moeda(financeiroResumo.retiradasMarcosMes)} â€¢ HÃ©rica ${moeda(financeiroResumo.retiradasHericaMes)}`}
-            icone={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'ðŸ’µ' : 'ðŸš¨'}
+            detalhe={`Marcos ${moeda(financeiroResumo.retiradasMarcosMes)} • Hérica ${moeda(financeiroResumo.retiradasHericaMes)}`}
+            icone={financeiroResumo.resultadoAposRetiradasMes >= 0 ? '💵' : '🚨'}
             cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'}
             href="/admin/financeiro?aba=EXTRATO"
           />
@@ -1248,8 +1248,8 @@ export default function DashboardPage() {
           <HeroCard
             titulo="Faturas DHL/FedEx em aberto"
             valor={moeda(faturasResumo.totalAbertas)}
-            detalhe={`Hoje ${moeda(faturasResumo.totalHoje)} â€¢ AmanhÃ£ ${moeda(faturasResumo.totalAmanha)} â€¢ ${faturasResumo.abertas.length} abertas`}
-            icone="ðŸš¨"
+            detalhe={`Hoje ${moeda(faturasResumo.totalHoje)} • Amanhã ${moeda(faturasResumo.totalAmanha)} • ${faturasResumo.abertas.length} abertas`}
+            icone="🚨"
             cor={
               faturasResumo.vencidas.length > 0 || faturasResumo.hojeVencem.length > 0
                 ? 'red'
@@ -1257,19 +1257,19 @@ export default function DashboardPage() {
                   ? 'orange'
                   : 'green'
             }
-            href="/admin/faturas-transportadoras?origem=dashboard&situacao=EM%20ABERTO&arquivadas=ATIVAS"
+            onClick={() => setModalFaturas(true)}
           />
         </section>
 
         <section className="mb-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-4">
-          <KpiCard titulo="Aguardando custo" valor={financeiroResumo.aguardandoCusto.length} detalhe={moeda(financeiroResumo.totalAguardandoCusto)} icone="âš ï¸" cor="orange" href="/admin/financeiro?origem=dashboard&aba=PROCESSOS&status=AGUARDANDO_CUSTO" />
-          <KpiCard titulo="Vencidos" valor={financeiroResumo.atrasado.length} detalhe={moeda(financeiroResumo.vencido)} icone="â°" cor="red" href="/admin/financeiro?origem=dashboard&aba=PROCESSOS&status=ATRASADO" />
-          <KpiCard titulo="Aguardando coleta" valor={operacionalResumo.aguardandoColeta} detalhe="PrÃ©-coleta" icone="ðŸ“¦" cor="orange" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Aguardando%20coleta&arquivamento=ATIVOS" />
-          <KpiCard titulo="Em trÃ¢nsito" valor={operacionalResumo.transito} detalhe="Em andamento" icone="ðŸšš" cor="blue" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Em%20tr%C3%A2nsito&arquivamento=ATIVOS" />
-          <KpiCard titulo="FiscalizaÃ§Ã£o" valor={operacionalResumo.fiscalizacao} detalhe="Aguardando liberaÃ§Ã£o" icone="ðŸ›ƒ" cor="yellow" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Fiscaliza%C3%A7%C3%A3o&arquivamento=ATIVOS" />
-          <KpiCard titulo="Liberados" valor={operacionalResumo.liberados} detalhe="Prontos para seguir" icone="âœ…" cor="green" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Liberado&arquivamento=ATIVOS" />
-          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="ðŸ‘¥" cor="blue" href="/admin/usuarios?origem=dashboard&tipo=cliente&status=ativo" />
-          <KpiCard titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="âš–ï¸" cor="green" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&arquivamento=ATIVOS" />
+          <KpiCard titulo="Aguardando custo" valor={financeiroResumo.aguardandoCusto.length} detalhe={moeda(financeiroResumo.totalAguardandoCusto)} icone="⚠️" cor="orange" href="/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO" />
+          <KpiCard titulo="Vencidos" valor={financeiroResumo.atrasado.length} detalhe={moeda(financeiroResumo.vencido)} icone="⏰" cor="red" href="/admin/financeiro?aba=PROCESSOS&status=ATRASADO" />
+          <KpiCard titulo="Aguardando coleta" valor={operacionalResumo.aguardandoColeta} detalhe="Pré-coleta" icone="📦" cor="orange" href="/admin/embarques?status=Aguardando%20coleta" />
+          <KpiCard titulo="Em trânsito" valor={operacionalResumo.transito} detalhe="Em andamento" icone="🚚" cor="blue" href="/admin/embarques?status=Em%20tr%C3%A2nsito" />
+          <KpiCard titulo="Fiscalização" valor={operacionalResumo.fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" href="/admin/embarques?status=Fiscaliza%C3%A7%C3%A3o" />
+          <KpiCard titulo="Liberados" valor={operacionalResumo.liberados} detalhe="Prontos para seguir" icone="✅" cor="green" href="/admin/embarques?status=Liberado" />
+          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" href="/admin/usuarios" />
+          <KpiCard titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" href="/admin/embarques" />
         </section>
 
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -1277,11 +1277,11 @@ export default function DashboardPage() {
             <div className="mb-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="text-3xl">ðŸš¨</span>
-                  <h2 className="text-2xl font-black">Alertas crÃ­ticos</h2>
+                  <span className="text-3xl">🚨</span>
+                  <h2 className="text-2xl font-black">Alertas críticos</h2>
                 </div>
                 <p className="mt-2 text-sm font-semibold text-slate-400">
-                  PendÃªncias que podem gerar atraso, perda de prazo ou distorÃ§Ã£o financeira.
+                  Pendências que podem gerar atraso, perda de prazo ou distorção financeira.
                 </p>
               </div>
 
@@ -1290,7 +1290,7 @@ export default function DashboardPage() {
                   ? 'border border-red-500/40 bg-red-500/10 text-red-300'
                   : 'border border-green-500/40 bg-green-500/10 text-green-300'
               }`}>
-                {alertasCriticos.length > 0 ? `${alertasCriticos.length} alerta(s)` : 'Sem alerta crÃ­tico'}
+                {alertasCriticos.length > 0 ? `${alertasCriticos.length} alerta(s)` : 'Sem alerta crítico'}
               </span>
             </div>
 
@@ -1298,7 +1298,7 @@ export default function DashboardPage() {
               <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 text-green-200">
                 <p className="font-black">Tudo controlado agora.</p>
                 <p className="mt-1 text-sm font-semibold opacity-80">
-                  Sem faturas prÃ³ximas, vencidos crÃ­ticos, rastreios com erro ou chamados abertos.
+                  Sem faturas próximas, vencidos críticos, rastreios com erro ou chamados abertos.
                 </p>
               </div>
             ) : (
@@ -1314,11 +1314,11 @@ export default function DashboardPage() {
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="text-3xl">ðŸ“„</span>
+                  <span className="text-3xl">📄</span>
                   <h2 className="text-2xl font-black">DHL/FedEx</h2>
                 </div>
                 <p className="mt-2 text-sm text-slate-400">
-                  Valores em aberto, vencimentos de hoje e programaÃ§Ã£o de amanhÃ£.
+                  Valores em aberto, vencimentos de hoje e programação de amanhã.
                 </p>
               </div>
 
@@ -1333,9 +1333,9 @@ export default function DashboardPage() {
 
             <div className="grid grid-cols-2 gap-3 mb-5">
               <MiniBox titulo="A pagar hoje" valor={moeda(faturasResumo.totalHoje)} cor={faturasResumo.totalHoje > 0 ? 'red' : 'green'} />
-              <MiniBox titulo="A pagar amanhÃ£" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
+              <MiniBox titulo="A pagar amanhã" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
               <MiniBox titulo="Total em aberto" valor={moeda(faturasResumo.totalAbertas)} cor="blue" />
-              <MiniBox titulo={`PrÃ³x. ${DIAS_ALERTA_FATURAS} dias`} valor={moeda(faturasResumo.totalProximas)} cor="yellow" />
+              <MiniBox titulo={`Próx. ${DIAS_ALERTA_FATURAS} dias`} valor={moeda(faturasResumo.totalProximas)} cor="yellow" />
             </div>
 
             <div className="space-y-3">
@@ -1361,7 +1361,7 @@ export default function DashboardPage() {
                           ? 'bg-red-500/20 text-red-300'
                           : 'bg-orange-500/20 text-orange-300'
                       }`}>
-                        {dias === 0 ? 'Hoje' : dias === 1 ? 'AmanhÃ£' : `${dias} dias`}
+                        {dias === 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : `${dias} dias`}
                       </span>
                     </div>
 
@@ -1375,9 +1375,9 @@ export default function DashboardPage() {
 
               {faturasResumo.proximas.length === 0 && (
                 <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-4">
-                  <p className="font-black text-green-300">Nenhuma fatura DHL/FedEx prÃ³xima.</p>
+                  <p className="font-black text-green-300">Nenhuma fatura DHL/FedEx próxima.</p>
                   <p className="mt-1 text-xs font-semibold text-green-200/70">
-                    Confira tambÃ©m as faturas sem data para evitar falha de controle.
+                    Confira também as faturas sem data para evitar falha de controle.
                   </p>
                 </div>
               )}
@@ -1388,47 +1388,47 @@ export default function DashboardPage() {
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="card">
             <div className="mb-6 flex items-center gap-3">
-              <span className="text-3xl">ðŸ’³</span>
+              <span className="text-3xl">💳</span>
               <div>
                 <h2 className="text-2xl font-black">Painel financeiro</h2>
-                <p className="text-sm text-slate-400">Resultado rÃ¡pido do mÃªs atual.</p>
+                <p className="text-sm text-slate-400">Resultado rápido do mês atual.</p>
               </div>
             </div>
 
             <div className="space-y-3">
               <LinhaResumo titulo="Recebido de clientes" valor={moeda(financeiroResumo.valorRecebidoMes)} cor="green" />
               <LinhaResumo titulo="Profit bruto dos processos" valor={moeda(financeiroResumo.profitBrutoProcessosMes)} cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'} />
-              <LinhaResumo titulo="Despesas + emprÃ©stimos pagos" valor={moeda(financeiroResumo.despesasEemprestimosPagosMes)} cor="red" />
+              <LinhaResumo titulo="Despesas + empréstimos pagos" valor={moeda(financeiroResumo.despesasEemprestimosPagosMes)} cor="red" />
               <LinhaResumo titulo="Lucro operacional" valor={moeda(financeiroResumo.lucroOperacionalMes)} cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'} />
               <LinhaResumo titulo="Retiradas Marcos" valor={moeda(financeiroResumo.retiradasMarcosMes)} cor="orange" />
-              <LinhaResumo titulo="Retiradas HÃ©rica" valor={moeda(financeiroResumo.retiradasHericaMes)} cor="orange" />
-              <LinhaResumo titulo="Resultado apÃ³s retiradas" valor={moeda(financeiroResumo.resultadoAposRetiradasMes)} cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'} />
+              <LinhaResumo titulo="Retiradas Hérica" valor={moeda(financeiroResumo.retiradasHericaMes)} cor="orange" />
+              <LinhaResumo titulo="Resultado após retiradas" valor={moeda(financeiroResumo.resultadoAposRetiradasMes)} cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'} />
               <LinhaResumo titulo="Reserva 50% prevista" valor={moeda(financeiroResumo.reserva50PrevistaMes)} cor="blue" />
-              <LinhaResumo titulo="Reserva 50% lanÃ§ada" valor={moeda(financeiroResumo.reserva50LancadaMes)} cor="blue" />
+              <LinhaResumo titulo="Reserva 50% lançada" valor={moeda(financeiroResumo.reserva50LancadaMes)} cor="blue" />
               <LinhaResumo titulo="Fundo atual do ano" valor={moeda(financeiroResumo.fundoAtual)} cor="blue" />
             </div>
 
-            <a href="/admin/financeiro?origem=dashboard" className="mt-6 block text-right font-black text-blue-400 hover:text-blue-300">
-              Abrir financeiro â†’
+            <a href="/admin/financeiro" className="mt-6 block text-right font-black text-blue-400 hover:text-blue-300">
+              Abrir financeiro →
             </a>
           </div>
 
           <div className="card">
             <div className="mb-6 flex items-center gap-3">
-              <span className="text-3xl">ðŸ“¡</span>
+              <span className="text-3xl">📡</span>
               <div>
-                <h2 className="text-2xl font-black">Rastreio automÃ¡tico</h2>
-                <p className="text-sm text-slate-400">Ãšltima execuÃ§Ã£o registrada.</p>
+                <h2 className="text-2xl font-black">Rastreio automático</h2>
+                <p className="text-sm text-slate-400">Última execução registrada.</p>
               </div>
             </div>
 
             <div className="mb-4 rounded-2xl border border-blue-950 bg-[#020817] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Ãšltima execuÃ§Ã£o</p>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Última execução</p>
               <p className="mt-1 text-lg font-black text-blue-300">{dataHoraBR(ultimoRastreio?.criado_em)}</p>
             </div>
 
             <div className="mb-4 rounded-2xl border border-blue-950 bg-[#020817] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">PrÃ³xima execuÃ§Ã£o estimada</p>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Próxima execução estimada</p>
               <p className="mt-1 text-lg font-black text-emerald-300">{proximaAtualizacao(ultimoRastreio?.criado_em)}</p>
             </div>
 
@@ -1439,33 +1439,33 @@ export default function DashboardPage() {
             </div>
 
             <p className="mt-4 text-xs font-semibold text-slate-500">
-              ConfiguraÃ§Ã£o exibida considerando execuÃ§Ã£o a cada 30 minutos.
+              Configuração exibida considerando execução a cada 30 minutos.
             </p>
           </div>
 
           <div className="card">
             <div className="mb-6 flex items-center gap-3">
-              <span className="text-3xl">ðŸŽ§</span>
+              <span className="text-3xl">🎧</span>
               <div>
-                <h2 className="text-2xl font-black">Suporte e cotaÃ§Ãµes</h2>
+                <h2 className="text-2xl font-black">Suporte e cotações</h2>
                 <p className="text-sm text-slate-400">Atendimento e demanda comercial.</p>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <MiniBox titulo="Chamados abertos" valor={suporteResumo.abertos} cor="red" href="/admin/suporte?status=ABERTO" />
-              <MiniBox titulo="Em anÃ¡lise" valor={suporteResumo.analise} cor="yellow" href="/admin/suporte?status=EM%20AN%C3%81LISE" />
+              <MiniBox titulo="Em análise" valor={suporteResumo.analise} cor="yellow" href="/admin/suporte?status=EM%20AN%C3%81LISE" />
               <MiniBox titulo="Respondidos" valor={suporteResumo.respondidos} cor="blue" href="/admin/suporte?status=RESPONDIDO" />
-              <MiniBox titulo="CotaÃ§Ãµes pendentes" valor={cotacoesPendentes} cor="purple" href="/admin/cotacoes?status=PENDENTES" />
+              <MiniBox titulo="Cotações pendentes" valor={cotacoesPendentes} cor="purple" href="/admin/cotacoes?status=PENDENTES" />
             </div>
 
             <div className="mt-5 rounded-2xl border border-blue-950 bg-[#020817] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Ãšltimo chamado</p>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Último chamado</p>
 
               {suporteResumo.ultimo ? (
                 <>
                   <p className="mt-2 font-black text-blue-300">{suporteResumo.ultimo.assunto || 'Chamado sem assunto'}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">{suporteResumo.ultimo.email || 'Cliente nÃ£o informado'}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">{suporteResumo.ultimo.email || 'Cliente não informado'}</p>
                 </>
               ) : (
                 <p className="mt-2 text-sm font-semibold text-slate-500">Nenhum chamado recebido.</p>
@@ -1488,9 +1488,9 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-black tracking-tight">Ritmo da operaÃ§Ã£o</h2>
+                  <h2 className="text-2xl font-black tracking-tight">Ritmo da operação</h2>
                   <p className="mt-1 text-sm text-slate-400">
-                    Volume por dia, concentraÃ§Ã£o de clientes e pontos de aÃ§Ã£o.
+                    Volume por dia, concentração de clientes e pontos de ação.
                   </p>
                 </div>
               </div>
@@ -1498,8 +1498,8 @@ export default function DashboardPage() {
               <div className="flex flex-wrap gap-2">
                 <PeriodoButton ativo={periodoGrafico === '7D'} onClick={() => setPeriodoGrafico('7D')}>7 dias</PeriodoButton>
                 <PeriodoButton ativo={periodoGrafico === '30D'} onClick={() => setPeriodoGrafico('30D')}>30 dias</PeriodoButton>
-                <PeriodoButton ativo={periodoGrafico === 'MES_ATUAL'} onClick={() => setPeriodoGrafico('MES_ATUAL')}>MÃªs atual</PeriodoButton>
-                <PeriodoButton ativo={periodoGrafico === 'MES_ANTERIOR'} onClick={() => setPeriodoGrafico('MES_ANTERIOR')}>MÃªs anterior</PeriodoButton>
+                <PeriodoButton ativo={periodoGrafico === 'MES_ATUAL'} onClick={() => setPeriodoGrafico('MES_ATUAL')}>Mês atual</PeriodoButton>
+                <PeriodoButton ativo={periodoGrafico === 'MES_ANTERIOR'} onClick={() => setPeriodoGrafico('MES_ANTERIOR')}>Mês anterior</PeriodoButton>
               </div>
             </div>
 
@@ -1522,7 +1522,6 @@ export default function DashboardPage() {
                       key={tick}
                       className="absolute left-0 right-0 border-t border-dashed border-blue-700/35"
                       style={{ top: `${((ritmoOperacao.yMax - tick) / ritmoOperacao.yMax) * 100}%` }}
-                      href="/admin/financeiro?aba=EXTRATO"
                     />
                   ))}
 
@@ -1540,7 +1539,7 @@ export default function DashboardPage() {
                           type="button"
                           onClick={() => setDiaSelecionado(ativo ? null : item.key)}
                           className="group relative flex h-full min-w-0 flex-col items-center justify-end"
-                          title={`${item.diaSemana} ${item.diaLabel}: ${item.total} embarque(s) â€¢ ${item.peso.toFixed(2)} kg`}
+                          title={`${item.diaSemana} ${item.diaLabel}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
                         >
                           <span className="mb-1 text-sm font-black text-white drop-shadow opacity-100">
                             {item.total}
@@ -1558,7 +1557,7 @@ export default function DashboardPage() {
                           />
 
                           <span className="pointer-events-none absolute -top-10 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-blue-800 bg-[#071225] px-3 py-2 text-xs font-black text-blue-100 shadow-2xl group-hover:block">
-                            {item.diaSemana} {item.diaLabel} â€¢ {item.total} embarque(s)
+                            {item.diaSemana} {item.diaLabel} • {item.total} embarque(s)
                           </span>
                         </button>
                       )
@@ -1581,16 +1580,16 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3 border-y border-blue-950 py-3">
-              <MetricDashboard icone="ðŸšš" valor={String(ritmoOperacao.totalPeriodo)} titulo="Total perÃ­odo" detalhe="Embarques" />
-              <MetricDashboard icone="ðŸ“ˆ" valor={ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} titulo="MÃ©dia diÃ¡ria" detalhe="Embarques/dia" />
-              <MetricDashboard icone="ðŸ—“ï¸" valor={String(ritmoOperacao.diasSemEmbarque)} titulo="Dias sem embarque" detalhe="No perÃ­odo" />
-              <MetricDashboard icone="âš–ï¸" valor={`${ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`} titulo="Peso perÃ­odo" detalhe="Total embarcado" />
+              <MetricDashboard icone="🚚" valor={String(ritmoOperacao.totalPeriodo)} titulo="Total período" detalhe="Embarques" />
+              <MetricDashboard icone="📈" valor={ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} titulo="Média diária" detalhe="Embarques/dia" />
+              <MetricDashboard icone="🗓️" valor={String(ritmoOperacao.diasSemEmbarque)} titulo="Dias sem embarque" detalhe="No período" />
+              <MetricDashboard icone="⚖️" valor={`${ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`} titulo="Peso período" detalhe="Total embarcado" />
             </div>
 
             <div className="mt-4 rounded-2xl border border-blue-900 bg-[#020817]/80 p-3 flex items-start gap-3">
-              <div className="text-xl text-blue-400">âœ¦</div>
+              <div className="text-xl text-blue-400">✦</div>
               <div>
-                <p className="text-sm font-black uppercase tracking-wide text-blue-400">AnÃ¡lise automÃ¡tica</p>
+                <p className="text-sm font-black uppercase tracking-wide text-blue-400">Análise automática</p>
                 <p className="mt-1 text-xs font-semibold text-slate-200 leading-relaxed">{ritmoOperacao.analise}</p>
               </div>
             </div>
@@ -1601,7 +1600,7 @@ export default function DashboardPage() {
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black">Receita x Profit</h2>
-                  <p className="mt-1 text-sm text-slate-400">Ãšltimos 6 meses pagos.</p>
+                  <p className="mt-1 text-sm text-slate-400">Últimos 6 meses pagos.</p>
                 </div>
                 <a href="/admin/financeiro?aba=RESULTADO" className="text-sm font-black text-blue-400">Ver resultado</a>
               </div>
@@ -1645,9 +1644,9 @@ export default function DashboardPage() {
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black">Status operacional</h2>
-                  <p className="mt-1 text-sm text-slate-400">DistribuiÃ§Ã£o atual dos embarques.</p>
+                  <p className="mt-1 text-sm text-slate-400">Distribuição atual dos embarques.</p>
                 </div>
-                <a href="/admin/embarques?origem=dashboard&aba=LISTAGEM&arquivamento=ATIVOS" className="text-sm font-black text-blue-400">Ver embarques</a>
+                <a href="/admin/embarques" className="text-sm font-black text-blue-400">Ver embarques</a>
               </div>
 
               <div className="space-y-4">
@@ -1674,8 +1673,8 @@ export default function DashboardPage() {
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
           <div className="card">
             <div className="mb-6 flex justify-between items-center">
-              <h2 className="text-2xl font-black">Ãšltimos embarques</h2>
-              <a href="/admin/embarques?origem=dashboard&aba=LISTAGEM&arquivamento=ATIVOS" className="text-blue-400 font-bold">
+              <h2 className="text-2xl font-black">Últimos embarques</h2>
+              <a href="/admin/embarques" className="text-blue-400 font-bold">
                 Ver todos
               </a>
             </div>
@@ -1723,7 +1722,7 @@ export default function DashboardPage() {
 
           <div className="card">
             <div className="mb-6 flex justify-between items-center">
-              <h2 className="text-2xl font-black">PendÃªncias financeiras recentes</h2>
+              <h2 className="text-2xl font-black">Pendências financeiras recentes</h2>
               <a href="/admin/financeiro?aba=PROCESSOS" className="text-blue-400 font-bold">
                 Ver financeiro
               </a>
@@ -1755,12 +1754,12 @@ export default function DashboardPage() {
                   >
                     <div>
                       <p className="font-black text-blue-300">
-                        {ehFaturaTransportadora ? `Fatura ${numeroFaturaTransportadora(item) || '-'}` : item.cliente || 'Cliente nÃ£o informado'}
+                        {ehFaturaTransportadora ? `Fatura ${numeroFaturaTransportadora(item) || '-'}` : item.cliente || 'Cliente não informado'}
                       </p>
                       <p className="mt-1 text-xs font-semibold text-slate-400">
                         {ehFaturaTransportadora
-                          ? `${nomeTransportadoraFaturaCurto(item)} â€¢ Conta ${contaFaturaTransportadora(item) || '-'} â€¢ Saldo ${moeda(saldoFaturaTransportadora(item))}`
-                          : `AWB ${item.awb || '-'} â€¢ Fatura ${item.fatura || '-'} â€¢ ${item.transportadora || '-'}`}
+                          ? `${nomeTransportadoraFaturaCurto(item)} • Conta ${contaFaturaTransportadora(item) || '-'} • Saldo ${moeda(saldoFaturaTransportadora(item))}`
+                          : `AWB ${item.awb || '-'} • Fatura ${item.fatura || '-'} • ${item.transportadora || '-'}`}
                       </p>
                     </div>
 
@@ -1775,9 +1774,9 @@ export default function DashboardPage() {
 
               {[...faturasResumo.vencidas, ...faturasResumo.proximas, ...financeiroResumo.aguardandoCusto].length === 0 && (
                 <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 text-green-300">
-                  <p className="font-black">Sem pendÃªncia financeira crÃ­tica agora.</p>
+                  <p className="font-black">Sem pendência financeira crítica agora.</p>
                   <p className="mt-1 text-sm font-semibold opacity-80">
-                    Nenhuma fatura vencida/prÃ³xima ou processo sem custo nos principais alertas.
+                    Nenhuma fatura vencida/próxima ou processo sem custo nos principais alertas.
                   </p>
                 </div>
               )}
@@ -1786,7 +1785,7 @@ export default function DashboardPage() {
         </section>
 
         <footer className="py-8 text-center text-sm font-semibold text-slate-500">
-          HC Connect Â© 2026 â€¢ Sistema desenvolvido por Marcos Paulo Otero
+          HC Connect © 2026 • Sistema desenvolvido por Marcos Paulo Otero
         </footer>
       </section>
 
@@ -1796,10 +1795,10 @@ export default function DashboardPage() {
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-white">
-                  ðŸ” Erros do Rastreio AutomÃ¡tico
+                  🔍 Erros do Rastreio Automático
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  Ãšltima execuÃ§Ã£o: {dataHoraBR(ultimoRastreio?.criado_em)}
+                  Última execução: {dataHoraBR(ultimoRastreio?.criado_em)}
                 </p>
               </div>
 
@@ -1808,7 +1807,7 @@ export default function DashboardPage() {
                 onClick={() => setModalErrosRastreio(false)}
                 className="rounded-xl bg-slate-800 px-4 py-2 font-black hover:bg-slate-700"
               >
-                âœ•
+                ✕
               </button>
             </div>
 
@@ -1840,7 +1839,7 @@ export default function DashboardPage() {
                     <div className="mt-4">
                       <p className="text-xs font-bold text-slate-500">Motivo</p>
                       <p className="mt-1 font-bold text-red-300">
-                        {erro.erro || 'Erro nÃ£o informado.'}
+                        {erro.erro || 'Erro não informado.'}
                       </p>
                     </div>
                   </div>
@@ -1849,10 +1848,10 @@ export default function DashboardPage() {
             ) : (
               <div className="rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center">
                 <p className="text-slate-400">
-                  Existem erros contabilizados, mas este log ainda nÃ£o possui detalhes salvos.
+                  Existem erros contabilizados, mas este log ainda não possui detalhes salvos.
                 </p>
                 <p className="mt-2 text-sm text-slate-500">
-                  Rode novamente o rastreio automÃ¡tico para gravar os detalhes dos AWBs.
+                  Rode novamente o rastreio automático para gravar os detalhes dos AWBs.
                 </p>
               </div>
             )}
@@ -1866,10 +1865,10 @@ export default function DashboardPage() {
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-white">
-                  ðŸš¨ Faturas DHL/FedEx
+                  🚨 Faturas DHL/FedEx
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  Controle de faturas prÃ³ximas do vencimento para nÃ£o perder prazo de pagamento.
+                  Controle de faturas próximas do vencimento para não perder prazo de pagamento.
                 </p>
               </div>
 
@@ -1878,13 +1877,13 @@ export default function DashboardPage() {
                 onClick={() => setModalFaturas(false)}
                 className="rounded-xl bg-slate-800 px-4 py-2 font-black hover:bg-slate-700"
               >
-                âœ•
+                ✕
               </button>
             </div>
 
             <div className="mb-5 grid grid-cols-2 md:grid-cols-4 gap-3">
               <MiniBox titulo="A pagar hoje" valor={moeda(faturasResumo.totalHoje)} cor={faturasResumo.totalHoje > 0 ? 'red' : 'green'} />
-              <MiniBox titulo="A pagar amanhÃ£" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
+              <MiniBox titulo="A pagar amanhã" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
               <MiniBox titulo="Total em aberto" valor={moeda(faturasResumo.totalAbertas)} cor="blue" />
               <MiniBox titulo="Vencidas" valor={moeda(faturasResumo.totalVencidas)} cor="red" />
             </div>
@@ -1899,8 +1898,8 @@ export default function DashboardPage() {
                     <th className="px-4 py-3 text-left font-black">Banco</th>
                     <th className="px-4 py-3 text-left font-black">Saldo</th>
                     <th className="px-4 py-3 text-left font-black">Vencimento</th>
-                    <th className="px-4 py-3 text-left font-black">SituaÃ§Ã£o</th>
-                    <th className="px-4 py-3 text-left font-black">AÃ§Ã£o</th>
+                    <th className="px-4 py-3 text-left font-black">Situação</th>
+                    <th className="px-4 py-3 text-left font-black">Ação</th>
                   </tr>
                 </thead>
 
@@ -1925,7 +1924,7 @@ export default function DashboardPage() {
                             <span className="rounded-full bg-red-500/20 px-3 py-1 text-xs font-black text-red-300">Vencida</span>
                           ) : (
                             <span className="rounded-full bg-orange-500/20 px-3 py-1 text-xs font-black text-orange-300">
-                              {dias === 0 ? 'Vence hoje' : dias === 1 ? 'Vence amanhÃ£' : `${dias} dias`}
+                              {dias === 0 ? 'Vence hoje' : dias === 1 ? 'Vence amanhã' : `${dias} dias`}
                             </span>
                           )}
                         </td>
@@ -1934,7 +1933,7 @@ export default function DashboardPage() {
                             href={`/admin/faturas-transportadoras?busca=${encodeURIComponent(numeroFaturaTransportadora(item) || contaFaturaTransportadora(item) || '')}`}
                             className="font-black text-blue-400 hover:text-blue-300"
                           >
-                            Abrir â†’
+                            Abrir →
                           </a>
                         </td>
                       </tr>
@@ -1944,7 +1943,7 @@ export default function DashboardPage() {
                   {[...faturasResumo.vencidas, ...faturasResumo.proximas, ...faturasResumo.semData].length === 0 && (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
-                        Nenhuma fatura DHL/FedEx vencida, prÃ³xima ou sem data.
+                        Nenhuma fatura DHL/FedEx vencida, próxima ou sem data.
                       </td>
                     </tr>
                   )}
@@ -2087,41 +2086,41 @@ function StatusPillDashboard({ status }: any) {
   const s = String(status || '').toLowerCase()
 
   let classe = 'bg-slate-700 text-slate-200 border-slate-500'
-  let icone = 'âšª'
+  let icone = '⚪'
 
   if (s.includes('entregue') || s.includes('delivered')) {
     classe = 'bg-green-600/20 text-green-300 border-green-500'
-    icone = 'âœ…'
-  } else if (s.includes('trÃ¢nsito') || s.includes('transito') || s.includes('transit')) {
+    icone = '✅'
+  } else if (s.includes('trânsito') || s.includes('transito') || s.includes('transit')) {
     classe = 'bg-blue-600/20 text-blue-300 border-blue-500'
-    icone = 'ðŸšš'
-  } else if (s.includes('fiscal') || s.includes('liberaÃ§Ã£o') || s.includes('liberacao') || s.includes('clearance')) {
+    icone = '🚚'
+  } else if (s.includes('fiscal') || s.includes('liberação') || s.includes('liberacao') || s.includes('clearance')) {
     classe = 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
-    icone = 'ðŸ›ƒ'
+    icone = '🛃'
   } else if (s.includes('liberado') || s.includes('released')) {
     classe = 'bg-emerald-600/20 text-emerald-300 border-emerald-500'
-    icone = 'ðŸŸ¢'
+    icone = '🟢'
   } else if (s.includes('coletado') || s.includes('coleta') || s.includes('picked')) {
     classe = 'bg-purple-600/20 text-purple-300 border-purple-500'
-    icone = 'ðŸ“¦'
+    icone = '📦'
   } else if (s.includes('atrasado') || s.includes('vencido')) {
     classe = 'bg-red-600/20 text-red-300 border-red-500'
-    icone = 'ðŸ”´'
+    icone = '🔴'
   } else if (s.includes('aguardando')) {
     classe = 'bg-orange-500/20 text-orange-300 border-orange-500'
-    icone = 'â³'
-  } else if (s.includes('anÃ¡lise') || s.includes('analise')) {
+    icone = '⏳'
+  } else if (s.includes('análise') || s.includes('analise')) {
     classe = 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
-    icone = 'ðŸ”Ž'
+    icone = '🔎'
   } else if (s.includes('respondido')) {
     classe = 'bg-blue-600/20 text-blue-300 border-blue-500'
-    icone = 'ðŸ’¬'
+    icone = '💬'
   } else if (s.includes('resolvido')) {
     classe = 'bg-green-600/20 text-green-300 border-green-500'
-    icone = 'âœ…'
+    icone = '✅'
   } else if (s.includes('aberto')) {
     classe = 'bg-red-600/20 text-red-300 border-red-500'
-    icone = 'ðŸ”´'
+    icone = '🔴'
   }
 
   return (
