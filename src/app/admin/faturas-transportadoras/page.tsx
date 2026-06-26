@@ -557,14 +557,22 @@ export default function FaturasTransportadorasPage() {
     if (!arquivo) return
 
     if (arquivo.type !== 'application/pdf') {
-      alert('Envie apenas PDF.')
+      alert('Envie apenas arquivo PDF.')
+      event.target.value = ''
+      return
+    }
+
+    const confirmar = confirm(
+      'Importar esta fatura PDF DHL/FedEx?\n\n' +
+        'O sistema vai tentar identificar a fatura, os AWBs e lançar o valor de compra nos processos encontrados.'
+    )
+
+    if (!confirmar) {
       event.target.value = ''
       return
     }
 
     setImportandoPdf(true)
-    setPreviewPdf(null)
-    setArquivoPdfImportacao(arquivo)
 
     try {
       const formData = new FormData()
@@ -575,27 +583,45 @@ export default function FaturasTransportadorasPage() {
         body: formData,
       })
 
-      const json = await resposta.json()
+      const retorno = await resposta.json().catch(() => null)
 
       if (!resposta.ok) {
-        alert(json.error || 'Erro ao ler PDF.')
-        setImportandoPdf(false)
-        event.target.value = ''
-        return
+        throw new Error(retorno?.error || 'Erro ao importar PDF.')
       }
 
-      const previewCompleta = await complementarPreviewComProcessos(json.preview)
-      setPreviewPdf(previewCompleta)
+      const preview = retorno?.preview || {}
+      const importacao = retorno?.importacao || {}
+      const itens = Array.isArray(preview.itens) ? preview.itens : []
 
-      setTimeout(() => {
-        document.getElementById('preview_importacao_pdf')?.scrollIntoView({ behavior: 'smooth' })
-      }, 100)
+      const awbsResumo = itens
+        .slice(0, 12)
+        .map((item: any) => `• ${item.awb} - ${moeda(item.valor_compra || 0)}`)
+        .join('\n')
+
+      const maisAwbs =
+        itens.length > 12 ? `\n... +${itens.length - 12} AWB(s) no PDF` : ''
+
+      const mensagem =
+        'Importação do PDF concluída.\n\n' +
+        `Transportadora: ${preview.transportadora || '-'}\n` +
+        `Fatura: ${preview.numero_fatura || importacao.numero_fatura || '-'}\n` +
+        `Total da fatura: ${moeda(preview.valor_total || 0)}\n` +
+        `AWBs encontrados no PDF: ${itens.length}\n\n` +
+        `Itens salvos: ${importacao.itens_salvos ?? 'não informado'}\n` +
+        `Custos lançados nos processos: ${importacao.custos_lancados ?? 0}\n` +
+        `Aguardando criação do processo: ${importacao.aguardando_processo ?? 0}\n` +
+        `Processos que já tinham custo: ${importacao.ja_tinham_custo ?? 0}\n` +
+        (awbsResumo ? `\nAWBs lidos:\n${awbsResumo}${maisAwbs}` : '')
+
+      alert(mensagem)
+
+      await carregar()
     } catch (error: any) {
       alert('Erro ao importar PDF: ' + error.message)
+    } finally {
+      setImportandoPdf(false)
+      event.target.value = ''
     }
-
-    setImportandoPdf(false)
-    event.target.value = ''
   }
 
   function limparImportacaoPdf() {
