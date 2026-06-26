@@ -124,7 +124,7 @@ export default function AdminEmbarqueDiretoPage() {
 
   async function removerDaLista(item: any) {
     const confirmar = confirm(
-      `Remover esta solicitação da lista principal?\n\n` +
+      `Arquivar esta solicitação da lista principal?\n\n` +
         `Cliente: ${item.cliente_final || '-'}\n` +
         `Solicitante: ${item.solicitante_email || '-'}\n` +
         `AWB/Referência: ${item.awb || '-'}\n\n` +
@@ -235,11 +235,20 @@ export default function AdminEmbarqueDiretoPage() {
     return numero
   }
 
-  async function converterEmEmbarque(item: any) {
+  async function converterEmEmbarque(item: any, arquivarDepois = false) {
+    if (item.embarque_id) {
+      alert(
+        'Esta solicitação já está vinculada a um embarque.\n\n' +
+          'Ela não será convertida novamente para evitar duplicidade.'
+      )
+      return
+    }
+
     const confirmar = confirm(
       'Converter a solicitação de ' +
         (item.cliente_final || item.solicitante_email || '-') +
-        ' em embarque?'
+        ' em embarque?' +
+        (arquivarDepois ? '\n\nApós converter, ela será arquivada da lista principal.' : '')
     )
 
     if (!confirmar) return
@@ -339,20 +348,37 @@ export default function AdminEmbarqueDiretoPage() {
         }
       }
 
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const payloadAtualizacao: any = {
+        status: 'CONVERTIDO EM EMBARQUE',
+        embarque_id: novoEmbarque.id,
+      }
+
+      if (arquivarDepois) {
+        payloadAtualizacao.arquivado_admin = true
+        payloadAtualizacao.arquivado_admin_em = new Date().toISOString()
+        payloadAtualizacao.arquivado_admin_por = user?.id || null
+      }
+
       const { error: erroUpdate } = await supabase
         .from('embarque_direto')
-        .update({
-          status: 'CONVERTIDO EM EMBARQUE',
-          embarque_id: novoEmbarque.id,
-        })
+        .update(payloadAtualizacao)
         .eq('id', item.id)
 
       if (erroUpdate) {
         throw new Error(erroUpdate.message)
       }
 
-      alert('Solicitação convertida em embarque com sucesso.')
-      carregar()
+      alert(
+        arquivarDepois
+          ? 'Solicitação convertida em embarque e arquivada com sucesso.'
+          : 'Solicitação convertida em embarque com sucesso.'
+      )
+
+      await carregar()
     } catch (error: any) {
       console.log(error)
       alert('Erro ao converter solicitação: ' + (error?.message || 'erro desconhecido'))
@@ -538,11 +564,19 @@ export default function AdminEmbarqueDiretoPage() {
                           </button>
 
                           <button
-                            onClick={() => converterEmEmbarque(item)}
+                            onClick={() => converterEmEmbarque(item, false)}
                             disabled={convertendo === item.id}
                             className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
                           >
                             {convertendo === item.id ? 'Convertendo...' : 'Converter em embarque'}
+                          </button>
+
+                          <button
+                            onClick={() => converterEmEmbarque(item, true)}
+                            disabled={convertendo === item.id}
+                            className="bg-emerald-700 hover:bg-emerald-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                          >
+                            {convertendo === item.id ? 'Convertendo...' : 'Converter e arquivar'}
                           </button>
 
                           <button
@@ -557,7 +591,7 @@ export default function AdminEmbarqueDiretoPage() {
                             disabled={removendo === item.id}
                             className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
                           >
-                            {removendo === item.id ? 'Removendo...' : 'Remover da lista'}
+                            {removendo === item.id ? 'Arquivando...' : 'Arquivar solicitação'}
                           </button>
                         </>
                       )}
