@@ -122,6 +122,38 @@ export default function AdminEmbarqueDiretoPage() {
     carregar()
   }
 
+  async function atualizarEmbarqueDiretoSeguro(id: string | number, payload: any) {
+    const executar = async (dados: any) => {
+      return await supabase
+        .from('embarque_direto')
+        .update(dados)
+        .eq('id', id)
+        .select('id, status, embarque_id, arquivado_admin, arquivado_admin_em, arquivado_admin_por')
+        .single()
+    }
+
+    let { data, error } = await executar(payload)
+
+    if (
+      error &&
+      (
+        String(error.message || '').includes('arquivado_admin_por') ||
+        String(error.message || '').includes('schema cache')
+      )
+    ) {
+      const { arquivado_admin_por, ...payloadSemPor } = payload
+      const tentativa = await executar(payloadSemPor)
+      data = tentativa.data
+      error = tentativa.error
+    }
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    return data
+  }
+
   async function removerDaLista(item: any) {
     const confirmar = confirm(
       `Arquivar esta solicitação da lista principal?\n\n` +
@@ -135,39 +167,33 @@ export default function AdminEmbarqueDiretoPage() {
 
     setRemovendo(item.id)
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
-    const { error } = await supabase
-      .from('embarque_direto')
-      .update({
+      const atualizado = await atualizarEmbarqueDiretoSeguro(item.id, {
         arquivado_admin: true,
         arquivado_admin_em: new Date().toISOString(),
         arquivado_admin_por: user?.id || null,
       })
-      .eq('id', item.id)
 
-    if (error) {
+      if (!atualizado?.arquivado_admin) {
+        throw new Error('O banco não confirmou o arquivamento da solicitação.')
+      }
+
+      alert('Solicitação arquivada com sucesso.')
+
+      setBusca('')
+      setStatusFiltro('TODOS')
+      setArquivamentoFiltro('ATIVAS')
+
+      await carregar()
+    } catch (error: any) {
+      alert('Erro ao arquivar solicitação: ' + (error?.message || error))
+    } finally {
       setRemovendo(null)
-      alert('Erro ao remover solicitação da lista: ' + error.message)
-      return
     }
-
-    setSolicitacoes((lista) =>
-      lista.map((s) =>
-        String(s.id) === String(item.id)
-          ? {
-              ...s,
-              arquivado_admin: true,
-              arquivado_admin_em: new Date().toISOString(),
-              arquivado_admin_por: user?.id || null,
-            }
-          : s
-      )
-    )
-
-    setRemovendo(null)
   }
 
   async function restaurarDaLista(item: any) {
@@ -181,29 +207,29 @@ export default function AdminEmbarqueDiretoPage() {
 
     setRestaurando(item.id)
 
-    const payload: any = {
-      arquivado_admin: false,
-      arquivado_admin_em: null,
-      arquivado_admin_por: null,
-    }
+    try {
+      const payload: any = {
+        arquivado_admin: false,
+        arquivado_admin_em: null,
+        arquivado_admin_por: null,
+      }
 
-    if (String(item.status || '').toUpperCase() === 'EXCLUIDO') {
-      payload.status = 'AGUARDANDO ANÁLISE'
-    }
+      if (String(item.status || '').toUpperCase() === 'EXCLUIDO') {
+        payload.status = 'AGUARDANDO ANÁLISE'
+      }
 
-    const { error } = await supabase
-      .from('embarque_direto')
-      .update(payload)
-      .eq('id', item.id)
+      await atualizarEmbarqueDiretoSeguro(item.id, payload)
 
-    if (error) {
+      alert('Solicitação restaurada com sucesso.')
+      setArquivamentoFiltro('ATIVAS')
+      setStatusFiltro('TODOS')
+
+      await carregar()
+    } catch (error: any) {
+      alert('Erro ao restaurar solicitação: ' + (error?.message || error))
+    } finally {
       setRestaurando(null)
-      alert('Erro ao restaurar solicitação: ' + error.message)
-      return
     }
-
-    setRestaurando(null)
-    carregar()
   }
 
   function normalizarAwbOpcional(valor: any) {
@@ -363,13 +389,10 @@ export default function AdminEmbarqueDiretoPage() {
         payloadAtualizacao.arquivado_admin_por = user?.id || null
       }
 
-      const { error: erroUpdate } = await supabase
-        .from('embarque_direto')
-        .update(payloadAtualizacao)
-        .eq('id', item.id)
+      const solicitacaoAtualizada = await atualizarEmbarqueDiretoSeguro(item.id, payloadAtualizacao)
 
-      if (erroUpdate) {
-        throw new Error(erroUpdate.message)
+      if (arquivarDepois && !solicitacaoAtualizada?.arquivado_admin) {
+        throw new Error('O embarque foi criado, mas o banco não confirmou o arquivamento da solicitação.')
       }
 
       alert(
