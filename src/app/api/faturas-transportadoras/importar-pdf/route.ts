@@ -269,7 +269,8 @@ export async function POST(req: Request) {
     }
 
     const buffer = Buffer.from(await arquivo.arrayBuffer())
-    const pdfParse = (await import('pdf-parse')).default
+    const pdfParseModule = await import('pdf-parse/lib/pdf-parse.js')
+    const pdfParse = (pdfParseModule as any).default || pdfParseModule
     const resultado = await pdfParse(buffer)
     const texto = limparTexto(resultado.text || '')
 
