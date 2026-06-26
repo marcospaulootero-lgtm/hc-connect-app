@@ -30,6 +30,28 @@ type FaturaTransportadora = {
   atualizado_em: string | null
 }
 
+
+type ItemImportacaoPdf = {
+  awb: string
+  referencia: string | null
+  data_envio: string | null
+  valor_compra: number
+  processo_encontrado?: boolean
+  financeiro_id?: string | null
+  valor_compra_atual?: number | null
+  cliente?: string | null
+}
+
+type PreviewImportacaoPdf = {
+  transportadora: string
+  conta: string | null
+  numero_fatura: string
+  emissao: string | null
+  vencimento: string | null
+  valor_total: number
+  itens: ItemImportacaoPdf[]
+}
+
 type FormState = {
   transportadora: string
   conta: string
@@ -71,6 +93,10 @@ export default function FaturasTransportadorasPage() {
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [arquivoPdfImportacao, setArquivoPdfImportacao] = useState<File | null>(null)
+  const [previewPdf, setPreviewPdf] = useState<PreviewImportacaoPdf | null>(null)
+  const [importandoPdf, setImportandoPdf] = useState(false)
+  const [confirmandoPdf, setConfirmandoPdf] = useState(false)
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
@@ -459,6 +485,283 @@ export default function FaturasTransportadorasPage() {
 
     return partes.join(' | ')
   }
+
+
+  function normalizarAwb(valor: any) {
+    return String(valor || '').replace(/\D/g, '')
+  }
+
+  function statusPreviaImportacao(item: ItemImportacaoPdf) {
+    if (!item.processo_encontrado) return 'AGUARDANDO_PROCESSO'
+
+    const valorAtual = Number(item.valor_compra_atual || 0)
+    const valorPdf = Number(item.valor_compra || 0)
+
+    if (valorAtual <= 0) return 'PRONTO_PARA_LANCAR'
+    if (Math.abs(valorAtual - valorPdf) < 0.01) return 'JA_TEM_MESMO_VALOR'
+
+    return 'CONFERIR_VALOR_EXISTENTE'
+  }
+
+  function classeStatusImportacao(status: string) {
+    if (status === 'PRONTO_PARA_LANCAR') return 'bg-green-600/20 text-green-300 border-green-500'
+    if (status === 'JA_TEM_MESMO_VALOR') return 'bg-blue-600/20 text-blue-300 border-blue-500'
+    if (status === 'CONFERIR_VALOR_EXISTENTE') return 'bg-red-600/20 text-red-300 border-red-500'
+    return 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
+  }
+
+  function textoStatusImportacao(status: string) {
+    if (status === 'PRONTO_PARA_LANCAR') return 'Pronto para lançar'
+    if (status === 'JA_TEM_MESMO_VALOR') return 'Já tem mesmo valor'
+    if (status === 'CONFERIR_VALOR_EXISTENTE') return 'Conferir valor existente'
+    return 'Aguardando processo'
+  }
+
+  async function complementarPreviewComProcessos(preview: PreviewImportacaoPdf) {
+    const awbs = Array.from(new Set(preview.itens.map((item) => normalizarAwb(item.awb)).filter(Boolean)))
+
+    if (awbs.length === 0) return preview
+
+    const { data, error } = await supabase
+      .from('financeiro_embarques')
+      .select('id, awb, cliente, valor_compra')
+      .in('awb', awbs)
+
+    if (error) {
+      alert('PDF lido, mas houve erro ao conferir processos existentes: ' + error.message)
+      return preview
+    }
+
+    const processosPorAwb = new Map(
+      ((data as any[]) || []).map((item) => [normalizarAwb(item.awb), item])
+    )
+
+    return {
+      ...preview,
+      itens: preview.itens.map((item) => {
+        const processo = processosPorAwb.get(normalizarAwb(item.awb))
+
+        return {
+          ...item,
+          processo_encontrado: !!processo,
+          financeiro_id: processo?.id || null,
+          valor_compra_atual: processo?.valor_compra ?? null,
+          cliente: processo?.cliente || null,
+        }
+      }),
+    }
+  }
+
+  async function importarPdfTransportadora(event: React.ChangeEvent<HTMLInputElement>) {
+    const arquivo = event.target.files?.[0]
+    if (!arquivo) return
+
+    if (arquivo.type !== 'application/pdf') {
+      alert('Envie apenas PDF.')
+      event.target.value = ''
+      return
+    }
+
+    setImportandoPdf(true)
+    setPreviewPdf(null)
+    setArquivoPdfImportacao(arquivo)
+
+    try {
+      const formData = new FormData()
+      formData.append('arquivo', arquivo)
+
+      const resposta = await fetch('/api/faturas-transportadoras/importar-pdf', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const json = await resposta.json()
+
+      if (!resposta.ok) {
+        alert(json.error || 'Erro ao ler PDF.')
+        setImportandoPdf(false)
+        event.target.value = ''
+        return
+      }
+
+      const previewCompleta = await complementarPreviewComProcessos(json.preview)
+      setPreviewPdf(previewCompleta)
+
+      setTimeout(() => {
+        document.getElementById('preview_importacao_pdf')?.scrollIntoView({ behavior: 'smooth' })
+      }, 100)
+    } catch (error: any) {
+      alert('Erro ao importar PDF: ' + error.message)
+    }
+
+    setImportandoPdf(false)
+    event.target.value = ''
+  }
+
+  function limparImportacaoPdf() {
+    setPreviewPdf(null)
+    setArquivoPdfImportacao(null)
+  }
+
+  async function subirPdfImportado(faturaId: string, preview: PreviewImportacaoPdf) {
+    if (!arquivoPdfImportacao) return ''
+
+    const nomeLimpo = arquivoPdfImportacao.name.replaceAll(' ', '-')
+    const caminho = 'transportadoras/' + preview.transportadora + '/' + faturaId + '/' + Date.now() + '-' + nomeLimpo
+
+    const { error: uploadError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(caminho, arquivoPdfImportacao, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: 'application/pdf',
+      })
+
+    if (uploadError) throw new Error(uploadError.message)
+
+    const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(caminho)
+
+    return urlData.publicUrl
+  }
+
+  async function confirmarImportacaoPdf() {
+    if (!previewPdf) return
+    if (previewPdf.itens.length === 0) return alert('Nenhum item encontrado no PDF.')
+
+    const numeroFatura = normalizarNumeroFaturaParaSistema(previewPdf.numero_fatura)
+    const totalPdf = Number(previewPdf.valor_total || 0)
+
+    const faturaMesmoNumero = faturas.find((item) => {
+      return (
+        String(item.transportadora || '') === previewPdf.transportadora &&
+        normalizarNumeroFaturaParaSistema(item.numero_fatura) === numeroFatura
+      )
+    })
+
+    const faturaMesmoValor = faturas.find((item) => {
+      return (
+        String(item.transportadora || '') === previewPdf.transportadora &&
+        Number(item.total || 0).toFixed(2) === totalPdf.toFixed(2) &&
+        String(item.vencimento || '').slice(0, 10) === String(previewPdf.vencimento || '').slice(0, 10)
+      )
+    })
+
+    const faturaExistente = faturaMesmoNumero || faturaMesmoValor
+
+    if (faturaExistente) {
+      const motivo = faturaMesmoNumero
+        ? 'mesmo número de fatura'
+        : 'mesmo valor, transportadora e vencimento'
+
+      const confirmar = confirm(
+        'Atenção: já existe uma fatura registrada com ' + motivo + '.\n\n' +
+          'Fatura existente: ' + faturaExistente.numero_fatura + '\n' +
+          'Valor: ' + moeda(faturaExistente.total) + '\n\n' +
+          'O sistema NÃO vai duplicar a fatura. Ele vai usar o registro existente e apenas vincular os AWBs/valores do PDF.\n\n' +
+          'Deseja continuar?'
+      )
+
+      if (!confirmar) return
+    }
+
+    setConfirmandoPdf(true)
+
+    try {
+      let faturaId = faturaExistente?.id || ''
+
+      if (!faturaId) {
+        const payload = {
+          transportadora: previewPdf.transportadora,
+          conta: previewPdf.conta,
+          numero_fatura: numeroFatura,
+          emissao: previewPdf.emissao,
+          vencimento: previewPdf.vencimento,
+          data_pagamento: null,
+          utilizado_para: null,
+          situacao: 'EM ABERTO',
+          total: totalPdf,
+          valor_contestado: 0,
+          pago_ajustado: 0,
+          saldo: totalPdf,
+          moeda: 'BRL',
+          observacoes: 'Importada automaticamente por PDF. Os valores por AWB foram registrados para lançamento de valor_compra.',
+          atualizado_em: new Date().toISOString(),
+        }
+
+        const { data, error } = await supabase
+          .from('faturas_transportadoras')
+          .insert([payload])
+          .select('id')
+          .single()
+
+        if (error) throw new Error(error.message)
+        faturaId = data.id
+      }
+
+      if (arquivoPdfImportacao) {
+        const arquivoPdfUrl = await subirPdfImportado(faturaId, previewPdf)
+
+        const { error: erroPdf } = await supabase
+          .from('faturas_transportadoras')
+          .update({
+            arquivo_pdf: arquivoPdfUrl,
+            atualizado_em: new Date().toISOString(),
+          })
+          .eq('id', faturaId)
+
+        if (erroPdf) throw new Error(erroPdf.message)
+      }
+
+      const itensPayload = previewPdf.itens.map((item) => ({
+        fatura_transportadora_id: faturaId,
+        transportadora: previewPdf.transportadora,
+        numero_fatura: numeroFatura,
+        awb: normalizarAwb(item.awb),
+        referencia: item.referencia,
+        data_envio: item.data_envio,
+        valor_compra: Number(item.valor_compra || 0),
+        financeiro_embarque_id: item.financeiro_id || null,
+        valor_compra_anterior: item.valor_compra_atual ?? null,
+        status_lancamento: 'AGUARDANDO_PROCESSO',
+        observacao: item.processo_encontrado
+          ? 'Item importado por PDF. Processo encontrado na prévia.'
+          : 'Item importado por PDF. Aguardando criação do processo financeiro.',
+        atualizado_em: new Date().toISOString(),
+      }))
+
+      const { error: erroItens } = await supabase
+        .from('faturas_transportadoras_itens')
+        .upsert(itensPayload, {
+          onConflict: 'transportadora,numero_fatura,awb',
+        })
+
+      if (erroItens) throw new Error(erroItens.message)
+
+      const { data: sincronizacao, error: erroSync } = await supabase
+        .rpc('hc_sincronizar_itens_faturas_transportadoras')
+
+      if (erroSync) throw new Error(erroSync.message)
+
+      const resultado = Array.isArray(sincronizacao) ? sincronizacao[0] : sincronizacao
+
+      alert(
+        'Importação confirmada com sucesso.\n\n' +
+          'Fatura: ' + numeroFatura + '\n' +
+          'AWBs no PDF: ' + previewPdf.itens.length + '\n' +
+          'Lançados agora: ' + (resultado?.total_lancados ?? 0) + '\n' +
+          'Aguardando processo: ' + (resultado?.total_aguardando ?? 0) + '\n' +
+          'Para conferir valor existente: ' + (resultado?.total_conferir ?? 0)
+      )
+
+      limparImportacaoPdf()
+      await carregar()
+    } catch (error: any) {
+      alert('Erro ao confirmar importação PDF: ' + error.message)
+    }
+
+    setConfirmandoPdf(false)
+  }
+
 
   async function importarExcel(event: React.ChangeEvent<HTMLInputElement>) {
     const arquivo = event.target.files?.[0]
@@ -1142,6 +1445,18 @@ export default function FaturasTransportadorasPage() {
               className="hidden"
               disabled={importando}
               onChange={importarExcel}
+            />
+          </label>
+
+
+          <label className="bg-orange-600 hover:bg-orange-500 px-5 py-3 rounded-xl font-bold cursor-pointer">
+            {importandoPdf ? 'Lendo PDF...' : 'Importar PDF DHL/FedEx'}
+            <input
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              disabled={importandoPdf}
+              onChange={importarPdfTransportadora}
             />
           </label>
 
