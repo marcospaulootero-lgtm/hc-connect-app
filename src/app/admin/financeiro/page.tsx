@@ -3228,7 +3228,7 @@ export default function FinanceiroPage() {
                       <Td>
                         <div className="flex gap-2">
                           <button onClick={() => editarMovimentacao(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">âœŽ</button>
-                          <button onClick={() => excluirMovimentacao(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold">ðŸ—‘</button>
+                          <button onClick={() => excluirMovimentacao(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold"></button>
                         </div>
                       </Td>
                     </tr>
@@ -3502,7 +3502,7 @@ export default function FinanceiroPage() {
             onClick={carregarDados}
             className="bg-white border border-gray-200 text-gray-800 px-5 py-3 rounded-xl font-bold hover:bg-gray-100 shadow-sm"
           >
-            â†» Atualizar dados
+             Atualizar dados
           </button>
 
           <button
@@ -3510,12 +3510,12 @@ export default function FinanceiroPage() {
             onClick={exportarPdfDoFiltro}
             className="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold hover:bg-slate-800 shadow-sm"
           >
-            ðŸ§¾ PDF do filtro
+             PDF do filtro
           </button>
 
           {abaPrincipal === 'PROCESSOS' && (
             <label className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-blue-700 shadow-sm">
-              â†“ Importar Excel
+               Importar Excel
               <input
                 type="file"
                 accept=".xlsx,.xls,.xlsm"
@@ -3528,7 +3528,7 @@ export default function FinanceiroPage() {
 
           {abaPrincipal === 'DESPESAS' && (
             <label className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-green-700 shadow-sm">
-              â†“ Importar Despesas Excel
+               Importar Despesas Excel
               <input
                 type="file"
                 accept=".xlsx,.xls,.xlsm"
@@ -3541,7 +3541,7 @@ export default function FinanceiroPage() {
 
           {abaPrincipal === 'SOCIOS' && (
             <label className="bg-purple-600 text-white px-5 py-3 rounded-xl font-bold cursor-pointer hover:bg-purple-700 shadow-sm">
-              â†“ Importar Retiradas Excel
+               Importar Retiradas Excel
               <input
                 type="file"
                 accept=".xlsx,.xls,.xlsm"
@@ -3604,7 +3604,7 @@ export default function FinanceiroPage() {
               titulo="VALOR EM ABERTO"
               valor={moeda(resumo.emAberto.total)}
               subtitulo="Valor pendente de recebimento"
-              icone="ðŸ“‚"
+              icone=""
               classe="bg-orange-50 border-orange-200 text-orange-600"
             />
 
@@ -3612,7 +3612,7 @@ export default function FinanceiroPage() {
               titulo="VALOR EM ATRASO"
               valor={moeda(resumo.atrasado.total)}
               subtitulo="Valor vencido não recebido"
-              icone="â°"
+              icone=""
               classe="bg-red-50 border-red-200 text-red-600"
             />
           </section>
@@ -3859,7 +3859,7 @@ export default function FinanceiroPage() {
                           <Td>{moeda(item.valor_cobranca)}</Td>
                           <Td>{moeda(item.doc_dta)}</Td>
                           <Td>{moeda(item.debito_terceiro)}</Td>
-                          <Td>{possuiCusto ? moeda(item.valor_compra) : <span className="inline-flex rounded-lg bg-yellow-100 px-2 py-1 text-xs font-black text-yellow-700 border border-yellow-300">âš  AGUARDANDO CUSTO</span>}</Td>
+                          <Td>{possuiCusto ? moeda(item.valor_compra) : <span className="inline-flex rounded-lg bg-yellow-100 px-2 py-1 text-xs font-black text-yellow-700 border border-yellow-300">⚠ AGUARDANDO CUSTO</span>}</Td>
                           <Td>{profit === null ? <span className="text-gray-400 font-black">AGUARDANDO CUSTO</span> : <span className={profit >= 0 ? 'text-green-600 font-black' : 'text-red-600 font-black'}>{moeda(profit)}</span>}</Td>
                           <Td>{normalizarData(item.vencimento_cobranca) || '-'}</Td>
                           <Td>{normalizarData(item.recebimento) || '-'}</Td>
@@ -3867,7 +3867,7 @@ export default function FinanceiroPage() {
                           <Td>
                             <div className="flex gap-2">
                               <button onClick={() => editar(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">âœŽ</button>
-                              <button onClick={() => excluir(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold">ðŸ—‘</button>
+                              <button onClick={() => excluir(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold"></button>
                             </div>
                           </Td>
                         </tr>
@@ -3904,7 +3904,7 @@ export default function FinanceiroPage() {
               titulo="FUNDO DE CAIXA ATUAL"
               valor={moeda(resultadoGeral.fundoAtual)}
               subtitulo={`Saldo acumulado de ${anoFinanceiroAtivo()}`}
-              icone="ðŸ¦"
+              icone=""
               classe="bg-blue-50 border-blue-200 text-blue-700"
             />
             <BigCard
@@ -3925,7 +3925,7 @@ export default function FinanceiroPage() {
               titulo="SALDO DO PERÍODO"
               valor={moeda(resumoFundoFiltro.saldoPeriodo)}
               subtitulo="Entradas - saídas + ajustes"
-              icone={resumoFundoFiltro.saldoPeriodo >= 0 ? 'âœ…' : 'âš ï¸'}
+              icone={resumoFundoFiltro.saldoPeriodo >= 0 ? '✅' : '⚠ï¸'}
               classe={resumoFundoFiltro.saldoPeriodo >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
             />
           </section>
