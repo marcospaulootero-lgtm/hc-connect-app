@@ -389,7 +389,16 @@ function encontrarDataColetaDHL(eventos: any[]) {
       `${evento?.description || ''} ${evento?.status || ''} ${evento?.statusCode || ''} ${evento?.typeCode || ''}`
     )
 
-    return texto.includes('picked') || texto.includes('pickup') || texto.includes('colet')
+    return (
+      texto.includes('picked up') ||
+      texto.includes('shipment picked up') ||
+      texto.includes('collected') ||
+      texto.includes('coletado') ||
+      texto.includes('coleta realizada') ||
+      texto.includes('envio recolhido') ||
+      texto === 'pu' ||
+      texto.includes(' pu ')
+    )
   })
 
   return eventoColeta?.timestamp || null
@@ -401,14 +410,25 @@ function encontrarDataColetaFedEx(eventos: any[]) {
       `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
     )
 
-    return (
-      texto.includes('picked') ||
-      texto.includes('pickup') ||
+    const pickupReal =
       texto.includes('picked up') ||
-      texto.includes('colet') ||
+      texto.includes('shipment picked up') ||
+      texto.includes('collected') ||
+      texto.includes('coletado') ||
+      texto.includes('coleta realizada') ||
+      texto.includes('envio recolhido') ||
       texto === 'pu' ||
       texto.includes(' pu ')
-    )
+
+    const pickupAgendadoOuPendente =
+      texto.includes('pickup scheduled') ||
+      texto.includes('pickup requested') ||
+      texto.includes('pickup pending') ||
+      texto.includes('scheduled pickup') ||
+      texto.includes('coleta agendada') ||
+      texto.includes('aguardando coleta')
+
+    return pickupReal && !pickupAgendadoOuPendente
   })
 
   return eventoColeta?.date || null
@@ -568,16 +588,28 @@ function ehTransito(s: string) {
 }
 
 function ehColetado(s: string) {
-  return (
-    s.includes('picked up') ||
-    s.includes('pickup') ||
-    s.includes('collected') ||
-    s.includes('coletado') ||
-    s.includes('coleta realizada') ||
-    s.includes('shipment picked up') ||
-    s.includes('colet') ||
-    s.includes('envio recolhido')
-  )
+  const texto = removerAcentos(s)
+
+  const pickupReal =
+    texto.includes('picked up') ||
+    texto.includes('shipment picked up') ||
+    texto.includes('collected') ||
+    texto.includes('coletado') ||
+    texto.includes('coleta realizada') ||
+    texto.includes('envio recolhido') ||
+    texto.includes('remessa recolhida') ||
+    texto === 'pu' ||
+    texto.includes(' pu ')
+
+  const pickupAgendadoOuPendente =
+    texto.includes('pickup scheduled') ||
+    texto.includes('pickup requested') ||
+    texto.includes('pickup pending') ||
+    texto.includes('scheduled pickup') ||
+    texto.includes('coleta agendada') ||
+    texto.includes('aguardando coleta')
+
+  return pickupReal && !pickupAgendadoOuPendente
 }
 
 function ehEtiquetaGerada(s: string) {
@@ -620,13 +652,27 @@ async function salvarRastreio({
   avisoValidacao,
 }: any) {
   const statusDetectado = normalizarStatus(status)
-  const statusNormalizado = statusMaisForte(embarque.status_operacional, statusDetectado)
-  const mudouStatus = statusNormalizado !== normalizarStatus(embarque.status_operacional || '')
+  const statusAtualAntes = normalizarStatus(embarque.status_operacional || '')
+  let statusNormalizado = statusMaisForte(embarque.status_operacional, statusDetectado)
+
+  // Correção importante:
+  // "Aguardando coleta" / "Etiqueta criada" não pode permanecer como Coletado.
+  // Se o status anterior foi gravado errado como Coletado e a transportadora voltou etiqueta criada,
+  // o sistema deve corrigir para Aguardando coleta.
+  if (statusDetectado === 'Aguardando coleta' && statusAtualAntes === 'Coletado' && !dataColeta) {
+    statusNormalizado = 'Aguardando coleta'
+  }
+
+  const mudouStatus = statusNormalizado !== statusAtualAntes
 
   const dadosAtualizar: any = {
     status_operacional: statusNormalizado,
     ultima_atualizacao: new Date().toISOString(),
     proxima_tentativa_rastreio: null,
+  }
+
+  if (statusNormalizado === 'Aguardando coleta' && statusAtualAntes === 'Coletado' && !dataColeta) {
+    dadosAtualizar.data_envio = null
   }
 
   if (statusNormalizado === 'Entregue') {
