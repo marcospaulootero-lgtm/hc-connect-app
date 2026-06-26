@@ -232,6 +232,14 @@ export default function FinanceiroPage() {
   }, [])
 
   useEffect(() => {
+    if (String(anoFinanceiro).toUpperCase() === 'TODOS') {
+      setAnoExtrato('TODOS')
+      setPagina(1)
+      setPaginaMovimentos(1)
+      setPaginaExtrato(1)
+      return
+    }
+
     const anoValido = anoFinanceiroPermitido(anoFinanceiro)
       ? String(anoFinanceiro)
       : String(ANO_ATUAL_FINANCEIRO)
@@ -426,13 +434,27 @@ export default function FinanceiroPage() {
     )
   }
 
+  function todosAnosFinanceiroAtivo() {
+    return String(anoFinanceiro || '').toUpperCase() === 'TODOS'
+  }
+
   function anoFinanceiroAtivo() {
+    if (todosAnosFinanceiroAtivo()) return 'TODOS'
+
     return anoFinanceiroPermitido(anoFinanceiro)
       ? String(anoFinanceiro)
       : String(ANO_ATUAL_FINANCEIRO)
   }
 
+  function rotuloAnoFinanceiro() {
+    return todosAnosFinanceiroAtivo() ? 'Todos os anos' : anoFinanceiroAtivo()
+  }
+
   function mesPadraoAnoFinanceiroAtivo() {
+    if (todosAnosFinanceiroAtivo()) {
+      return new Date().toISOString().slice(0, 7)
+    }
+
     const anoAtivo = anoFinanceiroAtivo()
     const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0')
     const mesPadrao = anoAtivo === String(ANO_ATUAL_FINANCEIRO) ? mesAtual : '12'
@@ -440,6 +462,8 @@ export default function FinanceiroPage() {
   }
 
   function mesDoAnoFinanceiroAtivo(mes: any) {
+    if (todosAnosFinanceiroAtivo()) return true
+
     return String(mes || '').slice(0, 7).startsWith(`${anoFinanceiroAtivo()}-`)
   }
 
@@ -457,6 +481,15 @@ export default function FinanceiroPage() {
 
   function textoAnosFinanceiroPermitidos() {
     return ANOS_FINANCEIRO_PERMITIDOS.join(' e ')
+  }
+
+  function aplicarTodosAnosFinanceiro() {
+    setAnoFinanceiro('TODOS')
+    setFiltroMesMovimento([])
+    setFiltroStatusProcessos([])
+    setPagina(1)
+    setPaginaMovimentos(1)
+    setPaginaExtrato(1)
   }
 
   function calcularFundoAtualPermitido(lista = movimentacoes) {
@@ -3281,6 +3314,7 @@ export default function FinanceiroPage() {
                 onChange={(e) => { setAnoFinanceiro(e.target.value); setAnoExtrato(e.target.value); setPaginaExtrato(1) }}
                 className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
+                <option value="TODOS">Todos</option>
                 {ANOS_FINANCEIRO_PERMITIDOS.map((ano) => (
                   <option key={ano} value={String(ano)}>
                     {ano}
@@ -3559,7 +3593,7 @@ export default function FinanceiroPage() {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Filtro geral do financeiro</p>
-            <h2 className="text-xl font-black text-gray-950">Ano em análise: {anoFinanceiroAtivo()}</h2>
+            <h2 className="text-xl font-black text-gray-950">Ano em análise: {rotuloAnoFinanceiro()}</h2>
             <p className="text-sm font-semibold text-gray-500">
               Todas as abas abaixo usam este ano como base: Painel do Dono, Resultado, Processos, Despesas, Sócios e Caixa/Fundo.
             </p>
@@ -3580,6 +3614,18 @@ export default function FinanceiroPage() {
                 ))}
               </select>
             </label>
+
+            <button
+              type="button"
+              onClick={aplicarTodosAnosFinanceiro}
+              className={
+                todosAnosFinanceiroAtivo()
+                  ? 'rounded-xl bg-green-600 px-5 py-3 text-sm font-black text-white shadow-sm'
+                  : 'rounded-xl bg-slate-900 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-slate-800'
+              }
+            >
+              {todosAnosFinanceiroAtivo() ? 'Todos exibidos' : 'Mostrar todos'}
+            </button>
 
             <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
               Período permitido: {textoAnosFinanceiroPermitidos()}
@@ -3952,8 +3998,8 @@ export default function FinanceiroPage() {
                 <label className="text-sm font-semibold text-gray-600">Mês do resultado</label>
                 <input
                   type="month"
-                  min={`${anoFinanceiroAtivo()}-01`}
-                  max={`${anoFinanceiroAtivo()}-12`}
+                  min={MES_MINIMO_FINANCEIRO}
+                  max={MES_MAXIMO_FINANCEIRO}
                   value={mesResultado}
                   onChange={(e) => {
                     if (!mesFinanceiroPermitido(e.target.value)) {
