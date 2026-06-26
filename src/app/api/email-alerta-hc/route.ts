@@ -1,25 +1,34 @@
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
+function limpar(valor: unknown) {
+  if (valor === null || valor === undefined) return '-'
+  return String(valor).trim() || '-'
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json()
 
-    const tipo = body.tipo || 'ALERTA'
-    const titulo = body.titulo || 'Novo alerta no HC Connect'
-    const mensagem = body.mensagem || ''
-    const dados = body.dados || {}
+    const tipo = limpar(body.tipo || 'ALERTA')
+    const titulo = limpar(body.titulo || 'Novo alerta no HC Connect')
+    const mensagem = limpar(body.mensagem || '')
+    const dados = body.dados && typeof body.dados === 'object' ? body.dados : {}
 
     const resendApiKey = process.env.RESEND_API_KEY
 
     if (!resendApiKey) {
       return NextResponse.json(
-        { error: 'RESEND_API_KEY não configurada.' },
+        { error: 'RESEND_API_KEY nao configurada.' },
         { status: 400 }
       )
     }
 
     const detalhes = Object.entries(dados)
-      .map(([chave, valor]) => `<li><strong>${chave}:</strong> ${valor || '-'}</li>`)
+      .map(([chave, valor]) => {
+        return `<li><strong>${limpar(chave)}:</strong> ${limpar(valor)}</li>`
+      })
       .join('')
 
     const html = `
@@ -27,9 +36,18 @@ export async function POST(req: Request) {
         <h2>${titulo}</h2>
 
         <p><strong>Tipo:</strong> ${tipo}</p>
-        <p>${mensagem}</p>
 
-        <ul>${detalhes}</ul>
+        ${
+          mensagem !== '-'
+            ? `<p>${mensagem}</p>`
+            : ''
+        }
+
+        ${
+          detalhes
+            ? `<ul>${detalhes}</ul>`
+            : ''
+        }
 
         <p>
           <strong>Acessar painel:</strong><br/>
@@ -57,15 +75,24 @@ export async function POST(req: Request) {
       }),
     })
 
-    const resultado = await resposta.json()
+    const resultado = await resposta.json().catch(() => null)
 
     if (!resposta.ok) {
-      console.log(resultado)
-      return NextResponse.json({ error: resultado }, { status: 400 })
+      console.log('Erro Resend email-alerta-hc:', resultado)
+
+      return NextResponse.json(
+        { error: resultado || 'Erro ao enviar alerta.' },
+        { status: 400 }
+      )
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({
+      success: true,
+      resultado,
+    })
   } catch (error: any) {
+    console.log('Erro geral email-alerta-hc:', error)
+
     return NextResponse.json(
       { error: error?.message || 'Erro ao enviar alerta.' },
       { status: 500 }
