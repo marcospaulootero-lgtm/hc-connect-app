@@ -29,6 +29,10 @@ export default function ParceirosPage() {
   const [selecionadosPdf, setSelecionadosPdf] = useState<string[]>([])
   const [valorAlvoPdf, setValorAlvoPdf] = useState('')
   const [quantidadePdf, setQuantidadePdf] = useState('10')
+  const [emailDestinatariosPdf, setEmailDestinatariosPdf] = useState('')
+  const [emailAssuntoPdf, setEmailAssuntoPdf] = useState('')
+  const [emailCorpoPdf, setEmailCorpoPdf] = useState('')
+  const [enviandoEmailPdf, setEnviandoEmailPdf] = useState(false)
 
   const [form, setForm] = useState({
     parceiro: '',
@@ -819,148 +823,341 @@ export default function ParceirosPage() {
     setSalvandoPortal(false)
   }
 
+  function valorTerceiro(item: any) {
+    return Number(item?.debito_terceiro || 0)
+  }
+
+  function dataBaseSelecao(item: any) {
+    const datas = [
+      item?.vencimento_cobranca,
+      item?.vencimento_cliente,
+      item?.recebimento,
+      item?.recebimento_cliente,
+      item?.criado_em,
+      item?.created_at,
+      item?.atualizado_em,
+    ]
+
+    for (const data of datas) {
+      const tempo = new Date(data || '').getTime()
+      if (Number.isFinite(tempo)) return tempo
+    }
+
+    return Number.MAX_SAFE_INTEGER
+  }
+
+  function itensPendentesOrdenadosParaPdf() {
+    return filtrados
+      .filter((item) => status(item) !== 'PAGO' && valorTerceiro(item) > 0)
+      .sort((a, b) => {
+        const dataA = dataBaseSelecao(a)
+        const dataB = dataBaseSelecao(b)
+
+        if (dataA !== dataB) return dataA - dataB
+
+        return String(a.awb || '').localeCompare(String(b.awb || ''), 'pt-BR')
+      })
+  }
+
+  function calcularResumoPdf(lista: any[]) {
+    const pagos = lista.filter((item) => status(item) === 'PAGO')
+    const pendentes = lista.filter((item) => status(item) !== 'PAGO')
+
+    function total(itens: any[]) {
+      return itens.reduce((acc, item) => acc + valorTerceiro(item), 0)
+    }
+
+    const totalLista = total(lista)
+
+    return {
+      qtd: lista.length,
+      total: totalLista,
+      pago: total(pagos),
+      pendente: total(pendentes),
+      ticket: lista.length ? totalLista / lista.length : 0,
+    }
+  }
+
+  function itensSelecionadosParaPdf() {
+    const ids = new Set(selecionadosPdf)
+    return filtrados.filter((item) => ids.has(String(item.id || '')))
+  }
+
+  function itensAtuaisDoPdf() {
+    const selecionados = itensSelecionadosParaPdf()
+    return selecionados.length > 0 ? selecionados : filtrados
+  }
+
+  function alternarSelecaoPdf(id: any, marcado: boolean) {
+    const idFinal = String(id || '')
+    if (!idFinal) return
+
+    setSelecionadosPdf((atuais) =>
+      marcado
+        ? Array.from(new Set([...atuais, idFinal]))
+        : atuais.filter((item) => item !== idFinal)
+    )
+  }
+
+  function selecionarPaginadosPdf(marcado: boolean) {
+    const idsPagina = paginados.map((item) => String(item.id || '')).filter(Boolean)
+
+    setSelecionadosPdf((atuais) => {
+      if (!marcado) {
+        return atuais.filter((id) => !idsPagina.includes(id))
+      }
+
+      return Array.from(new Set([...atuais, ...idsPagina]))
+    })
+  }
+
+  function selecionarQuantidadeMaisAntigos() {
+    const quantidade = Math.max(1, Math.floor(Number(quantidadePdf) || 0))
+    const selecionados = itensPendentesOrdenadosParaPdf().slice(0, quantidade)
+
+    if (selecionados.length === 0) {
+      alert('Nenhum processo pendente encontrado no filtro atual.')
+      return
+    }
+
+    setSelecionadosPdf(selecionados.map((item) => String(item.id)))
+    setPagina(1)
+  }
+
+  function selecionarMaisAntigosAteValor() {
+    const alvo = normalizarNumero(valorAlvoPdf)
+
+    if (!alvo || alvo <= 0) {
+      alert('Informe um valor alvo. Ex: 10000')
+      return
+    }
+
+    let total = 0
+    const selecionados: any[] = []
+
+    for (const item of itensPendentesOrdenadosParaPdf()) {
+      const valor = valorTerceiro(item)
+
+      if (valor <= 0) continue
+
+      if (total + valor <= alvo) {
+        selecionados.push(item)
+        total += valor
+      }
+    }
+
+    if (selecionados.length === 0) {
+      alert('Nenhum processo coube dentro do valor alvo informado.')
+      return
+    }
+
+    setSelecionadosPdf(selecionados.map((item) => String(item.id)))
+    setPagina(1)
+  }
+
+  function limparSelecaoPdf() {
+    setSelecionadosPdf([])
+  }
+
+  async function montarPdfParceiros() {
+    const { default: jsPDF } = await import('jspdf')
+    const autoTableModule: any = await import('jspdf-autotable')
+    const autoTable = autoTableModule.default || autoTableModule
+
+    const itensPdf = itensAtuaisDoPdf()
+
+    if (itensPdf.length === 0) {
+      throw new Error('Nenhum processo encontrado para gerar o PDF.')
+    }
+
+    const resumoPdf = calcularResumoPdf(itensPdf)
+    const nomeParceiro = parceiroSelecionado || 'Todos parceiros'
+    const dataGeracao = new Date().toLocaleString('pt-BR')
+    const tipoRelatorio = selecionadosPdf.length > 0 ? 'Processos selecionados' : 'Filtro completo'
+
+    const nomeArquivo = String(nomeParceiro)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4',
+    })
+
+    const pageWidth = doc.internal.pageSize.getWidth()
+
+    doc.setFillColor(2, 12, 34)
+    doc.rect(0, 0, pageWidth, 22, 'F')
+
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(18)
+    doc.setFont('helvetica', 'bold')
+    doc.text('HC Connect', 14, 14)
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.text('Relatório de Profit Parceiros', pageWidth - 14, 14, {
+      align: 'right',
+    })
+
+    doc.setTextColor(15, 23, 42)
+    doc.setFontSize(18)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Resumo do filtro - Profit Parceiros', 14, 34)
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(71, 85, 105)
+    doc.text(`Parceiro: ${nomeParceiro}`, 14, 41)
+    doc.text(`Período: ${periodo === 'TODOS' ? 'Todos os períodos' : periodo}`, 14, 47)
+    doc.text(`Status: ${aba}`, 14, 53)
+    doc.text(`Busca: ${busca || '-'}`, 14, 59)
+    doc.text(`PDF: ${tipoRelatorio}`, 14, 65)
+    doc.text(`Gerado em: ${dataGeracao}`, pageWidth - 14, 41, {
+      align: 'right',
+    })
+
+    autoTable(doc, {
+      startY: 72,
+      head: [['Processos', 'Total terceiro', 'Pago terceiro', 'Pendente terceiro', 'Ticket médio']],
+      body: [[
+        String(resumoPdf.qtd),
+        moeda(resumoPdf.total),
+        moeda(resumoPdf.pago),
+        moeda(resumoPdf.pendente),
+        moeda(resumoPdf.ticket),
+      ]],
+      theme: 'grid',
+      headStyles: {
+        fillColor: [37, 99, 235],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center',
+      },
+      bodyStyles: {
+        halign: 'center',
+        fontStyle: 'bold',
+      },
+      styles: {
+        fontSize: 9,
+        cellPadding: 3,
+      },
+    })
+
+    const tabela = itensPdf.map((item) => [
+      item.awb || '-',
+      item.cliente || '-',
+      item.servico || '-',
+      moeda(item.debito_terceiro),
+      statusVisual(item),
+      item.mes_pgto || '-',
+    ])
+
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 10,
+      head: [['AWB', 'Cliente', 'Serviço', 'Valor terceiro', 'Status pgto terceiro', 'Mês pgto terceiro']],
+      body: tabela.length ? tabela : [['-', '-', '-', '-', '-', '-']],
+      theme: 'striped',
+      headStyles: {
+        fillColor: [15, 23, 42],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+      },
+      styles: {
+        fontSize: 8,
+        cellPadding: 2.5,
+        overflow: 'linebreak',
+      },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 58 },
+        2: { cellWidth: 38 },
+        3: { cellWidth: 34, halign: 'right' },
+        4: { cellWidth: 38, halign: 'center' },
+        5: { cellWidth: 35, halign: 'center' },
+      },
+      didDrawPage: () => {
+        const pageHeight = doc.internal.pageSize.getHeight()
+        doc.setFontSize(8)
+        doc.setTextColor(100, 116, 139)
+        doc.text('Relatório gerado automaticamente pelo HC Connect', 14, pageHeight - 8)
+        doc.text(`Página ${doc.getNumberOfPages()}`, pageWidth - 14, pageHeight - 8, {
+          align: 'right',
+        })
+      },
+    })
+
+    return {
+      doc,
+      nomeArquivo: `profit-parceiros-${nomeArquivo || 'todos'}.pdf`,
+      itensPdf,
+      resumoPdf,
+    }
+  }
+
   async function gerarPdfFiltro() {
     try {
-      const { default: jsPDF } = await import('jspdf')
-      const autoTableModule: any = await import('jspdf-autotable')
-      const autoTable = autoTableModule.default || autoTableModule
-
-      const nomeParceiro = parceiroSelecionado || 'Todos parceiros'
-      const dataGeracao = new Date().toLocaleString('pt-BR')
-
-      const nomeArquivo = String(nomeParceiro)
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-
-      const doc = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: 'a4',
-      })
-
-      const pageWidth = doc.internal.pageSize.getWidth()
-
-      doc.setFillColor(2, 12, 34)
-      doc.rect(0, 0, pageWidth, 22, 'F')
-
-      doc.setTextColor(255, 255, 255)
-      doc.setFontSize(18)
-      doc.setFont('helvetica', 'bold')
-      doc.text('HC Connect', 14, 14)
-
-      doc.setFontSize(10)
-      doc.setFont('helvetica', 'normal')
-      doc.text('Relatório de Profit Parceiros', pageWidth - 14, 14, {
-        align: 'right',
-      })
-
-      doc.setTextColor(15, 23, 42)
-      doc.setFontSize(18)
-      doc.setFont('helvetica', 'bold')
-      doc.text('Resumo do filtro - Profit Parceiros', 14, 34)
-
-      doc.setFontSize(9)
-      doc.setFont('helvetica', 'normal')
-      doc.setTextColor(71, 85, 105)
-      doc.text(`Parceiro: ${nomeParceiro}`, 14, 41)
-      doc.text(
-        `Período: ${periodo === 'TODOS' ? 'Todos os períodos' : periodo}`,
-        14,
-        47
-      )
-      doc.text(`Status: ${aba}`, 14, 53)
-      doc.text(`Busca: ${busca || '-'}`, 14, 59)
-      doc.text(`Gerado em: ${dataGeracao}`, pageWidth - 14, 41, {
-        align: 'right',
-      })
-
-      autoTable(doc, {
-        startY: 66,
-        head: [['Processos', 'Total terceiro', 'Pago terceiro', 'Pendente terceiro', 'Ticket médio']],
-        body: [[
-          String(resumoFiltrado.qtd),
-          moeda(resumoFiltrado.total),
-          moeda(resumoFiltrado.pago),
-          moeda(resumoFiltrado.pendente),
-          moeda(resumoFiltrado.ticket),
-        ]],
-        theme: 'grid',
-        headStyles: {
-          fillColor: [37, 99, 235],
-          textColor: [255, 255, 255],
-          fontStyle: 'bold',
-          halign: 'center',
-        },
-        bodyStyles: {
-          halign: 'center',
-          fontStyle: 'bold',
-        },
-        styles: {
-          fontSize: 9,
-          cellPadding: 3,
-        },
-      })
-
-      const tabela = filtrados.map((item) => [
-        item.awb || '-',
-        item.cliente || '-',
-        item.servico || '-',
-        moeda(item.debito_terceiro),
-        statusVisual(item),
-        item.mes_pgto || '-',
-      ])
-
-      autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 10,
-        head: [['AWB', 'Cliente', 'Serviço', 'Valor terceiro', 'Status pgto terceiro', 'Mês pgto terceiro']],
-        body: tabela.length ? tabela : [['-', '-', '-', '-', '-', '-']],
-        theme: 'striped',
-        headStyles: {
-          fillColor: [15, 23, 42],
-          textColor: [255, 255, 255],
-          fontStyle: 'bold',
-        },
-        styles: {
-          fontSize: 8,
-          cellPadding: 2.5,
-          overflow: 'linebreak',
-        },
-        columnStyles: {
-          0: { cellWidth: 28 },
-          1: { cellWidth: 58 },
-          2: { cellWidth: 38 },
-          3: { cellWidth: 34, halign: 'right' },
-          4: { cellWidth: 38, halign: 'center' },
-          5: { cellWidth: 35, halign: 'center' },
-        },
-        didDrawPage: () => {
-          const pageHeight = doc.internal.pageSize.getHeight()
-          doc.setFontSize(8)
-          doc.setTextColor(100, 116, 139)
-          doc.text(
-            'Relatório gerado automaticamente pelo HC Connect',
-            14,
-            pageHeight - 8
-          )
-          doc.text(
-            `Página ${doc.getNumberOfPages()}`,
-            pageWidth - 14,
-            pageHeight - 8,
-            { align: 'right' }
-          )
-        },
-      })
-
-      doc.save(`profit-parceiros-${nomeArquivo || 'todos'}.pdf`)
+      const { doc, nomeArquivo } = await montarPdfParceiros()
+      doc.save(nomeArquivo)
     } catch (error: any) {
       alert(
         'Erro ao gerar PDF: ' +
           error.message +
           '\n\nConfira se você instalou: npm install jspdf jspdf-autotable'
       )
+    }
+  }
+
+  async function enviarPdfPorEmail() {
+    try {
+      if (!emailDestinatariosPdf.trim()) {
+        alert('Informe pelo menos um destinatário.')
+        return
+      }
+
+      if (!emailAssuntoPdf.trim()) {
+        alert('Informe o assunto do e-mail.')
+        return
+      }
+
+      if (!emailCorpoPdf.trim()) {
+        alert('Informe o corpo do e-mail.')
+        return
+      }
+
+      setEnviandoEmailPdf(true)
+
+      const { doc, nomeArquivo } = await montarPdfParceiros()
+      const dataUri = doc.output('datauristring')
+      const pdfBase64 = String(dataUri).split(',')[1]
+
+      const resposta = await fetch('/api/email-profit-parceiros', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          destinatarios: emailDestinatariosPdf,
+          assunto: emailAssuntoPdf,
+          mensagem: emailCorpoPdf,
+          pdfBase64,
+          nomeArquivo,
+        }),
+      })
+
+      const retorno = await resposta.json().catch(() => null)
+
+      if (!resposta.ok) {
+        throw new Error(retorno?.error || 'Erro ao enviar e-mail.')
+      }
+
+      alert('PDF enviado por e-mail com sucesso.')
+    } catch (error: any) {
+      alert('Erro ao enviar PDF por e-mail: ' + error.message)
+    } finally {
+      setEnviandoEmailPdf(false)
     }
   }
 
@@ -1162,6 +1359,15 @@ export default function ParceirosPage() {
       .sort((a, b) => b.qtd - a.qtd || b.total - a.total)
   }, [filtrados])
 
+  const itensSelecionadosPdf = useMemo(() => {
+    const ids = new Set(selecionadosPdf)
+    return filtrados.filter((item) => ids.has(String(item.id || '')))
+  }, [filtrados, selecionadosPdf])
+
+  const resumoSelecionadoPdf = useMemo(() => {
+    return calcularResumoPdf(itensSelecionadosPdf)
+  }, [itensSelecionadosPdf])
+
   const resumoPortalParceiro = useMemo(() => {
     const idsPeriodo = new Set(dadosParceiroPeriodo.map((item) => item.id).filter(Boolean))
     const acessosPeriodo = acessosPortal.filter(
@@ -1192,6 +1398,10 @@ export default function ParceirosPage() {
     const inicio = (pagina - 1) * PAGE_SIZE
     return filtrados.slice(inicio, inicio + PAGE_SIZE)
   }, [filtrados, pagina])
+
+  const todosPaginadosSelecionados =
+    paginados.length > 0 &&
+    paginados.every((item) => selecionadosPdf.includes(String(item.id || '')))
 
   const percentualPago = resumoParceiro.total
     ? Math.round((resumoParceiro.pago / resumoParceiro.total) * 100)
@@ -1535,7 +1745,7 @@ export default function ParceirosPage() {
               />
 
               <button type="button" onClick={gerarPdfFiltro} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50">
-                📄 Gerar PDF
+                📄 {itensSelecionadosPdf.length > 0 ? 'Gerar PDF selecionados' : 'Gerar PDF'}
               </button>
 
               <button
@@ -1559,6 +1769,110 @@ export default function ParceirosPage() {
               <ResumoFiltroCard titulo="Pago terceiro" valor={moeda(resumoFiltrado.pago)} destaque="green" />
               <ResumoFiltroCard titulo="Pendente terceiro" valor={moeda(resumoFiltrado.pendente)} destaque="orange" />
               <ResumoFiltroCard titulo="Ticket médio" valor={moeda(resumoFiltrado.ticket)} />
+            </div>
+          </section>
+
+          <section className="mb-5 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+            <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h4 className="text-base font-black text-slate-950">Seleção para pagamento / PDF</h4>
+                <p className="text-sm font-bold text-slate-500">
+                  Se houver seleção, o PDF e o e-mail serão gerados somente com os processos selecionados.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm font-black text-emerald-700">
+                {resumoSelecionadoPdf.qtd} selecionado(s) · {moeda(resumoSelecionadoPdf.total)}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_auto_auto_auto]">
+              <input
+                value={valorAlvoPdf}
+                onChange={(e) => setValorAlvoPdf(e.target.value)}
+                placeholder="Valor alvo. Ex: 10000"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+              />
+
+              <input
+                value={quantidadePdf}
+                onChange={(e) => setQuantidadePdf(e.target.value)}
+                placeholder="Qtd. processos"
+                type="number"
+                min="1"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+              />
+
+              <button
+                type="button"
+                onClick={selecionarMaisAntigosAteValor}
+                className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-black text-orange-700 hover:bg-orange-100"
+              >
+                Mais antigos até valor
+              </button>
+
+              <button
+                type="button"
+                onClick={selecionarQuantidadeMaisAntigos}
+                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"
+              >
+                Qtd. mais antigos
+              </button>
+
+              <button
+                type="button"
+                onClick={limparSelecaoPdf}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                Limpar seleção
+              </button>
+            </div>
+
+            {resumoSelecionadoPdf.qtd > 0 && valorAlvoPdf && (
+              <p className="mt-3 text-sm font-bold text-slate-600">
+                Valor alvo: {moeda(normalizarNumero(valorAlvoPdf))} · Diferença: {moeda(Math.max(normalizarNumero(valorAlvoPdf) - resumoSelecionadoPdf.total, 0))}
+              </p>
+            )}
+          </section>
+
+          <section className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+            <div className="mb-4">
+              <h4 className="text-base font-black text-slate-950">Enviar PDF por e-mail</h4>
+              <p className="text-sm font-bold text-slate-500">
+                O PDF enviado respeita a seleção atual. Marcos e Hérica entram automaticamente em cópia.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <input
+                value={emailDestinatariosPdf}
+                onChange={(e) => setEmailDestinatariosPdf(e.target.value)}
+                placeholder="Destinatários. Ex: financeiro@cliente.com; comercial@cliente.com"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+              />
+
+              <input
+                value={emailAssuntoPdf}
+                onChange={(e) => setEmailAssuntoPdf(e.target.value)}
+                placeholder="Assunto do e-mail"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+              />
+
+              <textarea
+                value={emailCorpoPdf}
+                onChange={(e) => setEmailCorpoPdf(e.target.value)}
+                placeholder="Corpo do e-mail"
+                className="min-h-[110px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 xl:col-span-2"
+              />
+
+              <button
+                type="button"
+                onClick={enviarPdfPorEmail}
+                disabled={enviandoEmailPdf}
+                className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50 xl:col-span-2"
+              >
+                {enviandoEmailPdf ? 'Enviando PDF...' : 'Enviar PDF por e-mail'}
+              </button>
             </div>
           </section>
 
@@ -1621,6 +1935,13 @@ export default function ParceirosPage() {
             <table className="w-full min-w-[1180px] text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
+                  <th className="px-3 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={todosPaginadosSelecionados}
+                      onChange={(e) => selecionarPaginadosPdf(e.target.checked)}
+                    />
+                  </th>
                   <Th>Processo</Th>
                   <Th>Cliente / Serviço</Th>
                   <Th>Valor</Th>
@@ -1653,6 +1974,14 @@ export default function ParceirosPage() {
 
                     return (
                       <tr key={item.id} className="border-b border-slate-100 align-top hover:bg-slate-50">
+                        <Td>
+                          <input
+                            type="checkbox"
+                            checked={selecionadosPdf.includes(String(item.id || ''))}
+                            onChange={(e) => alternarSelecaoPdf(item.id, e.target.checked)}
+                          />
+                        </Td>
+
                         <Td>
                           <div className="space-y-1">
                             <p className="font-black text-slate-950">AWB {item.awb || '-'}</p>
