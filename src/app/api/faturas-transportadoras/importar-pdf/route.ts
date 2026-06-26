@@ -117,14 +117,18 @@ function unicosPorAwb(itens: ItemPdf[]) {
   return Array.from(mapa.values())
 }
 
+
 function extrairFedEx(textoOriginal: string): PreviewPdf {
   const texto = limparTexto(textoOriginal)
 
   const numeroFatura =
-    texto.match(/N[úu]mero\s+da\s+Fatura:\s*([0-9.-]+)/i)?.[1]?.trim() || ''
+    texto.match(/N[úu]mero\s+da\s+Fatura:\s*([0-9.-]+)/i)?.[1]?.trim() ||
+    texto.match(/No\s+da\s+Fatura:\s*([0-9.-]+)/i)?.[1]?.trim() ||
+    ''
 
   const emissao =
     dataMesPtParaISO(texto.match(/Data\s+de\s+Emiss[ãa]o:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
+    dataBRParaISO(texto.match(/Data\s+do\s+Docto:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
     null
 
   const vencimento =
@@ -134,39 +138,68 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
 
   const valorTotal =
     numeroBR(texto.match(/Valor\s*Devido:\s*R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
-    numeroBR(texto.match(/Valor\s+Total\s+USD\s+[0-9.,]+\s+R\$\s*([0-9.]+,\d{2})/i)?.[1])
+    numeroBR(texto.match(/ValorDevido:\s*R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
+    numeroBR(texto.match(/Valor\s+Total\s+USD\s+[0-9.,]+\s+R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
+    numeroBR(texto.match(/Valor\s+do\s+Documento:\s*([0-9.]+,\d{2})/i)?.[1])
 
   const itens: ItemPdf[] = []
-  const rastreios = Array.from(texto.matchAll(/N[°º]\s*de\s*Rastreio\s+(\d{10,15})/gi))
 
-  rastreios.forEach((match, index) => {
-    const awb = normalizarAwb(match[1])
-    const inicio = Math.max(0, match.index || 0)
-    const inicioComCabecalho = Math.max(0, inicio - 350)
-    const fim = rastreios[index + 1]?.index || texto.length
-    const bloco = texto.slice(inicioComCabecalho, fim)
+  let marcadores = Array.from(
+    texto.matchAll(/(?:N[°ºo.]?\s*de\s*)?Rastreio\s+(\d{10,15})/gi)
+  ).map((match) => ({
+    awb: normalizarAwb(match[1]),
+    index: match.index || 0,
+  }))
+
+  if (marcadores.length === 0) {
+    marcadores = Array.from(texto.matchAll(/\b(\d{12})\b/g))
+      .map((match) => ({
+        awb: normalizarAwb(match[1]),
+        index: match.index || 0,
+      }))
+      .filter((item) => {
+        const trecho = texto.slice(Math.max(0, item.index - 120), item.index + 900)
+        return /Subtotal|FedEx|Rastreio|Taxa\s+de\s+Transporte/i.test(trecho)
+      })
+  }
+
+  marcadores.forEach((item, index) => {
+    if (!item.awb) return
+
+    const inicio = item.index
+    const fim = marcadores[index + 1]?.index || texto.length
+
+    const blocoAntes = texto.slice(Math.max(0, inicio - 500), inicio)
+    const blocoDepois = texto.slice(inicio, fim)
+    const blocoCompleto = blocoAntes + '\n' + blocoDepois
+
+    const subtotalMatchComReal =
+      blocoDepois.match(/Subtotal[\s\S]{0,160}?R\$?\s*([0-9.]+,\d{2})/i)
+
+    const subtotalMatchSemReal =
+      blocoDepois.match(/Subtotal\s+USD\s*[-0-9.,]+\s+([0-9.]+,\d{2})/i)
 
     const subtotal =
-      numeroBR(bloco.match(/Subtotal\s+USD\s*[-0-9.,]+\s*R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
-      numeroBR(bloco.match(/Subtotal\s+[-0-9.,]+\s+([0-9.]+,\d{2})/i)?.[1])
+      numeroBR(subtotalMatchComReal?.[1]) ||
+      numeroBR(subtotalMatchSemReal?.[1])
+
+    if (!subtotal || subtotal <= 0) return
 
     const referenciaRaw =
-      bloco.match(/Refer[êe]ncia:\s*([^\n]+)/i)?.[1]
-        ?.replace(/N[°º]\s*de\s*Rastreio.*/i, '')
+      blocoCompleto.match(/Refer[êe]ncia:\s*([^\n]+)/i)?.[1]
+        ?.replace(/N[°ºo.]?\s*de\s*Rastreio.*/i, '')
         ?.trim() || null
 
     const dataEnvio =
-      dataMesPtParaISO(bloco.match(/Data\s+de\s+Emiss[ãa]o:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
+      dataMesPtParaISO(blocoCompleto.match(/Data\s+de\s+Emiss[ãa]o:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
       null
 
-    if (awb && subtotal > 0) {
-      itens.push({
-        awb,
-        referencia: referenciaRaw,
-        data_envio: dataEnvio,
-        valor_compra: subtotal,
-      })
-    }
+    itens.push({
+      awb: item.awb,
+      referencia: referenciaRaw,
+      data_envio: dataEnvio,
+      valor_compra: subtotal,
+    })
   })
 
   return {
@@ -179,6 +212,7 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
     itens: unicosPorAwb(itens),
   }
 }
+
 
 function extrairDhl(textoOriginal: string): PreviewPdf {
   const texto = limparTexto(textoOriginal)
