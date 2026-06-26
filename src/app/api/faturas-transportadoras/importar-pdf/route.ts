@@ -449,7 +449,7 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
 
 
 function extrairDhl(textoOriginal: string): PreviewPdf {
-  const bruto = String(textoOriginal || '')
+  const bruto = String(textoOriginal || '').replace(/\r/g, '\n')
   const texto = limparTexto(bruto)
 
   const numeroFatura =
@@ -471,101 +471,116 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     null
 
   const valorTotal =
-    numeroBR(texto.match(/Valor\s+Total\s*\(BRL\)\s*([0-9.]+,\d{2})/i)?.[1]) ||
-    numeroBR(texto.match(/Total:\s*BRL:[\s\S]{0,120}?([0-9.]+,\d{2})\s*$/i)?.[1]) ||
+    numeroBR(texto.match(/Valor\s+Total\s*\(\s*BRL\s*\)\s*([0-9.]+,\d{2})/i)?.[1]) ||
+    numeroBR(texto.match(/Total\s*\(\s*ICMS\s*incl\.\s*\)\s*([0-9.]+,\d{2})/i)?.[1]) ||
     0
 
-  function pegarTextoDetalhadoDhl() {
-    const paginas = bruto.split(/\f/g)
+  function areaDetalhadaDhl() {
+    const indicePrimeiroAwb = bruto.search(/\b\d{10}\b[\s\S]{0,120}?\d{1,2}\/\d{1,2}\/\d{4}/)
 
-    if (paginas.length > 1) {
-      const paginasComAwb = paginas
-        .slice(1)
-        .filter((pagina) => /\b\d{10}\b/.test(pagina) && /Total\s*\(BRL\)/i.test(pagina))
-
-      if (paginasComAwb.length) {
-        return paginasComAwb.join('\n')
-      }
+    if (indicePrimeiroAwb >= 0) {
+      return bruto.slice(indicePrimeiroAwb)
     }
 
-    const marcadorFimPaginaResumo = bruto.match(/Para\s+envios\s+internacionais[\s\S]{0,800}?important-information\.html/i)
+    const indiceCabecalho = bruto.search(/AWB\s+Refer[êe]ncia\s+Data\s+do/i)
 
-    if (marcadorFimPaginaResumo && typeof marcadorFimPaginaResumo.index === 'number') {
-      const depoisResumo = bruto.slice(marcadorFimPaginaResumo.index + marcadorFimPaginaResumo[0].length)
-
-      if (/\b\d{10}\b/.test(depoisResumo) && /Total\s*\(BRL\)/i.test(depoisResumo)) {
-        return depoisResumo
-      }
-    }
-
-    const primeiraLinhaAwb = bruto.search(/(?:^|\n)\s*\d{10}\b/)
-
-    if (primeiraLinhaAwb >= 0) {
-      return bruto.slice(primeiraLinhaAwb)
+    if (indiceCabecalho >= 0) {
+      return bruto.slice(indiceCabecalho)
     }
 
     return bruto
   }
 
-  function extrairItens(baseOriginal: string) {
-    const base = String(baseOriginal || '')
-    const itensExtraidos: ItemPdf[] = []
-
+  function valorTotalBrlDoBloco(bloco: string) {
     const padroes = [
-      /(?:^|\n)\s*(\d{10})\s+([\s\S]{0,4500}?)Total\s*\(BRL\)\s*:\s*([0-9.]+,\d{2})/gi,
-      /\b(\d{10})\b([\s\S]{0,4500}?)Total\s*\(BRL\)\s*:\s*([0-9.]+,\d{2})/gi,
+      /Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i,
+      /Total\s+BRL\s*:?\s*([0-9.]+,\d{2})/i,
+      /BRL\s*:?\s*([0-9.]+,\d{2})/i,
     ]
 
     for (const padrao of padroes) {
-      for (const match of base.matchAll(padrao)) {
-        const awb = normalizarAwb(match[1])
-        const trecho = String(match[2] || '')
-        const valorCompra = numeroBR(match[3])
+      const valor = numeroBR(bloco.match(padrao)?.[1])
+      if (valor > 0) return valor
+    }
 
-        if (!awb || awb.length !== 10 || valorCompra <= 0) continue
+    return 0
+  }
 
-        const contextoAntes = base.slice(Math.max(0, Number(match.index || 0) - 120), Number(match.index || 0) + 80).toUpperCase()
+  function extrairItensDhl(baseOriginal: string) {
+    const base = String(baseOriginal || '')
+    const candidatos: Array<{ awb: string; index: number }> = []
 
-        if (contextoAntes.includes('CNPJ')) continue
-        if (contextoAntes.includes('TELEFONE')) continue
-        if (contextoAntes.includes('CONTA:')) continue
-        if (valorTotal > 0 && valorCompra > valorTotal) continue
+    for (const match of base.matchAll(/\b(\d{10})\b/g)) {
+      const awb = normalizarAwb(match[1])
+      const index = Number(match.index || 0)
 
-        const dataEnvio =
-          dataBRParaISO(trecho.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1]) ||
-          null
+      if (!awb || awb.length !== 10) continue
 
-        const referencia =
-          trecho
-            .split(/\d{1,2}\/\d{1,2}\/\d{4}/)[0]
-            .replace(/\s+/g, ' ')
-            .trim() || null
+      const contexto = base.slice(Math.max(0, index - 160), index + 220).toUpperCase()
 
-        itensExtraidos.push({
-          awb,
-          referencia,
-          data_envio: dataEnvio,
-          valor_compra: valorCompra,
-        })
+      if (contexto.includes('CNPJ')) continue
+      if (contexto.includes('TELEFONE')) continue
+      if (contexto.includes('CONTA:')) continue
+      if (contexto.includes('FATURA:') && contexto.includes(awb)) continue
+
+      if (!candidatos.some((item) => item.awb === awb)) {
+        candidatos.push({ awb, index })
       }
+    }
 
-      if (itensExtraidos.length > 0) break
+    const itensExtraidos: ItemPdf[] = []
+
+    for (let i = 0; i < candidatos.length; i++) {
+      const atual = candidatos[i]
+      const proximo = candidatos[i + 1]
+
+      const fimSubtotal = base.indexOf('Sub-Total de Serviço', atual.index)
+      const fimTotalGeral = base.indexOf('Total: BRL:', atual.index)
+
+      const finais = [
+        proximo?.index,
+        fimSubtotal > atual.index ? fimSubtotal : null,
+        fimTotalGeral > atual.index ? fimTotalGeral : null,
+      ].filter((valor) => typeof valor === 'number') as number[]
+
+      const fim = finais.length ? Math.min(...finais) : Math.min(base.length, atual.index + 6000)
+      const bloco = base.slice(atual.index, fim)
+
+      const valorCompra = valorTotalBrlDoBloco(bloco)
+
+      if (!valorCompra || valorCompra <= 0) continue
+      if (valorTotal > 0 && valorCompra > valorTotal) continue
+
+      const trechoInicial = bloco.slice(0, 350)
+
+      const dataEnvio =
+        dataBRParaISO(trechoInicial.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1]) ||
+        null
+
+      const referencia =
+        trechoInicial
+          .replace(atual.awb, '')
+          .split(/\d{1,2}\/\d{1,2}\/\d{4}/)[0]
+          .replace(/\s+/g, ' ')
+          .trim() || null
+
+      itensExtraidos.push({
+        awb: atual.awb,
+        referencia,
+        data_envio: dataEnvio,
+        valor_compra: valorCompra,
+      })
     }
 
     return unicosPorAwb(itensExtraidos)
   }
 
-  const textoDetalhadoOriginal = pegarTextoDetalhadoDhl()
-  const textoDetalhadoLimpo = limparTexto(textoDetalhadoOriginal)
+  const detalhado = areaDetalhadaDhl()
 
-  let itens = extrairItens(textoDetalhadoOriginal)
-
-  if (itens.length === 0) {
-    itens = extrairItens(textoDetalhadoLimpo)
-  }
+  let itens = extrairItensDhl(detalhado)
 
   if (itens.length === 0) {
-    itens = extrairItens(texto)
+    itens = extrairItensDhl(texto)
   }
 
   return {
@@ -636,7 +651,7 @@ export async function POST(req: Request) {
 
     if (!preview.itens.length) {
       return NextResponse.json(
-        { error: 'Não encontrei AWBs com valor em R$ neste PDF. O leitor conseguiu abrir o PDF, mas não conseguiu associar rastreio + subtotal. Me envie o print deste alerta se continuar.' },
+        { error: 'Não encontrei AWBs com Total (BRL) ou valor em R$ neste PDF. O leitor conseguiu abrir o PDF, mas não conseguiu associar rastreio + subtotal. Me envie o print deste alerta se continuar.' },
         { status: 400 }
       )
     }
