@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 
@@ -119,6 +120,218 @@ function unicosPorAwb(itens: ItemPdf[]) {
 
 
 
+
+function normalizarNumeroFaturaParaSistema(numeroFatura: any) {
+  const textoOriginal = String(numeroFatura || '').trim()
+  if (!textoOriginal) return ''
+
+  const somenteNumeros = textoOriginal.replace(/\D/g, '')
+  return somenteNumeros || textoOriginal.toUpperCase()
+}
+
+function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!url) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL não configurada.')
+  }
+
+  if (!key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada.')
+  }
+
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
+}
+
+async function buscarFinanceiroPorAwb(supabase: any, awbOriginal: string) {
+  const awb = normalizarAwb(awbOriginal)
+  if (!awb) return null
+
+  const { data, error } = await supabase
+    .from('financeiro_embarques')
+    .select('id, awb, valor_compra')
+    .eq('awb', awb)
+    .limit(10)
+
+  if (error) {
+    throw new Error('Erro ao buscar AWB no financeiro: ' + error.message)
+  }
+
+  const direto = (data || []).find((item: any) => normalizarAwb(item.awb) === awb)
+  if (direto) return direto
+
+  const { data: aproximados, error: erroAproximado } = await supabase
+    .from('financeiro_embarques')
+    .select('id, awb, valor_compra')
+    .ilike('awb', `%${awb}%`)
+    .limit(10)
+
+  if (erroAproximado) {
+    throw new Error('Erro ao buscar AWB aproximado no financeiro: ' + erroAproximado.message)
+  }
+
+  return (aproximados || []).find((item: any) => normalizarAwb(item.awb) === awb) || null
+}
+
+async function salvarFaturaEItens(preview: PreviewPdf) {
+  const supabase = supabaseAdmin()
+  const agora = new Date().toISOString()
+  const numeroFatura = normalizarNumeroFaturaParaSistema(preview.numero_fatura)
+  const totalItens = preview.itens.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+  const totalFatura = Number(preview.valor_total || totalItens || 0)
+
+  const payloadFatura = {
+    transportadora: preview.transportadora,
+    conta: preview.conta || null,
+    numero_fatura: numeroFatura,
+    emissao: preview.emissao || null,
+    vencimento: preview.vencimento || null,
+    situacao: 'EM ABERTO',
+    total: totalFatura,
+    saldo: totalFatura,
+    moeda: 'BRL',
+    observacoes: `Importada por PDF com ${preview.itens.length} AWB(s).`,
+    atualizado_em: agora,
+  }
+
+  const { data: faturaExistente, error: erroBuscaFatura } = await supabase
+    .from('faturas_transportadoras')
+    .select('id')
+    .eq('transportadora', preview.transportadora)
+    .eq('numero_fatura', numeroFatura)
+    .maybeSingle()
+
+  if (erroBuscaFatura) {
+    throw new Error('Erro ao buscar fatura existente: ' + erroBuscaFatura.message)
+  }
+
+  let faturaId = faturaExistente?.id
+
+  if (faturaId) {
+    const { error } = await supabase
+      .from('faturas_transportadoras')
+      .update(payloadFatura)
+      .eq('id', faturaId)
+
+    if (error) {
+      throw new Error('Erro ao atualizar fatura: ' + error.message)
+    }
+  } else {
+    const { data: faturaCriada, error } = await supabase
+      .from('faturas_transportadoras')
+      .insert([payloadFatura])
+      .select('id')
+      .single()
+
+    if (error) {
+      throw new Error('Erro ao cadastrar fatura: ' + error.message)
+    }
+
+    faturaId = faturaCriada.id
+  }
+
+  let itensSalvos = 0
+  let custosLancados = 0
+  let aguardandoProcesso = 0
+  let jaTinhamCusto = 0
+
+  for (const item of preview.itens) {
+    const awb = normalizarAwb(item.awb)
+    if (!awb || Number(item.valor_compra || 0) <= 0) continue
+
+    const financeiro = await buscarFinanceiroPorAwb(supabase, awb)
+    const valorAnterior = Number(financeiro?.valor_compra || 0)
+    let financeiroId = financeiro?.id || null
+    let statusLancamento = 'AGUARDANDO_PROCESSO'
+    let observacao = 'AWB ainda não encontrado em processos faturados. Será lançado quando o processo for criado.'
+
+    if (financeiroId && valorAnterior <= 0) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update({
+          valor_compra: item.valor_compra,
+          atualizado_em: agora,
+        })
+        .eq('id', financeiroId)
+
+      if (error) {
+        throw new Error(`Erro ao lançar custo no AWB ${awb}: ${error.message}`)
+      }
+
+      statusLancamento = 'LANÇADO'
+      observacao = 'Valor de compra lançado automaticamente pela importação da fatura.'
+      custosLancados++
+    } else if (financeiroId && valorAnterior > 0) {
+      statusLancamento = 'PROCESSO_JA_TINHA_CUSTO'
+      observacao = `Processo já tinha custo lançado: ${valorAnterior}.`
+      jaTinhamCusto++
+    } else {
+      aguardandoProcesso++
+    }
+
+    const payloadItem = {
+      fatura_transportadora_id: faturaId,
+      transportadora: preview.transportadora,
+      numero_fatura: numeroFatura,
+      awb,
+      referencia: item.referencia || null,
+      data_envio: item.data_envio || null,
+      valor_compra: item.valor_compra,
+      financeiro_embarque_id: financeiroId,
+      valor_compra_anterior: valorAnterior,
+      status_lancamento: statusLancamento,
+      observacao,
+      lancado_em: statusLancamento === 'LANÇADO' ? agora : null,
+    }
+
+    const { data: itemExistente, error: erroBuscaItem } = await supabase
+      .from('faturas_transportadoras_itens')
+      .select('id')
+      .eq('fatura_transportadora_id', faturaId)
+      .eq('awb', awb)
+      .maybeSingle()
+
+    if (erroBuscaItem) {
+      throw new Error(`Erro ao buscar item do AWB ${awb}: ${erroBuscaItem.message}`)
+    }
+
+    if (itemExistente?.id) {
+      const { error } = await supabase
+        .from('faturas_transportadoras_itens')
+        .update(payloadItem)
+        .eq('id', itemExistente.id)
+
+      if (error) {
+        throw new Error(`Erro ao atualizar item do AWB ${awb}: ${error.message}`)
+      }
+    } else {
+      const { error } = await supabase
+        .from('faturas_transportadoras_itens')
+        .insert([payloadItem])
+
+      if (error) {
+        throw new Error(`Erro ao salvar item do AWB ${awb}: ${error.message}`)
+      }
+    }
+
+    itensSalvos++
+  }
+
+  return {
+    fatura_id: faturaId,
+    numero_fatura: numeroFatura,
+    itens_salvos: itensSalvos,
+    custos_lancados: custosLancados,
+    aguardando_processo: aguardandoProcesso,
+    ja_tinham_custo: jaTinhamCusto,
+  }
+}
 
 function extrairFedEx(textoOriginal: string): PreviewPdf {
   const texto = limparTexto(textoOriginal)
@@ -352,7 +565,11 @@ export async function POST(req: Request) {
       )
     }
 
-    return NextResponse.json({ preview })
+    preview.numero_fatura = normalizarNumeroFaturaParaSistema(preview.numero_fatura)
+
+    const importacao = await salvarFaturaEItens(preview)
+
+    return NextResponse.json({ preview, importacao })
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Erro ao importar PDF.' },
