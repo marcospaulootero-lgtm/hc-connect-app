@@ -531,26 +531,26 @@ export default function FinanceiroPage() {
 
     if (!texto) return ''
 
-    if (texto.includes('IMPORTACAO COURIER')) return 'IMPORTAÃ‡ÃƒO COURIER'
-    if (texto.includes('EXPORTACAO COURIER')) return 'EXPORTAÃ‡ÃƒO COURIER'
+    if (texto.includes('IMPORTACAO COURIER')) return 'IMPORTAÇÃO COURIER'
+    if (texto.includes('EXPORTACAO COURIER')) return 'EXPORTAÇÃO COURIER'
 
     // Importação simples, importação formal e formal são serviços diferentes.
     // FORMAL é usado quando o processo é com agente de carga.
     if (texto === 'IMPORTACAO FORMAL' || texto.includes('IMPORTACAO FORMAL')) {
-      return 'IMPORTAÃ‡ÃƒO FORMAL'
+      return 'IMPORTAÇÃO FORMAL'
     }
 
     if (texto === 'EXPORTACAO FORMAL' || texto.includes('EXPORTACAO FORMAL')) {
-      return 'EXPORTAÃ‡ÃƒO FORMAL'
+      return 'EXPORTAÇÃO FORMAL'
     }
 
-    if (texto === 'IMPORTACAO') return 'IMPORTAÃ‡ÃƒO'
-    if (texto === 'EXPORTACAO') return 'EXPORTAÃ‡ÃƒO'
+    if (texto === 'IMPORTACAO') return 'IMPORTAÇÃO'
+    if (texto === 'EXPORTACAO') return 'EXPORTAÇÃO'
     if (texto === 'FORMAL') return 'FORMAL'
 
     if (texto.includes('DUE') || texto.includes('DRE')) return 'DUE / DRE'
     if (texto.includes('DTA')) return 'DTA'
-    if (texto.includes('PRESTACAO DE CONTAS')) return 'PRESTAÃ‡ÃƒO DE CONTAS'
+    if (texto.includes('PRESTACAO DE CONTAS')) return 'PRESTAÇÃO DE CONTAS'
     if (texto === 'COURIER') return 'COURIER'
 
     return original.toUpperCase()
@@ -929,7 +929,7 @@ export default function FinanceiroPage() {
 
   function mesReferenciaExcel(linha: any) {
     const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
-    const mesTexto = normalizarBusca(pegarCampoExcel(linha, ['MÃŠS', 'MES', 'Mês', 'Mes']))
+    const mesTexto = normalizarBusca(pegarCampoExcel(linha, ['MÊS', 'MES', 'Mês', 'Mes']))
     const anoTexto = normalizarTexto(pegarCampoExcel(linha, ['ANO', 'Ano']))
 
     const meses: Record<string, string> = {
@@ -1010,7 +1010,7 @@ export default function FinanceiroPage() {
 
     if (descricao.includes('ALUGUEL')) return 'Aluguel'
     if (descricao.includes('CONTABILIDADE') || descricao.includes('CONTADOR')) return 'Contador'
-    if (descricao.includes('EMPRESTIMO') || descricao.includes('EMPRÃ‰STIMO') || descricao.includes('PRONAMPE') || descricao.includes('CREDITO') || descricao.includes('CRÃ‰DITO')) return 'Empréstimos'
+    if (descricao.includes('EMPRESTIMO') || descricao.includes('EMPRÉSTIMO') || descricao.includes('PRONAMPE') || descricao.includes('CREDITO') || descricao.includes('CRÉDITO')) return 'Empréstimos'
     if (
       descricao.includes('IMPOSTO') ||
       descricao.includes('DAS') ||
@@ -1099,7 +1099,7 @@ export default function FinanceiroPage() {
 
       const registros = linhas
         .map((linha) => {
-          const descricao = normalizarTexto(pegarCampoExcel(linha, ['DESCRIÃ‡ÃƒO', 'DESCRICAO', 'Descrição', 'Descricao']))
+          const descricao = normalizarTexto(pegarCampoExcel(linha, ['DESCRIÇÃO', 'DESCRICAO', 'Descrição', 'Descricao']))
           const valor = numero(pegarCampoExcel(linha, ['VALOR', 'Valor']))
           const data = normalizarData(pegarCampoExcel(linha, ['DATA', 'Data', 'PAGAMENTO', 'DATA PAGAMENTO']))
           const classificacao = classificarMovimentoDespesaExcel(descricao)
@@ -1347,10 +1347,10 @@ export default function FinanceiroPage() {
               linha['Nº FATURA'] ||
               linha['N° FATURA'] ||
               linha['NUMERO DA FATURA'] ||
-              linha['NÃšMERO DA FATURA']
+              linha['NÚMERO DA FATURA']
           ),
-          transportadora: normalizarTexto(linha['EMPRESA PRESTADORA DE SERVIÃ‡O']),
-          servico: normalizarServicoFinanceiro(linha['SERVIÃ‡O']),
+          transportadora: normalizarTexto(linha['EMPRESA PRESTADORA DE SERVIÇO']),
+          servico: normalizarServicoFinanceiro(linha['SERVIÇO']),
           valor_cobranca: numero(linha['VALOR DO FATURAMENTO']),
           doc_dta: numero(linha['DELIVER FEE DOC / DTA / IMPOSTOS/ DUE']),
           debito_terceiro: numero(linha['PROFIT TERCEIROS']),
@@ -1702,7 +1702,7 @@ export default function FinanceiroPage() {
       .join('\n')
 
     const avisoSaldoInicial = existeSaldoInicial
-      ? '\n\nATENÃ‡ÃƒO: existe lançamento de saldo inicial/fundo inicial no caixa. Se esse valor já representa os meses antigos, gerar retroativos pode duplicar o fundo. Confirme somente se deseja detalhar mês a mês.'
+      ? '\n\nATENÇÃO: existe lançamento de saldo inicial/fundo inicial no caixa. Se esse valor já representa os meses antigos, gerar retroativos pode duplicar o fundo. Confirme somente se deseja detalhar mês a mês.'
       : ''
 
     const confirmar = confirm(
@@ -1718,7 +1718,7 @@ export default function FinanceiroPage() {
     if (existeSaldoInicial) {
       const confirmarSaldoInicial = confirm(
         'Confirma mesmo assim?\n\n' +
-          'Foi encontrado saldo inicial/fundo inicial. Para evitar duplicidade, só continue se esse saldo inicial NÃƒO representa esses fechamentos mensais.'
+          'Foi encontrado saldo inicial/fundo inicial. Para evitar duplicidade, só continue se esse saldo inicial NÃO representa esses fechamentos mensais.'
       )
 
       if (!confirmarSaldoInicial) return
@@ -2408,11 +2408,11 @@ export default function FinanceiroPage() {
       mensagemDono = 'A HC usou dinheiro protegido de terceiros/custos. Bloquear retiradas agora.'
       acaoRecomendada = 'Repor primeiro o dinheiro protegido, depois recompor o caixa mínimo.'
     } else if (excessoRetiradasSocios > 0) {
-      statusDono = 'ATENÃ‡ÃƒO'
+      statusDono = 'ATENÇÃO'
       mensagemDono = 'O caixa da HC não está livre: retiradas acima do permitido e empréstimos consomem a reserva.'
       acaoRecomendada = 'Bloquear retiradas, pagar empréstimos e recompor o caixa mínimo antes de qualquer gasto livre.'
     } else if (faltaReservaHC > 0) {
-      statusDono = 'ATENÃ‡ÃƒO'
+      statusDono = 'ATENÇÃO'
       mensagemDono = 'Existe saldo gerencial, mas ele ainda precisa cobrir caixa mínimo e empréstimos.'
       acaoRecomendada = 'Economizar primeiro até recompor o caixa mínimo e cobrir a parcela mensal dos empréstimos.'
     } else if (podeRetirarAgora > 0) {
@@ -3173,7 +3173,7 @@ export default function FinanceiroPage() {
           />
 
           <button type="button" onClick={limparFiltrosMovimentos} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
-            âŒ Limpar filtros
+            ⌁ Limpar filtros
           </button>
         </div>
 
@@ -3227,7 +3227,7 @@ export default function FinanceiroPage() {
                       <Td>{item.forma_pagamento || '-'}</Td>
                       <Td>
                         <div className="flex gap-2">
-                          <button onClick={() => editarMovimentacao(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">âœŽ</button>
+                          <button onClick={() => editarMovimentacao(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">✎</button>
                           <button onClick={() => excluirMovimentacao(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold"></button>
                         </div>
                       </Td>
@@ -3251,7 +3251,7 @@ export default function FinanceiroPage() {
     const statusClasse =
       resumoDono.statusDono === 'CRÍTICO'
         ? 'bg-red-50 text-red-700 border-red-200'
-        : resumoDono.statusDono === 'ATENÃ‡ÃƒO'
+        : resumoDono.statusDono === 'ATENÇÃO'
           ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
           : resumoDono.statusDono === 'SAUDÁVEL'
             ? 'bg-green-50 text-green-700 border-green-200'
@@ -3714,7 +3714,7 @@ export default function FinanceiroPage() {
               />
 
               <button type="button" onClick={limparFiltros} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold hover:bg-gray-50">
-                âŒ Limpar filtros
+                ⌁ Limpar filtros
               </button>
             </div>
 
@@ -3866,7 +3866,7 @@ export default function FinanceiroPage() {
                           <Td><Badge texto={cobranca} classe={badgeStatus(cobranca)} /></Td>
                           <Td>
                             <div className="flex gap-2">
-                              <button onClick={() => editar(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">âœŽ</button>
+                              <button onClick={() => editar(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">✎</button>
                               <button onClick={() => excluir(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold"></button>
                             </div>
                           </Td>
@@ -3911,14 +3911,14 @@ export default function FinanceiroPage() {
               titulo="ENTRADAS DO PERÍODO"
               valor={moeda(resumoFundoFiltro.entradas)}
               subtitulo={textoPeriodoFundo()}
-              icone="â¬†ï¸"
+              icone="⬆ï¸"
               classe="bg-green-50 border-green-200 text-green-700"
             />
             <BigCard
               titulo="SAÍDAS DO PERÍODO"
               valor={moeda(resumoFundoFiltro.saidas)}
               subtitulo={textoPeriodoFundo()}
-              icone="â¬‡ï¸"
+              icone="⬇ï¸"
               classe="bg-red-50 border-red-200 text-red-700"
             />
             <BigCard
