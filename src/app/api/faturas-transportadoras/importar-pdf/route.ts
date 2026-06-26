@@ -119,6 +119,7 @@ function unicosPorAwb(itens: ItemPdf[]) {
 
 
 
+
 function extrairFedEx(textoOriginal: string): PreviewPdf {
   const texto = limparTexto(textoOriginal)
 
