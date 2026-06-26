@@ -237,6 +237,8 @@ export default function FaturasPage() {
   const [emissorSpread, setEmissorSpread] = useState('3')
   const [emissorObservacoes, setEmissorObservacoes] = useState('')
   const [emissorVisivelCliente, setEmissorVisivelCliente] = useState(true)
+  const [carregandoCambioEmissor, setCarregandoCambioEmissor] = useState(false)
+  const [emissorAvisoCambio, setEmissorAvisoCambio] = useState('')
   const [salvandoEmissao, setSalvandoEmissao] = useState(false)
   const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
 
@@ -2179,23 +2181,81 @@ export default function FaturasPage() {
 
   function sugestaoPtaxDhlMesAnterior() {
     const data = dataUltimoDiaMesAnterior()
-    const mesAtual = new Date().toISOString().slice(0, 7)
-
-    // Referência cadastrada conforme regra operacional informada:
-    // faturamentos DHL em junho usam o último PTAX do mês anterior, 31/05 = 5,0569.
-    const referenciasConhecidas: Record<string, string> = {
-      '2026-06': '5,0569',
-    }
 
     return {
       data,
-      valor: referenciasConhecidas[mesAtual] || '',
+      valor: '',
     }
+  }
+
+  function formatarTaxaCambioInput(valor: any) {
+    const numeroValor = Number(valor || 0)
+
+    if (!numeroValor) return ''
+
+    return numeroValor.toLocaleString('pt-BR', {
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    })
   }
 
   function aplicarTaxaCambio(tipo: string, valor: string) {
     setEmissorTipoCambio(tipo)
     recalcularItensPorTaxa(valor)
+  }
+
+  async function carregarCambioAutomaticoEmissor(tipoPreferencial?: string, aplicarAutomaticamente = false) {
+    setCarregandoCambioEmissor(true)
+
+    try {
+      const resposta = await fetch('/api/cambio-bacen', {
+        cache: 'no-store',
+      })
+
+      const retorno = await resposta.json().catch(() => null)
+
+      if (!resposta.ok) {
+        throw new Error(retorno?.error || 'Erro ao consultar câmbio.')
+      }
+
+      const dolarVenda = formatarTaxaCambioInput(retorno?.dolar_venda_dia?.valor)
+      const dataDolarVenda = retorno?.dolar_venda_dia?.data || ''
+      const ptaxDhl = formatarTaxaCambioInput(retorno?.ptax_dhl_mes_anterior?.valor)
+      const dataPtaxDhl = retorno?.ptax_dhl_mes_anterior?.data || ''
+
+      setEmissorDolarVendaDia(dolarVenda)
+      setEmissorPtaxDhlMesAnterior(ptaxDhl)
+      setEmissorDataPtaxDhlMesAnterior(dataPtaxDhl || sugestaoPtaxDhlMesAnterior().data)
+
+      setEmissorAvisoCambio(
+        `Câmbio atualizado pelo Banco Central. Dólar venda: ${dolarVenda || '-'} (${dataBRSimples(dataDolarVenda)}). PTAX DHL mês anterior: ${ptaxDhl || '-'} (${dataBRSimples(dataPtaxDhl)}).`
+      )
+
+      if (aplicarAutomaticamente) {
+        const tipoFinal = tipoPreferencial || emissorTipoCambio
+
+        if (tipoFinal === 'PTAX_DHL_MES_ANTERIOR' && ptaxDhl) {
+          aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', ptaxDhl)
+          return ptaxDhl
+        }
+
+        if (dolarVenda) {
+          aplicarTaxaCambio('DOLAR_VENDA_DIA', dolarVenda)
+          return dolarVenda
+        }
+      }
+
+      return tipoPreferencial === 'PTAX_DHL_MES_ANTERIOR' ? ptaxDhl : dolarVenda
+    } catch (error: any) {
+      console.log('Erro ao buscar câmbio automático:', error)
+      setEmissorAvisoCambio(
+        `Não foi possível buscar o câmbio automático agora. Informe a taxa manualmente se precisar emitir a fatura. Motivo: ${error?.message || error}`
+      )
+
+      return ''
+    } finally {
+      setCarregandoCambioEmissor(false)
+    }
   }
 
   function selecionarEmbarqueEmissor(embarqueId: string) {
@@ -2243,6 +2303,11 @@ export default function FaturasPage() {
         })
       )
     }
+
+    void carregarCambioAutomaticoEmissor(
+      transportadoraDhl ? 'PTAX_DHL_MES_ANTERIOR' : 'DOLAR_VENDA_DIA',
+      true
+    )
   }
 
   function abrirEmissaoFaturaDireta(embarque: Embarque) {
@@ -2335,6 +2400,7 @@ export default function FaturasPage() {
     setEmissorSpread('3')
     setEmissorObservacoes('')
     setEmissorVisivelCliente(true)
+    setEmissorAvisoCambio('')
     setItensFatura(itensPadraoFatura())
   }
 
@@ -3280,7 +3346,7 @@ export default function FaturasPage() {
                     </label>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
@@ -3296,7 +3362,22 @@ export default function FaturasPage() {
                     >
                       Usar PTAX DHL mês anterior
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
                   </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
 
                   <p className="mt-3 text-xs text-slate-400">
                     Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
