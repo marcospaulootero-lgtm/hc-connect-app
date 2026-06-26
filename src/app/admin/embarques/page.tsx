@@ -60,6 +60,7 @@ export default function EmbarquesPage() {
   const [embarquesSelecionados, setEmbarquesSelecionados] = useState<string[]>([])
   const [arquivandoLote, setArquivandoLote] = useState(false)
   const [abaTela, setAbaTela] = useState<'CADASTRO' | 'LISTAGEM'>('LISTAGEM')
+  const [filtroDashboard, setFiltroDashboard] = useState('')
 
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
   const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
@@ -98,10 +99,73 @@ export default function EmbarquesPage() {
   const [form, setForm] = useState(formInicial)
 
   useEffect(() => {
+    aplicarFiltrosDaDashboard()
     carregar()
     carregarUsuarios()
     carregarAdmins()
   }, [])
+
+
+  function aplicarFiltrosDaDashboard() {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const origemDashboard = params.get('origem') === 'dashboard' || params.get('dash') === '1'
+
+    if (!origemDashboard) return
+
+    const abaUrl = params.get('aba')
+    const statusUrl = params.get('status')
+    const transportadoraUrl = params.get('transportadora')
+    const arquivamentoUrl = params.get('arquivamento')
+    const buscaUrl = params.get('busca')
+
+    if (abaUrl === 'CADASTRO' || abaUrl === 'LISTAGEM') {
+      setAbaTela(abaUrl)
+    } else {
+      setAbaTela('LISTAGEM')
+    }
+
+    if (statusUrl) {
+      const mapaStatus: Record<string, string> = {
+        AGUARDANDO_COLETA: 'Aguardando coleta',
+        ETIQUETA_GERADA: 'Etiqueta gerada',
+        COLETADO: 'Coletado',
+        EM_TRANSITO: 'Em trânsito',
+        FISCALIZACAO: 'Fiscalização',
+        LIBERADO: 'Liberado',
+        SAIU_PARA_ENTREGA: 'Saiu para entrega',
+        ENTREGUE: 'Entregue',
+        ATRASADO: 'Atrasado',
+      }
+
+      const statusFinal = mapaStatus[statusUrl] || statusUrl
+      setFiltroStatus(statusFinal)
+      setFiltroDashboard(`Dashboard: status ${statusFinal}`)
+    }
+
+    if (transportadoraUrl) {
+      setFiltroTransportadora(transportadoraUrl)
+      setFiltroDashboard((atual) =>
+        atual ? `${atual} • transportadora ${transportadoraUrl}` : `Dashboard: transportadora ${transportadoraUrl}`
+      )
+    }
+
+    if (arquivamentoUrl) {
+      setFiltroArquivamento(arquivamentoUrl)
+    }
+
+    if (buscaUrl) {
+      setBusca(buscaUrl)
+      setFiltroDashboard((atual) =>
+        atual ? `${atual} • busca ${buscaUrl}` : `Dashboard: busca ${buscaUrl}`
+      )
+    }
+
+    if (!statusUrl && !transportadoraUrl && !buscaUrl && arquivamentoUrl) {
+      setFiltroDashboard(`Dashboard: ${arquivamentoUrl.toLowerCase()}`)
+    }
+  }
 
   function numero(valor: any) {
     if (valor === null || valor === undefined || valor === '') return null
@@ -872,6 +936,31 @@ export default function EmbarquesPage() {
           + Novo embarque
         </button>
       </div>
+
+      {filtroDashboard && (
+        <section className="mb-6 rounded-2xl border border-blue-500/40 bg-blue-600/10 p-4 text-blue-100">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-blue-300">Filtro aplicado pela Dashboard</p>
+              <p className="mt-1 font-bold">{filtroDashboard}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBusca('')
+                setFiltroStatus('')
+                setFiltroTransportadora('')
+                setFiltroArquivamento('ATIVOS')
+                setFiltroDashboard('')
+              }}
+              className="w-fit rounded-xl bg-slate-700 px-4 py-2 text-sm font-black text-white hover:bg-slate-600"
+            >
+              Limpar filtro
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
         <KpiCard titulo="Total de embarques" valor={totalEmbarques} detalhe="Processos cadastrados" icone="📦" />

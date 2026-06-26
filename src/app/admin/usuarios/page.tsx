@@ -10,10 +10,38 @@ export default function UsuariosPage() {
   const [busca, setBusca] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtroDashboard, setFiltroDashboard] = useState('')
 
   useEffect(() => {
+    aplicarFiltrosDaDashboard()
     carregarUsuarios()
   }, [])
+
+
+  function aplicarFiltrosDaDashboard() {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const origemDashboard = params.get('origem') === 'dashboard' || params.get('dash') === '1'
+
+    if (!origemDashboard) return
+
+    const tipoUrl = params.get('tipo') || ''
+    const statusUrl = params.get('status') || ''
+    const buscaUrl = params.get('busca') || ''
+
+    if (tipoUrl) setFiltroTipo(tipoUrl)
+    if (statusUrl) setFiltroStatus(statusUrl)
+    if (buscaUrl) setBusca(buscaUrl)
+
+    const partes = [
+      tipoUrl ? `tipo ${tipoUrl}` : '',
+      statusUrl ? `status ${statusUrl}` : '',
+      buscaUrl ? `busca ${buscaUrl}` : '',
+    ].filter(Boolean)
+
+    setFiltroDashboard(partes.length ? `Dashboard: ${partes.join(' • ')}` : 'Dashboard: usuários filtrados')
+  }
 
   async function carregarUsuarios() {
     setCarregando(true)
@@ -150,6 +178,30 @@ export default function UsuariosPage() {
           Atualizar lista
         </button>
       </div>
+
+      {filtroDashboard && (
+        <section className="mb-6 rounded-2xl border border-blue-500/40 bg-blue-600/10 p-4 text-blue-100">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-blue-300">Filtro aplicado pela Dashboard</p>
+              <p className="mt-1 font-bold">{filtroDashboard}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBusca('')
+                setFiltroTipo('')
+                setFiltroStatus('')
+                setFiltroDashboard('')
+              }}
+              className="w-fit rounded-xl bg-slate-700 px-4 py-2 text-sm font-black text-white hover:bg-slate-600"
+            >
+              Limpar filtro
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
         <Card titulo="Total" valor={totalUsuarios} detalhe="Usuários cadastrados" icone="👥" />

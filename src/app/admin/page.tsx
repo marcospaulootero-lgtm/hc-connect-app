@@ -847,7 +847,7 @@ export default function DashboardPage() {
         detalhe: `Vencem em até ${DIAS_ALERTA_FATURAS} dias`,
         icone: '🟠',
         cor: 'orange',
-        onClick: () => setModalFaturas(true),
+        href: '/admin/faturas-transportadoras?origem=dashboard&prazo=PROXIMOS_7_DIAS&arquivadas=ATIVAS',
         acao: 'Ver faturas',
       })
     }
@@ -859,7 +859,7 @@ export default function DashboardPage() {
         detalhe: 'DHL/FedEx sem data informada',
         icone: '⚪',
         cor: 'slate',
-        onClick: () => setModalFaturas(true),
+        href: '/admin/faturas-transportadoras?origem=dashboard&prazo=SEM_DATA&arquivadas=ATIVAS',
         acao: 'Conferir',
       })
     }
@@ -1185,11 +1185,11 @@ export default function DashboardPage() {
               {rodandoRastreio ? 'Rodando rastreio...' : '📡 Rodar rastreio'}
             </button>
 
-            <a href="/admin/embarques" className="rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white hover:bg-emerald-500">
+            <a href="/admin/embarques?origem=dashboard&aba=CADASTRO" className="rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white hover:bg-emerald-500">
               + Novo embarque
             </a>
 
-            <a href="/admin/financeiro" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-4 font-black text-white hover:bg-slate-700">
+            <a href="/admin/financeiro?origem=dashboard" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-4 font-black text-white hover:bg-slate-700">
               Financeiro
             </a>
           </div>
@@ -1202,7 +1202,7 @@ export default function DashboardPage() {
             detalhe={`${financeiroResumo.emAberto.length} processos em aberto`}
             icone="💰"
             cor="blue"
-            href="/admin/financeiro?aba=PROCESSOS&status=EM%20ABERTO"
+            href="/admin/financeiro?origem=dashboard&aba=PROCESSOS&status=EM%20ABERTO"
           />
 
           <HeroCard
@@ -1211,7 +1211,7 @@ export default function DashboardPage() {
             detalhe={`${financeiroResumo.pagosMes.length} processos pagos no mês`}
             icone="✅"
             cor="green"
-            href="/admin/financeiro?aba=RESULTADO"
+            href="/admin/resultado-financeiro?origem=dashboard&periodo=MES_ATUAL"
           />
 
           <HeroCard
@@ -1224,7 +1224,7 @@ export default function DashboardPage() {
             }
             icone="📈"
             cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'}
-            href="/admin/financeiro?aba=RESULTADO"
+            href="/admin/resultado-financeiro?origem=dashboard&periodo=MES_ATUAL"
           />
 
           <HeroCard
@@ -1233,7 +1233,7 @@ export default function DashboardPage() {
             detalhe="Profit bruto - despesas - empréstimos"
             icone={financeiroResumo.lucroOperacionalMes >= 0 ? '🏦' : '📉'}
             cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'}
-            href="/admin/financeiro?aba=RESULTADO"
+            href="/admin/resultado-financeiro?origem=dashboard&periodo=MES_ATUAL"
           />
 
           <HeroCard
@@ -1242,7 +1242,7 @@ export default function DashboardPage() {
             detalhe={`Marcos ${moeda(financeiroResumo.retiradasMarcosMes)} • Hérica ${moeda(financeiroResumo.retiradasHericaMes)}`}
             icone={financeiroResumo.resultadoAposRetiradasMes >= 0 ? '💵' : '🚨'}
             cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'}
-            href="/admin/financeiro?aba=RESULTADO"
+            href="/admin/resultado-financeiro?origem=dashboard&periodo=MES_ATUAL"
           />
 
           <HeroCard
@@ -1257,19 +1257,19 @@ export default function DashboardPage() {
                   ? 'orange'
                   : 'green'
             }
-            onClick={() => setModalFaturas(true)}
+            href="/admin/faturas-transportadoras?origem=dashboard&situacao=EM%20ABERTO&arquivadas=ATIVAS"
           />
         </section>
 
         <section className="mb-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-4">
-          <KpiCard titulo="Aguardando custo" valor={financeiroResumo.aguardandoCusto.length} detalhe={moeda(financeiroResumo.totalAguardandoCusto)} icone="⚠️" cor="orange" href="/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO" />
-          <KpiCard titulo="Vencidos" valor={financeiroResumo.atrasado.length} detalhe={moeda(financeiroResumo.vencido)} icone="⏰" cor="red" href="/admin/financeiro?aba=PROCESSOS&status=ATRASADO" />
-          <KpiCard titulo="Aguardando coleta" valor={operacionalResumo.aguardandoColeta} detalhe="Pré-coleta" icone="📦" cor="orange" href="/admin/embarques?status=Aguardando%20coleta" />
-          <KpiCard titulo="Em trânsito" valor={operacionalResumo.transito} detalhe="Em andamento" icone="🚚" cor="blue" href="/admin/embarques?status=Em%20tr%C3%A2nsito" />
-          <KpiCard titulo="Fiscalização" valor={operacionalResumo.fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" href="/admin/embarques?status=Fiscaliza%C3%A7%C3%A3o" />
-          <KpiCard titulo="Liberados" valor={operacionalResumo.liberados} detalhe="Prontos para seguir" icone="✅" cor="green" href="/admin/embarques?status=Liberado" />
-          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" href="/admin/usuarios" />
-          <KpiCard titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" href="/admin/embarques" />
+          <KpiCard titulo="Aguardando custo" valor={financeiroResumo.aguardandoCusto.length} detalhe={moeda(financeiroResumo.totalAguardandoCusto)} icone="⚠️" cor="orange" href="/admin/financeiro?origem=dashboard&aba=PROCESSOS&status=AGUARDANDO_CUSTO" />
+          <KpiCard titulo="Vencidos" valor={financeiroResumo.atrasado.length} detalhe={moeda(financeiroResumo.vencido)} icone="⏰" cor="red" href="/admin/financeiro?origem=dashboard&aba=PROCESSOS&status=ATRASADO" />
+          <KpiCard titulo="Aguardando coleta" valor={operacionalResumo.aguardandoColeta} detalhe="Pré-coleta" icone="📦" cor="orange" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Aguardando%20coleta&arquivamento=ATIVOS" />
+          <KpiCard titulo="Em trânsito" valor={operacionalResumo.transito} detalhe="Em andamento" icone="🚚" cor="blue" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Em%20tr%C3%A2nsito&arquivamento=ATIVOS" />
+          <KpiCard titulo="Fiscalização" valor={operacionalResumo.fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Fiscaliza%C3%A7%C3%A3o&arquivamento=ATIVOS" />
+          <KpiCard titulo="Liberados" valor={operacionalResumo.liberados} detalhe="Prontos para seguir" icone="✅" cor="green" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&status=Liberado&arquivamento=ATIVOS" />
+          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" href="/admin/usuarios?origem=dashboard&tipo=cliente&status=ativo" />
+          <KpiCard titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" href="/admin/embarques?origem=dashboard&aba=LISTAGEM&arquivamento=ATIVOS" />
         </section>
 
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -1408,7 +1408,7 @@ export default function DashboardPage() {
               <LinhaResumo titulo="Fundo atual do ano" valor={moeda(financeiroResumo.fundoAtual)} cor="blue" />
             </div>
 
-            <a href="/admin/financeiro" className="mt-6 block text-right font-black text-blue-400 hover:text-blue-300">
+            <a href="/admin/financeiro?origem=dashboard" className="mt-6 block text-right font-black text-blue-400 hover:text-blue-300">
               Abrir financeiro →
             </a>
           </div>
@@ -1602,7 +1602,7 @@ export default function DashboardPage() {
                   <h2 className="text-2xl font-black">Receita x Profit</h2>
                   <p className="mt-1 text-sm text-slate-400">Últimos 6 meses pagos.</p>
                 </div>
-                <a href="/admin/financeiro?aba=RESULTADO" className="text-sm font-black text-blue-400">Ver resultado</a>
+                <a href="/admin/resultado-financeiro?origem=dashboard&periodo=MES_ATUAL" className="text-sm font-black text-blue-400">Ver resultado</a>
               </div>
 
               <div className="space-y-4">
@@ -1646,7 +1646,7 @@ export default function DashboardPage() {
                   <h2 className="text-2xl font-black">Status operacional</h2>
                   <p className="mt-1 text-sm text-slate-400">Distribuição atual dos embarques.</p>
                 </div>
-                <a href="/admin/embarques" className="text-sm font-black text-blue-400">Ver embarques</a>
+                <a href="/admin/embarques?origem=dashboard&aba=LISTAGEM&arquivamento=ATIVOS" className="text-sm font-black text-blue-400">Ver embarques</a>
               </div>
 
               <div className="space-y-4">
@@ -1674,7 +1674,7 @@ export default function DashboardPage() {
           <div className="card">
             <div className="mb-6 flex justify-between items-center">
               <h2 className="text-2xl font-black">Últimos embarques</h2>
-              <a href="/admin/embarques" className="text-blue-400 font-bold">
+              <a href="/admin/embarques?origem=dashboard&aba=LISTAGEM&arquivamento=ATIVOS" className="text-blue-400 font-bold">
                 Ver todos
               </a>
             </div>

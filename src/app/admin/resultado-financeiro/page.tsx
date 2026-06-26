@@ -30,6 +30,7 @@ export default function ResultadoFinanceiroPage() {
   const [cliente, setCliente] = useState('TODOS')
   const [transportadora, setTransportadora] = useState('TODOS')
   const [metaMes, setMetaMes] = useState('40000')
+  const [filtroDashboard, setFiltroDashboard] = useState('')
 
   useEffect(() => {
     const filtrosSalvos = localStorage.getItem(STORAGE_KEY)
@@ -48,6 +49,7 @@ export default function ResultadoFinanceiroPage() {
       }
     }
 
+    aplicarFiltrosDaDashboard()
     carregar()
   }, [])
 
@@ -63,6 +65,54 @@ export default function ResultadoFinanceiroPage() {
       })
     )
   }, [ano, mes, cliente, transportadora, metaMes])
+
+
+  function aplicarFiltrosDaDashboard() {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const origemDashboard = params.get('origem') === 'dashboard' || params.get('dash') === '1'
+
+    if (!origemDashboard) return
+
+    const periodoUrl = params.get('periodo') || ''
+    const anoUrl = params.get('ano') || ''
+    const mesUrl = params.get('mes') || ''
+    const clienteUrl = params.get('cliente') || ''
+    const transportadoraUrl = params.get('transportadora') || ''
+
+    const agora = new Date()
+    const anoAtual = String(agora.getFullYear())
+    const mesAtualNome = MESES[agora.getMonth()]
+
+    if (periodoUrl === 'MES_ATUAL') {
+      setAno(anoAtual)
+      setMes(mesAtualNome)
+      setFiltroDashboard(`Dashboard: resultado financeiro de ${mesAtualNome}/${anoAtual}`)
+    }
+
+    if (periodoUrl === 'ANO_ATUAL') {
+      setAno(anoAtual)
+      setMes('TODOS')
+      setFiltroDashboard(`Dashboard: resultado financeiro de ${anoAtual}`)
+    }
+
+    if (anoUrl) setAno(anoUrl)
+    if (mesUrl) setMes(mesUrl)
+    if (clienteUrl) setCliente(clienteUrl)
+    if (transportadoraUrl) setTransportadora(transportadoraUrl)
+
+    if (!periodoUrl) {
+      const partes = [
+        anoUrl ? `ano ${anoUrl}` : '',
+        mesUrl ? `mês ${mesUrl}` : '',
+        clienteUrl ? `cliente ${clienteUrl}` : '',
+        transportadoraUrl ? `transportadora ${transportadoraUrl}` : '',
+      ].filter(Boolean)
+
+      setFiltroDashboard(partes.length ? `Dashboard: ${partes.join(' • ')}` : 'Dashboard: resultado financeiro')
+    }
+  }
 
   async function carregar() {
     setLoading(true)
@@ -541,6 +591,31 @@ export default function ResultadoFinanceiroPage() {
           {loading ? 'Atualizando...' : 'Atualizar dados'}
         </button>
       </div>
+
+      {filtroDashboard && (
+        <section className="mb-6 rounded-2xl border border-blue-500/40 bg-blue-600/10 p-4 text-blue-100">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-blue-300">Filtro aplicado pela Dashboard</p>
+              <p className="mt-1 font-bold">{filtroDashboard}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAno('TODOS')
+                setMes('TODOS')
+                setCliente('TODOS')
+                setTransportadora('TODOS')
+                setFiltroDashboard('')
+              }}
+              className="w-fit rounded-xl bg-slate-700 px-4 py-2 text-sm font-black text-white hover:bg-slate-600"
+            >
+              Limpar filtro
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <Select label="Ano" value={ano} onChange={setAno} options={anos} />

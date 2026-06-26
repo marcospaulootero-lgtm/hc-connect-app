@@ -79,6 +79,8 @@ export default function FaturasTransportadorasPage() {
   const [filtroTransportadoras, setFiltroTransportadoras] = useState<string[]>([])
   const [filtroSituacoes, setFiltroSituacoes] = useState<string[]>([])
   const [filtroArquivadas, setFiltroArquivadas] = useState('ATIVAS')
+  const [filtroPrazo, setFiltroPrazo] = useState('')
+  const [filtroDashboard, setFiltroDashboard] = useState('')
   const [ultimaAlteracao, setUltimaAlteracao] = useState('')
   const [selecionadas, setSelecionadas] = useState<string[]>([])
 
@@ -105,12 +107,14 @@ export default function FaturasTransportadorasPage() {
         setFiltroTransportadoras(transportadorasSalvas)
         setFiltroSituacoes(situacoesSalvas)
         setFiltroArquivadas(dados.filtroArquivadas || 'ATIVAS')
+        setFiltroPrazo(dados.filtroPrazo || '')
         setUltimaAlteracao(dados.ultimaAlteracao || '')
       } catch (error) {
         console.log('Erro ao carregar filtros salvos:', error)
       }
     }
 
+    aplicarFiltrosDaDashboard()
     carregar()
   }, [])
 
@@ -120,12 +124,82 @@ export default function FaturasTransportadorasPage() {
       filtroTransportadoras,
       filtroSituacoes,
       filtroArquivadas,
+      filtroPrazo,
       ultimaAlteracao: new Date().toLocaleString('pt-BR'),
     }
 
     localStorage.setItem('hc_faturas_transportadoras_filtros', JSON.stringify(dados))
     setUltimaAlteracao(dados.ultimaAlteracao)
-  }, [busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas])
+  }, [busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo])
+
+
+  function aplicarFiltrosDaDashboard() {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const origemDashboard = params.get('origem') === 'dashboard' || params.get('dash') === '1'
+
+    if (!origemDashboard) return
+
+    const buscaUrl = params.get('busca') || ''
+    const transportadoraUrl = params.get('transportadora') || ''
+    const situacaoUrl = params.get('situacao') || ''
+    const arquivadasUrl = params.get('arquivadas') || ''
+    const prazoUrl = params.get('prazo') || ''
+
+    setBusca(buscaUrl)
+    setFiltroTransportadoras(transportadoraUrl ? [transportadoraUrl] : [])
+    setFiltroSituacoes(situacaoUrl ? [situacaoUrl] : [])
+    setFiltroArquivadas(arquivadasUrl || 'ATIVAS')
+    setFiltroPrazo(prazoUrl)
+
+    const partes = [
+      situacaoUrl ? `situação ${situacaoUrl}` : '',
+      prazoUrl ? `prazo ${nomeFiltroPrazo(prazoUrl)}` : '',
+      transportadoraUrl ? `transportadora ${transportadoraUrl}` : '',
+      buscaUrl ? `busca ${buscaUrl}` : '',
+    ].filter(Boolean)
+
+    setFiltroDashboard(partes.length ? `Dashboard: ${partes.join(' • ')}` : 'Dashboard: faturas filtradas')
+  }
+
+  function nomeFiltroPrazo(valor: string) {
+    const nomes: Record<string, string> = {
+      HOJE: 'vence hoje',
+      AMANHA: 'vence amanhã',
+      PROXIMOS_7_DIAS: 'próximos 7 dias',
+      VENCIDAS: 'vencidas',
+      SEM_DATA: 'sem vencimento',
+    }
+
+    return nomes[valor] || valor
+  }
+
+  function diasAteVencimento(item: FaturaTransportadora) {
+    const vencimento = String(item.vencimento || '').slice(0, 10)
+    if (!vencimento) return null
+
+    const hoje = new Date(`${hojeISO()}T00:00:00`)
+    const dataVencimento = new Date(`${vencimento}T00:00:00`)
+
+    return Math.ceil((dataVencimento.getTime() - hoje.getTime()) / 86400000)
+  }
+
+  function passaFiltroPrazo(item: FaturaTransportadora) {
+    if (!filtroPrazo) return true
+
+    const vencimento = String(item.vencimento || '').slice(0, 10)
+    const dias = diasAteVencimento(item)
+
+    if (filtroPrazo === 'SEM_DATA') return !vencimento
+    if (dias === null) return false
+    if (filtroPrazo === 'HOJE') return dias === 0
+    if (filtroPrazo === 'AMANHA') return dias === 1
+    if (filtroPrazo === 'PROXIMOS_7_DIAS') return dias >= 0 && dias <= 7
+    if (filtroPrazo === 'VENCIDAS') return dias < 0
+
+    return true
+  }
 
   async function carregar() {
     setLoading(true)
@@ -919,6 +993,8 @@ export default function FaturasTransportadorasPage() {
     setFiltroTransportadoras([])
     setFiltroSituacoes([])
     setFiltroArquivadas('ATIVAS')
+    setFiltroPrazo('')
+    setFiltroDashboard('')
   }
 
   function filtroRapido(tipo: string) {
@@ -926,30 +1002,35 @@ export default function FaturasTransportadorasPage() {
       setFiltroTransportadoras(['DHL'])
       setFiltroSituacoes([])
       setFiltroArquivadas('ATIVAS')
+      setFiltroPrazo('')
     }
 
     if (tipo === 'FEDEX') {
       setFiltroTransportadoras(['FedEx'])
       setFiltroSituacoes([])
       setFiltroArquivadas('ATIVAS')
+      setFiltroPrazo('')
     }
 
     if (tipo === 'VENCIDAS') {
       setFiltroTransportadoras([])
       setFiltroSituacoes(['VENCIDA'])
       setFiltroArquivadas('ATIVAS')
+      setFiltroPrazo('')
     }
 
     if (tipo === 'ABERTAS') {
       setFiltroTransportadoras([])
       setFiltroSituacoes(['EM ABERTO'])
       setFiltroArquivadas('ATIVAS')
+      setFiltroPrazo('')
     }
 
     if (tipo === 'ARQUIVADAS') {
       setFiltroTransportadoras([])
       setFiltroSituacoes([])
       setFiltroArquivadas('ARQUIVADAS')
+      setFiltroPrazo('')
     }
   }
 
@@ -986,9 +1067,11 @@ export default function FaturasTransportadorasPage() {
         (filtroArquivadas === 'ATIVAS' && !item.arquivada) ||
         (filtroArquivadas === 'ARQUIVADAS' && !!item.arquivada)
 
-      return passaBusca && passaTransportadora && passaSituacao && passaArquivadas
+      const passaPrazo = passaFiltroPrazo(item)
+
+      return passaBusca && passaTransportadora && passaSituacao && passaArquivadas && passaPrazo
     })
-  }, [faturas, busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas])
+  }, [faturas, busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo])
 
 
   const todasFiltradasSelecionadas =
@@ -1070,6 +1153,31 @@ export default function FaturasTransportadorasPage() {
           </button>
         </div>
       </div>
+
+      {filtroDashboard && (
+        <section className="mb-6 rounded-2xl border border-blue-500/40 bg-blue-600/10 p-4 text-blue-100">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-blue-300">Filtro aplicado pela Dashboard</p>
+              <p className="mt-1 font-bold">{filtroDashboard}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="w-fit rounded-xl bg-slate-700 px-4 py-2 text-sm font-black text-white hover:bg-slate-600"
+            >
+              Limpar filtro
+            </button>
+          </div>
+        </section>
+      )}
+
+      {filtroPrazo && (
+        <section className="mb-6 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-yellow-100">
+          <p className="text-sm font-black">Filtro de prazo ativo: {nomeFiltroPrazo(filtroPrazo)}</p>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-5 mb-8">
         <KpiCard titulo="DHL" valor={totais.dhl.qtd} detalhe={`Saldo ${moeda(totais.dhl.saldo)}`} icone="🟡" onClick={() => filtroRapido('DHL')} />
