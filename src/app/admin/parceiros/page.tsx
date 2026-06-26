@@ -185,6 +185,12 @@ export default function ParceirosPage() {
       'dta',
       'hc consultoria',
       'consultoria',
+      'terceiro pais',
+      'terceiro país',
+      'domestico',
+      'doméstico',
+      'saldo mes anterior',
+      'saldo mês anterior',
     ]
 
     const textoBloqueio = `${servico} ${transportadora}`
