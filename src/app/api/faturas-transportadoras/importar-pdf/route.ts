@@ -118,6 +118,7 @@ function unicosPorAwb(itens: ItemPdf[]) {
 }
 
 
+
 function extrairFedEx(textoOriginal: string): PreviewPdf {
   const texto = limparTexto(textoOriginal)
 
@@ -145,11 +146,11 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
   const itens: ItemPdf[] = []
 
   let marcadores = Array.from(
-    texto.matchAll(/(?:N[°ºo.]?\s*de\s*)?Rastreio\s+(\d{10,15})/gi)
+    texto.matchAll(/(?:N[°ºo.]?\s*de\s*)?Rastreio\s*[:\s]*([0-9][0-9\s.-]{8,20})/gi)
   ).map((match) => ({
     awb: normalizarAwb(match[1]),
     index: match.index || 0,
-  }))
+  })).filter((item) => item.awb.length >= 10 && item.awb.length <= 15)
 
   if (marcadores.length === 0) {
     marcadores = Array.from(texto.matchAll(/\b(\d{12})\b/g))
@@ -158,47 +159,53 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
         index: match.index || 0,
       }))
       .filter((item) => {
-        const trecho = texto.slice(Math.max(0, item.index - 120), item.index + 900)
-        return /Subtotal|FedEx|Rastreio|Taxa\s+de\s+Transporte/i.test(trecho)
+        const trecho = texto.slice(Math.max(0, item.index - 250), item.index + 1200)
+        return /FedEx|Federal Express|Subtotal|Taxa\s+de\s+Transporte|Rastreio/i.test(trecho)
       })
   }
 
-  marcadores.forEach((item, index) => {
-    if (!item.awb) return
+  const vistos = new Set<string>()
+  marcadores = marcadores.filter((item) => {
+    if (!item.awb || vistos.has(item.awb)) return false
+    vistos.add(item.awb)
+    return true
+  })
 
+  marcadores.forEach((item, index) => {
     const inicio = item.index
     const fim = marcadores[index + 1]?.index || texto.length
-
+    const bloco = texto.slice(inicio, fim)
     const blocoAntes = texto.slice(Math.max(0, inicio - 500), inicio)
-    const blocoDepois = texto.slice(inicio, fim)
-    const blocoCompleto = blocoAntes + '\n' + blocoDepois
 
-    const subtotalMatchComReal =
-      blocoDepois.match(/Subtotal[\s\S]{0,160}?R\$?\s*([0-9.]+,\d{2})/i)
+    const posSubtotal = bloco.search(/Subtotal/i)
+    if (posSubtotal < 0) return
 
-    const subtotalMatchSemReal =
-      blocoDepois.match(/Subtotal\s+USD\s*[-0-9.,]+\s+([0-9.]+,\d{2})/i)
+    const janelaSubtotal = bloco.slice(posSubtotal, posSubtotal + 300)
 
-    const subtotal =
-      numeroBR(subtotalMatchComReal?.[1]) ||
-      numeroBR(subtotalMatchSemReal?.[1])
+    const valorComReal = janelaSubtotal.match(/R\$\s*([0-9.]+,\d{2})/i)?.[1]
 
-    if (!subtotal || subtotal <= 0) return
+    const valores = Array.from(
+      janelaSubtotal.matchAll(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/g)
+    ).map((match) => match[1])
+
+    const valorSubtotal = numeroBR(valorComReal || valores[valores.length - 1])
+
+    if (!valorSubtotal || valorSubtotal <= 0) return
 
     const referenciaRaw =
-      blocoCompleto.match(/Refer[êe]ncia:\s*([^\n]+)/i)?.[1]
+      blocoAntes.match(/Refer[êe]ncia:\s*([^\n]+)/i)?.[1]
         ?.replace(/N[°ºo.]?\s*de\s*Rastreio.*/i, '')
         ?.trim() || null
 
     const dataEnvio =
-      dataMesPtParaISO(blocoCompleto.match(/Data\s+de\s+Emiss[ãa]o:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
+      dataMesPtParaISO(blocoAntes.match(/Data\s+de\s+Emiss[ãa]o:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
       null
 
     itens.push({
       awb: item.awb,
       referencia: referenciaRaw,
       data_envio: dataEnvio,
-      valor_compra: subtotal,
+      valor_compra: valorSubtotal,
     })
   })
 
@@ -339,7 +346,7 @@ export async function POST(req: Request) {
 
     if (!preview.itens.length) {
       return NextResponse.json(
-        { error: 'Não encontrei AWBs com valor em R$ neste PDF. Verifique se enviou a fatura detalhada, não apenas o boleto.' },
+        { error: 'Não encontrei AWBs com valor em R$ neste PDF. O leitor conseguiu abrir o PDF, mas não conseguiu associar rastreio + subtotal. Me envie o print deste alerta se continuar.' },
         { status: 400 }
       )
     }
