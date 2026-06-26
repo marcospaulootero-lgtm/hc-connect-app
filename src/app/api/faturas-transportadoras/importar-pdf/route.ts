@@ -453,11 +453,15 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   const numeroFatura =
     texto.match(/Fatura:\s*(BHZIR[0-9A-Z]+)/i)?.[1]?.trim().toUpperCase() ||
+    texto.match(/\b(BHZIR[0-9A-Z]+)\b/i)?.[1]?.trim().toUpperCase() ||
     texto.match(/N[úu]mero\s+Fatura\s+IBS\s*([A-Z0-9]+)/i)?.[1]?.trim().toUpperCase() ||
     texto.match(/N[º°]\s*fatura\s*([0-9]+)/i)?.[1]?.trim() ||
     ''
 
-  const conta = texto.match(/Conta:\s*([0-9]+)/i)?.[1]?.trim() || null
+  const conta =
+    texto.match(/Conta:\s*([0-9]+)/i)?.[1]?.trim() ||
+    texto.match(/Número\s+da\s+Conta:\s*([0-9*]+)/i)?.[1]?.trim() ||
+    null
 
   const emissao =
     dataBRParaISO(texto.match(/Emiss[ãa]o:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
@@ -471,42 +475,116 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   const valorTotal =
     numeroBR(texto.match(/Valor\s+Total\s*\(BRL\)\s*([0-9.]+,\d{2})/i)?.[1]) ||
+    numeroBR(texto.match(/Total\s*\(ICMS\s*incl\.\)\s*Valor\s+Total\s*\(BRL\)\s*([0-9.]+,\d{2})/i)?.[1]) ||
     numeroBR(texto.match(/Valor\s+Total\s+da\s+Fatura\s*([0-9.]+,\d{2})/i)?.[1]) ||
     numeroBR(texto.match(/Valor\s+do\s+Documento\s*[:\s]+([0-9.]+,\d{2})/i)?.[1])
 
   const itens: ItemPdf[] = []
-  const awbs = Array.from(texto.matchAll(/(?:^|\n)(\d{10})\s+/g))
 
-  awbs.forEach((match, index) => {
-    const awb = normalizarAwb(match[1])
-    const inicio = match.index || 0
-    const fim =
-      awbs[index + 1]?.index ||
-      texto.indexOf('Sub-Total de Serviço', inicio) ||
-      texto.length
+  const awbs = Array.from(texto.matchAll(/\b(\d{10})\b/g))
+    .map((match) => ({
+      awb: normalizarAwb(match[1]),
+      index: match.index || 0,
+    }))
+    .filter((item, index, lista) => {
+      if (!item.awb || item.awb.length !== 10) return false
+
+      const primeiro = lista.findIndex((x) => x.awb === item.awb)
+      if (primeiro !== index) return false
+
+      const contexto = texto.slice(Math.max(0, item.index - 180), item.index + 260).toUpperCase()
+
+      if (contexto.includes('CONTA:') && contexto.includes(item.awb)) return false
+      if (contexto.includes('CNPJ')) return false
+      if (contexto.includes('TELEFONE')) return false
+      if (contexto.includes('CEP')) return false
+
+      return true
+    })
+
+  for (let i = 0; i < awbs.length; i++) {
+    const atual = awbs[i]
+    const proximo = awbs[i + 1]
+    const inicio = atual.index
+    const fimSubTotal = texto.indexOf('Sub-Total de Serviço', inicio)
+    const fim = proximo?.index || (fimSubTotal > inicio ? fimSubTotal : texto.length)
 
     const bloco = texto.slice(inicio, fim)
-    const primeiraLinha = bloco.split('\n')[0] || ''
+    const blocoCurto = texto.slice(inicio, Math.min(texto.length, inicio + 4500))
 
-    const totalBrl = numeroBR(bloco.match(/Total\s*\(BRL\):\s*([0-9.]+,\d{2})/i)?.[1])
-    const dataEnvio = dataBRParaISO(primeiraLinha.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1])
+    const totaisBloco = Array.from(
+      bloco.matchAll(/Total\s*\(BRL\)\s*:\s*([0-9.]+,\d{2})/gi)
+    )
+
+    const totaisFallback = Array.from(
+      blocoCurto.matchAll(/Total\s*\(BRL\)\s*:\s*([0-9.]+,\d{2})/gi)
+    )
+
+    const totalMatch =
+      totaisBloco[totaisBloco.length - 1] ||
+      totaisFallback[0] ||
+      null
+
+    const totalBrl = numeroBR(totalMatch?.[1])
+
+    const primeiraLinha = bloco.split('\n')[0] || ''
+    const dataEnvio =
+      dataBRParaISO(primeiraLinha.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1]) ||
+      dataBRParaISO(bloco.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1]) ||
+      null
+
     const referencia =
       primeiraLinha
-        .replace(awb, '')
+        .replace(atual.awb, '')
         .replace(/\d{1,2}\/\d{1,2}\/\d{4}.*/g, '')
         .trim() || null
 
-    if (awb && totalBrl > 0) {
+    if (atual.awb && totalBrl > 0) {
       itens.push({
-        awb,
+        awb: atual.awb,
         referencia,
         data_envio: dataEnvio,
         valor_compra: totalBrl,
       })
     }
-  })
+  }
 
-  return {
+  // Fallback específico para faturas DHL onde o texto vem em blocos tabulares.
+  // Exemplo:
+  // 5063531351 INVOICE 0401 21/05/2026 ...
+  // ...
+  // Total (BRL): 3.740,56
+  if (itens.length === 0) {
+    const linhas = texto.split('\n').map((linha) => linha.trim()).filter(Boolean)
+
+    for (let i = 0; i < linhas.length; i++) {
+      const linha = linhas[i]
+      const awb = normalizarAwb(linha.match(/^([0-9]{10})\b/)?.[1])
+
+      if (!awb) continue
+
+      const blocoLinhas = linhas.slice(i, i + 28).join('\n')
+      const totalBrl = numeroBR(blocoLinhas.match(/Total\s*\(BRL\)\s*:\s*([0-9.]+,\d{2})/i)?.[1])
+      const dataEnvio = dataBRParaISO(linha.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1])
+
+      const referencia =
+        linha
+          .replace(awb, '')
+          .replace(/\d{1,2}\/\d{1,2}\/\d{4}.*/g, '')
+          .trim() || null
+
+      if (totalBrl > 0) {
+        itens.push({
+          awb,
+          referencia,
+          data_envio: dataEnvio,
+          valor_compra: totalBrl,
+        })
+      }
+    }
+  }
+
+  const retorno: any = {
     transportadora: 'DHL',
     conta,
     numero_fatura: numeroFatura,
@@ -516,6 +594,8 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     tipo_lancamento: 'COMPRA',
     itens: unicosPorAwb(itens),
   }
+
+  return retorno
 }
 
 export async function POST(req: Request) {
