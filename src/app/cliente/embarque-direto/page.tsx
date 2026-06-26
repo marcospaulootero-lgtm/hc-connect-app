@@ -59,6 +59,32 @@ export default function EmbarqueDiretoClientePage() {
     return texto
   }
 
+  async function notificarEmbarqueDireto(embarqueCriado: any) {
+    try {
+      await fetch('/api/email-embarque-direto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cliente_final: form.cliente_final,
+          solicitante_email: usuario?.email,
+          tipo_operacao: form.tipo_operacao,
+          origem: form.origem,
+          destino: form.destino,
+          transportadora: form.transportadora,
+          awb: form.awb,
+          peso: form.peso,
+          volumes: form.volumes,
+          descricao_mercadoria: form.descricao_mercadoria,
+          instrucoes: form.instrucoes,
+          documentos: arquivos.map((arquivo) => arquivo.name),
+          embarque_direto_id: embarqueCriado?.id,
+        }),
+      })
+    } catch (error) {
+      console.log('Erro ao enviar alerta de embarque direto:', error)
+    }
+  }
+
   async function enviarEmbarqueDireto() {
     if (!usuario?.id) {
       alert('Usuário não identificado')
@@ -144,6 +170,8 @@ export default function EmbarqueDiretoClientePage() {
         ])
       }
     }
+
+    await notificarEmbarqueDireto(embarqueCriado)
 
     setSalvando(false)
 
