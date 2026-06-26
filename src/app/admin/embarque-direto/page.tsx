@@ -206,78 +206,159 @@ export default function AdminEmbarqueDiretoPage() {
     carregar()
   }
 
+  function normalizarAwbOpcional(valor: any) {
+    const texto = String(valor || '').trim()
+    const normalizado = texto.toUpperCase()
+
+    if (
+      !texto ||
+      texto === '-' ||
+      normalizado === 'N/A' ||
+      normalizado === 'NA' ||
+      normalizado === 'SEM AWB' ||
+      normalizado === 'SEM-AWB' ||
+      normalizado === 'AGUARDANDO AWB'
+    ) {
+      return null
+    }
+
+    return texto
+  }
+
+  function normalizarPeso(valor: any) {
+    if (!valor) return null
+
+    const numero = Number(String(valor).replace(',', '.'))
+
+    if (!Number.isFinite(numero)) return null
+
+    return numero
+  }
+
   async function converterEmEmbarque(item: any) {
-    const confirmar = confirm(`Converter a solicitação de ${item.cliente_final || item.solicitante_email} em embarque?`)
+    const confirmar = confirm(
+      'Converter a solicitação de ' +
+        (item.cliente_final || item.solicitante_email || '-') +
+        ' em embarque?'
+    )
+
     if (!confirmar) return
 
     setConvertendo(item.id)
 
-    const { data: novoEmbarque, error } = await supabase
-      .from('embarques')
-      .insert([
-        {
-          usuario_id: item.usuario_id || null,
-          cliente_final: item.cliente_final || null,
-          exportador: item.tipo_operacao === 'Exportação' ? item.cliente_final : null,
-          importador: item.tipo_operacao === 'Importação' ? item.cliente_final : null,
-          awb: item.awb || 'AGUARDANDO AWB',
-          transportadora: item.transportadora || null,
-          servico: item.tipo_operacao || null,
-          origem: item.origem || null,
-          destino: item.destino || null,
-          peso_real: item.peso ? Number(String(item.peso).replace(',', '.')) : null,
-          peso_taxado: item.peso ? Number(String(item.peso).replace(',', '.')) : null,
-          status_operacional: 'Aguardando coleta',
-          observacoes: `
-Solicitação criada via Embarque Direto.
+    try {
+      const awbNormalizado = normalizarAwbOpcional(item.awb)
 
-Solicitante: ${item.solicitante_email || '-'}
-Volumes: ${item.volumes || '-'}
-Descrição da mercadoria: ${item.descricao_mercadoria || '-'}
-Instruções: ${item.instrucoes || '-'}
-          `.trim(),
-        },
-      ])
-      .select()
-      .single()
+      if (awbNormalizado) {
+        const { data: embarqueExistente, error: erroBuscaAwb } = await supabase
+          .from('embarques')
+          .select('id, awb, cliente_final, referencia_hc')
+          .eq('awb', awbNormalizado)
+          .maybeSingle()
 
-    if (error) {
-      setConvertendo(null)
-      console.log(error)
-      alert(error.message)
-      return
-    }
+        if (erroBuscaAwb) {
+          throw new Error('Erro ao verificar AWB existente: ' + erroBuscaAwb.message)
+        }
 
-    const docs = docsDaSolicitacao(item.id)
+        if (embarqueExistente) {
+          alert(
+            'Este AWB já existe no sistema e não será criado em duplicidade.\n\n' +
+              'AWB: ' + awbNormalizado + '\n' +
+              'Cliente: ' + (embarqueExistente.cliente_final || '-') + '\n' +
+              'Referência HC: ' + (embarqueExistente.referencia_hc || '-') + '\n\n' +
+              'Abra o embarque existente para conferir.'
+          )
+          return
+        }
+      }
 
-    for (const doc of docs) {
-      await supabase.from('documentos_embarques').insert([
-        {
+      const peso = normalizarPeso(item.peso)
+
+      const { data: novoEmbarque, error } = await supabase
+        .from('embarques')
+        .insert([
+          {
+            usuario_id: item.usuario_id || null,
+            cliente_final: item.cliente_final || null,
+            exportador: item.tipo_operacao === 'Exportação' ? item.cliente_final : null,
+            importador: item.tipo_operacao === 'Importação' ? item.cliente_final : null,
+            awb: awbNormalizado,
+            transportadora: item.transportadora || null,
+            servico: item.tipo_operacao || null,
+            origem: item.origem || null,
+            destino: item.destino || null,
+            peso_real: peso,
+            peso_taxado: peso,
+            status_operacional: 'Aguardando coleta',
+            observacoes: [
+              'Solicitação criada via Embarque Direto.',
+              '',
+              'Solicitante: ' + (item.solicitante_email || '-'),
+              'Volumes: ' + (item.volumes || '-'),
+              'Descrição da mercadoria: ' + (item.descricao_mercadoria || '-'),
+              'Instruções: ' + (item.instrucoes || '-'),
+            ].join('\n').trim(),
+          },
+        ])
+        .select()
+        .single()
+
+      if (error) {
+        console.log(error)
+
+        if (
+          String(error.message || '').includes('duplicate key') ||
+          String(error.message || '').includes('embarques_awb_key')
+        ) {
+          alert(
+            'Este AWB já existe no sistema. A solicitação não foi convertida para evitar duplicidade.\n\n' +
+              'AWB: ' + (awbNormalizado || item.awb || '-') +
+              '\n\nConfira o embarque já cadastrado antes de tentar converter novamente.'
+          )
+          return
+        }
+
+        throw new Error(error.message)
+      }
+
+      const docs = docsDaSolicitacao(item.id)
+
+      for (const doc of docs) {
+        const { error: erroDocumento } = await supabase.from('documentos_embarques').insert([
+          {
+            embarque_id: novoEmbarque.id,
+            nome: doc.nome,
+            url: doc.url,
+            caminho: doc.caminho || null,
+          },
+        ])
+
+        if (erroDocumento) {
+          console.log(erroDocumento)
+          alert('Embarque criado, mas houve erro ao copiar um documento: ' + erroDocumento.message)
+        }
+      }
+
+      const { error: erroUpdate } = await supabase
+        .from('embarque_direto')
+        .update({
+          status: 'CONVERTIDO EM EMBARQUE',
           embarque_id: novoEmbarque.id,
-          nome: doc.nome,
-          url: doc.url,
-          caminho: doc.caminho || null,
-        },
-      ])
+        })
+        .eq('id', item.id)
+
+      if (erroUpdate) {
+        throw new Error(erroUpdate.message)
+      }
+
+      alert('Solicitação convertida em embarque com sucesso.')
+      carregar()
+    } catch (error: any) {
+      console.log(error)
+      alert('Erro ao converter solicitação: ' + (error?.message || 'erro desconhecido'))
+    } finally {
+      setConvertendo(null)
     }
-
-    const { error: erroUpdate } = await supabase
-      .from('embarque_direto')
-      .update({
-        status: 'CONVERTIDO EM EMBARQUE',
-        embarque_id: novoEmbarque.id,
-      })
-      .eq('id', item.id)
-
-    setConvertendo(null)
-
-    if (erroUpdate) {
-      alert(erroUpdate.message)
-      return
-    }
-
-    alert('Solicitação convertida em embarque com sucesso.')
-    carregar()
   }
 
   function aplicarFiltroArquivadas() {
