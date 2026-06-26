@@ -173,6 +173,38 @@ export default function ParceirosPage() {
       .replace(/[\u0300-\u036f]/g, '')
   }
 
+  function ehServicoOperacionalParceiro(item: any) {
+    const servico = normalizarBusca(item?.servico)
+    const transportadora = normalizarBusca(item?.transportadora)
+
+    const bloqueados = [
+      'reajuste',
+      'imposto',
+      'taxa',
+      'doc',
+      'dta',
+      'hc consultoria',
+      'consultoria',
+    ]
+
+    const textoBloqueio = `${servico} ${transportadora}`
+
+    if (bloqueados.some((palavra) => textoBloqueio.includes(palavra))) {
+      return false
+    }
+
+    const permitidos = [
+      'import',
+      'export',
+      'formal',
+      'maritim',
+      'marítim',
+      'courier',
+    ]
+
+    return permitidos.some((palavra) => servico.includes(palavra))
+  }
+
   function normalizarStatusParceiro(valor: any) {
     const texto = normalizarBusca(valor).toUpperCase()
 
@@ -297,7 +329,9 @@ export default function ParceirosPage() {
       return
     }
 
-    const todos = respostas.flatMap((res) => res.data || [])
+    const todos = respostas
+      .flatMap((res) => res.data || [])
+      .filter((item) => ehServicoOperacionalParceiro(item))
 
     const ordenados = todos.sort((a, b) =>
       String(a.parceiro || a.despachante || '').localeCompare(
