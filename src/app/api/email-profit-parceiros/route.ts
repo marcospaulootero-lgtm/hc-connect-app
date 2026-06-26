@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     }
 
     const { error } = await resend.emails.send({
-      from: 'HC Consultoria - Financeiro <cotacoes@hcbhz.com>',
+      from: 'HC Consultoria - Financeiro <noreply@hcbhz.com>',
       to: destinatarios,
       cc: ['marcos@hcbhz.com', 'hericamcouto@outlook.com'],
       subject: assunto,
@@ -55,10 +55,14 @@ export async function POST(req: Request) {
           </div>
 
           <div style="border:1px solid #e5e7eb;border-top:0;padding:24px;border-radius:0 0 14px 14px;">
-            <div style="white-space:pre-wrap;font-size:14px;line-height:1.6;">${mensagem
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')}</div>
+            <div style="font-size:14px;line-height:1.6;">
+              ${mensagem
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\\n/g, '<br />')
+                .replace(/\n/g, '<br />')}
+            </div>
 
             <p style="margin-top:24px;color:#64748b;font-size:12px;">
               PDF enviado automaticamente pelo HC Connect.
