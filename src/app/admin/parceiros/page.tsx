@@ -1112,6 +1112,35 @@ export default function ParceirosPage() {
     }
   }
 
+  function assuntoPadraoEmailPdf() {
+    return `Relatório de Profit Parceiros - ${parceiroSelecionado || 'Todos parceiros'}`
+  }
+
+  function corpoPadraoEmailPdf() {
+    const itens = itensAtuaisDoPdf()
+    const resumo = calcularResumoPdf(itens)
+    const nomeParceiro = parceiroSelecionado || 'Todos parceiros'
+    const periodoTexto = periodo === 'TODOS' ? 'todos os períodos' : periodo
+    const tipoRelatorio = selecionadosPdf.length > 0 ? 'processos selecionados' : 'filtro atual'
+
+    return [
+      'Prezados,',
+      '',
+      `Segue em anexo o relatório de Profit Parceiros referente ao parceiro ${nomeParceiro}.`,
+      '',
+      `Relatório: ${tipoRelatorio}`,
+      `Quantidade de processos: ${resumo.qtd}`,
+      `Total do relatório: ${moeda(resumo.total)}`,
+      `Status aplicado: ${aba}`,
+      `Período: ${periodoTexto}`,
+      '',
+      'Qualquer dúvida, estamos à disposição.',
+      '',
+      'Atenciosamente,',
+      'HC Consultoria',
+    ].join('\n')
+  }
+
   async function enviarPdfPorEmail() {
     try {
       if (!emailDestinatariosPdf.trim()) {
@@ -1119,15 +1148,8 @@ export default function ParceirosPage() {
         return
       }
 
-      if (!emailAssuntoPdf.trim()) {
-        alert('Informe o assunto do e-mail.')
-        return
-      }
-
-      if (!emailCorpoPdf.trim()) {
-        alert('Informe o corpo do e-mail.')
-        return
-      }
+      const assuntoFinal = emailAssuntoPdf.trim() || assuntoPadraoEmailPdf()
+      const corpoFinal = emailCorpoPdf.trim() || corpoPadraoEmailPdf()
 
       setEnviandoEmailPdf(true)
 
@@ -1140,8 +1162,8 @@ export default function ParceirosPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           destinatarios: emailDestinatariosPdf,
-          assunto: emailAssuntoPdf,
-          mensagem: emailCorpoPdf,
+          assunto: assuntoFinal,
+          mensagem: corpoFinal,
           pdfBase64,
           nomeArquivo,
         }),
@@ -1843,36 +1865,26 @@ export default function ParceirosPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_auto]">
               <input
                 value={emailDestinatariosPdf}
                 onChange={(e) => setEmailDestinatariosPdf(e.target.value)}
-                placeholder="Destinatários. Ex: financeiro@cliente.com; comercial@cliente.com"
+                placeholder="Digite o e-mail do destinatário. Ex: financeiro@cliente.com"
                 className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-              />
-
-              <input
-                value={emailAssuntoPdf}
-                onChange={(e) => setEmailAssuntoPdf(e.target.value)}
-                placeholder="Assunto do e-mail"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-              />
-
-              <textarea
-                value={emailCorpoPdf}
-                onChange={(e) => setEmailCorpoPdf(e.target.value)}
-                placeholder="Corpo do e-mail"
-                className="min-h-[110px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 xl:col-span-2"
               />
 
               <button
                 type="button"
                 onClick={enviarPdfPorEmail}
                 disabled={enviandoEmailPdf}
-                className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50 xl:col-span-2"
+                className="rounded-xl border border-green-200 bg-green-50 px-5 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
               >
                 {enviandoEmailPdf ? 'Enviando PDF...' : 'Enviar PDF por e-mail'}
               </button>
+
+              <div className="rounded-xl border border-blue-100 bg-white px-4 py-3 text-xs font-bold text-slate-500 xl:col-span-2">
+                Assunto e corpo do e-mail serão preenchidos automaticamente. Marcos e Hérica entram em cópia.
+              </div>
             </div>
           </section>
 
