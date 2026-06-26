@@ -41,6 +41,24 @@ export default function EmbarqueDiretoClientePage() {
     })
   }
 
+  function normalizarAwbOpcional(valor: string) {
+    const texto = String(valor || '').trim()
+    const normalizado = texto.toUpperCase()
+
+    if (
+      !texto ||
+      texto === '-' ||
+      normalizado === 'N/A' ||
+      normalizado === 'NA' ||
+      normalizado === 'SEM AWB' ||
+      normalizado === 'SEM-AWB'
+    ) {
+      return null
+    }
+
+    return texto
+  }
+
   async function enviarEmbarqueDireto() {
     if (!usuario?.id) {
       alert('Usuário não identificado')
@@ -76,7 +94,7 @@ export default function EmbarqueDiretoClientePage() {
           origem,
           destino,
           transportadora: form.transportadora.trim(),
-          awb: form.awb.trim(),
+          awb: normalizarAwbOpcional(form.awb),
           peso: form.peso.trim(),
           volumes: form.volumes.trim(),
           descricao_mercadoria: descricaoMercadoria,
