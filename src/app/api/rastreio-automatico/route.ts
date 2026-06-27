@@ -351,8 +351,10 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
   const dataColeta = encontrarDataColetaFedEx(eventos)
 
   const descricaoOriginal =
-    ultimoEvento?.eventDescription ||
     resultado?.latestStatusDetail?.description ||
+    resultado?.derivedStatus ||
+    resultado?.statusByLocale ||
+    ultimoEvento?.eventDescription ||
     'Sem descrição'
 
   const descricao = traduzirDescricao(descricaoOriginal, 'FEDEX')
@@ -380,7 +382,10 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
     resultado?.latestStatusDetail?.scanLocation?.city ||
     null
 
+  const dataEntregaFedEx = encontrarDataEntregaFedEx(resultado, eventos)
+
   const dataEvento =
+    dataEntregaFedEx ||
     ultimoEvento?.date ||
     resultado?.dateAndTimes?.[0]?.dateTime ||
     new Date().toISOString()
@@ -482,6 +487,30 @@ function encontrarDataColetaDHL(eventos: any[]) {
   return eventoColeta?.timestamp || null
 }
 
+function encontrarDataEntregaFedEx(resultado: any, eventos: any[]) {
+  const dataEntregaPorResumo =
+    (resultado?.dateAndTimes || []).find((item: any) => {
+      const tipo = removerAcentos(`${item?.type || ''} ${item?.name || ''}`)
+      return (
+        tipo.includes('actual delivery') ||
+        tipo.includes('delivery') ||
+        tipo.includes('entrega')
+      )
+    })?.dateTime || null
+
+  if (dataEntregaPorResumo) return dataEntregaPorResumo
+
+  const eventoEntrega = (eventos || []).find((evento: any) => {
+    const texto = removerAcentos(
+      `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
+    )
+
+    return ehEntregue(texto)
+  })
+
+  return eventoEntrega?.date || null
+}
+
 function encontrarDataColetaFedEx(eventos: any[]) {
   const eventoColeta = eventos.find((evento) => {
     const texto = removerAcentos(
@@ -557,19 +586,43 @@ function normalizarStatus(status: string) {
 }
 
 function ehEntregue(s: string) {
+  const texto = removerAcentos(s)
+
+  const negativoEntrega =
+    texto.includes('nao foi entregue') ||
+    texto.includes('não foi entregue') ||
+    texto.includes('not delivered') ||
+    texto.includes('not yet delivered') ||
+    texto.includes('not yet been delivered') ||
+    texto.includes('not yet handed over') ||
+    texto.includes('not yet received') ||
+    texto.includes('has not been handed over') ||
+    texto.includes('remessa ainda nao foi entregue') ||
+    texto.includes('nao foi entregue fisicamente')
+
+  if (negativoEntrega) return false
+
+  const codigoFedexEntregue = /(^|[\s|,;:/-])(dl)([\s|,;:/-]|$)/.test(texto)
+
   return (
-    s === 'envio entregue' ||
-    s === 'delivered' ||
-    s.includes('shipment delivered') ||
-    s.includes('proof of delivery') ||
-    s.includes('delivered to consignee') ||
-    s.includes('delivered to recipient') ||
-    s.includes('signed for') ||
-    s.includes('delivery completed') ||
-    s.includes('entrega realizada') ||
-    s.includes('entrega concluida') ||
-    s.includes('entregue ao destinatario') ||
-    s.includes('comprovante de entrega')
+    texto === 'envio entregue' ||
+    texto === 'delivered' ||
+    codigoFedexEntregue ||
+    texto.includes('delivered') ||
+    texto.includes('shipment delivered') ||
+    texto.includes('proof of delivery') ||
+    texto.includes('delivered to consignee') ||
+    texto.includes('delivered to recipient') ||
+    texto.includes('signed for') ||
+    texto.includes('signed by') ||
+    texto.includes('signature') ||
+    texto.includes('delivery completed') ||
+    texto.includes('entrega realizada') ||
+    texto.includes('entrega concluida') ||
+    texto.includes('entregue ao destinatario') ||
+    texto.includes('envio entregue') ||
+    texto.includes('foi entregue') ||
+    texto.includes('comprovante de entrega')
   )
 }
 
