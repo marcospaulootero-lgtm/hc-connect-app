@@ -198,6 +198,8 @@ export default function FaturasPage() {
   const [valorRecebidoRecibo, setValorRecebidoRecibo] = useState('')
   const [formaRecebimentoRecibo, setFormaRecebimentoRecibo] = useState('PIX / Transferência bancária')
   const [observacoesRecibo, setObservacoesRecibo] = useState('')
+  const [buscaClienteRecibo, setBuscaClienteRecibo] = useState('')
+  const [reciboClienteId, setReciboClienteId] = useState('')
   const [emitindoRecibo, setEmitindoRecibo] = useState(false)
 
   const [busca, setBusca] = useState('')
@@ -257,6 +259,18 @@ export default function FaturasPage() {
 
     return () => clearTimeout(timer)
   }, [buscaClienteEmissor])
+
+  useEffect(() => {
+    const termo = buscaClienteRecibo.trim()
+
+    if (termo.length < 2) return
+
+    const timer = setTimeout(() => {
+      buscarClientesFaturamentoEmissor(termo)
+    }, 350)
+
+    return () => clearTimeout(timer)
+  }, [buscaClienteRecibo])
 
   useEffect(() => {
     try {
@@ -517,6 +531,127 @@ export default function FaturasPage() {
       })
     } finally {
       setBuscandoClientesEmissor(false)
+    }
+  }
+
+  function documentoFiscalClienteRecibo(cliente?: any) {
+    const cnpj = String(cliente?.cnpj || '').trim()
+    const cpf = String(cliente?.cpf || '').trim()
+    const documento = String(cliente?.documento || '').trim()
+
+    return cnpj || cpf || documento || '-'
+  }
+
+  function nomeFiscalClienteRecibo(cliente?: any) {
+    return (
+      cliente?.nome_empresa ||
+      cliente?.razao_social ||
+      cliente?.nome ||
+      cliente?.cliente ||
+      '-'
+    )
+  }
+
+  function clienteFaturamentoReciboSelecionado() {
+    if (!reciboClienteId) return null
+
+    return clientesFaturamento.find((cliente: any) => String(cliente.id) === String(reciboClienteId)) || null
+  }
+
+  function clientesFaturamentoReciboFiltrados() {
+    const termo = normalizarTexto(buscaClienteRecibo)
+
+    const base = clientesFaturamento || []
+
+    if (!termo) return base.slice(0, 120)
+
+    return base
+      .filter((cliente: any) => {
+        const textoBusca = normalizarTexto([
+          cliente.nome_empresa,
+          cliente.razao_social,
+          cliente.nome_contato,
+          cliente.codigo_hc,
+          cliente.email,
+          cliente.cidade,
+          cliente.estado,
+          cliente.cnpj,
+          cliente.cpf,
+          cliente.contato,
+        ].filter(Boolean).join(' '))
+
+        return textoBusca.includes(termo)
+      })
+      .slice(0, 120)
+  }
+
+  function localizarClienteFaturamentoParaRecibo(embarque: any, fatura: any) {
+    const dadosSalvos = fatura?.dados_cliente_faturamento || {}
+
+    const documentoSalvo = String(
+      dadosSalvos.cnpj ||
+      dadosSalvos.cpf ||
+      dadosSalvos.documento ||
+      ''
+    ).replace(/\D/g, '')
+
+    const nomeSalvo = normalizarTexto(
+      dadosSalvos.nome_empresa ||
+      dadosSalvos.razao_social ||
+      dadosSalvos.nome ||
+      embarque?.cliente_final ||
+      embarque?.importador ||
+      ''
+    )
+
+    if (documentoSalvo) {
+      const porDocumento = clientesFaturamento.find((cliente: any) => {
+        const documentoCliente = String(cliente.cnpj || cliente.cpf || '').replace(/\D/g, '')
+        return documentoCliente && documentoCliente === documentoSalvo
+      })
+
+      if (porDocumento) return porDocumento
+    }
+
+    if (nomeSalvo) {
+      const porNome = clientesFaturamento.find((cliente: any) => {
+        const nomeCliente = normalizarTexto(cliente.nome_empresa || cliente.razao_social || cliente.nome || '')
+        return nomeCliente && (nomeCliente.includes(nomeSalvo) || nomeSalvo.includes(nomeCliente))
+      })
+
+      if (porNome) return porNome
+    }
+
+    return null
+  }
+
+  function dadosClienteFiscalRecibo(fatura: any, embarque: any) {
+    const clienteSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosSalvos = fatura?.dados_cliente_faturamento || {}
+    const base = clienteSelecionado || dadosSalvos || {}
+
+    const nome =
+      nomeFiscalClienteRecibo(base) ||
+      embarque?.cliente_final ||
+      embarque?.importador ||
+      '-'
+
+    return {
+      nome,
+      nome_empresa: nome,
+      documento: documentoFiscalClienteRecibo(base),
+      cnpj: base?.cnpj || null,
+      cpf: base?.cpf || null,
+      endereco: base?.endereco || '-',
+      cidade: base?.cidade || '-',
+      estado: base?.estado || '-',
+      cep: base?.cep || '-',
+      email: base?.email || '-',
+      contato: base?.nome_contato || base?.contato || '-',
+      inscricao_estadual: base?.inscricao_estadual || '-',
+      inscricao_municipal: base?.inscricao_municipal || '-',
+      cliente_faturamento_id: clienteSelecionado?.id || null,
+      codigo_hc: base?.codigo_hc || null,
     }
   }
 
@@ -1467,7 +1602,21 @@ export default function FaturasPage() {
       normalizarData(fatura.data_pagamento) ||
       new Date().toISOString().slice(0, 10)
 
+    const clienteFiscalRecibo = localizarClienteFaturamentoParaRecibo(embarque, fatura)
+    const dadosSalvos = fatura?.dados_cliente_faturamento || {}
+
     setReciboSelecionado(embarque)
+    setReciboClienteId(clienteFiscalRecibo?.id || '')
+    setBuscaClienteRecibo(
+      clienteFiscalRecibo?.nome_empresa ||
+        clienteFiscalRecibo?.razao_social ||
+        dadosSalvos.nome_empresa ||
+        dadosSalvos.razao_social ||
+        dadosSalvos.nome ||
+        embarque.cliente_final ||
+        embarque.importador ||
+        ''
+    )
     setDataRecebimentoRecibo(dataRecebimento)
     setValorRecebidoRecibo(formatarNumeroInput(valorPadraoRecibo(embarque)))
     setFormaRecebimentoRecibo('PIX / Transferência bancária')
@@ -1484,12 +1633,15 @@ export default function FaturasPage() {
     setValorRecebidoRecibo('')
     setFormaRecebimentoRecibo('PIX / Transferência bancária')
     setObservacoesRecibo('')
+    setBuscaClienteRecibo('')
+    setReciboClienteId('')
   }
 
   async function salvarFinanceiroDoRecibo(embarque: Embarque, fatura: Fatura, urlRecibo: string) {
     const financeiroAtual = financeiroDoEmbarque(embarque)
     const valorPago = numero(valorRecebidoRecibo)
     const dataRecebimento = normalizarData(dataRecebimentoRecibo)
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(fatura, embarque)
 
     if (!dataRecebimento) {
       throw new Error('Informe uma data de recebimento válida.')
@@ -1498,7 +1650,7 @@ export default function FaturasPage() {
     const payloadBase: any = {
       cliente:
         financeiroAtual?.cliente ||
-        fatura.dados_cliente_faturamento?.nome ||
+        dadosClienteRecibo.nome ||
         embarque.cliente_final ||
         embarque.importador ||
         null,
@@ -1584,16 +1736,7 @@ export default function FaturasPage() {
       const margem = 44
       const larguraPagina = pdf.internal.pageSize.getWidth()
       const dataRecebimento = normalizarData(dataRecebimentoRecibo) || dataRecebimentoRecibo
-      const dadosCliente =
-        fatura.dados_cliente_faturamento ||
-        {
-          nome: reciboSelecionado.cliente_final || reciboSelecionado.importador || '-',
-          documento: '-',
-          endereco: '-',
-          cidade: '-',
-          estado: '-',
-          cep: '-',
-        }
+      const dadosCliente = dadosClienteFiscalRecibo(fatura, reciboSelecionado)
 
       pdf.setDrawColor(25, 25, 25)
       pdf.setLineWidth(1)
@@ -1739,6 +1882,7 @@ export default function FaturasPage() {
           valor_pago: valorPago,
           recibo_emitido_em: new Date().toISOString(),
           recibo_observacoes: observacoesRecibo || null,
+          dados_cliente_faturamento: dadosCliente,
           status_pagamento: 'PAGO',
           observacao_pagamento: `Recibo emitido em ${dataBR(new Date().toISOString())}. Recebido em ${dataBR(dataRecebimento)}.`,
         })
@@ -2860,6 +3004,11 @@ export default function FaturasPage() {
   function renderFormularioRecibo() {
     if (!reciboSelecionado) return null
 
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+
     return (
 <section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
   <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
@@ -2880,10 +3029,75 @@ export default function FaturasPage() {
   </div>
 
   <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-    <InfoPacote label="Fatura" valor={faturaDoEmbarque(reciboSelecionado.id)?.numero_fatura || '-'} />
-    <InfoPacote label="Cliente" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote label="Fatura" valor={faturaReciboAtual?.numero_fatura || '-'} />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
     <InfoPacote label="Valor base" valor={moeda(valorPadraoRecibo(reciboSelecionado))} destaque />
     <InfoPacote label="Status financeiro" valor={statusPagamentoFinanceiro(financeiroDoEmbarque(reciboSelecionado)).label} />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Usar dados salvos na fatura / embarque</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Nenhum cliente fiscal selecionado manualmente. O recibo usará os dados fiscais salvos na fatura, se existirem.
+        </p>
+      )}
+    </div>
 
     <div>
       <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
