@@ -1607,20 +1607,18 @@ export default function FaturasPage() {
       new Date().toISOString().slice(0, 10)
 
     const clienteFiscalRecibo = localizarClienteFaturamentoParaRecibo(embarque, fatura)
-    const dadosSalvos = fatura?.dados_cliente_faturamento || {}
 
     setReciboSelecionado(embarque)
     setReciboClienteId(clienteFiscalRecibo?.id || '')
+
+    // Importante: se não achou o cliente automaticamente, deixa a busca vazia
+    // para o select mostrar todos os Clientes Faturamento, igual ao emissor de fatura.
     setBuscaClienteRecibo(
       clienteFiscalRecibo?.nome_empresa ||
         clienteFiscalRecibo?.razao_social ||
-        dadosSalvos.nome_empresa ||
-        dadosSalvos.razao_social ||
-        dadosSalvos.nome ||
-        embarque.cliente_final ||
-        embarque.importador ||
         ''
     )
+
     setDataRecebimentoRecibo(dataRecebimento)
     setValorRecebidoRecibo(formatarNumeroInput(valorPadraoRecibo(embarque)))
     setFormaRecebimentoRecibo('PIX / Transferência bancária')
@@ -1724,6 +1722,10 @@ export default function FaturasPage() {
 
     const valorPago = numero(valorRecebidoRecibo)
     if (valorPago <= 0) return alert('Informe o valor recebido.')
+
+    if (!clienteFaturamentoReciboSelecionado()) {
+      return alert('Selecione o cliente fiscal cadastrado antes de emitir o recibo.')
+    }
 
     setEmitindoRecibo(true)
 
@@ -3067,7 +3069,7 @@ export default function FaturasPage() {
         onChange={(e) => setReciboClienteId(e.target.value)}
         className="w-full"
       >
-        <option value="">Usar dados salvos na fatura / embarque</option>
+        <option value="">Selecione o cliente fiscal</option>
         {clientesRecibo.map((cliente: any) => (
           <option key={cliente.id} value={cliente.id}>
             {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
@@ -3098,7 +3100,7 @@ export default function FaturasPage() {
 
       {!clienteReciboSelecionado && (
         <p className="mt-3 text-xs text-yellow-300">
-          Nenhum cliente fiscal selecionado manualmente. O recibo usará os dados fiscais salvos na fatura, se existirem.
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
         </p>
       )}
     </div>
