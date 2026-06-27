@@ -1790,42 +1790,75 @@ export default function FaturasPage() {
       pdf.setDrawColor(0, 0, 0)
       pdf.line(margem, 146, larguraPagina - margem, 146)
 
+      const caixaDadosY = 166
+      const caixaDadosAltura = 126
+      const caixaDadosLargura = larguraPagina - margem * 2
+      const colunaEsquerdaX = margem + 12
+      const colunaDireitaX = margem + 320
+      const larguraColunaEsquerda = 275
+      const larguraColunaDireita = caixaDadosLargura - 340
+
       pdf.setFillColor(238, 242, 255)
-      pdf.rect(margem, 166, larguraPagina - margem * 2, 92, 'FD')
+      pdf.rect(margem, caixaDadosY, caixaDadosLargura, caixaDadosAltura, 'FD')
 
       pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(9)
-      pdf.text('Recebemos de:', margem + 12, 188)
-      pdf.text('CNPJ / CPF:', 370, 188)
-      pdf.text('Referente à fatura:', margem + 12, 214)
-      pdf.text('AWB / HAWB:', 370, 214)
-      pdf.text('Data do recebimento:', margem + 12, 240)
+      pdf.setFontSize(8.5)
+
+      pdf.text('Recebemos de:', colunaEsquerdaX, caixaDadosY + 24)
+      pdf.text('CNPJ / CPF:', colunaDireitaX, caixaDadosY + 24)
+
+      pdf.text('Referente à fatura:', colunaEsquerdaX, caixaDadosY + 68)
+      pdf.text('AWB / HAWB:', colunaDireitaX, caixaDadosY + 68)
+
+      pdf.text('Data do recebimento:', colunaEsquerdaX, caixaDadosY + 104)
 
       pdf.setFont('helvetica', 'normal')
-      pdf.text(pdf.splitTextToSize(dadosCliente.nome || '-', 250), margem + 110, 188)
-      pdf.text(dadosCliente.documento || '-', 440, 188)
-      pdf.text(fatura.numero_fatura || '-', margem + 130, 214)
-      pdf.text(reciboSelecionado.awb || '-', 440, 214)
-      pdf.text(dataBR(dataRecebimento), margem + 140, 240)
+      pdf.setFontSize(9)
+
+      pdf.text(
+        pdf.splitTextToSize(dadosCliente.nome || '-', larguraColunaEsquerda),
+        colunaEsquerdaX,
+        caixaDadosY + 39
+      )
+
+      pdf.text(
+        pdf.splitTextToSize(dadosCliente.documento || '-', larguraColunaDireita),
+        colunaDireitaX,
+        caixaDadosY + 39
+      )
+
+      pdf.text(
+        pdf.splitTextToSize(fatura.numero_fatura || '-', larguraColunaEsquerda),
+        colunaEsquerdaX,
+        caixaDadosY + 83
+      )
+
+      pdf.text(
+        pdf.splitTextToSize(reciboSelecionado.awb || '-', larguraColunaDireita),
+        colunaDireitaX,
+        caixaDadosY + 83
+      )
+
+      pdf.text(dataBR(dataRecebimento), colunaEsquerdaX, caixaDadosY + 119)
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(13)
-      pdf.text('Valor recebido:', margem, 300)
+      pdf.text('Valor recebido:', margem, 330)
       pdf.setFontSize(24)
-      pdf.text(moeda(valorPago), margem + 130, 304)
+      pdf.text(moeda(valorPago), margem + 130, 334)
 
       pdf.setFontSize(10)
-      pdf.text('Valor por extenso:', margem, 342)
+      pdf.text('Valor por extenso:', margem, 376)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(pdf.splitTextToSize(valorPorExtensoBRL(valorPago), larguraPagina - margem * 2 - 125), margem + 125, 342)
+      pdf.text(pdf.splitTextToSize(valorPorExtensoBRL(valorPago), larguraPagina - margem * 2 - 125), margem + 125, 376)
 
       pdf.setFont('helvetica', 'bold')
-      pdf.text('Forma de recebimento:', margem, 386)
+      pdf.text('Forma de recebimento:', margem, 420)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(formaRecebimentoRecibo || '-', margem + 130, 386)
+      pdf.text(formaRecebimentoRecibo || '-', margem + 130, 420)
 
       pdf.setFont('helvetica', 'bold')
-      pdf.text('Descrição:', margem, 422)
+      pdf.text('Descrição:', margem, 456)
       pdf.setFont('helvetica', 'normal')
       pdf.text(
         pdf.splitTextToSize(
@@ -1833,14 +1866,14 @@ export default function FaturasPage() {
           larguraPagina - margem * 2
         ),
         margem,
-        440
+        474
       )
 
       if (observacoesRecibo) {
         pdf.setFont('helvetica', 'bold')
-        pdf.text('Observações:', margem, 486)
+        pdf.text('Observações:', margem, 522)
         pdf.setFont('helvetica', 'normal')
-        pdf.text(pdf.splitTextToSize(observacoesRecibo, larguraPagina - margem * 2), margem, 504)
+        pdf.text(pdf.splitTextToSize(observacoesRecibo, larguraPagina - margem * 2), margem, 540)
       }
 
       const yAssinatura = 640
