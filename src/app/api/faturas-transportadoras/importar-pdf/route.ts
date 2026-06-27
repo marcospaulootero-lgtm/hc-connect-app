@@ -184,12 +184,22 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
   const supabase = supabaseAdmin()
   const agora = new Date().toISOString()
   const numeroFatura = normalizarNumeroFaturaParaSistema(preview.numero_fatura)
-  const totalItens = preview.itens.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
-  const totalFatura = Number(preview.valor_total || totalItens || 0)
 
+  const itensValidos = unicosPorAwb(preview.itens)
+    .map((item) => ({
+      ...item,
+      awb: normalizarAwb(item.awb),
+      valor_compra: Number(item.valor_compra || 0),
+    }))
+    .filter((item) => item.awb && item.valor_compra > 0)
+
+  if (!itensValidos.length) {
+    throw new Error('Nenhum AWB válido encontrado para salvar no Supabase.')
+  }
+
+  const totalItens = itensValidos.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+  const totalFatura = Number(preview.valor_total || totalItens || 0)
   const tipoLancamento = preview.tipo_lancamento || 'COMPRA'
-  const campoFinanceiro = tipoLancamento === 'IMPOSTOS' ? 'doc_dta' : 'valor_compra'
-  const nomeCampoFinanceiro = tipoLancamento === 'IMPOSTOS' ? 'DTA/DOC/Impostos' : 'Valor Compra'
 
   const payloadFatura = {
     transportadora: preview.transportadora,
@@ -201,22 +211,27 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
     total: totalFatura,
     saldo: totalFatura,
     moeda: 'BRL',
-    observacoes: `${tipoLancamento === 'IMPOSTOS' ? 'Fatura FedEx de impostos/taxas' : 'Fatura de frete/compra'} importada por PDF com ${preview.itens.length} AWB(s).`,
+    observacoes:
+      tipoLancamento === 'IMPOSTOS'
+        ? 'Fatura FedEx de impostos/taxas importada por PDF e sincronizada pelo Supabase.'
+        : 'Fatura de transportadora importada por PDF e sincronizada pelo Supabase.',
     atualizado_em: agora,
   }
 
-  const { data: faturaExistente, error: erroBuscaFatura } = await supabase
+  const { data: faturasEncontradas, error: erroBuscaFaturas } = await supabase
     .from('faturas_transportadoras')
-    .select('id')
+    .select('id, transportadora, numero_fatura')
     .eq('transportadora', preview.transportadora)
-    .eq('numero_fatura', numeroFatura)
-    .maybeSingle()
 
-  if (erroBuscaFatura) {
-    throw new Error('Erro ao buscar fatura existente: ' + erroBuscaFatura.message)
+  if (erroBuscaFaturas) {
+    throw new Error('Erro ao buscar fatura existente: ' + erroBuscaFaturas.message)
   }
 
-  let faturaId = faturaExistente?.id
+  const faturaExistente = ((faturasEncontradas as any[]) || []).find((item) => {
+    return normalizarNumeroFaturaParaSistema(item.numero_fatura) === numeroFatura
+  })
+
+  let faturaId = faturaExistente?.id || ''
 
   if (faturaId) {
     const { error } = await supabase
@@ -225,7 +240,7 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
       .eq('id', faturaId)
 
     if (error) {
-      throw new Error('Erro ao atualizar fatura: ' + error.message)
+      throw new Error('Erro ao atualizar fatura da transportadora: ' + error.message)
     }
   } else {
     const { data: faturaCriada, error } = await supabase
@@ -235,83 +250,43 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
       .single()
 
     if (error) {
-      throw new Error('Erro ao cadastrar fatura: ' + error.message)
+      throw new Error('Erro ao cadastrar fatura da transportadora: ' + error.message)
     }
 
     faturaId = faturaCriada.id
   }
 
-  // Remove itens antigos que não pertencem mais ao PDF atual.
-  // Isso limpa casos anteriores como AWB falso gerado por referência + data.
-  const awbsDoPdf = Array.from(
-    new Set(preview.itens.map((item) => normalizarAwb(item.awb)).filter(Boolean))
-  )
+  const awbsDoPdf = Array.from(new Set(itensValidos.map((item) => item.awb).filter(Boolean)))
 
-  if (faturaId && awbsDoPdf.length > 0) {
-    const { data: itensExistentes, error: erroItensExistentes } = await supabase
+  const { data: itensAntigos, error: erroItensAntigos } = await supabase
+    .from('faturas_transportadoras_itens')
+    .select('id, awb')
+    .eq('fatura_transportadora_id', faturaId)
+
+  if (erroItensAntigos) {
+    throw new Error('Erro ao conferir itens antigos da fatura: ' + erroItensAntigos.message)
+  }
+
+  const idsParaRemover = ((itensAntigos as any[]) || [])
+    .filter((item) => !awbsDoPdf.includes(normalizarAwb(item.awb)))
+    .map((item) => item.id)
+    .filter(Boolean)
+
+  if (idsParaRemover.length > 0) {
+    const { error: erroRemover } = await supabase
       .from('faturas_transportadoras_itens')
-      .select('id, awb')
-      .eq('fatura_transportadora_id', faturaId)
+      .delete()
+      .in('id', idsParaRemover)
 
-    if (erroItensExistentes) {
-      throw new Error('Erro ao conferir itens antigos da fatura: ' + erroItensExistentes.message)
-    }
-
-    const idsParaRemover = ((itensExistentes as any[]) || [])
-      .filter((item) => !awbsDoPdf.includes(normalizarAwb(item.awb)))
-      .map((item) => item.id)
-      .filter(Boolean)
-
-    if (idsParaRemover.length > 0) {
-      const { error: erroRemoverItens } = await supabase
-        .from('faturas_transportadoras_itens')
-        .delete()
-        .in('id', idsParaRemover)
-
-      if (erroRemoverItens) {
-        throw new Error('Erro ao remover itens antigos/errados da fatura: ' + erroRemoverItens.message)
-      }
+    if (erroRemover) {
+      throw new Error('Erro ao remover AWBs antigos/errados da fatura: ' + erroRemover.message)
     }
   }
 
   let itensSalvos = 0
-  let custosLancados = 0
-  let aguardandoProcesso = 0
-  let jaTinhamCusto = 0
 
-  for (const item of preview.itens) {
+  for (const item of itensValidos) {
     const awb = normalizarAwb(item.awb)
-    if (!awb || Number(item.valor_compra || 0) <= 0) continue
-
-    const financeiro = await buscarFinanceiroPorAwb(supabase, awb)
-    const valorAnterior = Number(financeiro?.[campoFinanceiro] || 0)
-    let financeiroId = financeiro?.id || null
-    let statusLancamento = 'AGUARDANDO_PROCESSO'
-    let observacao = 'AWB ainda não encontrado em processos faturados. Será lançado quando o processo for criado.'
-
-    if (financeiroId && valorAnterior <= 0) {
-      const { error } = await supabase
-        .from('financeiro_embarques')
-        .update({
-          [campoFinanceiro]: item.valor_compra,
-          atualizado_em: agora,
-        })
-        .eq('id', financeiroId)
-
-      if (error) {
-        throw new Error(`Erro ao lançar custo no AWB ${awb}: ${error.message}`)
-      }
-
-      statusLancamento = 'LANÇADO'
-      observacao = `${nomeCampoFinanceiro} lançado automaticamente pela importação da fatura.`
-      custosLancados++
-    } else if (financeiroId && valorAnterior > 0) {
-      statusLancamento = 'PROCESSO_JA_TINHA_CUSTO'
-      observacao = `Processo já tinha valor em ${nomeCampoFinanceiro}: ${valorAnterior}.`
-      jaTinhamCusto++
-    } else {
-      aguardandoProcesso++
-    }
 
     const payloadItem = {
       fatura_transportadora_id: faturaId,
@@ -320,24 +295,26 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
       awb,
       referencia: item.referencia || null,
       data_envio: item.data_envio || null,
-      valor_compra: item.valor_compra,
+      valor_compra: Number(item.valor_compra || 0),
       tipo_lancamento: tipoLancamento,
-      financeiro_embarque_id: financeiroId,
-      valor_compra_anterior: valorAnterior,
-      status_lancamento: statusLancamento,
-      observacao,
-      lancado_em: statusLancamento === 'LANÇADO' ? agora : null,
+      financeiro_embarque_id: null,
+      valor_compra_anterior: null,
+      status_lancamento: 'AGUARDANDO_PROCESSO',
+      observacao: 'Item importado por PDF. Sincronização feita automaticamente pelo Supabase.',
+      lancado_em: null,
+      atualizado_em: agora,
     }
 
     const { data: itemExistente, error: erroBuscaItem } = await supabase
       .from('faturas_transportadoras_itens')
       .select('id')
-      .eq('fatura_transportadora_id', faturaId)
+      .eq('transportadora', preview.transportadora)
+      .eq('numero_fatura', numeroFatura)
       .eq('awb', awb)
       .maybeSingle()
 
     if (erroBuscaItem) {
-      throw new Error(`Erro ao buscar item do AWB ${awb}: ${erroBuscaItem.message}`)
+      throw new Error('Erro ao buscar item do AWB ' + awb + ': ' + erroBuscaItem.message)
     }
 
     if (itemExistente?.id) {
@@ -347,7 +324,7 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
         .eq('id', itemExistente.id)
 
       if (error) {
-        throw new Error(`Erro ao atualizar item do AWB ${awb}: ${error.message}`)
+        throw new Error('Erro ao atualizar item do AWB ' + awb + ': ' + error.message)
       }
     } else {
       const { error } = await supabase
@@ -355,12 +332,58 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
         .insert([payloadItem])
 
       if (error) {
-        throw new Error(`Erro ao salvar item do AWB ${awb}: ${error.message}`)
+        throw new Error('Erro ao salvar item do AWB ' + awb + ': ' + error.message)
       }
     }
 
     itensSalvos++
   }
+
+  const { error: erroSync } = await supabase.rpc('hc_sincronizar_itens_faturas_transportadoras')
+
+  if (erroSync) {
+    throw new Error('Itens salvos, mas erro ao sincronizar com processos faturados: ' + erroSync.message)
+  }
+
+  const { data: itensDepois, error: erroItensDepois } = await supabase
+    .from('faturas_transportadoras_itens')
+    .select('status_lancamento, financeiro_embarque_id, valor_compra_anterior')
+    .eq('fatura_transportadora_id', faturaId)
+    .in('awb', awbsDoPdf)
+
+  if (erroItensDepois) {
+    throw new Error('Fatura sincronizada, mas erro ao conferir resultado: ' + erroItensDepois.message)
+  }
+
+  let custosLancados = 0
+  let aguardandoProcesso = 0
+  let jaTinhamCusto = 0
+
+  ;((itensDepois as any[]) || []).forEach((item) => {
+    const status = String(item.status_lancamento || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+
+    if (status.includes('LANCADO')) {
+      custosLancados++
+      return
+    }
+
+    if (status.includes('AGUARDANDO')) {
+      aguardandoProcesso++
+      return
+    }
+
+    if (
+      status.includes('JA_TINHA') ||
+      status.includes('CONFERIR') ||
+      status.includes('EXISTENTE') ||
+      Number(item.valor_compra_anterior || 0) > 0
+    ) {
+      jaTinhamCusto++
+    }
+  })
 
   return {
     fatura_id: faturaId,
