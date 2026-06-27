@@ -149,6 +149,10 @@ type ClienteFaturamento = {
   id: string
   codigo_hc?: string | null
   nome_empresa: string
+  razao_social?: string | null
+  nome?: string | null
+  cliente?: string | null
+  documento?: string | null
   nome_contato?: string | null
   endereco?: string | null
   cidade?: string | null
