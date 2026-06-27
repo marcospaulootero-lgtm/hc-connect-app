@@ -241,6 +241,39 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
     faturaId = faturaCriada.id
   }
 
+  // Remove itens antigos que não pertencem mais ao PDF atual.
+  // Isso limpa casos anteriores como AWB falso gerado por referência + data.
+  const awbsDoPdf = Array.from(
+    new Set(preview.itens.map((item) => normalizarAwb(item.awb)).filter(Boolean))
+  )
+
+  if (faturaId && awbsDoPdf.length > 0) {
+    const { data: itensExistentes, error: erroItensExistentes } = await supabase
+      .from('faturas_transportadoras_itens')
+      .select('id, awb')
+      .eq('fatura_transportadora_id', faturaId)
+
+    if (erroItensExistentes) {
+      throw new Error('Erro ao conferir itens antigos da fatura: ' + erroItensExistentes.message)
+    }
+
+    const idsParaRemover = ((itensExistentes as any[]) || [])
+      .filter((item) => !awbsDoPdf.includes(normalizarAwb(item.awb)))
+      .map((item) => item.id)
+      .filter(Boolean)
+
+    if (idsParaRemover.length > 0) {
+      const { error: erroRemoverItens } = await supabase
+        .from('faturas_transportadoras_itens')
+        .delete()
+        .in('id', idsParaRemover)
+
+      if (erroRemoverItens) {
+        throw new Error('Erro ao remover itens antigos/errados da fatura: ' + erroRemoverItens.message)
+      }
+    }
+  }
+
   let itensSalvos = 0
   let custosLancados = 0
   let aguardandoProcesso = 0
@@ -477,44 +510,76 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     numeroBR(texto.match(/Valor\s+Total\s+da\s+Fatura\s*([0-9.]+,\d{2})/i)?.[1]) ||
     0
 
+  type MarcadorAwbDhl = {
+    awb: string
+    index: number
+  }
+
   function areaDetalhadaDhl() {
     const paginas = bruto.split(/\f/g)
 
     if (paginas.length > 1) {
       const paginasDetalhe = paginas
         .slice(1)
-        .filter((pagina) => /\b\d{10}\b/.test(pagina))
+        .filter((pagina) => /(?:^|\n)\s*\d{10}(?=\s)/.test(pagina))
 
       if (paginasDetalhe.length) return paginasDetalhe.join('\n')
     }
 
-    const inicioCabecalho = bruto.search(/AWB\s+Refer[êe]ncia|Total\s*\(\s*BRL\s*\)|\b\d{10}\b[\s\S]{0,200}?\d{1,2}\/\d{1,2}\/\d{4}/i)
+    const inicioCabecalho = bruto.search(/AWB\s+Refer[êe]ncia/i)
+    if (inicioCabecalho >= 0) return bruto.slice(inicioCabecalho)
 
-    if (inicioCabecalho >= 0) {
-      return bruto.slice(inicioCabecalho)
-    }
+    const inicioPrimeiroAwb = bruto.search(
+      /(?:^|\n)\s*\d{10}(?=\s)[\s\S]{0,450}?\d{1,2}\/\d{1,2}\/\d{4}[\s\S]{0,1200}?(?:EXPRESS|WORLDWIDE|NONDOC|DOC)/i
+    )
+
+    if (inicioPrimeiroAwb >= 0) return bruto.slice(inicioPrimeiroAwb)
 
     return bruto
   }
 
   function extrairAwbs(base: string) {
-    const candidatos: Array<{ awb: string; index: number }> = []
+    const candidatos: MarcadorAwbDhl[] = []
+    const linhas = String(base || '').split('\n')
+    let posicao = 0
 
-    for (const match of base.matchAll(/\b(\d{10})\b/g)) {
+    for (const linhaOriginal of linhas) {
+      const linha = String(linhaOriginal || '')
+      const inicioLinha = posicao
+      posicao += linha.length + 1
+
+      const match = linha.match(/^\s*(\d{10})(?=\s)/)
+      if (!match) continue
+
       const awb = normalizarAwb(match[1])
-      const index = Number(match.index || 0)
-
       if (!awb || awb.length !== 10) continue
 
-      const contexto = base.slice(Math.max(0, index - 180), index + 260).toUpperCase()
+      const index = inicioLinha + linha.indexOf(match[1])
+      const caractereDepois = base.slice(index + awb.length, index + awb.length + 1)
 
-      if (contexto.includes('CNPJ')) continue
-      if (contexto.includes('TELEFONE')) continue
-      if (contexto.includes('CEP')) continue
-      if (contexto.includes('CONTA:')) continue
-      if (contexto.includes('FATURA:') && contexto.includes(awb)) continue
-      if (contexto.includes('NÚMERO DA CONTA')) continue
-      if (contexto.includes('NUMERO DA CONTA')) continue
+      // Evita o erro principal:
+      // ORDER 60024025 + 15/06/2026 não pode virar 6002402515.
+      // AWB DHL válido começa a linha e depois tem espaço, não barra/data colada.
+      if (caractereDepois && !/\s/.test(caractereDepois)) continue
+
+      const upperLinha = linha.toUpperCase()
+
+      if (upperLinha.includes('FATURA:')) continue
+      if (upperLinha.includes('CONTA:')) continue
+      if (upperLinha.includes('CNPJ')) continue
+      if (upperLinha.includes('TELEFONE')) continue
+      if (upperLinha.includes('NÚMERO DE PÁGINAS')) continue
+      if (upperLinha.includes('NUMERO DE PAGINAS')) continue
+      if (upperLinha.includes('VALOR TOTAL')) continue
+      if (upperLinha.includes('PRAZO DE PAGAMENTO')) continue
+
+      const trechoValidacao = base.slice(index, index + 1600)
+      const trechoDepoisAwb = base.slice(index + awb.length, index + 450)
+
+      const temDataEnvio = /\b\d{1,2}\/\d{1,2}\/\d{4}\b/.test(trechoDepoisAwb)
+      const temServicoDhl = /(EXPRESS|WORLDWIDE|NONDOC|DOC)/i.test(trechoValidacao)
+
+      if (!temDataEnvio || !temServicoDhl) continue
 
       if (!candidatos.some((item) => item.awb === awb)) {
         candidatos.push({ awb, index })
@@ -526,7 +591,7 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   function extrairTotaisBrl(base: string) {
     return Array.from(
-      base.matchAll(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/gi)
+      String(base || '').matchAll(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/gi)
     )
       .map((match) => numeroBR(match[1]))
       .filter((valor) => valor > 0 && (!valorTotal || valor <= valorTotal))
@@ -536,6 +601,32 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     return Array.from(String(linha || '').matchAll(/-?\d{1,3}(?:\.\d{3})*,\d{2}/g))
       .map((match) => numeroBR(match[0]))
       .filter((valor) => Number.isFinite(valor))
+  }
+
+  function linhaEhTaxaDhl(linha: string) {
+    const upper = linha.toUpperCase()
+
+    return (
+      [
+        'BROKER NOTIFICATION',
+        'FUEL SURCHARGE',
+        'SEGURO',
+        'OVERSIZE PIECE',
+        'REMOTE AREA PICKUP',
+        'REMOTE AREA DELIVERY',
+        'REMOTE AREA',
+        'NON-CONVEYABLE',
+        'PIECE - WEIGHT',
+        'EXPORT DECLARATION',
+        'ELEVATED RISK',
+        'EMERGENCY SITUATION',
+        'DUTY TAX',
+        'IMPORT DUTY',
+        'ADDRESS CORRECTION',
+        'DHL FEE',
+      ].some((termo) => upper.includes(termo)) ||
+      (upper.includes('DHL') && upper.includes('FEE'))
+    )
   }
 
   function somarBlocoDhl(bloco: string) {
@@ -554,19 +645,11 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
       if (upper.includes('SUB-TOTAL')) continue
       if (upper.includes('TOTAL:')) continue
 
-      const ehLinhaPrincipalAwb = /^\s*\d{10}\b/.test(linha) && upper.includes('EXPRESS')
+      const ehLinhaPrincipalAwb =
+        /^\s*\d{10}\b/.test(linha) &&
+        /(EXPRESS|WORLDWIDE|NONDOC|DOC)/i.test(bloco.slice(0, 1600))
 
-      const ehTaxaDhl =
-        upper.includes('BROKER NOTIFICATION') ||
-        upper.includes('FUEL SURCHARGE') ||
-        upper.includes('SEGURO') ||
-        upper.includes('OVERSIZE PIECE') ||
-        upper.includes('REMOTE AREA PICKUP') ||
-        upper.includes('REMOTE AREA DELIVERY') ||
-        upper.includes('REMOTE AREA') ||
-        upper.includes('EMERGENCY SITUATION') ||
-        upper.includes('DUTY TAX') ||
-        upper.includes('DHL') && upper.includes('FEE')
+      const ehTaxaDhl = linhaEhTaxaDhl(linha)
 
       if (!ehLinhaPrincipalAwb && !ehTaxaDhl) continue
 
@@ -580,20 +663,39 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
   }
 
   function referenciaEDataDoBloco(awb: string, bloco: string) {
-    const trechoInicial = String(bloco || '').slice(0, 450)
+    const linhas = String(bloco || '').split('\n')
+    const primeiraLinha =
+      linhas.find((linha) => linha.trim().startsWith(awb)) ||
+      String(bloco || '').slice(0, 450)
 
-    const dataEnvio =
-      dataBRParaISO(trechoInicial.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1]) ||
+    const semAwb = primeiraLinha.replace(new RegExp('^\\s*' + awb + '\\s*'), '')
+    const dataMatch = semAwb.match(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/)
+
+    const dataTexto =
+      dataMatch?.[1] ||
+      String(bloco || '').slice(0, 450).match(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/)?.[1] ||
       null
 
-    const referencia =
-      trechoInicial
-        .replace(awb, '')
-        .split(/\d{1,2}\/\d{1,2}\/\d{4}/)[0]
-        .replace(/\s+/g, ' ')
-        .trim() || null
+    const dataEnvio = dataBRParaISO(dataTexto) || null
+
+    const referencia = dataMatch
+      ? semAwb
+          .slice(0, dataMatch.index || 0)
+          .replace(/\s+/g, ' ')
+          .trim() || null
+      : null
 
     return { referencia, dataEnvio }
+  }
+
+  function valorCompraDoBloco(bloco: string) {
+    const valorTotalBrl =
+      numeroBR(String(bloco || '').match(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i)?.[1]) ||
+      0
+
+    if (valorTotalBrl > 0) return valorTotalBrl
+
+    return somarBlocoDhl(bloco)
   }
 
   function extrairItensPorBloco(base: string) {
@@ -604,16 +706,10 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
       const atual = awbs[i]
       const proximo = awbs[i + 1]
 
-      const fim = proximo?.index || Math.min(base.length, atual.index + 8000)
+      const fim = proximo?.index || Math.min(base.length, atual.index + 9000)
       const bloco = base.slice(atual.index, fim)
 
-      let valorCompra =
-        numeroBR(bloco.match(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i)?.[1]) ||
-        0
-
-      if (!valorCompra) {
-        valorCompra = somarBlocoDhl(bloco)
-      }
+      const valorCompra = valorCompraDoBloco(bloco)
 
       if (!valorCompra || valorCompra <= 0) continue
       if (valorTotal > 0 && valorCompra > valorTotal) continue
@@ -642,7 +738,7 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     for (let i = 0; i < awbs.length; i++) {
       const atual = awbs[i]
       const proximo = awbs[i + 1]
-      const fim = proximo?.index || Math.min(base.length, atual.index + 8000)
+      const fim = proximo?.index || Math.min(base.length, atual.index + 9000)
       const bloco = base.slice(atual.index, fim)
       const { referencia, dataEnvio } = referenciaEDataDoBloco(atual.awb, bloco)
 
@@ -665,7 +761,6 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
   const awbsDetalhe = extrairAwbs(detalhadoOriginal)
   const totaisDetalhe = extrairTotaisBrl(detalhadoOriginal)
 
-  // Se por bloco achou menos AWBs do que existem no detalhe, usa pareamento por ordem.
   if (awbsDetalhe.length > itens.length && totaisDetalhe.length >= awbsDetalhe.length) {
     const porOrdem = extrairItensPorOrdem(detalhadoOriginal)
     if (porOrdem.length > itens.length) itens = porOrdem
