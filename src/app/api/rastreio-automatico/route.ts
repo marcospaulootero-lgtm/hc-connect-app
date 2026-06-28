@@ -553,6 +553,11 @@ function traduzirDescricao(descricao: string, transportadora?: TransportadoraRas
   const d = removerAcentos(original)
 
   if (!original) return 'Sem descrição'
+
+  if (transportadora === 'DHL' && ehBrokerOuLiberado(d)) {
+    return 'A remessa será liberada e entregue pelo despachante aduaneiro'
+  }
+
   if (ehEntregue(d)) return 'Envio entregue'
   if (ehSaiuParaEntrega(d)) return 'A remessa saiu para entrega'
   if (ehBrokerOuLiberado(d)) return 'A remessa será liberada e entregue pelo despachante aduaneiro'
@@ -572,9 +577,11 @@ function traduzirDescricao(descricao: string, transportadora?: TransportadoraRas
   return original
 }
 
-function normalizarStatus(status: string) {
+function normalizarStatus(status: string, transportadora?: TransportadoraRastreio | string) {
   const s = removerAcentos(status)
+  const transportadoraNormalizada = String(transportadora || '').toUpperCase()
 
+  if (transportadoraNormalizada === 'DHL' && ehBrokerOuLiberado(s)) return 'Liberado'
   if (ehEntregue(s)) return 'Entregue'
   if (ehSaiuParaEntrega(s) || ehBrokerOuLiberado(s)) return 'Liberado'
   if (ehFiscalizacao(s)) return 'Fiscalização'
@@ -767,9 +774,19 @@ async function salvarRastreio({
   dataColeta,
   avisoValidacao,
 }: any) {
-  const statusDetectado = normalizarStatus(status)
+  const statusDetectado = normalizarStatus(status, transportadora)
   const statusAtualAntes = normalizarStatus(embarque.status_operacional || '')
   let statusNormalizado = statusMaisForte(embarque.status_operacional, statusDetectado)
+
+  const textoCompletoStatus = removerAcentos(`${status || ''} ${descricao || ''}`)
+  const brokerDhlSemEntregaFinal =
+    String(transportadora || '').toUpperCase() === 'DHL' &&
+    statusDetectado === 'Liberado' &&
+    ehBrokerOuLiberado(textoCompletoStatus)
+
+  if (brokerDhlSemEntregaFinal) {
+    statusNormalizado = 'Liberado'
+  }
 
   // Correção importante:
   // "Aguardando coleta" / "Etiqueta criada" não pode permanecer como Coletado.
@@ -793,6 +810,10 @@ async function salvarRastreio({
 
   if (statusNormalizado === 'Entregue') {
     dadosAtualizar.data_entrega = new Date(dataEvento || new Date()).toISOString().split('T')[0]
+  }
+
+  if (brokerDhlSemEntregaFinal && statusNormalizado !== 'Entregue') {
+    dadosAtualizar.data_entrega = null
   }
 
   if (
