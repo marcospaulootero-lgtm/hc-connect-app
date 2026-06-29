@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import IntelligenceCRM from '@/components/IntelligenceCRM'
 
 const TABELAS_SUPORTE = ['chamados_suporte', 'suporte']
 
@@ -1047,6 +1048,8 @@ export default function IntelligencePage() {
           <Kpi titulo="Clientes com risco" valor={resumoCarteira.risco} detalhe="Cobrança ou custo pendente" icone="⚠️" cor={resumoCarteira.risco > 0 ? 'red' : 'green'} />
           <Kpi titulo="Ticket médio" valor={moeda(resumoCarteira.ticketMedio)} detalhe="Receita / processos pagos" icone="🧾" cor="blue" />
         </section>
+
+        <IntelligenceCRM />
 
         <section className="grid grid-cols-1 2xl:grid-cols-5 gap-6 mb-6">
           <Card className="2xl:col-span-3">
