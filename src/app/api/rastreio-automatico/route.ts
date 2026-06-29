@@ -551,14 +551,22 @@ function removerAcentos(texto: string) {
 function traduzirDescricao(descricao: string, transportadora?: TransportadoraRastreio) {
   const original = String(descricao || '').trim()
   const d = removerAcentos(original)
+  const transportadoraNormalizada = String(transportadora || '').toUpperCase()
 
   if (!original) return 'Sem descrição'
 
-  if (transportadora === 'DHL' && ehBrokerOuLiberado(d)) {
-    return 'A remessa será liberada e entregue pelo despachante aduaneiro'
+  // Regra definitiva DHL:
+  // "liberada e entregue pelo despachante/broker" NÃO é entrega final ao destinatário.
+  if (transportadoraNormalizada === 'DHL') {
+    if (ehDhlLiberadoPorDespachante(d) || ehBrokerOuLiberado(d)) {
+      return 'A remessa será liberada e entregue pelo despachante aduaneiro'
+    }
+
+    if (ehEntregaFinalDhl(d)) return 'Envio entregue'
+  } else {
+    if (ehEntregue(d)) return 'Envio entregue'
   }
 
-  if (ehEntregue(d)) return 'Envio entregue'
   if (ehSaiuParaEntrega(d)) return 'A remessa saiu para entrega'
   if (ehBrokerOuLiberado(d)) return 'A remessa será liberada e entregue pelo despachante aduaneiro'
   if (ehFiscalizacao(d)) return 'Envio em processo de liberação'
@@ -577,12 +585,69 @@ function traduzirDescricao(descricao: string, transportadora?: TransportadoraRas
   return original
 }
 
+function ehDhlLiberadoPorDespachante(s: string) {
+  const texto = removerAcentos(s)
+
+  return (
+    texto.includes('sera liberada e entregue pelo despachante') ||
+    texto.includes('será liberada e entregue pelo despachante') ||
+    texto.includes('liberada e entregue pelo despachante') ||
+    texto.includes('entregue pelo despachante') ||
+    texto.includes('despachante aduaneiro') ||
+    texto.includes('customs broker') ||
+    texto.includes('delivered by broker') ||
+    texto.includes('cleared and delivered by broker') ||
+    texto.includes('will be cleared and delivered by broker') ||
+    texto.includes('broker')
+  )
+}
+
+function ehEntregaFinalDhl(s: string) {
+  const texto = removerAcentos(s)
+
+  if (ehDhlLiberadoPorDespachante(texto)) return false
+
+  const negativoEntrega =
+    texto.includes('nao foi entregue') ||
+    texto.includes('não foi entregue') ||
+    texto.includes('not delivered') ||
+    texto.includes('not yet delivered') ||
+    texto.includes('not yet been delivered') ||
+    texto.includes('not yet handed over') ||
+    texto.includes('not yet received') ||
+    texto.includes('has not been handed over') ||
+    texto.includes('remessa ainda nao foi entregue') ||
+    texto.includes('nao foi entregue fisicamente')
+
+  if (negativoEntrega) return false
+
+  return (
+    texto === 'delivered' ||
+    texto === 'envio entregue' ||
+    texto.includes('shipment delivered') ||
+    texto.includes('delivered to consignee') ||
+    texto.includes('delivered to recipient') ||
+    texto.includes('delivered to customer') ||
+    texto.includes('signed for by') ||
+    texto.includes('entrega realizada') ||
+    texto.includes('entrega concluida') ||
+    texto.includes('entregue ao destinatario') ||
+    texto.includes('entregue para o destinatario') ||
+    texto.includes('envio entregue ao destinatario')
+  )
+}
+
 function normalizarStatus(status: string, transportadora?: TransportadoraRastreio | string) {
   const s = removerAcentos(status)
   const transportadoraNormalizada = String(transportadora || '').toUpperCase()
 
-  if (transportadoraNormalizada === 'DHL' && ehBrokerOuLiberado(s)) return 'Liberado'
-  if (ehEntregue(s)) return 'Entregue'
+  if (transportadoraNormalizada === 'DHL') {
+    if (ehDhlLiberadoPorDespachante(s) || ehBrokerOuLiberado(s)) return 'Liberado'
+    if (ehEntregaFinalDhl(s)) return 'Entregue'
+  } else {
+    if (ehEntregue(s)) return 'Entregue'
+  }
+
   if (ehSaiuParaEntrega(s) || ehBrokerOuLiberado(s)) return 'Liberado'
   if (ehFiscalizacao(s)) return 'Fiscalização'
   if (ehTransito(s)) return 'Em trânsito'
@@ -781,8 +846,7 @@ async function salvarRastreio({
   const textoCompletoStatus = removerAcentos(`${status || ''} ${descricao || ''}`)
   const brokerDhlSemEntregaFinal =
     String(transportadora || '').toUpperCase() === 'DHL' &&
-    statusDetectado === 'Liberado' &&
-    ehBrokerOuLiberado(textoCompletoStatus)
+    ehDhlLiberadoPorDespachante(textoCompletoStatus)
 
   if (brokerDhlSemEntregaFinal) {
     statusNormalizado = 'Liberado'
