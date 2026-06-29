@@ -44,6 +44,7 @@ type ClienteCarteira = {
 }
 
 export default function IntelligencePage() {
+  const [clienteDetalheAberto, setClienteDetalheAberto] = useState<any | null>(null)
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [faturas, setFaturas] = useState<any[]>([])
