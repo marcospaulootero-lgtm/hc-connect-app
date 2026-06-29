@@ -1078,7 +1078,7 @@ export default function IntelligencePage() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
                 <input
                   value={buscaCliente}
                   onChange={(e) => setBuscaCliente(e.target.value)}
@@ -1138,7 +1138,7 @@ export default function IntelligencePage() {
               <p className="text-slate-500">Nenhum cliente encontrado com os filtros atuais. Verifique se o filtro de recência está ativo ou limpe os filtros.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1320px] text-sm">
+                <table className="w-full min-w-[1900px] text-sm">
                   <thead>
                     <tr className="text-slate-400 border-b border-blue-900">
                       <Th>Cliente</Th>
@@ -1151,6 +1151,10 @@ export default function IntelligencePage() {
                       <Th>Último processo</Th>
                       <Th>Sem embarcar</Th>
                       <Th>Quando agir</Th>
+                      <Th>Status comercial</Th>
+                      <Th>Último contato</Th>
+                      <Th>Próxima ação</Th>
+                      <Th>Ação</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1470,6 +1474,40 @@ function Resumo({ label, valor, cor }: any) {
       <span className="text-slate-300">{label}</span>
       <strong className={cores[cor] || 'text-blue-400'}>{valor}</strong>
     </div>
+  )
+}
+
+function BadgeContato({ status }: any) {
+  const labels: Record<string, string> = {
+    NAO_CONTATADO: 'Não contatado',
+    TENTOU_CONTATO: 'Tentou contato',
+    SEM_RESPOSTA: 'Sem resposta',
+    RESPONDEU: 'Respondeu',
+    PEDIU_COTACAO: 'Pediu cotação',
+    EM_NEGOCIACAO: 'Em negociação',
+    REATIVADO: 'Reativado',
+    SEM_INTERESSE: 'Sem interesse',
+    PERDIDO: 'Perdido',
+  }
+
+  const cores: Record<string, string> = {
+    NAO_CONTATADO: 'border-slate-600 text-slate-400 bg-slate-900/40',
+    TENTOU_CONTATO: 'border-blue-500 text-blue-400 bg-blue-950/30',
+    SEM_RESPOSTA: 'border-yellow-500 text-yellow-400 bg-yellow-950/30',
+    RESPONDEU: 'border-green-500 text-green-400 bg-green-950/30',
+    PEDIU_COTACAO: 'border-cyan-500 text-cyan-300 bg-cyan-950/30',
+    EM_NEGOCIACAO: 'border-purple-500 text-purple-300 bg-purple-950/30',
+    REATIVADO: 'border-green-500 text-green-300 bg-green-950/30',
+    SEM_INTERESSE: 'border-orange-500 text-orange-300 bg-orange-950/30',
+    PERDIDO: 'border-red-500 text-red-400 bg-red-950/30',
+  }
+
+  const chave = String(status || 'NAO_CONTATADO').toUpperCase()
+
+  return (
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black whitespace-nowrap ${cores[chave] || cores.NAO_CONTATADO}`}>
+      {labels[chave] || chave}
+    </span>
   )
 }
 
