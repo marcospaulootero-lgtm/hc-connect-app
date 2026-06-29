@@ -887,6 +887,23 @@ export default function IntelligencePage() {
     filtroRecenciaCliente,
   ])
 
+  function processosDoClienteCarteira(nomeCliente: any) {
+    const chave = normalizarBusca(nomeCliente)
+
+    return financeiroEmbarques
+      .filter((item) => normalizarBusca(clienteProcesso(item)) === chave)
+      .sort((a, b) => {
+        const dataA = dataProcessoCarteira(a)
+        const dataB = dataProcessoCarteira(b)
+
+        return String(dataB || '').localeCompare(String(dataA || ''))
+      })
+  }
+
+  function abrirDetalheCliente(cliente: any) {
+    setClienteDetalheAberto(cliente)
+  }
+
   function limparFiltrosCarteira() {
     setBuscaCliente('')
     setFiltroRecomendacao('TODOS')
@@ -1162,7 +1179,11 @@ export default function IntelligencePage() {
                   </thead>
                   <tbody>
                     {carteiraClientesFiltrada.map((item) => (
-                      <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                      <tr
+                        key={item.nome}
+                        onClick={() => abrirDetalheCliente(item)}
+                        className="border-b border-blue-950 hover:bg-blue-950/20 cursor-pointer"
+                      >
                         <Td>
                           <strong>{item.nome}</strong>
                           <p className="text-xs text-slate-500 mt-1">{item.motivo}</p>
@@ -1237,7 +1258,11 @@ export default function IntelligencePage() {
                   </thead>
                   <tbody>
                     {clientesParaAumentarTicket.map((item) => (
-                      <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                      <tr
+                        key={item.nome}
+                        onClick={() => abrirDetalheCliente(item)}
+                        className="border-b border-blue-950 hover:bg-blue-950/20 cursor-pointer"
+                      >
                         <Td><strong>{item.nome}</strong><p className="text-xs text-slate-500 mt-1">{item.servicoPrincipal}</p></Td>
                         <Td>{item.motivo}</Td>
                         <Td><strong>{moeda(item.ticketMedio)}</strong></Td>
@@ -1281,7 +1306,11 @@ export default function IntelligencePage() {
                   </thead>
                   <tbody>
                     {clientesParaRecuperar.map((item) => (
-                      <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                      <tr
+                        key={item.nome}
+                        onClick={() => abrirDetalheCliente(item)}
+                        className="border-b border-blue-950 hover:bg-blue-950/20 cursor-pointer"
+                      >
                         <Td><strong>{item.nome}</strong><p className="text-xs text-slate-500 mt-1">{item.processos} processo(s) no histórico</p></Td>
                         <Td>{dataBR(item.ultimoProcesso)}</Td>
                         <Td><strong className={item.diasSemEmbarque >= 90 ? 'text-red-400' : 'text-orange-400'}>{item.diasSemEmbarque} dias</strong></Td>
@@ -1381,7 +1410,11 @@ export default function IntelligencePage() {
                   </thead>
                   <tbody>
                     {rankingClientes.map((item) => (
-                      <tr key={item.nome} className="border-b border-blue-950 hover:bg-blue-950/20">
+                      <tr
+                        key={item.nome}
+                        onClick={() => abrirDetalheCliente(item)}
+                        className="border-b border-blue-950 hover:bg-blue-950/20 cursor-pointer"
+                      >
                         <Td><strong>{item.nome}</strong></Td>
                         <Td>{item.processos}</Td>
                         <Td><strong className={item.vencido > 0 ? 'text-red-400' : 'text-slate-500'}>{moeda(item.vencido)}</strong></Td>
