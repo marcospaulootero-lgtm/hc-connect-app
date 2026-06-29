@@ -1134,6 +1134,74 @@ export default function IntelligencePage() {
               </div>
             </div>
 
+
+            <div className="mb-5 rounded-2xl border border-cyan-700/50 bg-cyan-950/10 p-4">
+              <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-lg font-black text-cyan-300">Acompanhamento Comercial</p>
+                  <p className="text-sm text-slate-400">
+                    Marque clientes que você tentou recuperar, registre feedback e defina a próxima ação.
+                  </p>
+                </div>
+
+                <span className="rounded-full border border-cyan-700 px-3 py-1 text-xs font-black text-cyan-300">
+                  {contatosClientes.length} contato(s) registrado(s)
+                </span>
+              </div>
+
+              <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                {carteiraClientesFiltrada.slice(0, 20).map((cliente) => {
+                  const contato = ultimoContatoCliente(cliente.nome)
+
+                  return (
+                    <div key={cliente.nome} className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <strong className="text-white">{cliente.nome}</strong>
+                          <p className="mt-1 text-xs text-slate-500">{cliente.motivo}</p>
+
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                            <span className="rounded-full bg-blue-950 px-3 py-1 text-blue-300">
+                              {cliente.recomendacao}
+                            </span>
+                            <span className="rounded-full bg-slate-900 px-3 py-1 text-slate-300">
+                              {cliente.diasSemEmbarque === 9999 ? 'Sem data' : cliente.diasSemEmbarque + ' dias sem embarcar'}
+                            </span>
+                            <span className="rounded-full bg-green-950 px-3 py-1 text-green-300">
+                              Profit {moeda(cliente.profit)}
+                            </span>
+                          </div>
+
+                          {contato ? (
+                            <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
+                              <p className="font-black text-slate-300">
+                                Último retorno: {contato.status_retorno || '-'} • {contato.canal || '-'}
+                              </p>
+                              <p className="mt-1 text-slate-400">{contato.feedback || '-'}</p>
+                              <p className="mt-1 text-blue-300">
+                                Próxima ação: {contato.proxima_acao || 'Não definida'}
+                                {contato.proxima_data ? ' em ' + dataBR(contato.proxima_data) : ''}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs text-orange-300">Nenhum contato registrado ainda.</p>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => abrirContatoCliente(cliente)}
+                          className="rounded-xl bg-cyan-600 px-4 py-3 text-sm font-black text-white hover:bg-cyan-500"
+                        >
+                          Registrar contato
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
             {carteiraClientesFiltrada.length === 0 ? (
               <p className="text-slate-500">Nenhum cliente encontrado com os filtros atuais. Verifique se o filtro de recência está ativo ou limpe os filtros.</p>
             ) : (
