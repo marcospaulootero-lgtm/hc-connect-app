@@ -473,22 +473,79 @@ export default function FinanceiroPage() {
     return `${anoAtivo}-${mesPadrao}`
   }
 
-  function mesDoAnoFinanceiroAtivo(mes: any) {
+  function mesReferenciaFinanceira(valor: any) {
+    const bruto = String(valor || '').trim()
+    if (!bruto) return ''
+
+    if (/^\d{4}-\d{2}/.test(bruto)) return bruto.slice(0, 7)
+
+    if (/^\d{4}\/\d{2}/.test(bruto)) {
+      return bruto.replace('/', '-').slice(0, 7)
+    }
+
+    if (/^\d{1,2}\/\d{4}$/.test(bruto)) {
+      const [mes, ano] = bruto.split('/')
+      return ano + '-' + mes.padStart(2, '0')
+    }
+
+    if (/^\d{1,2}-\d{4}$/.test(bruto)) {
+      const [mes, ano] = bruto.split('-')
+      return ano + '-' + mes.padStart(2, '0')
+    }
+
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(bruto)) {
+      const [, mes, ano] = bruto.split('/')
+      return ano + '-' + mes.padStart(2, '0')
+    }
+
+    const data = normalizarData(valor)
+    return data ? data.slice(0, 7) : ''
+  }
+
+  function anoReferenciaFinanceira(valor: any) {
+    const mes = mesReferenciaFinanceira(valor)
+    return mes ? mes.slice(0, 4) : ''
+  }
+
+  function pertenceAoAnoFinanceiroSelecionado(valores: any[]) {
     if (todosAnosFinanceiroAtivo()) return true
 
-    return String(mes || '').slice(0, 7).startsWith(`${anoFinanceiroAtivo()}-`)
+    const anoAtivo = anoFinanceiroAtivo()
+
+    return valores
+      .map((valor) => anoReferenciaFinanceira(valor))
+      .filter(Boolean)
+      .includes(anoAtivo)
+  }
+
+  function mesDoAnoFinanceiroAtivo(mes: any) {
+    return pertenceAoAnoFinanceiroSelecionado([mes])
   }
 
   function lancamentoAnoSelecionado(item: any) {
-    return mesDoAnoFinanceiroAtivo(mesBaseLancamento(item))
+    return pertenceAoAnoFinanceiroSelecionado([
+      item.mes_profit,
+      item.mes,
+      item.recebimento,
+      item.recebimento_cliente,
+      item.data_recebimento,
+      item.data_pagamento,
+      item.vencimento_cobranca,
+      item.vencimento_cliente,
+      item.venc_cliente,
+      item.vencimento,
+      item.data_vencimento,
+    ])
   }
 
   function movimentoAnoSelecionado(item: any) {
-    return mesDoAnoFinanceiroAtivo(
-      item.mes_referencia ||
-        mesDaData(item.data_pagamento) ||
-        mesDaData(item.data_vencimento)
-    )
+    return pertenceAoAnoFinanceiroSelecionado([
+      item.mes_referencia,
+      item.data_pagamento,
+      item.data_vencimento,
+      item.vencimento,
+      item.pagamento,
+    ])
   }
 
   function textoAnosFinanceiroPermitidos() {
@@ -2087,12 +2144,21 @@ export default function FinanceiroPage() {
 
   function calcularResultadoDoMes(mesRef: string) {
     const embarquesMes = lancamentos.filter((item) => {
-      const mesBase =
-        item.mes_profit ||
-        mesDaData(item.recebimento) ||
-        mesDaData(item.vencimento_cobranca)
+      const mesesPossiveis = [
+        mesReferenciaFinanceira(item.mes_profit),
+        mesReferenciaFinanceira(item.recebimento),
+        mesReferenciaFinanceira(item.recebimento_cliente),
+        mesReferenciaFinanceira(item.data_recebimento),
+        mesReferenciaFinanceira(item.data_pagamento),
+        mesReferenciaFinanceira(item.mes),
+        mesReferenciaFinanceira(item.vencimento_cobranca),
+        mesReferenciaFinanceira(item.vencimento_cliente),
+        mesReferenciaFinanceira(item.venc_cliente),
+        mesReferenciaFinanceira(item.vencimento),
+        mesReferenciaFinanceira(item.data_vencimento),
+      ].filter(Boolean)
 
-      return mesBase === mesRef
+      return mesesPossiveis.includes(mesRef)
     })
 
     const processosPagosMes = embarquesMes.filter(
