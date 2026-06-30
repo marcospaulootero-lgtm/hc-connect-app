@@ -1730,6 +1730,16 @@ export default function FinanceiroPage() {
     }
   }
 
+  function deveRegistrarFechamentoRetroativo(item: any) {
+    // Registra também meses em que havia fundo previsto, mas não sobrou caixa para reservar.
+    // Assim o histórico fica fechado sem inflar o fundo real.
+    return (
+      Number(item.saldoFundoMes || 0) > 0.009 ||
+      Number(item.resultadoOperacional || 0) <= 0 ||
+      Number(item.saldoCaixaRealMes || 0) <= 0
+    )
+  }
+
   async function gerarFechamentosRetroativos() {
     const mesAtual = new Date().toISOString().slice(0, 7)
 
@@ -1775,7 +1785,7 @@ export default function FinanceiroPage() {
     const candidatos = resultados.filter(
       (item) =>
         item.resultadoOperacional > 0 &&
-        (item.valorReservaPossivelMes || 0) > 0.009
+        deveRegistrarFechamentoRetroativo(item)
     )
 
     if (candidatos.length === 0) {
@@ -1825,12 +1835,14 @@ export default function FinanceiroPage() {
 
     const registros = candidatos.map((item) => {
       const dataFechamento = ultimoDiaDoMes(item.mesRef)
+      const saldoFundoPrevisto = Number((item.saldoFundoMes || 0).toFixed(2))
       const valorReserva = Number((item.valorReservaPossivelMes || 0).toFixed(2))
+      const saldoPendenteFundo = Number(Math.max(0, saldoFundoPrevisto - valorReserva).toFixed(2))
 
       return {
         tipo: 'FUNDO_CAIXA_ENTRADA',
         categoria: 'Fechamento mensal',
-        descricao: `Fechamento mensal - reserva 50% ${item.mesRef}`,
+        descricao: `Fechamento mensal - reserva 50% ${item.mesRef}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'} | pendente ${moeda(saldoPendenteFundo)}`,
         valor: valorReserva,
         data_vencimento: dataFechamento,
         data_pagamento: dataFechamento,
