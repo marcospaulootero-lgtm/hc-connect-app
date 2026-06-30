@@ -1174,7 +1174,7 @@ export default function IntelligencePage() {
             </button>
 
             <Link
-              href={`/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO&busca=${encodeURIComponent(String(item.awb || item.referencia || item.cliente || ''))}`}
+              href="/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO"
               className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold"
             >
               Abrir Financeiro
@@ -1480,7 +1480,7 @@ export default function IntelligencePage() {
                   O que precisa ser corrigido agora. Não é tela de caixa nem fechamento.
                 </p>
               </div>
-              <Link href={`/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO&busca=${encodeURIComponent(String(item.awb || item.referencia || item.cliente || ''))}`} className="text-blue-400 font-bold hover:text-blue-300 whitespace-nowrap">
+              <Link href="/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO" className="text-blue-400 font-bold hover:text-blue-300 whitespace-nowrap">
                 Corrigir no financeiro →
               </Link>
             </div>
