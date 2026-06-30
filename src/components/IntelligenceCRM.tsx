@@ -259,6 +259,8 @@ export default function IntelligenceCRM() {
       ultimoDiaDoMes(item.mes),
       normalizarData(item.competencia),
       normalizarData(item.mes_referencia),
+      normalizarData(item.criado_em),
+      normalizarData(item.created_at),
     ].filter(Boolean)
 
     if (datasReais.length > 0) {
