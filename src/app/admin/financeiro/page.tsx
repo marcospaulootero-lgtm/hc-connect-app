@@ -2887,6 +2887,7 @@ export default function FinanceiroPage() {
       .filter(movimentoAnoSelecionado)
       .filter((item) => passaMesSelecionado(mesesDoMovimento(item)))
       .filter((item) => statusMovimento(item) === 'PAGO')
+      .filter((item) => item.impacta_caixa !== false)
 
     const despesasPagas = movimentosPagos
       .filter((item) => item.tipo === 'DESPESA')
@@ -2908,7 +2909,7 @@ export default function FinanceiroPage() {
       .filter((item) => ehReservaOperacionalFundo(item))
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
-    const entradasExtras = movimentosPagos
+    const entradasExtraordinarias = movimentosPagos
       .filter((item) =>
         item.tipo === 'APORTE_SOCIO' ||
         (
@@ -2918,15 +2919,30 @@ export default function FinanceiroPage() {
       )
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
-    const ajustesCaixa = movimentosPagos
-      .filter((item) => item.tipo === 'AJUSTE_CAIXA')
+    const ajustesPositivos = movimentosPagos
+      .filter((item) => item.tipo === 'AJUSTE_CAIXA' && numero(item.valor || 0) > 0)
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
-    const saidasReais =
+    const ajustesNegativos = movimentosPagos
+      .filter((item) => item.tipo === 'AJUSTE_CAIXA' && numero(item.valor || 0) < 0)
+      .reduce((acc, item) => acc + Math.abs(numero(item.valor || 0)), 0)
+
+    const saidasOperacionais =
       despesasPagas +
       emprestimosPagos +
-      retiradasSocios +
-      saidasFundoCaixa
+      retiradasSocios
+
+    const saidasExtraordinarias =
+      saidasFundoCaixa +
+      ajustesNegativos
+
+    const saidasReais =
+      saidasOperacionais +
+      saidasExtraordinarias
+
+    const entradasNaoOperacionais =
+      entradasExtraordinarias +
+      ajustesPositivos
 
     const resultadoAntesRetiradas =
       profitRecebido -
@@ -2935,19 +2951,23 @@ export default function FinanceiroPage() {
 
     const fundoPrevisto = Math.max(0, resultadoAntesRetiradas) * 0.5
 
-    const saldoRealDoProfit =
+    const caixaOperacionalDoProfit =
       profitRecebido -
-      saidasReais
+      saidasOperacionais
 
-    const saldoComAportesEAjustes =
-      saldoRealDoProfit +
-      entradasExtras +
-      ajustesCaixa
+    const caixaRealAjustado =
+      caixaOperacionalDoProfit +
+      entradasNaoOperacionais -
+      saidasExtraordinarias
 
     const fundoPendente = Math.max(0, fundoPrevisto - reservasLancadas)
 
-    const faltaRegularizar =
-      Math.max(0, -saldoRealDoProfit) +
+    const faltaRegularizarOperacional =
+      Math.max(0, -caixaOperacionalDoProfit) +
+      fundoPendente
+
+    const faltaRegularizarReal =
+      Math.max(0, -caixaRealAjustado) +
       fundoPendente
 
     return {
@@ -2959,19 +2979,23 @@ export default function FinanceiroPage() {
       emprestimosPagos,
       retiradasSocios,
       saidasFundoCaixa,
+      saidasOperacionais,
+      saidasExtraordinarias,
       saidasReais,
+      entradasExtraordinarias,
+      ajustesPositivos,
+      ajustesNegativos,
+      entradasNaoOperacionais,
       resultadoAntesRetiradas,
       fundoPrevisto,
       reservasLancadas,
       fundoPendente,
-      entradasExtras,
-      ajustesCaixa,
-      saldoRealDoProfit,
-      saldoComAportesEAjustes,
-      faltaRegularizar,
+      caixaOperacionalDoProfit,
+      caixaRealAjustado,
+      faltaRegularizarOperacional,
+      faltaRegularizarReal,
     }
   }, [lancamentos, movimentacoes, filtroMesMovimento, anoFinanceiro])
-
 
   const extratoAnual = useMemo(() => {
     const anoSelecionado = anoFinanceiroPermitido(anoExtrato)
@@ -4717,19 +4741,19 @@ export default function FinanceiroPage() {
             />
 
             <BigCard
-              titulo="CAIXA REAL DO PROFIT"
-              valor={moeda(resumoCaixaRealProfit.saldoRealDoProfit)}
-              subtitulo="Profit recebido - todas as saídas reais"
+              titulo="CAIXA REAL AJUSTADO"
+              valor={moeda(resumoCaixaRealProfit.caixaRealAjustado)}
+              subtitulo="Profit + entradas extras - todas as saídas"
               icone="CX"
-              classe={resumoCaixaRealProfit.saldoRealDoProfit >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
+              classe={resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
             />
 
             <BigCard
               titulo="FALTA REGULARIZAR"
-              valor={moeda(resumoCaixaRealProfit.faltaRegularizar)}
-              subtitulo="Caixa negativo + fundo pendente"
+              valor={moeda(resumoCaixaRealProfit.faltaRegularizarReal)}
+              subtitulo="Caixa real negativo + fundo pendente"
               icone="!"
-              classe={resumoCaixaRealProfit.faltaRegularizar > 0 ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-green-50 border-green-200 text-green-700'}
+              classe={resumoCaixaRealProfit.faltaRegularizarReal > 0 ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-green-50 border-green-200 text-green-700'}
             />
           </section>
 
@@ -4769,13 +4793,16 @@ export default function FinanceiroPage() {
               <FiltroResumoCard titulo="Retiradas / sócios" valor={moeda(resumoCaixaRealProfit.retiradasSocios)} detalhe="Saída real" classe="bg-white text-red-700 border-red-100" />
               <FiltroResumoCard titulo="Saídas fundo/caixa" valor={moeda(resumoCaixaRealProfit.saidasFundoCaixa)} detalhe="Uso real do fundo" classe="bg-white text-red-700 border-red-100" />
               <FiltroResumoCard titulo="Reserva já lançada" valor={moeda(resumoCaixaRealProfit.reservasLancadas)} detalhe="Não cria caixa novo" classe="bg-white text-blue-700 border-blue-100" />
+              <FiltroResumoCard titulo="Caixa operacional" valor={moeda(resumoCaixaRealProfit.caixaOperacionalDoProfit)} detalhe="Só Profit - saídas operacionais" classe={resumoCaixaRealProfit.caixaOperacionalDoProfit >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+              <FiltroResumoCard titulo="Entradas extraordinárias" valor={moeda(resumoCaixaRealProfit.entradasNaoOperacionais)} detalhe="Carro, aportes e ajustes positivos" classe="bg-white text-green-700 border-green-100" />
+              <FiltroResumoCard titulo="Saídas extraordinárias" valor={moeda(resumoCaixaRealProfit.saidasExtraordinarias)} detalhe="Ativos, fundo e ajustes negativos" classe="bg-white text-red-700 border-red-100" />
             </div>
 
-            {resumoCaixaRealProfit.saldoRealDoProfit < 0 && (
+            {resumoCaixaRealProfit.caixaRealAjustado < 0 && (
               <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4">
                 <p className="text-sm font-black text-red-900">Atenção</p>
                 <p className="mt-1 text-sm font-semibold text-red-800">
-                  As saídas reais passaram do Profit recebido. Portanto o caixa do período está negativo e nenhuma reserva deve deixar o caixa positivo artificialmente.
+                  As saídas passaram das entradas reais consideradas no caixa. A reserva não deve deixar o caixa positivo artificialmente.
                 </p>
               </div>
             )}
