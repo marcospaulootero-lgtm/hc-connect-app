@@ -888,6 +888,51 @@ export default function DashboardPage() {
       })
     }
 
+    const terceirosPendentesDashboard = (financeiro || []).filter((item: any) => {
+      const valorTerceiro = numero(
+        item.debito_terceiro ||
+        item.terceiros ||
+        item.profit_terceiros ||
+        item.valor_terceiros
+      )
+
+      const statusTerceiro = String(
+        item.pgta_terceiros ||
+        item.pago_terceiros ||
+        item.status_terceiro ||
+        item.status_terceiros ||
+        ''
+      )
+        .trim()
+        .toUpperCase()
+
+      return valorTerceiro > 0 && !statusTerceiro.includes('PAGO')
+    })
+
+    const totalTerceirosPendentesDashboard = terceirosPendentesDashboard.reduce(
+      (total: number, item: any) =>
+        total +
+        numero(
+          item.debito_terceiro ||
+          item.terceiros ||
+          item.profit_terceiros ||
+          item.valor_terceiros
+        ),
+      0
+    )
+
+    if (totalTerceirosPendentesDashboard > 0) {
+      alertas.push({
+        titulo: 'Terceiros a pagar',
+        valor: moeda(totalTerceirosPendentesDashboard),
+        detalhe: `${terceirosPendentesDashboard.length} processo(s) com profit/parceiro pendente`,
+        icone: '🤝',
+        cor: 'orange',
+        href: '/admin/parceiros',
+        acao: 'Ver terceiros',
+      })
+    }
+
     if (financeiroResumo.aguardandoCusto.length > 0) {
       alertas.push({
         titulo: 'Processos aguardando custo',
