@@ -87,7 +87,8 @@ const LOTE_SUPABASE = 1000
 const ANO_BASE_FINANCEIRO = 2022
 const ANO_ATUAL_FINANCEIRO = new Date().getFullYear()
 const ANOS_FINANCEIRO_PERMITIDOS = Array.from(
-  new Set([ANO_ATUAL_FINANCEIRO, ANO_BASE_FINANCEIRO])
+  { length: Math.max(1, ANO_ATUAL_FINANCEIRO - ANO_BASE_FINANCEIRO + 1) },
+  (_, index) => ANO_BASE_FINANCEIRO + index
 ).sort((a, b) => b - a)
 const MES_MINIMO_FINANCEIRO = `${ANO_BASE_FINANCEIRO}-01`
 const MES_MAXIMO_FINANCEIRO = `${ANO_ATUAL_FINANCEIRO}-12`
@@ -287,6 +288,7 @@ export default function FinanceiroPage() {
       params.get('cliente')
 
     const statusUrl = params.get('status')
+    const anoUrl = params.get('ano') || params.get('year')
 
     const abaNormalizada = normalizarBusca(abaUrl)
     const statusNormalizado = normalizarBusca(statusUrl)
@@ -306,6 +308,16 @@ export default function FinanceiroPage() {
     )
 
     if (buscaUrl || statusValido) {
+      const anoUrlLimpo = String(anoUrl || '').trim().toUpperCase()
+
+      setAnoFinanceiro(
+        anoUrlLimpo === 'TODOS' || !anoUrlLimpo
+          ? 'TODOS'
+          : anoFinanceiroPermitido(anoUrlLimpo)
+            ? anoUrlLimpo.slice(0, 4)
+            : 'TODOS'
+      )
+
       setAbaPrincipal('PROCESSOS')
       setBusca(buscaUrl?.trim() || '')
 
@@ -480,7 +492,10 @@ export default function FinanceiroPage() {
   }
 
   function textoAnosFinanceiroPermitidos() {
-    return ANOS_FINANCEIRO_PERMITIDOS.join(' e ')
+    const menorAno = Math.min(...ANOS_FINANCEIRO_PERMITIDOS)
+    const maiorAno = Math.max(...ANOS_FINANCEIRO_PERMITIDOS)
+
+    return `${menorAno} a ${maiorAno} ou todos`
   }
 
   function aplicarTodosAnosFinanceiro() {
@@ -594,6 +609,7 @@ export default function FinanceiroPage() {
   }
 
   function textoPeriodoFundo() {
+    if (todosAnosFinanceiroAtivo() && filtroMesMovimento.length === 0) return 'Todos os anos'
     if (filtroMesMovimento.length === 0) return `Ano ${anoFinanceiroAtivo()} inteiro`
     return textoMesesSelecionados(filtroMesMovimento)
   }
@@ -612,6 +628,7 @@ export default function FinanceiroPage() {
   }
 
   function textoMesesSelecionados(valores: string[]) {
+    if (todosAnosFinanceiroAtivo() && valores.length === 0) return 'Todos os meses de todos os anos'
     if (valores.length === 0) return `Todos os meses de ${anoFinanceiroAtivo()}`
     if (valores.length > 3) return `${valores.length} meses selecionados`
     return valores.map((valor) => formatarMesVisual(valor)).join(', ')
@@ -695,10 +712,9 @@ export default function FinanceiroPage() {
     }
 
     const todos = respostas.flatMap((res) => res.data || [])
-    const todosPermitidos = todos.filter((item) => lancamentoAnoPermitido(item))
 
     setLancamentos(
-      todosPermitidos.sort((a, b) => {
+      todos.sort((a, b) => {
         const statusA = statusCobranca(a)
         const statusB = statusCobranca(b)
 
@@ -733,7 +749,7 @@ export default function FinanceiroPage() {
       return
     }
 
-    setMovimentacoes(((data || []) as any[]).filter((item) => movimentoAnoPermitido(item)))
+    setMovimentacoes((data || []) as any[])
     setPaginaMovimentos(1)
     setLoadingMovimentos(false)
   }
@@ -1871,7 +1887,7 @@ export default function FinanceiroPage() {
         ${item.servico || ''}
       `.toLowerCase()
 
-      const passaAno = lancamentoAnoSelecionado(item)
+      const passaAno = termo ? true : lancamentoAnoSelecionado(item)
       const passaBusca = !termo || texto.includes(termo)
       const statusAtual = statusCobranca(item)
       const processoSemCusto = aguardandoCustoProcesso(item)
@@ -3607,6 +3623,7 @@ export default function FinanceiroPage() {
                 onChange={(e) => setAnoFinanceiro(e.target.value)}
                 className="mt-1 block min-w-[180px] rounded-xl border border-gray-200 px-4 py-3 text-sm font-black focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
+                <option value="TODOS">Todos os anos</option>
                 {ANOS_FINANCEIRO_PERMITIDOS.map((ano) => (
                   <option key={ano} value={String(ano)}>
                     {ano}
