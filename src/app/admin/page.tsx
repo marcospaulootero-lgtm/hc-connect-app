@@ -1,7 +1,10 @@
 'use client'
 
+'use client'
+
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import AdminRealtimeAlerts from '@/components/AdminRealtimeAlerts'
 
 type PeriodoGrafico = '7D' | '30D' | 'MES_ATUAL' | 'MES_ANTERIOR'
 
@@ -1998,6 +2001,7 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+      <AdminRealtimeAlerts onRefresh={() => buscarDados(false)} />
     </main>
   )
 }
