@@ -2833,6 +2833,146 @@ export default function FinanceiroPage() {
     }
   }, [movimentacoes, filtroMesMovimento, anoFinanceiro])
 
+  const resumoCaixaRealProfit = useMemo(() => {
+    function mesesDoLancamento(item: any) {
+      return [
+        mesReferenciaFinanceira(item.mes_profit),
+        mesReferenciaFinanceira(item.recebimento),
+        mesReferenciaFinanceira(item.recebimento_cliente),
+        mesReferenciaFinanceira(item.data_recebimento),
+        mesReferenciaFinanceira(item.data_pagamento),
+        mesReferenciaFinanceira(item.mes),
+        mesReferenciaFinanceira(item.vencimento_cobranca),
+        mesReferenciaFinanceira(item.vencimento_cliente),
+        mesReferenciaFinanceira(item.venc_cliente),
+        mesReferenciaFinanceira(item.vencimento),
+        mesReferenciaFinanceira(item.data_vencimento),
+      ].filter(Boolean)
+    }
+
+    function mesesDoMovimento(item: any) {
+      return [
+        mesReferenciaFinanceira(item.mes_referencia),
+        mesReferenciaFinanceira(item.data_pagamento),
+        mesReferenciaFinanceira(item.data_vencimento),
+        mesReferenciaFinanceira(item.vencimento),
+        mesReferenciaFinanceira(item.pagamento),
+      ].filter(Boolean)
+    }
+
+    function passaMesSelecionado(meses: string[]) {
+      if (filtroMesMovimento.length === 0) return true
+      return meses.some((mes) => filtroMesMovimento.includes(mes))
+    }
+
+    const processosPagos = lancamentos
+      .filter(lancamentoAnoSelecionado)
+      .filter((item) => passaMesSelecionado(mesesDoLancamento(item)))
+      .filter((item) => statusCobranca(item) === 'PAGO')
+
+    const processosComCusto = processosPagos.filter((item) => !aguardandoCustoProcesso(item))
+    const processosSemCusto = processosPagos.length - processosComCusto.length
+
+    const valorRecebidoBruto = processosPagos.reduce(
+      (acc, item) => acc + numero(item.valor_cobranca || item.valor_faturado || item.valor_venda || item.valor),
+      0
+    )
+
+    const profitRecebido = processosComCusto.reduce(
+      (acc, item) => acc + calcularProfit(item),
+      0
+    )
+
+    const movimentosPagos = movimentacoes
+      .filter(movimentoAnoSelecionado)
+      .filter((item) => passaMesSelecionado(mesesDoMovimento(item)))
+      .filter((item) => statusMovimento(item) === 'PAGO')
+
+    const despesasPagas = movimentosPagos
+      .filter((item) => item.tipo === 'DESPESA')
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const emprestimosPagos = movimentosPagos
+      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO')
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const retiradasSocios = movimentosPagos
+      .filter((item) => ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo))
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const saidasFundoCaixa = movimentosPagos
+      .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA')
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const reservasLancadas = movimentosPagos
+      .filter((item) => ehReservaOperacionalFundo(item))
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const entradasExtras = movimentosPagos
+      .filter((item) =>
+        item.tipo === 'APORTE_SOCIO' ||
+        (
+          item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
+          !ehReservaOperacionalFundo(item)
+        )
+      )
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const ajustesCaixa = movimentosPagos
+      .filter((item) => item.tipo === 'AJUSTE_CAIXA')
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const saidasReais =
+      despesasPagas +
+      emprestimosPagos +
+      retiradasSocios +
+      saidasFundoCaixa
+
+    const resultadoAntesRetiradas =
+      profitRecebido -
+      despesasPagas -
+      emprestimosPagos
+
+    const fundoPrevisto = Math.max(0, resultadoAntesRetiradas) * 0.5
+
+    const saldoRealDoProfit =
+      profitRecebido -
+      saidasReais
+
+    const saldoComAportesEAjustes =
+      saldoRealDoProfit +
+      entradasExtras +
+      ajustesCaixa
+
+    const fundoPendente = Math.max(0, fundoPrevisto - reservasLancadas)
+
+    const faltaRegularizar =
+      Math.max(0, -saldoRealDoProfit) +
+      fundoPendente
+
+    return {
+      processosPagos: processosPagos.length,
+      processosSemCusto,
+      valorRecebidoBruto,
+      profitRecebido,
+      despesasPagas,
+      emprestimosPagos,
+      retiradasSocios,
+      saidasFundoCaixa,
+      saidasReais,
+      resultadoAntesRetiradas,
+      fundoPrevisto,
+      reservasLancadas,
+      fundoPendente,
+      entradasExtras,
+      ajustesCaixa,
+      saldoRealDoProfit,
+      saldoComAportesEAjustes,
+      faltaRegularizar,
+    }
+  }, [lancamentos, movimentacoes, filtroMesMovimento, anoFinanceiro])
+
+
   const extratoAnual = useMemo(() => {
     const anoSelecionado = anoFinanceiroPermitido(anoExtrato)
       ? String(anoExtrato)
@@ -4254,7 +4394,7 @@ export default function FinanceiroPage() {
         <TabButton ativo={abaPrincipal === 'PROCESSOS'} onClick={() => mudarAbaPrincipal('PROCESSOS')}>Processos Faturados</TabButton>
         <TabButton ativo={abaPrincipal === 'DESPESAS'} onClick={() => mudarAbaPrincipal('DESPESAS')}>Despesas</TabButton>
         <TabButton ativo={abaPrincipal === 'SOCIOS'} onClick={() => mudarAbaPrincipal('SOCIOS')}>Retiradas / Sócios</TabButton>
-        <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Caixa / Fundo</TabButton>
+        <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Caixa Real</TabButton>
       </section>
 
       {abaPrincipal === 'PROCESSOS' && (
@@ -4561,36 +4701,87 @@ export default function FinanceiroPage() {
         <>
           <section className="grid grid-cols-1 lg:grid-cols-4 gap-5 mb-5">
             <BigCard
-              titulo="FUNDO REAL DISPONÍVEL"
-              valor={moeda(resultadoGeral.fundoAtual)}
-              subtitulo="Entradas - saídas + ajustes do fundo"
-              icone=""
-              classe="bg-blue-50 border-blue-200 text-blue-700"
-            />
-            <BigCard
-              titulo="ENTRADAS NO FUNDO"
-              valor={moeda(resumoFundoFiltro.entradas)}
-              subtitulo={textoPeriodoFundo()}
-              icone="⬆ï¸"
+              titulo="PROFIT RECEBIDO"
+              valor={moeda(resumoCaixaRealProfit.profitRecebido)}
+              subtitulo={`${resumoCaixaRealProfit.processosPagos} processos pagos | Receita bruta não entra`}
+              icone="R$"
               classe="bg-green-50 border-green-200 text-green-700"
             />
+
             <BigCard
-              titulo="SAÍDAS DO FUNDO"
-              valor={moeda(resumoFundoFiltro.saidas)}
-              subtitulo={textoPeriodoFundo()}
-              icone="⬇ï¸"
+              titulo="SAÍDAS REAIS"
+              valor={moeda(resumoCaixaRealProfit.saidasReais)}
+              subtitulo="Despesas + empréstimos + retiradas + saídas"
+              icone="SAI"
               classe="bg-red-50 border-red-200 text-red-700"
             />
+
             <BigCard
-              titulo="AJUSTES DO FUNDO"
-              valor={moeda(resumoFundoFiltro.ajustes)}
-              subtitulo="Ajustes manuais do caixa/fundo"
-              icone={resumoFundoFiltro.ajustes >= 0 ? '✅' : '⚠️'}
-              classe={resumoFundoFiltro.ajustes >= 0 ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-red-50 border-red-200 text-red-700'}
+              titulo="CAIXA REAL DO PROFIT"
+              valor={moeda(resumoCaixaRealProfit.saldoRealDoProfit)}
+              subtitulo="Profit recebido - todas as saídas reais"
+              icone="CX"
+              classe={resumoCaixaRealProfit.saldoRealDoProfit >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
+            />
+
+            <BigCard
+              titulo="FALTA REGULARIZAR"
+              valor={moeda(resumoCaixaRealProfit.faltaRegularizar)}
+              subtitulo="Caixa negativo + fundo pendente"
+              icone="!"
+              classe={resumoCaixaRealProfit.faltaRegularizar > 0 ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-green-50 border-green-200 text-green-700'}
             />
           </section>
 
-          {renderFormularioMovimento('Nova movimentação do fundo de caixa', 'Registre entradas, saídas e ajustes do fundo de caixa da empresa.')}
+          <section className="mb-5 rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <h3 className="text-xl font-black text-gray-950">Leitura correta do caixa</h3>
+                <p className="mt-1 text-sm font-semibold text-gray-500">
+                  Esta visão considera somente o Profit HC como entrada operacional. Receita bruta de cliente não entra no caixa livre da HC.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:min-w-[760px]">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">Receita bruta ignorada</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{moeda(resumoCaixaRealProfit.valorRecebidoBruto)}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">Valor recebido total, não é caixa livre.</p>
+                </div>
+
+                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-500">Fundo previsto</p>
+                  <p className="mt-1 text-lg font-black text-blue-700">{moeda(resumoCaixaRealProfit.fundoPrevisto)}</p>
+                  <p className="mt-1 text-xs font-semibold text-blue-500">50% do resultado antes das retiradas.</p>
+                </div>
+
+                <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-orange-500">Fundo pendente</p>
+                  <p className="mt-1 text-lg font-black text-orange-700">{moeda(resumoCaixaRealProfit.fundoPendente)}</p>
+                  <p className="mt-1 text-xs font-semibold text-orange-500">Reserva não aplicada se não sobrou caixa.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <FiltroResumoCard titulo="Despesas" valor={moeda(resumoCaixaRealProfit.despesasPagas)} detalhe="Saída real" classe="bg-white text-red-700 border-red-100" />
+              <FiltroResumoCard titulo="Empréstimos" valor={moeda(resumoCaixaRealProfit.emprestimosPagos)} detalhe="Saída real" classe="bg-white text-purple-700 border-purple-100" />
+              <FiltroResumoCard titulo="Retiradas / sócios" valor={moeda(resumoCaixaRealProfit.retiradasSocios)} detalhe="Saída real" classe="bg-white text-red-700 border-red-100" />
+              <FiltroResumoCard titulo="Saídas fundo/caixa" valor={moeda(resumoCaixaRealProfit.saidasFundoCaixa)} detalhe="Uso real do fundo" classe="bg-white text-red-700 border-red-100" />
+              <FiltroResumoCard titulo="Reserva já lançada" valor={moeda(resumoCaixaRealProfit.reservasLancadas)} detalhe="Não cria caixa novo" classe="bg-white text-blue-700 border-blue-100" />
+            </div>
+
+            {resumoCaixaRealProfit.saldoRealDoProfit < 0 && (
+              <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4">
+                <p className="text-sm font-black text-red-900">Atenção</p>
+                <p className="mt-1 text-sm font-semibold text-red-800">
+                  As saídas reais passaram do Profit recebido. Portanto o caixa do período está negativo e nenhuma reserva deve deixar o caixa positivo artificialmente.
+                </p>
+              </div>
+            )}
+          </section>
+
+          {renderFormularioMovimento('Nova movimentação / ajuste de caixa', 'Use esta área apenas para ajustes reais, aportes, entradas ou saídas do fundo. Despesas e retiradas continuam em suas abas próprias.')}
           {renderTabelaMovimentos()}
         </>
       )}
