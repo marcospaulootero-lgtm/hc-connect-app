@@ -707,12 +707,42 @@ export default function IntelligencePage() {
 
     embarques.forEach((item) => {
       const awbPortal = String(item.awb || item.numero_awb || '').replace(/\D/g, '')
-      const nomePortal = clienteProcesso(item)
+
+      const nomesPortal = [
+        item.cliente,
+        item.cliente_nome,
+        item.nome_cliente,
+        item.cliente_final,
+        item.importador,
+        item.exportador,
+        item.empresa,
+        item.empresa_nome,
+        item.razao_social,
+        item.referencia_cliente,
+        item.referencia_hc,
+        item.destinatario,
+        item.remetente,
+      ]
+        .map((valor) => String(valor || '').trim())
+        .filter(Boolean)
+
+      const nomesPortalNormalizados = nomesPortal.map((nome) => normalizarBusca(nome))
 
       const chavePorAwb = awbPortal ? clientePorAwb[awbPortal] : ''
-      const chavePorNome = Object.keys(mapa).find(
-        (nomeCarteira) => normalizarBusca(nomeCarteira) === normalizarBusca(nomePortal)
-      )
+
+      const chavePorNome = Object.keys(mapa).find((nomeCarteira) => {
+        const nomeCarteiraNormalizado = normalizarBusca(nomeCarteira)
+
+        return nomesPortalNormalizados.some((nomePortalNormalizado) => {
+          if (!nomePortalNormalizado || !nomeCarteiraNormalizado) return false
+
+          return (
+            nomePortalNormalizado === nomeCarteiraNormalizado ||
+            nomePortalNormalizado.includes(nomeCarteiraNormalizado) ||
+            nomeCarteiraNormalizado.includes(nomePortalNormalizado)
+          )
+        })
+      })
 
       const chaveCliente = chavePorAwb || chavePorNome
       if (!chaveCliente || !mapa[chaveCliente]) return
