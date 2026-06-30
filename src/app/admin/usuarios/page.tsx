@@ -128,12 +128,25 @@ export default function UsuariosPage() {
     carregarUsuarios()
   }
 
+  function empresaUsuario(usuario: any) {
+    return String(
+      usuario.empresa_nome ||
+      usuario.nome_empresa ||
+      usuario.empresa ||
+      usuario.razao_social ||
+      usuario.nome_fantasia ||
+      usuario.empresa_id ||
+      usuario.codigo_vinculo ||
+      ''
+    ).trim()
+  }
+
   const usuariosFiltrados = useMemo(() => {
     return usuarios.filter((usuario) => {
       const texto = `
         ${usuario.nome}
         ${usuario.email}
-        ${usuario.codigo_vinculo}
+        ${empresaUsuario(usuario)}
         ${usuario.tipo_acesso}
       `.toLowerCase()
 
@@ -167,7 +180,7 @@ export default function UsuariosPage() {
           </h1>
 
           <p className="text-slate-400 text-lg">
-            Gerencie clientes, administradores, status de acesso e códigos de vínculo.
+            Gerencie clientes, administradores, status de acesso e empresas dos clientes.
           </p>
         </div>
 
@@ -237,7 +250,7 @@ export default function UsuariosPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-7">
           <input
-            placeholder="Buscar por nome, e-mail ou código..."
+            placeholder="Buscar por nome, e-mail ou empresa..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -270,7 +283,7 @@ export default function UsuariosPage() {
                 <tr>
                   <th>Usuário</th>
                   <th>E-mail</th>
-                  <th>Código vínculo</th>
+                  <th>Empresa</th>
                   <th>Tipo</th>
                   <th>Status</th>
                   <th>Data cadastro</th>
@@ -313,7 +326,7 @@ export default function UsuariosPage() {
 
                       <td>
                         <span className="px-3 py-2 rounded-xl bg-purple-600 text-white text-sm font-black">
-                          {usuario.codigo_vinculo || '-'}
+                          {empresaUsuario(usuario) || '-'}
                         </span>
                       </td>
 
