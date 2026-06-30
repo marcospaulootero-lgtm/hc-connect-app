@@ -1521,31 +1521,14 @@ export default function FinanceiroPage() {
     const saldoFundoPrevisto = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
     const caixaDisponivelParaReserva = Number(Math.max(0, resultadoGeral.saldoCaixaRealMes || 0).toFixed(2))
     const valorReserva = Number(Math.min(saldoFundoPrevisto, caixaDisponivelParaReserva).toFixed(2))
+    const saldoPendenteFundo = Number(Math.max(0, saldoFundoPrevisto - valorReserva).toFixed(2))
 
     if (saldoFundoPrevisto <= 0) {
       alert('O fundo de caixa deste mês já está reservado ou foi reservado acima dos 50%.')
       return
     }
 
-    if (caixaDisponivelParaReserva <= 0) {
-      alert(
-        'Este mês teve lucro, mas o caixa após retiradas ficou negativo ou zerado.\n\n' +
-        'Lucro líquido: ' + moeda(resultadoGeral.resultadoOperacional) + '\n' +
-        'Retiradas dos sócios: ' + moeda(resultadoGeral.retiradasTotal) + '\n' +
-        'Caixa após retiradas: ' + moeda(resultadoGeral.saldoCaixaRealMes) + '\n\n' +
-        'Fundo previsto do mês: ' + moeda(resultadoGeral.fundoPrevistoMes) + '\n' +
-        'Valor lançado agora: R$ 0,00\n' +
-        'Este valor deve ficar como saldo a reservar futuramente.'
-      )
-      return
-    }
-
-    if (valorReserva <= 0) {
-      alert('Não há caixa disponível para reservar no fundo neste momento.')
-      return
-    }
-
-    const descricaoFechamento = `Fechamento mensal - reserva 50% ${mesResultado}`
+    const descricaoFechamento = `Fechamento mensal - reserva 50% ${mesResultado}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'}`
     const fechamentoJaLancado = movimentacoes.find((item) => {
       const descricao = normalizarBusca(item.descricao || '')
 
@@ -1562,8 +1545,6 @@ export default function FinanceiroPage() {
       return
     }
 
-    const saldoPendenteDepois = Math.max(0, saldoFundoPrevisto - valorReserva)
-
     const mensagem =
       `Gerar fechamento de ${mesResultado}?\n\n` +
       `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
@@ -1571,8 +1552,13 @@ export default function FinanceiroPage() {
       `Caixa após retiradas: ${moeda(resultadoGeral.saldoCaixaRealMes)}\n\n` +
       `Fundo previsto 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}\n` +
       `Já reservado no fundo: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
-      `Valor que será lançado agora: ${moeda(valorReserva)}\n` +
-      `Saldo a reservar futuramente: ${moeda(saldoPendenteDepois)}\n\n` +
+      `Valor que será lançado agora no fundo real: ${moeda(valorReserva)}\n` +
+      `Saldo do fundo a reservar futuramente: ${moeda(saldoPendenteFundo)}\n\n` +
+      (
+        valorReserva <= 0
+          ? 'ATENÇÃO: este mês será fechado sem reserva real no fundo, porque o caixa após retiradas ficou negativo ou zerado.\n\n'
+          : ''
+      ) +
       `Parte Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}\n` +
       `Parte Hérica 25%: ${moeda(resultadoGeral.parteHerica)}`
 
@@ -4096,7 +4082,7 @@ export default function FinanceiroPage() {
               <button
                 type="button"
                 onClick={gerarFechamentoMensal}
-                disabled={gerandoFechamento || resultadoGeral.saldoFundoMes <= 0 || resultadoGeral.resultadoOperacional <= 0 || resultadoGeral.saldoCaixaRealMes <= 0}
+                disabled={gerandoFechamento || resultadoGeral.saldoFundoMes <= 0 || resultadoGeral.resultadoOperacional <= 0}
                 className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
               >
                 {gerandoFechamento ? 'Gerando...' : 'Gerar fechamento do mês'}
