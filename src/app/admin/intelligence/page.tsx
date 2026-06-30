@@ -646,7 +646,7 @@ export default function IntelligencePage() {
 
     // A carteira comercial SEMPRE usa o histórico completo de Processos Faturados.
     // O filtro de mês/ano do topo serve para alertas financeiros, não para recuperar cliente parado.
-    financeiroEmbarques.forEach((item) => {
+    dadosPeriodo.fin.forEach((item) => {
       const nome = clienteProcesso(item)
       if (!nome || nome === 'Não informado') return
 
@@ -807,7 +807,7 @@ export default function IntelligencePage() {
       })
       .sort((a: ClienteCarteira, b: ClienteCarteira) => b.prioridade - a.prioridade || b.profit - a.profit || b.processos - a.processos)
       .slice(0, 120)
-  }, [financeiroEmbarques])
+  }, [dadosPeriodo])
 
   const clientesParaAumentarTicket = useMemo(() => {
     return carteiraClientes
