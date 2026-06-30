@@ -391,42 +391,28 @@ export default function IntelligencePage() {
   }
 
   function dataProcessoCarteira(item: any) {
-    const datasReais = [
+    // Regra HC:
+    // Processos antigos vieram do Excel e não existem necessariamente na aba Embarques.
+    // Por isso, a recência comercial usa somente datas financeiras dos Processos Faturados.
+    const datas = [
       normalizarData(item.recebimento),
       normalizarData(item.recebimento_cliente),
       normalizarData(item.data_recebimento),
       normalizarData(item.data_pagamento),
-      normalizarData(item.data_embarque),
-      normalizarData(item.data_envio),
-      normalizarData(item.data_processo),
-      normalizarData(item.data_faturamento),
-      normalizarData(item.data_emissao),
-      normalizarData(item.emissao),
+
       normalizarData(item.vencimento_cobranca),
       normalizarData(item.vencimento_cliente),
       normalizarData(item.venc_cliente),
       normalizarData(item.vencimento),
       normalizarData(item.data_vencimento),
+
       ultimoDiaDoMes(item.mes_profit),
       ultimoDiaDoMes(item.mes),
-      normalizarData(item.competencia),
-      normalizarData(item.mes_referencia),
-      normalizarData(item.criado_em),
-      normalizarData(item.created_at),
     ].filter(Boolean)
 
-    if (datasReais.length > 0) {
-      return datasReais.sort().reverse()[0]
-    }
+    if (datas.length === 0) return ''
 
-    const datasSistema = [
-      normalizarData(item.criado_em),
-      normalizarData(item.created_at),
-    ].filter(Boolean)
-
-    if (datasSistema.length === 0) return ''
-
-    return datasSistema.sort().reverse()[0]
+    return datas.sort().reverse()[0]
   }
 
   function awbProcesso(item: any) {
