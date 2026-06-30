@@ -2997,6 +2997,39 @@ export default function FinanceiroPage() {
     }
   }, [lancamentos, movimentacoes, filtroMesMovimento, anoFinanceiro])
 
+  const caixaDecisao = useMemo(() => {
+    const caixaOperacional = Number(resumoCaixaRealProfit.caixaOperacionalDoProfit || 0)
+    const fundoPendente = Number(resumoCaixaRealProfit.fundoPendente || 0)
+    const faltaRegularizarTudo = Number(resumoCaixaRealProfit.faltaRegularizarReal || 0)
+
+    const profitRecebido = Number(resumoCaixaRealProfit.profitRecebido || 0)
+    const despesasPagas = Number(resumoCaixaRealProfit.despesasPagas || 0)
+    const emprestimosPagos = Number(resumoCaixaRealProfit.emprestimosPagos || 0)
+    const retiradasSocios = Number(resumoCaixaRealProfit.retiradasSocios || 0)
+
+    const saidasOperacionais =
+      despesasPagas +
+      emprestimosPagos +
+      retiradasSocios
+
+    const faltaZerarCaixa = Math.max(0, -caixaOperacional)
+    const podeRetirar = caixaOperacional > 0 && fundoPendente <= 0 && faltaRegularizarTudo <= 0
+
+    return {
+      caixaOperacional,
+      fundoPendente,
+      faltaRegularizarTudo,
+      faltaZerarCaixa,
+      podeRetirar,
+      profitRecebido,
+      despesasPagas,
+      emprestimosPagos,
+      retiradasSocios,
+      saidasOperacionais,
+    }
+  }, [resumoCaixaRealProfit])
+
+
   const extratoAnual = useMemo(() => {
     const anoSelecionado = anoFinanceiroPermitido(anoExtrato)
       ? String(anoExtrato)
@@ -3802,12 +3835,88 @@ export default function FinanceiroPage() {
             )}
 
             {abaPrincipal === 'FUNDO' && (
-              <>
-                <button type="button" onClick={() => prepararFundo('FUNDO_CAIXA_ENTRADA')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Entrada</button>
-                <button type="button" onClick={() => prepararFundo('FUNDO_CAIXA_SAIDA')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Saída</button>
-                <button type="button" onClick={() => prepararFundo('AJUSTE_CAIXA')} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-black hover:bg-gray-50">Ajuste</button>
-              </>
-            )}
+        <section className="space-y-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">Caixa Real</p>
+                <h2 className="text-2xl font-black text-gray-950">Resumo simples do caixa</h2>
+                <p className="text-sm font-semibold text-gray-500 mt-1">
+                  Tela de decisão: quanto falta, se pode retirar e o que mais pesa no caixa.
+                </p>
+              </div>
+
+              <Badge
+                texto={caixaDecisao.podeRetirar ? 'RETIRADA LIBERADA' : 'RETIRADA BLOQUEADA'}
+                classe={caixaDecisao.podeRetirar ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}
+              />
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <BigCard
+              titulo="PRECISO GERAR PARA ZERAR O CAIXA"
+              valor={moeda(caixaDecisao.faltaZerarCaixa)}
+              subtitulo="Meta principal: caixa operacional voltar para R$ 0,00"
+              icone="1"
+              classe={caixaDecisao.faltaZerarCaixa > 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'}
+            />
+
+            <BigCard
+              titulo="PRECISO GERAR PARA REGULARIZAR TUDO"
+              valor={moeda(caixaDecisao.faltaRegularizarTudo)}
+              subtitulo="Caixa negativo + fundo pendente"
+              icone="2"
+              classe={caixaDecisao.faltaRegularizarTudo > 0 ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-green-50 border-green-200 text-green-700'}
+            />
+
+            <BigCard
+              titulo="PODE RETIRAR HOJE?"
+              valor={caixaDecisao.podeRetirar ? 'SIM' : 'NÃO'}
+              subtitulo={caixaDecisao.podeRetirar ? 'Caixa regularizado pela regra atual' : 'Todo profit novo deve abater o caixa primeiro'}
+              icone="3"
+              classe={caixaDecisao.podeRetirar ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}
+            />
+          </section>
+
+          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+            <FiltroResumoCard
+              titulo="Caixa operacional"
+              valor={moeda(caixaDecisao.caixaOperacional)}
+              detalhe="Profit - despesas - empréstimos - retiradas"
+              classe={caixaDecisao.caixaOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'}
+            />
+
+            <FiltroResumoCard
+              titulo="Fundo pendente"
+              valor={moeda(caixaDecisao.fundoPendente)}
+              detalhe="Reserva que ainda falta formar"
+              classe={caixaDecisao.fundoPendente > 0 ? 'bg-white text-orange-700 border-orange-100' : 'bg-white text-green-700 border-green-100'}
+            />
+
+            <FiltroResumoCard
+              titulo="Profit recebido"
+              valor={moeda(caixaDecisao.profitRecebido)}
+              detalhe="Entrou da operação HC"
+              classe="bg-white text-green-700 border-green-100"
+            />
+
+            <FiltroResumoCard
+              titulo="Saídas operacionais"
+              valor={moeda(caixaDecisao.saidasOperacionais)}
+              detalhe="Despesas + empréstimos + retiradas"
+              classe="bg-white text-red-700 border-red-100"
+            />
+
+            <FiltroResumoCard
+              titulo="Retiradas dos sócios"
+              valor={moeda(caixaDecisao.retiradasSocios)}
+              detalhe="Abate a parte dos sócios e pesa no caixa"
+              classe={caixaDecisao.retiradasSocios > 0 ? 'bg-white text-red-700 border-red-100' : 'bg-white text-slate-700 border-slate-100'}
+            />
+          </section>
+        </section>
+      )}
           </div>
         </div>
 
