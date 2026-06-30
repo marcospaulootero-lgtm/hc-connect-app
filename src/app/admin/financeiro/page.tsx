@@ -4561,32 +4561,32 @@ export default function FinanceiroPage() {
         <>
           <section className="grid grid-cols-1 lg:grid-cols-4 gap-5 mb-5">
             <BigCard
-              titulo="FUNDO DE CAIXA ATUAL"
+              titulo="FUNDO REAL DISPONÍVEL"
               valor={moeda(resultadoGeral.fundoAtual)}
-              subtitulo={`Saldo acumulado de ${anoFinanceiroAtivo()}`}
+              subtitulo="Entradas - saídas + ajustes do fundo"
               icone=""
               classe="bg-blue-50 border-blue-200 text-blue-700"
             />
             <BigCard
-              titulo="ENTRADAS DO PERÍODO"
+              titulo="ENTRADAS NO FUNDO"
               valor={moeda(resumoFundoFiltro.entradas)}
               subtitulo={textoPeriodoFundo()}
               icone="⬆ï¸"
               classe="bg-green-50 border-green-200 text-green-700"
             />
             <BigCard
-              titulo="SAÍDAS DO PERÍODO"
+              titulo="SAÍDAS DO FUNDO"
               valor={moeda(resumoFundoFiltro.saidas)}
               subtitulo={textoPeriodoFundo()}
               icone="⬇ï¸"
               classe="bg-red-50 border-red-200 text-red-700"
             />
             <BigCard
-              titulo="SALDO DO PERÍODO"
-              valor={moeda(resumoFundoFiltro.saldoPeriodo)}
-              subtitulo="Entradas - saídas + ajustes"
-              icone={resumoFundoFiltro.saldoPeriodo >= 0 ? '✅' : '⚠ï¸'}
-              classe={resumoFundoFiltro.saldoPeriodo >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
+              titulo="AJUSTES DO FUNDO"
+              valor={moeda(resumoFundoFiltro.ajustes)}
+              subtitulo="Ajustes manuais do caixa/fundo"
+              icone={resumoFundoFiltro.ajustes >= 0 ? '✅' : '⚠️'}
+              classe={resumoFundoFiltro.ajustes >= 0 ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-red-50 border-red-200 text-red-700'}
             />
           </section>
 
