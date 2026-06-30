@@ -53,11 +53,40 @@ export default function IntelligenceCRM() {
     carregar()
   }, [])
 
+  async function buscarFinanceiroCompletoCRM() {
+    const tamanhoLote = 1000
+    let inicio = 0
+    let todos: any[] = []
+
+    while (true) {
+      const fim = inicio + tamanhoLote - 1
+
+      const { data, error } = await supabase
+        .from('financeiro_embarques')
+        .select('*')
+        .range(inicio, fim)
+
+      if (error) {
+        console.error('Erro ao carregar financeiro completo no CRM:', error.message)
+        return todos
+      }
+
+      const lote = data || []
+      todos = [...todos, ...lote]
+
+      if (lote.length < tamanhoLote) break
+
+      inicio += tamanhoLote
+    }
+
+    return todos
+  }
+
   async function carregar() {
     setLoading(true)
 
-    const [{ data: fin }, { data: hist }] = await Promise.all([
-      supabase.from('financeiro_embarques').select('*'),
+    const [fin, { data: hist }] = await Promise.all([
+      buscarFinanceiroCompletoCRM(),
       supabase
         .from('intelligence_contatos_clientes')
         .select('*')

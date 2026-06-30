@@ -70,16 +70,35 @@ export default function IntelligencePage() {
     setLoading(true)
     const erros: string[] = []
 
-    async function buscarTabela(tabela: string, silenciosa = false) {
-      const { data, error } = await supabase.from(tabela).select('*')
+    async function buscarTabela(tabela: string, opcional = false) {
+    const tamanhoLote = 1000
+    let inicio = 0
+    let todos: any[] = []
+
+    while (true) {
+      const fim = inicio + tamanhoLote - 1
+
+      const { data, error } = await supabase
+        .from(tabela)
+        .select('*')
+        .range(inicio, fim)
 
       if (error) {
-        if (!silenciosa) erros.push(`${tabela}: ${error.message}`)
+        if (opcional) return []
+        console.error('Erro ao buscar tabela', tabela, error.message)
         return []
       }
 
-      return data || []
+      const lote = data || []
+      todos = [...todos, ...lote]
+
+      if (lote.length < tamanhoLote) break
+
+      inicio += tamanhoLote
     }
+
+    return todos
+  }
 
     const [emb, cot, fat, fin, mov] = await Promise.all([
       buscarTabela('embarques'),
