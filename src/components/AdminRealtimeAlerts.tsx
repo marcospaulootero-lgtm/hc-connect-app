@@ -25,10 +25,10 @@ const TABELAS_REALTIME = [
   'suporte',
   'mensagens_suporte',
   'embarques',
-  'faturas',
   'financeiro_embarques',
-  'faturas_dhl',
-  'faturas_fedex',
+  'financeiro_movimentacoes',
+  'faturas_transportadoras',
+  'logs_rastreio',
 ]
 
 function getMensagemAlerta(table: string, eventType: string) {
@@ -65,18 +65,18 @@ function getMensagemAlerta(table: string, eventType: string) {
       }
     }
 
-    if (table === 'faturas') {
+    if (table === 'financeiro_embarques') {
       return {
-        titulo: 'Nova fatura registrada',
-        descricao: 'Uma nova fatura foi adicionada ao sistema.',
+        titulo: 'Novo registro financeiro',
+        descricao: 'O financeiro recebeu uma nova informação.',
         tocar: false,
       }
     }
 
-    if (table === 'financeiro_embarques') {
+    if (table === 'faturas_transportadoras') {
       return {
-        titulo: 'Novo registro financeiro',
-        descricao: 'O financeiro recebeu uma nova movimentação de embarque.',
+        titulo: 'Nova fatura DHL/FedEx',
+        descricao: 'Uma nova fatura de transportadora foi registrada.',
         tocar: false,
       }
     }
@@ -91,10 +91,21 @@ function getMensagemAlerta(table: string, eventType: string) {
       }
     }
 
-    if (table === 'faturas' || table === 'financeiro_embarques') {
+    if (
+      table === 'financeiro_embarques' ||
+      table === 'financeiro_movimentacoes'
+    ) {
       return {
         titulo: 'Financeiro atualizado',
         descricao: 'Os dados financeiros da dashboard foram atualizados.',
+        tocar: false,
+      }
+    }
+
+    if (table === 'faturas_transportadoras') {
+      return {
+        titulo: 'Fatura atualizada',
+        descricao: 'Uma fatura DHL/FedEx foi atualizada.',
         tocar: false,
       }
     }
@@ -115,6 +126,7 @@ export default function AdminRealtimeAlerts({
   const [conectado, setConectado] = useState(false)
 
   const audioContextRef = useRef<AudioContext | null>(null)
+  const somAtivoRef = useRef(false)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ultimoAlertaRef = useRef<string>('')
 
@@ -125,9 +137,6 @@ export default function AdminRealtimeAlerts({
   ) {
     const chave = `${titulo}-${descricao}`
 
-    /**
-     * Evita alerta duplicado quando várias alterações chegam juntas.
-     */
     if (ultimoAlertaRef.current === chave) return
 
     ultimoAlertaRef.current = chave
@@ -153,13 +162,28 @@ export default function AdminRealtimeAlerts({
     }, 5500)
   }
 
-  function ativarSom() {
-    try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as WebAudioWindow).webkitAudioContext
+  async function obterAudioContext() {
+    const AudioContextClass =
+      window.AudioContext || (window as WebAudioWindow).webkitAudioContext
 
-      if (!AudioContextClass) {
+    if (!AudioContextClass) return null
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextClass()
+    }
+
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume()
+    }
+
+    return audioContextRef.current
+  }
+
+  async function ativarSom() {
+    try {
+      const audioContext = await obterAudioContext()
+
+      if (!audioContext) {
         adicionarAlerta(
           'Som não disponível',
           'Este navegador não liberou o áudio de alerta.',
@@ -168,9 +192,10 @@ export default function AdminRealtimeAlerts({
         return
       }
 
-      const audioContext = new AudioContextClass()
-      audioContextRef.current = audioContext
+      somAtivoRef.current = true
       setSomAtivo(true)
+
+      localStorage.setItem('hc-admin-som-alerta', 'ativo')
 
       adicionarAlerta(
         'Som ativado',
@@ -178,7 +203,7 @@ export default function AdminRealtimeAlerts({
         'success'
       )
 
-      tocarSom(audioContext)
+      await tocarSom(true)
     } catch (error) {
       console.error('Erro ao ativar som:', error)
 
@@ -190,35 +215,35 @@ export default function AdminRealtimeAlerts({
     }
   }
 
-  function tocarSom(contextoManual?: AudioContext | null) {
-    if (!somAtivo && !contextoManual) return
+  async function tocarSom(forcar = false) {
+    if (!somAtivoRef.current && !forcar) return
 
     try {
-      const audioContext = contextoManual || audioContextRef.current
-
+      const audioContext = await obterAudioContext()
       if (!audioContext) return
 
-      const oscillator = audioContext.createOscillator()
-      const gainNode = audioContext.createGain()
+      const tocarBeep = (inicio: number, frequencia: number) => {
+        const oscillator = audioContext.createOscillator()
+        const gainNode = audioContext.createGain()
 
-      oscillator.connect(gainNode)
-      gainNode.connect(audioContext.destination)
+        oscillator.connect(gainNode)
+        gainNode.connect(audioContext.destination)
 
-      oscillator.type = 'sine'
-      oscillator.frequency.setValueAtTime(880, audioContext.currentTime)
+        oscillator.type = 'sine'
+        oscillator.frequency.setValueAtTime(frequencia, inicio)
 
-      gainNode.gain.setValueAtTime(0.001, audioContext.currentTime)
-      gainNode.gain.exponentialRampToValueAtTime(
-        0.18,
-        audioContext.currentTime + 0.03
-      )
-      gainNode.gain.exponentialRampToValueAtTime(
-        0.001,
-        audioContext.currentTime + 0.28
-      )
+        gainNode.gain.setValueAtTime(0.001, inicio)
+        gainNode.gain.exponentialRampToValueAtTime(0.35, inicio + 0.03)
+        gainNode.gain.exponentialRampToValueAtTime(0.001, inicio + 0.22)
 
-      oscillator.start(audioContext.currentTime)
-      oscillator.stop(audioContext.currentTime + 0.3)
+        oscillator.start(inicio)
+        oscillator.stop(inicio + 0.24)
+      }
+
+      const agora = audioContext.currentTime
+
+      tocarBeep(agora, 880)
+      tocarBeep(agora + 0.28, 1175)
     } catch (error) {
       console.error('Erro ao tocar alerta:', error)
     }
@@ -247,6 +272,15 @@ export default function AdminRealtimeAlerts({
   }
 
   useEffect(() => {
+    const somSalvo = localStorage.getItem('hc-admin-som-alerta')
+
+    if (somSalvo === 'ativo') {
+      somAtivoRef.current = true
+      setSomAtivo(true)
+    }
+  }, [])
+
+  useEffect(() => {
     const channel = supabase.channel('admin-dashboard-realtime')
 
     TABELAS_REALTIME.forEach((table) => {
@@ -257,21 +291,19 @@ export default function AdminRealtimeAlerts({
           schema: 'public',
           table,
         },
-        (payload) => {
+        async (payload) => {
           const eventType = payload.eventType
           const mensagem = getMensagemAlerta(table, eventType)
 
           atualizarDashboardComDebounce()
 
-          /**
-           * Mostra alerta para eventos importantes.
-           * Eventos simples também atualizam a dashboard, mas sem ficar poluindo a tela.
-           */
           if (
             eventType === 'INSERT' ||
             table === 'embarques' ||
-            table === 'faturas' ||
-            table === 'financeiro_embarques'
+            table === 'financeiro_embarques' ||
+            table === 'financeiro_movimentacoes' ||
+            table === 'faturas_transportadoras' ||
+            table === 'logs_rastreio'
           ) {
             adicionarAlerta(
               mensagem.titulo,
@@ -281,7 +313,7 @@ export default function AdminRealtimeAlerts({
           }
 
           if (mensagem.tocar) {
-            tocarSom()
+            await tocarSom()
           }
         }
       )
@@ -298,7 +330,7 @@ export default function AdminRealtimeAlerts({
 
       supabase.removeChannel(channel)
     }
-  }, [onRefresh, somAtivo])
+  }, [onRefresh])
 
   return (
     <>
@@ -307,7 +339,7 @@ export default function AdminRealtimeAlerts({
           <div
             key={alerta.id}
             className={[
-              'animate-in slide-in-from-right-5 rounded-2xl border bg-white p-4 shadow-2xl duration-300',
+              'rounded-2xl border bg-white p-4 shadow-2xl',
               alerta.tipo === 'success'
                 ? 'border-emerald-200'
                 : alerta.tipo === 'warning'
@@ -359,7 +391,7 @@ export default function AdminRealtimeAlerts({
           className={[
             'ml-2 rounded-xl px-3 py-1.5 text-xs font-bold transition',
             somAtivo
-              ? 'bg-emerald-50 text-emerald-700'
+              ? 'bg-blue-600 text-white hover:bg-blue-500'
               : 'bg-slate-900 text-white hover:bg-slate-700',
           ].join(' ')}
         >
