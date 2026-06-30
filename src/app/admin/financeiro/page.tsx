@@ -84,7 +84,7 @@ const movimentacaoVazia: MovimentacaoFormState = {
 
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
-const ANO_BASE_FINANCEIRO = 2025
+const ANO_BASE_FINANCEIRO = 2022
 const ANO_ATUAL_FINANCEIRO = new Date().getFullYear()
 const ANOS_FINANCEIRO_PERMITIDOS = Array.from(
   new Set([ANO_ATUAL_FINANCEIRO, ANO_BASE_FINANCEIRO])
