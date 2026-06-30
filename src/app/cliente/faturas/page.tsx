@@ -366,7 +366,15 @@ export default function FaturasClientePage() {
               {faturasFiltradas.map((fatura) => {
                 const embarque = dadosEmbarque(fatura)
                 const jaEnviado = !!fatura.comprovante_pagamento
-                const statusPagamento = fatura.status_pagamento || 'AGUARDANDO PAGAMENTO'
+                const pagamentoConfirmado = Boolean(
+      fatura.recibo_pdf ||
+      fatura.data_pagamento ||
+      Number(fatura.valor_pago || 0) > 0
+    )
+
+    const statusPagamento = pagamentoConfirmado
+      ? 'PAGAMENTO CONFIRMADO'
+      : fatura.status_pagamento || 'AGUARDANDO PAGAMENTO'
                 const arquivada = !!fatura.arquivada_cliente
 
                 return (
@@ -574,6 +582,14 @@ function StatusDocumento({ temRecibo }: { temRecibo: boolean }) {
 }
 
 function StatusPagamento({ status }: { status: string }) {
+  if (status === 'PAGAMENTO CONFIRMADO') {
+    return (
+      <span className="bg-green-600/20 text-green-300 border border-green-500 px-3 py-1 rounded-full text-xs font-black">
+        ✅ Pagamento confirmado
+      </span>
+    )
+  }
+
   if (status === 'PAGO') {
     return (
       <span className="bg-green-600/20 text-green-300 border border-green-500 px-3 py-1 rounded-full text-xs font-black">
