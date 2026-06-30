@@ -978,6 +978,141 @@ export default function IntelligencePage() {
     }
   }, [dadosPeriodo])
 
+
+  async function gerarRelatorioPdfIntelligence() {
+    try {
+      const { default: jsPDF } = await import('jspdf')
+
+      const doc = new jsPDF('p', 'mm', 'a4')
+      const margem = 14
+      let y = 16
+
+      function quebra(espaco = 10) {
+        if (y + espaco > 280) {
+          doc.addPage()
+          y = 16
+        }
+      }
+
+      function titulo(t: string) {
+        quebra(14)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(15)
+        doc.setTextColor(20, 40, 80)
+        doc.text(t, margem, y)
+        y += 9
+      }
+
+      function linha(label: string, valor: any) {
+        quebra(10)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.setTextColor(50, 50, 50)
+        doc.text(label + ':', margem, y)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(70, 70, 70)
+        const linhas = doc.splitTextToSize(String(valor ?? '-'), 130)
+        doc.text(linhas, margem + 45, y)
+        y += Math.max(7, linhas.length * 5)
+      }
+
+      function paragrafo(t: string) {
+        quebra(12)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9)
+        doc.setTextColor(70, 70, 70)
+        const linhas = doc.splitTextToSize(String(t || '-'), 180)
+        doc.text(linhas, margem, y)
+        y += linhas.length * 5 + 2
+      }
+
+      doc.setFillColor(7, 18, 37)
+      doc.rect(0, 0, 210, 36, 'F')
+
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(20)
+      doc.text('Relatório Intelligence', margem, 15)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.text('HC Connect - análise comercial e financeira', margem, 24)
+      doc.text('Período: ' + periodoLabel(), margem, 31)
+
+      y = 48
+
+      titulo('1. Resumo executivo')
+      linha('Ações urgentes', inteligencia.totalPendencias)
+      linha('Cobranças vencidas', moeda(inteligencia.totalVencido))
+      linha('A receber em 7 dias', moeda(inteligencia.receber7Dias))
+      linha('Pagos sem custo', inteligencia.pagosSemCusto.length)
+      linha('Clientes para recuperar', resumoCarteira.recuperar)
+      linha('Clientes para aumentar ticket', resumoCarteira.reajustar)
+      linha('Ticket médio', moeda(resumoCarteira.ticketMedio))
+
+      titulo('2. Leitura geral')
+      paragrafo('Este relatório cruza histórico financeiro, recência de embarques, margem, ticket médio, pendências de custo, cobranças e oportunidades comerciais. A prioridade é corrigir dados financeiros antes de tomar decisões comerciais, recuperar clientes parados e aumentar ticket em clientes saudáveis.')
+
+      titulo('3. Ações urgentes')
+      if (problemasFinanceiros.length === 0) {
+        paragrafo('Nenhuma pendência crítica encontrada.')
+      } else {
+        problemasFinanceiros.slice(0, 12).forEach((item, index) => {
+          linha(
+            String(index + 1) + '. ' + item.tipo,
+            item.descricao + ' | Valor: ' + (item.valor > 0 ? moeda(item.valor) : '-')
+          )
+        })
+      }
+
+      titulo('4. Clientes para recuperar')
+      if (clientesParaRecuperar.length === 0) {
+        paragrafo('Nenhum cliente parado há mais de 45 dias no histórico financeiro.')
+      } else {
+        clientesParaRecuperar.slice(0, 15).forEach((item, index) => {
+          linha(
+            String(index + 1) + '. ' + item.nome,
+            'Último processo: ' + dataBR(item.ultimoProcesso) +
+              ' | Parado: ' + item.diasSemEmbarque + ' dias' +
+              ' | Profit: ' + moeda(item.profit)
+          )
+        })
+      }
+
+      titulo('5. Clientes para aumentar ticket')
+      if (clientesParaAumentarTicket.length === 0) {
+        paragrafo('Nenhum cliente pronto para aumento de ticket sem risco financeiro.')
+      } else {
+        clientesParaAumentarTicket.slice(0, 12).forEach((item, index) => {
+          linha(
+            String(index + 1) + '. ' + item.nome,
+            'Ticket: ' + moeda(item.ticketMedio) +
+              ' | Margem: ' + percentual(item.margem) +
+              ' | Ação: ' + item.acaoTicket
+          )
+        })
+      }
+
+      titulo('6. Funil operacional')
+      linha('Cotações criadas', funil.cotacoesCriadas)
+      linha('Cotações aprovadas', funil.cotacoesAprovadas + ' | Conversão: ' + percentual(funil.conversaoCotacao))
+      linha('Embarques criados', funil.embarquesCriados)
+      linha('Processos no financeiro', funil.processosFinanceiros)
+      linha('Processos pagos', funil.processosPagos + ' | Conversão: ' + percentual(funil.conversaoFinanceiro))
+
+      titulo('7. Recomendações finais')
+      paragrafo('1. Corrigir processos pagos sem custo e processos sem valor de cobrança.')
+      paragrafo('2. Priorizar recuperação de clientes parados há mais de 90 dias.')
+      paragrafo('3. Aplicar reajuste ou taxa mínima apenas em clientes sem cobrança vencida e sem custo pendente.')
+      paragrafo('4. Oferecer serviço adicional, pacote mensal, relatório ou gestão documental para clientes saudáveis.')
+
+      doc.save('relatorio-intelligence-hc-connect.pdf')
+    } catch (error: any) {
+      alert('Erro ao gerar PDF: ' + (error?.message || error))
+    }
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-[#020817] p-8 text-white">
@@ -1027,6 +1162,14 @@ export default function IntelligencePage() {
               className="border border-blue-900 bg-[#020817] px-5 py-3 rounded-xl font-bold hover:bg-blue-950"
             >
               ↻ Atualizar
+            </button>
+
+            <button
+              type="button"
+              onClick={gerarRelatorioPdfIntelligence}
+              className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold"
+            >
+              Gerar PDF
             </button>
 
             <Link
