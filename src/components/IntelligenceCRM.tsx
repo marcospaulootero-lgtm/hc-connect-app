@@ -239,29 +239,29 @@ export default function IntelligenceCRM() {
   }
 
   function dataProcesso(item: any) {
-    // Regra HC:
-    // Para financeiro antigo importado do Excel, usar somente data financeira real.
-    // Não usar created_at/criado_em do financeiro como recência comercial.
-    const datas = [
-      normalizarData(item.recebimento),
-      normalizarData(item.recebimento_cliente),
-      normalizarData(item.data_recebimento),
-      normalizarData(item.data_pagamento),
+  // Regra HC:
+  // Para Processos Faturados importados do Excel, a recência comercial deve vir das datas financeiras.
+  // Nunca usar created_at/criado_em do financeiro, porque isso é data de importação no portal.
+  const datas = [
+    normalizarData(item.recebimento),
+    normalizarData(item.recebimento_cliente),
+    normalizarData(item.data_recebimento),
+    normalizarData(item.data_pagamento),
 
-      normalizarData(item.vencimento_cobranca),
-      normalizarData(item.vencimento_cliente),
-      normalizarData(item.venc_cliente),
-      normalizarData(item.vencimento),
-      normalizarData(item.data_vencimento),
+    normalizarData(item.vencimento_cobranca),
+    normalizarData(item.vencimento_cliente),
+    normalizarData(item.venc_cliente),
+    normalizarData(item.vencimento),
+    normalizarData(item.data_vencimento),
 
-      ultimoDiaDoMes(item.mes_profit),
-      ultimoDiaDoMes(item.mes),
-    ].filter(Boolean)
+    ultimoDiaDoMes(item.mes_profit),
+    ultimoDiaDoMes(item.mes),
+  ].filter(Boolean)
 
-    if (datas.length === 0) return ''
+  if (datas.length === 0) return ''
 
-    return datas.sort().reverse()[0]
-  }
+  return datas.sort().reverse()[0]
+}
 
   function dataPortalEmbarque(item: any) {
     // Embarques criados no portal representam operação real recente.
@@ -285,12 +285,14 @@ export default function IntelligenceCRM() {
 
 
   function maiorData(a: any, b: any) {
-    const dataA = normalizarData(a)
-    const dataB = normalizarData(b)
-    if (!dataA) return dataB
-    if (!dataB) return dataA
-    return dataA > dataB ? dataA : dataB
-  }
+  const dataA = normalizarData(a)
+  const dataB = normalizarData(b)
+
+  if (!dataA) return dataB || ''
+  if (!dataB) return dataA || ''
+
+  return dataB > dataA ? dataB : dataA
+}
 
   function ultimoContato(nome: string) {
     const chave = chaveCliente(nome)

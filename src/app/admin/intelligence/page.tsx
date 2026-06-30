@@ -240,14 +240,14 @@ export default function IntelligencePage() {
   }
 
   function maiorData(a: any, b: any) {
-    const dataA = normalizarData(a)
-    const dataB = normalizarData(b)
+  const dataA = normalizarData(a)
+  const dataB = normalizarData(b)
 
-    if (!dataA) return dataB
-    if (!dataB) return dataA
+  if (!dataA) return dataB || ''
+  if (!dataB) return dataA || ''
 
-    return dataA > dataB ? dataA : dataB
-  }
+  return dataB > dataA ? dataB : dataA
+}
 
   function mesFinanceiro(item: any) {
     // Para alertas financeiros, a fonte correta é a data financeira real.
@@ -392,8 +392,8 @@ export default function IntelligencePage() {
 
   function dataProcessoCarteira(item: any) {
     // Regra HC:
-    // Para financeiro antigo importado do Excel, usar somente data financeira real.
-    // Não usar created_at/criado_em do financeiro como recência comercial.
+    // Para Processos Faturados importados do Excel, a recência comercial deve vir das datas financeiras.
+    // Nunca usar created_at/criado_em do financeiro, porque isso é data de importação no portal.
     const datas = [
       normalizarData(item.recebimento),
       normalizarData(item.recebimento_cliente),
