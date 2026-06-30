@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import AdminRealtimeAlerts from '@/components/AdminRealtimeAlerts'
+import AdminUsuariosOnline from '@/components/AdminUsuariosOnline'
 
 type PeriodoGrafico = '7D' | '30D' | 'MES_ATUAL' | 'MES_ANTERIOR'
 
@@ -1192,6 +1193,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-[#020817] text-white">
+      <AdminUsuariosOnline />
       <section className="p-5 xl:p-8 overflow-auto">
         <header className="mb-8 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-6">
           <div>
