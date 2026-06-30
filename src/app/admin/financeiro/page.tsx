@@ -1507,6 +1507,477 @@ export default function FinanceiroPage() {
   }
 
 
+
+
+  function gerarPDFFechamentoMensal() {
+    if (!mesResultado) {
+      alert('Selecione o mês do resultado antes de gerar o PDF do fechamento.')
+      return
+    }
+
+    function textoPdf(valor: any) {
+      return String(valor ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+    }
+
+    function numeroPdf(valor: any) {
+      if (valor === null || valor === undefined || valor === '') return 0
+      if (typeof valor === 'number') return valor
+
+      const limpo = String(valor)
+        .replace(/[R$USD\s]/gi, '')
+        .replace(/\./g, '')
+        .replace(',', '.')
+
+      return Number(limpo) || 0
+    }
+
+    function mesDiretoPdf(valor: any) {
+      const bruto = String(valor || '').trim()
+      if (!bruto) return ''
+
+      if (/^\d{4}-\d{2}/.test(bruto)) return bruto.slice(0, 7)
+
+      if (/^\d{4}\/\d{2}/.test(bruto)) {
+        return bruto.replace('/', '-').slice(0, 7)
+      }
+
+      if (/^\d{1,2}\/\d{4}$/.test(bruto)) {
+        const [mes, ano] = bruto.split('/')
+        return ano + '-' + mes.padStart(2, '0')
+      }
+
+      if (/^\d{1,2}-\d{4}$/.test(bruto)) {
+        const [mes, ano] = bruto.split('-')
+        return ano + '-' + mes.padStart(2, '0')
+      }
+
+      return ''
+    }
+
+    function mesDaDataPdf(valor: any) {
+      const bruto = String(valor || '').trim()
+      if (!bruto) return ''
+
+      if (/^\d{4}-\d{2}/.test(bruto)) return bruto.slice(0, 7)
+
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(bruto)) {
+        const [dia, mes, ano] = bruto.split('/')
+        return ano + '-' + mes.padStart(2, '0')
+      }
+
+      return ''
+    }
+
+    function dataPdf(valor: any) {
+      const bruto = String(valor || '').trim()
+      if (!bruto) return '-'
+
+      if (/^\d{4}-\d{2}-\d{2}/.test(bruto)) {
+        const [ano, mes, dia] = bruto.slice(0, 10).split('-')
+        return dia + '/' + mes + '/' + ano
+      }
+
+      return bruto
+    }
+
+    function mesProcessoPdf(item: any) {
+      return (
+        mesDiretoPdf(item.mes_profit) ||
+        mesDaDataPdf(item.recebimento) ||
+        mesDaDataPdf(item.recebimento_cliente) ||
+        mesDaDataPdf(item.data_recebimento) ||
+        mesDaDataPdf(item.data_pagamento) ||
+        mesDiretoPdf(item.mes) ||
+        mesDaDataPdf(item.vencimento_cobranca) ||
+        mesDaDataPdf(item.vencimento_cliente) ||
+        ''
+      )
+    }
+
+    function mesMovimentoPdf(item: any) {
+      return (
+        mesDiretoPdf(item.mes_referencia) ||
+        mesDaDataPdf(item.data_pagamento) ||
+        mesDaDataPdf(item.data_vencimento) ||
+        ''
+      )
+    }
+
+    function statusPagoPdf(item: any) {
+      const status = String(item.status || '').toUpperCase()
+      return status.includes('PAGO') || Boolean(item.data_pagamento)
+    }
+
+    function valorCobrancaPdf(item: any) {
+      return numeroPdf(item.valor_cobranca || item.valor_faturado || item.valor_venda || item.valor)
+    }
+
+    function valorCompraPdf(item: any) {
+      return numeroPdf(item.valor_compra || item.custo_compra || item.custo)
+    }
+
+    function docDtaPdf(item: any) {
+      return numeroPdf(item.doc_dta || item.dta_doc || item.impostos || item.taxas)
+    }
+
+    function debitoTerceiroPdf(item: any) {
+      return numeroPdf(item.debito_terceiro || item.terceiros || item.profit_terceiros || item.valor_terceiros)
+    }
+
+    function profitPdf(item: any) {
+      const salvo = numeroPdf(item.profit_hc || item.profit)
+      if (salvo !== 0) return salvo
+      return valorCobrancaPdf(item) - docDtaPdf(item) - debitoTerceiroPdf(item) - valorCompraPdf(item)
+    }
+
+    function tipoMovimentoLabel(tipo: any) {
+      const mapa: Record<string, string> = {
+        DESPESA: 'Despesa',
+        PAGAMENTO_EMPRESTIMO: 'Pagamento empréstimo',
+        RETIRADA_SOCIO: 'Retirada sócio',
+        PAGAMENTO_SOCIO: 'Pagamento sócio',
+        REEMBOLSO_SOCIO: 'Reembolso sócio',
+        APORTE_SOCIO: 'Aporte sócio',
+        FUNDO_CAIXA_ENTRADA: 'Entrada fundo',
+        FUNDO_CAIXA_SAIDA: 'Saída fundo',
+        AJUSTE_CAIXA: 'Ajuste caixa',
+      }
+
+      return mapa[String(tipo || '')] || String(tipo || '-')
+    }
+
+    function linhaResumo(label: string, valor: any) {
+      return `
+        <tr>
+          <td>${textoPdf(label)}</td>
+          <td class="valor">${textoPdf(valor)}</td>
+        </tr>
+      `
+    }
+
+    function tabela(headers: string[], rows: string[][], vazio: string) {
+      if (rows.length === 0) {
+        return `<p class="vazio">${textoPdf(vazio)}</p>`
+      }
+
+      return `
+        <table>
+          <thead>
+            <tr>
+              ${headers.map((h) => `<th>${textoPdf(h)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map(
+                (row) => `
+                  <tr>
+                    ${row.map((cell) => `<td>${textoPdf(cell)}</td>`).join('')}
+                  </tr>
+                `
+              )
+              .join('')}
+          </tbody>
+        </table>
+      `
+    }
+
+    const processosMes = lancamentos
+      .filter((item) => mesProcessoPdf(item) === mesResultado)
+      .sort((a, b) => String(a.cliente || '').localeCompare(String(b.cliente || '')))
+
+    const movimentosMes = movimentacoes
+      .filter((item) => mesMovimentoPdf(item) === mesResultado && statusPagoPdf(item))
+      .sort((a, b) => String(a.data_pagamento || a.data_vencimento || '').localeCompare(String(b.data_pagamento || b.data_vencimento || '')))
+
+    const saidasMes = movimentosMes.filter((item) =>
+      ['DESPESA', 'PAGAMENTO_EMPRESTIMO', 'RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'FUNDO_CAIXA_SAIDA'].includes(item.tipo)
+    )
+
+    const entradasMes = movimentosMes.filter((item) =>
+      ['APORTE_SOCIO', 'FUNDO_CAIXA_ENTRADA', 'AJUSTE_CAIXA'].includes(item.tipo)
+    )
+
+    const saldoFundoPrevisto = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
+    const caixaDisponivelParaReserva = Number(Math.max(0, resultadoGeral.saldoCaixaRealMes || 0).toFixed(2))
+    const valorReservaReal = Number(Math.min(saldoFundoPrevisto, caixaDisponivelParaReserva).toFixed(2))
+    const saldoPendenteFundo = Number(Math.max(0, saldoFundoPrevisto - valorReservaReal).toFixed(2))
+
+    const totalProcessos = processosMes.reduce((acc, item) => acc + valorCobrancaPdf(item), 0)
+    const totalDocDta = processosMes.reduce((acc, item) => acc + docDtaPdf(item), 0)
+    const totalTerceiros = processosMes.reduce((acc, item) => acc + debitoTerceiroPdf(item), 0)
+    const totalCompra = processosMes.reduce((acc, item) => acc + valorCompraPdf(item), 0)
+    const totalProfit = processosMes.reduce((acc, item) => acc + profitPdf(item), 0)
+
+    const totalSaidas = saidasMes.reduce((acc, item) => acc + numeroPdf(item.valor), 0)
+    const totalEntradasExtras = entradasMes.reduce((acc, item) => acc + numeroPdf(item.valor), 0)
+
+    const linhasProcessos = processosMes.map((item) => [
+      String(item.cliente || item.nome_cliente || item.razao_social || '-'),
+      String(item.awb || item.numero_awb || '-'),
+      String(item.transportadora || '-'),
+      String(item.servico || item.tipo_servico || '-'),
+      moeda(valorCobrancaPdf(item)),
+      moeda(docDtaPdf(item)),
+      moeda(debitoTerceiroPdf(item)),
+      moeda(valorCompraPdf(item)),
+      moeda(profitPdf(item)),
+      dataPdf(item.recebimento || item.data_pagamento || item.vencimento_cobranca),
+    ])
+
+    const linhasSaidas = saidasMes.map((item) => [
+      dataPdf(item.data_pagamento || item.data_vencimento),
+      tipoMovimentoLabel(item.tipo),
+      String(item.categoria || '-'),
+      String(item.descricao || '-'),
+      String(item.socio || '-'),
+      moeda(numeroPdf(item.valor)),
+      String(item.forma_pagamento || '-'),
+    ])
+
+    const linhasEntradas = entradasMes.map((item) => [
+      dataPdf(item.data_pagamento || item.data_vencimento),
+      tipoMovimentoLabel(item.tipo),
+      String(item.categoria || '-'),
+      String(item.descricao || '-'),
+      String(item.socio || '-'),
+      moeda(numeroPdf(item.valor)),
+      String(item.forma_pagamento || '-'),
+    ])
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Fechamento HC - ${textoPdf(mesResultado)}</title>
+          <style>
+            @page { size: A4 landscape; margin: 12mm; }
+            body {
+              font-family: Arial, sans-serif;
+              color: #111827;
+              font-size: 11px;
+              line-height: 1.35;
+            }
+            h1, h2, h3 { margin: 0; }
+            h1 { font-size: 22px; }
+            h2 {
+              font-size: 15px;
+              margin-top: 18px;
+              margin-bottom: 8px;
+              border-bottom: 2px solid #1d4ed8;
+              padding-bottom: 5px;
+              color: #1e3a8a;
+            }
+            .topo {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              border-bottom: 3px solid #1d4ed8;
+              padding-bottom: 12px;
+              margin-bottom: 12px;
+            }
+            .empresa {
+              font-size: 12px;
+              color: #475569;
+              margin-top: 4px;
+            }
+            .data {
+              text-align: right;
+              font-size: 11px;
+              color: #475569;
+            }
+            .cards {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 8px;
+              margin: 12px 0;
+            }
+            .card {
+              border: 1px solid #dbeafe;
+              background: #eff6ff;
+              border-radius: 8px;
+              padding: 8px;
+            }
+            .card strong {
+              display: block;
+              color: #1e3a8a;
+              font-size: 10px;
+              text-transform: uppercase;
+            }
+            .card span {
+              display: block;
+              margin-top: 4px;
+              font-size: 15px;
+              font-weight: 800;
+            }
+            .negativo { color: #b91c1c; }
+            .positivo { color: #047857; }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 6px;
+              page-break-inside: auto;
+            }
+            th {
+              background: #1e3a8a;
+              color: white;
+              text-align: left;
+              padding: 6px;
+              font-size: 9px;
+            }
+            td {
+              border: 1px solid #e5e7eb;
+              padding: 5px;
+              vertical-align: top;
+              font-size: 9px;
+            }
+            tbody tr:nth-child(even) { background: #f8fafc; }
+            .valor { text-align: right; font-weight: 700; }
+            .resumo td:first-child { font-weight: 700; color: #374151; }
+            .resumo td:last-child { text-align: right; font-weight: 800; }
+            .vazio {
+              border: 1px dashed #cbd5e1;
+              padding: 10px;
+              border-radius: 8px;
+              color: #64748b;
+            }
+            .alerta {
+              background: #fff7ed;
+              border: 1px solid #fed7aa;
+              color: #9a3412;
+              padding: 10px;
+              border-radius: 8px;
+              margin-top: 10px;
+              font-weight: 700;
+            }
+            .assinatura {
+              margin-top: 24px;
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 20px;
+            }
+            .linha-assinatura {
+              border-top: 1px solid #111827;
+              padding-top: 6px;
+              text-align: center;
+              color: #374151;
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="topo">
+            <div>
+              <h1>Fechamento mensal HC Consultoria</h1>
+              <p class="empresa">Couto e Otero Intermediação LTDA</p>
+              <p class="empresa">Mês de referência: <strong>${textoPdf(mesResultado)}</strong></p>
+            </div>
+            <div class="data">
+              Gerado em: ${new Date().toLocaleString('pt-BR')}<br/>
+              Relatório financeiro interno
+            </div>
+          </div>
+
+          <div class="cards">
+            <div class="card"><strong>Valor recebido</strong><span>${moeda(resultadoGeral.valorRecebido)}</span></div>
+            <div class="card"><strong>Profit HC recebido</strong><span>${moeda(resultadoGeral.profitRecebido)}</span></div>
+            <div class="card"><strong>Lucro líquido</strong><span class="${resultadoGeral.resultadoOperacional >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.resultadoOperacional)}</span></div>
+            <div class="card"><strong>Caixa após retiradas</strong><span class="${resultadoGeral.saldoCaixaRealMes >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.saldoCaixaRealMes)}</span></div>
+          </div>
+
+          <h2>1. Resumo do fechamento</h2>
+          <table class="resumo">
+            <tbody>
+              ${linhaResumo('Valor recebido de clientes', moeda(resultadoGeral.valorRecebido))}
+              ${linhaResumo('Profit HC recebido', moeda(resultadoGeral.profitRecebido))}
+              ${linhaResumo('Despesas pagas', moeda(resultadoGeral.despesasPagas))}
+              ${linhaResumo('Empréstimos pagos', moeda(resultadoGeral.emprestimosPagos))}
+              ${linhaResumo('Lucro líquido para distribuição', moeda(resultadoGeral.resultadoOperacional))}
+              ${linhaResumo('Retiradas Marcos', moeda(resultadoGeral.retiradasMarcos))}
+              ${linhaResumo('Retiradas Hérica', moeda(resultadoGeral.retiradasHerica))}
+              ${linhaResumo('Total retirado pelos sócios', moeda(resultadoGeral.retiradasTotal))}
+              ${linhaResumo('Caixa após retiradas', moeda(resultadoGeral.saldoCaixaRealMes))}
+              ${linhaResumo('Fundo previsto 50%', moeda(resultadoGeral.fundoPrevistoMes))}
+              ${linhaResumo('Já reservado no fundo', moeda(resultadoGeral.reservasFundoMes))}
+              ${linhaResumo('Fundo real possível agora', moeda(valorReservaReal))}
+              ${linhaResumo('Fundo pendente para reservar futuramente', moeda(saldoPendenteFundo))}
+              ${linhaResumo('Parte Marcos 25%', moeda(resultadoGeral.parteMarcos))}
+              ${linhaResumo('Saldo Marcos', moeda(resultadoGeral.saldoMarcos))}
+              ${linhaResumo('Parte Hérica 25%', moeda(resultadoGeral.parteHerica))}
+              ${linhaResumo('Saldo Hérica', moeda(resultadoGeral.saldoHerica))}
+            </tbody>
+          </table>
+
+          ${resultadoGeral.saldoCaixaRealMes <= 0 && saldoPendenteFundo > 0
+            ? `<div class="alerta">Atenção: este mês teve lucro para cálculo de distribuição, mas o caixa após retiradas ficou negativo ou zerado. Por isso, o fundo real não deve ser aumentado agora. O valor de ${moeda(saldoPendenteFundo)} fica como saldo a reservar futuramente.</div>`
+            : ''
+          }
+
+          <h2>2. Processos recebidos no mês</h2>
+          <p><strong>Total processos:</strong> ${processosMes.length} | <strong>Total cobrado:</strong> ${moeda(totalProcessos)} | <strong>DOC/DTA/Impostos:</strong> ${moeda(totalDocDta)} | <strong>Terceiros:</strong> ${moeda(totalTerceiros)} | <strong>Valor compra:</strong> ${moeda(totalCompra)} | <strong>Profit:</strong> ${moeda(totalProfit)}</p>
+          ${tabela(
+            ['Cliente', 'AWB', 'Transp.', 'Serviço', 'Valor cobrado', 'DOC/DTA', 'Terceiros', 'Compra', 'Profit HC', 'Recebimento'],
+            linhasProcessos,
+            'Nenhum processo recebido encontrado para este mês.'
+          )}
+
+          <h2>3. Saídas do mês</h2>
+          <p><strong>Total de saídas:</strong> ${moeda(totalSaidas)}</p>
+          ${tabela(
+            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Forma'],
+            linhasSaidas,
+            'Nenhuma saída paga encontrada para este mês.'
+          )}
+
+          <h2>4. Entradas extras, aportes e fundo</h2>
+          <p><strong>Total de entradas extras:</strong> ${moeda(totalEntradasExtras)}</p>
+          ${tabela(
+            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Forma'],
+            linhasEntradas,
+            'Nenhuma entrada extra encontrada para este mês.'
+          )}
+
+          <h2>5. Conclusão</h2>
+          <table class="resumo">
+            <tbody>
+              ${linhaResumo('Resultado operacional do mês', moeda(resultadoGeral.resultadoOperacional))}
+              ${linhaResumo('Caixa real após retiradas', moeda(resultadoGeral.saldoCaixaRealMes))}
+              ${linhaResumo('Valor recomendado para fundo real agora', moeda(valorReservaReal))}
+              ${linhaResumo('Valor pendente para reservar depois', moeda(saldoPendenteFundo))}
+            </tbody>
+          </table>
+
+          <div class="assinatura">
+            <div class="linha-assinatura">Marcos Paulo Otero<br/>Diretor Financeiro</div>
+            <div class="linha-assinatura">Hérica Couto<br/>Diretora Operacional</div>
+          </div>
+        </body>
+      </html>
+    `
+
+    const janela = window.open('', '_blank')
+
+    if (!janela) {
+      alert('O navegador bloqueou a janela do PDF. Libere pop-ups para o portal e tente novamente.')
+      return
+    }
+
+    janela.document.open()
+    janela.document.write(html)
+    janela.document.close()
+
+    setTimeout(() => {
+      janela.focus()
+      janela.print()
+    }, 500)
+  }
+
   async function gerarFechamentoMensal() {
     if (!mesResultado) {
       alert('Selecione o mês do resultado antes de gerar o fechamento.')
