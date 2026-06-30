@@ -392,8 +392,8 @@ export default function IntelligencePage() {
 
   function dataProcessoCarteira(item: any) {
     // Regra HC:
-    // Processos antigos vieram do Excel e não existem necessariamente na aba Embarques.
-    // Por isso, a recência comercial usa somente datas financeiras dos Processos Faturados.
+    // Para financeiro antigo importado do Excel, usar somente data financeira real.
+    // Não usar created_at/criado_em do financeiro como recência comercial.
     const datas = [
       normalizarData(item.recebimento),
       normalizarData(item.recebimento_cliente),
@@ -414,6 +414,27 @@ export default function IntelligencePage() {
 
     return datas.sort().reverse()[0]
   }
+
+  function dataPortalEmbarque(item: any) {
+    // Embarques criados no portal representam operação real recente.
+    // Aqui created_at pode contar, porque é criação do embarque no portal, não importação antiga do Excel.
+    const datas = [
+      normalizarData(item.data_entrega),
+      normalizarData(item.data_envio),
+      normalizarData(item.data_embarque),
+      normalizarData(item.data_coleta),
+      normalizarData(item.data_prevista),
+      normalizarData(item.ultima_atualizacao),
+      normalizarData(item.atualizado_em),
+      normalizarData(item.created_at),
+      normalizarData(item.criado_em),
+    ].filter(Boolean)
+
+    if (datas.length === 0) return ''
+
+    return datas.sort().reverse()[0]
+  }
+
 
   function awbProcesso(item: any) {
     return texto(item.awb || item.numero_awb || '-')
@@ -629,16 +650,19 @@ export default function IntelligencePage() {
 
   const carteiraClientes = useMemo(() => {
     const mapa: Record<string, any> = {}
+    const clientePorAwb: Record<string, string> = {}
 
-    // A carteira comercial SEMPRE usa o histórico completo de Processos Faturados.
-    // O filtro de mês/ano do topo serve para alertas financeiros, não para recuperar cliente parado.
-    dadosPeriodo.fin.forEach((item) => {
+    // A carteira comercial usa o histórico financeiro completo e atualiza a recência com embarques reais do portal.
+    // Financeiro antigo veio do Excel; created_at financeiro não representa embarque.
+    financeiroEmbarques.forEach((item) => {
       const nome = clienteProcesso(item)
       if (!nome || nome === 'Não informado') return
 
       const status = statusCobranca(item)
       const dataBase = dataProcessoCarteira(item)
       const servico = servicoProcesso(item)
+      const awbFinanceiro = String(item.awb || item.numero_awb || '').replace(/\D/g, '')
+      if (awbFinanceiro) clientePorAwb[awbFinanceiro] = nome
 
       if (!mapa[nome]) {
         mapa[nome] = {
@@ -678,6 +702,29 @@ export default function IntelligencePage() {
       if (status === 'ATRASADO') {
         mapa[nome].atrasados += 1
         mapa[nome].vencido += valorCobrancaProcesso(item)
+      }
+    })
+
+    embarques.forEach((item) => {
+      const awbPortal = String(item.awb || item.numero_awb || '').replace(/\D/g, '')
+      const nomePortal = clienteProcesso(item)
+
+      const chavePorAwb = awbPortal ? clientePorAwb[awbPortal] : ''
+      const chavePorNome = Object.keys(mapa).find(
+        (nomeCarteira) => normalizarBusca(nomeCarteira) === normalizarBusca(nomePortal)
+      )
+
+      const chaveCliente = chavePorAwb || chavePorNome
+      if (!chaveCliente || !mapa[chaveCliente]) return
+
+      const dataPortal = dataPortalEmbarque(item)
+      if (dataPortal) {
+        mapa[chaveCliente].ultimoProcesso = maiorData(mapa[chaveCliente].ultimoProcesso, dataPortal)
+      }
+
+      const servicoPortal = servicoProcesso(item)
+      if (servicoPortal && servicoPortal !== 'Não informado') {
+        mapa[chaveCliente].servicos[servicoPortal] = (mapa[chaveCliente].servicos[servicoPortal] || 0) + 1
       }
     })
 
@@ -793,7 +840,7 @@ export default function IntelligencePage() {
       })
       .sort((a: ClienteCarteira, b: ClienteCarteira) => b.prioridade - a.prioridade || b.profit - a.profit || b.processos - a.processos)
       .slice(0, 120)
-  }, [dadosPeriodo])
+  }, [financeiroEmbarques, embarques])
 
   const clientesParaAumentarTicket = useMemo(() => {
     return carteiraClientes

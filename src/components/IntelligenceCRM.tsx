@@ -240,8 +240,8 @@ export default function IntelligenceCRM() {
 
   function dataProcesso(item: any) {
     // Regra HC:
-    // Processos antigos vieram do Excel e não existem necessariamente na aba Embarques.
-    // Por isso, a recência comercial usa somente datas financeiras dos Processos Faturados.
+    // Para financeiro antigo importado do Excel, usar somente data financeira real.
+    // Não usar created_at/criado_em do financeiro como recência comercial.
     const datas = [
       normalizarData(item.recebimento),
       normalizarData(item.recebimento_cliente),
@@ -262,6 +262,27 @@ export default function IntelligenceCRM() {
 
     return datas.sort().reverse()[0]
   }
+
+  function dataPortalEmbarque(item: any) {
+    // Embarques criados no portal representam operação real recente.
+    // Aqui created_at pode contar, porque é criação do embarque no portal, não importação antiga do Excel.
+    const datas = [
+      normalizarData(item.data_entrega),
+      normalizarData(item.data_envio),
+      normalizarData(item.data_embarque),
+      normalizarData(item.data_coleta),
+      normalizarData(item.data_prevista),
+      normalizarData(item.ultima_atualizacao),
+      normalizarData(item.atualizado_em),
+      normalizarData(item.created_at),
+      normalizarData(item.criado_em),
+    ].filter(Boolean)
+
+    if (datas.length === 0) return ''
+
+    return datas.sort().reverse()[0]
+  }
+
 
   function maiorData(a: any, b: any) {
     const dataA = normalizarData(a)
