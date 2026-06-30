@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import OnlinePresence from '@/components/OnlinePresence'
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
@@ -132,6 +133,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="min-h-screen pt-24 xl:pt-8 px-4 sm:px-6 xl:px-8 xl:ml-72">
+        <OnlinePresence area="admin" />
         {children}
       </main>
     </div>
