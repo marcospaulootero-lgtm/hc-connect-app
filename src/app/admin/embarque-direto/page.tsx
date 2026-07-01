@@ -143,6 +143,7 @@ export default function AdminEmbarqueDiretoPage() {
     ) {
       const { arquivado_admin_por, ...payloadSemPor } = payload
       dadosAtualizacao = payloadSemPor
+
       const tentativa = await executarUpdate(payloadSemPor)
       error = tentativa.error
     }
@@ -153,7 +154,7 @@ export default function AdminEmbarqueDiretoPage() {
 
     const { data: atualizado, error: erroBusca } = await supabase
       .from('embarque_direto')
-      .select('id, status, embarque_id, arquivado_admin, arquivado_admin_em, arquivado_admin_por')
+      .select('id, status, embarque_id, arquivado_admin, arquivado_admin_em, arquivado_admin_por, usuario_id, solicitante_email')
       .eq('id', id)
       .maybeSingle()
 
@@ -278,32 +279,75 @@ export default function AdminEmbarqueDiretoPage() {
     return numero
   }
 
-  async function vincularEmbarqueAoClienteDaSolicitacao(embarqueId: string, item: any) {
-    if (!embarqueId || !item?.usuario_id) return
+async function buscarClienteDaSolicitacao(item: any) {
+    if (item?.usuario_id) {
+      return {
+        id: item.usuario_id,
+        empresa_id: item.empresa_id || null,
+      }
+    }
 
-    const { error: erroVinculo } = await supabase
+    const email = String(item?.solicitante_email || '').trim()
+
+    if (!email) return null
+
+    const { data, error } = await supabase
+      .from('perfis')
+      .select('id, nome, email, empresa_id')
+      .ilike('email', email)
+      .limit(1)
+
+    if (error) {
+      console.warn('Não foi possível buscar cliente pelo e-mail da solicitação:', error)
+      return null
+    }
+
+    return data?.[0] || null
+  }
+
+  async function vincularEmbarqueAoClienteDaSolicitacao(embarqueId: string, item: any) {
+    if (!embarqueId) return null
+
+    const cliente = await buscarClienteDaSolicitacao(item)
+
+    if (!cliente?.id) {
+      console.warn('Solicitação sem usuario_id e sem perfil encontrado pelo e-mail. O status será atualizado, mas o vínculo do cliente não foi alterado.')
+      return null
+    }
+
+    const { data: vinculoExistente, error: erroBuscaVinculo } = await supabase
       .from('embarque_clientes')
-      .upsert(
-        [
+      .select('id')
+      .eq('embarque_id', embarqueId)
+      .eq('cliente_id', cliente.id)
+      .limit(1)
+
+    if (erroBuscaVinculo) {
+      throw new Error('Erro ao verificar vínculo do cliente: ' + erroBuscaVinculo.message)
+    }
+
+    if (!vinculoExistente || vinculoExistente.length === 0) {
+      const { error: erroVinculo } = await supabase
+        .from('embarque_clientes')
+        .insert([
           {
             embarque_id: embarqueId,
-            cliente_id: item.usuario_id,
+            cliente_id: cliente.id,
           },
-        ],
-        { onConflict: 'embarque_id,cliente_id' }
-      )
+        ])
 
-    if (erroVinculo) {
-      throw new Error('Embarque criado/vinculado, mas houve erro ao liberar para o cliente: ' + erroVinculo.message)
+      if (erroVinculo) {
+        throw new Error('Erro ao liberar embarque para o cliente: ' + erroVinculo.message)
+      }
     }
 
     const payloadEmbarque: any = {
-      usuario_id: item.usuario_id,
+      usuario_id: cliente.id,
       ultima_atualizacao: new Date().toISOString(),
     }
 
-    if (item.empresa_id) {
-      payloadEmbarque.empresa_id = item.empresa_id
+    if (cliente.empresa_id || item?.empresa_id) {
+      payloadEmbarque.empresa_id = cliente.empresa_id || item.empresa_id
     }
 
     const { error: erroEmbarque } = await supabase
@@ -314,6 +358,8 @@ export default function AdminEmbarqueDiretoPage() {
     if (erroEmbarque) {
       throw new Error('Vínculo criado, mas houve erro ao atualizar o embarque para o cliente: ' + erroEmbarque.message)
     }
+
+    return cliente
   }
 
   async function converterEmEmbarque(item: any, arquivarDepois = false) {
@@ -522,29 +568,51 @@ export default function AdminEmbarqueDiretoPage() {
   }
 
   async function vincularAEmbarqueExistente(item: any, arquivarDepois = false) {
+    let embarque: any = null
+
     if (item.embarque_id) {
-      alert('Esta solicitação já está vinculada a um embarque.')
-      return
+      const { data, error } = await supabase
+        .from('embarques')
+        .select('id, awb, referencia_hc, cliente_final, transportadora')
+        .eq('id', item.embarque_id)
+        .maybeSingle()
+
+      if (error) {
+        alert('Erro ao buscar embarque já vinculado: ' + error.message)
+        return
+      }
+
+      embarque = data
     }
 
-    const termo = prompt(
-      'Informe o AWB, referência HC ou ID do embarque já criado para vincular a esta solicitação:'
-    )
+    if (!embarque) {
+      const termo = prompt(
+        'Informe o AWB, referência HC ou ID do embarque já criado para vincular a esta solicitação:'
+      )
 
-    if (!termo) return
+      if (!termo) return
 
-    setVinculandoExistente(item.id)
+      setVinculandoExistente(item.id)
+
+      try {
+        embarque = await buscarEmbarqueExistentePorTermo(termo)
+      } catch (error: any) {
+        setVinculandoExistente(null)
+        alert('Erro ao buscar embarque existente: ' + (error?.message || 'erro desconhecido'))
+        return
+      }
+    } else {
+      setVinculandoExistente(item.id)
+    }
 
     try {
-      const embarque = await buscarEmbarqueExistentePorTermo(termo)
-
       if (!embarque) {
         alert('Não encontrei nenhum embarque com esse AWB, referência HC ou ID.')
         return
       }
 
       const confirmar = confirm(
-        'Vincular esta solicitação ao embarque existente?\n\n' +
+        'Vincular esta solicitação ao embarque existente e marcar como CONVERTIDO EM EMBARQUE?\n\n' +
           'AWB: ' + (embarque.awb || '-') + '\n' +
           'Referência HC: ' + (embarque.referencia_hc || '-') + '\n' +
           'Cliente: ' + (embarque.cliente_final || '-') +
@@ -572,10 +640,21 @@ export default function AdminEmbarqueDiretoPage() {
 
       await atualizarEmbarqueDiretoSeguro(item.id, payload)
 
+      setSolicitacoes((atual) =>
+        atual.map((solicitacao) =>
+          String(solicitacao.id) === String(item.id)
+            ? {
+                ...solicitacao,
+                ...payload,
+              }
+            : solicitacao
+        )
+      )
+
       alert(
         arquivarDepois
-          ? 'Solicitação vinculada ao embarque existente e arquivada com sucesso.'
-          : 'Solicitação vinculada ao embarque existente com sucesso.'
+          ? 'Solicitação vinculada ao embarque existente, convertida e arquivada com sucesso.'
+          : 'Solicitação vinculada ao embarque existente e convertida com sucesso.'
       )
 
       await carregar()
@@ -588,14 +667,9 @@ export default function AdminEmbarqueDiretoPage() {
   }
 
   async function marcarComoConvertida(item: any) {
-    if (item.embarque_id) {
-      alert('Esta solicitação já está vinculada a um embarque.')
-      return
-    }
-
     const confirmar = confirm(
-      'Marcar esta solicitação como CONVERTIDA sem criar novo embarque?\n\n' +
-        'Use isso apenas se o embarque já foi criado e você não quer duplicar.'
+      'Marcar esta solicitação como CONVERTIDO EM EMBARQUE?\n\n' +
+        'Use isso apenas quando o embarque já existe e você só precisa corrigir o status da solicitação.'
     )
 
     if (!confirmar) return
@@ -603,9 +677,26 @@ export default function AdminEmbarqueDiretoPage() {
     setVinculandoExistente(item.id)
 
     try {
-      await atualizarEmbarqueDiretoSeguro(item.id, {
+      const payload: any = {
         status: 'CONVERTIDO EM EMBARQUE',
-      })
+      }
+
+      if (item.embarque_id) {
+        payload.embarque_id = item.embarque_id
+      }
+
+      await atualizarEmbarqueDiretoSeguro(item.id, payload)
+
+      setSolicitacoes((atual) =>
+        atual.map((solicitacao) =>
+          String(solicitacao.id) === String(item.id)
+            ? {
+                ...solicitacao,
+                ...payload,
+              }
+            : solicitacao
+        )
+      )
 
       alert('Solicitação marcada como convertida com sucesso.')
       await carregar()
