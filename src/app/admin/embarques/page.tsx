@@ -698,42 +698,82 @@ export default function EmbarquesPage() {
   }
 
   async function vincularClientes(embarqueId: string) {
-    if (usuariosVinculo.length === 0) {
-      alert('Selecione pelo menos um cliente')
-      return
+    const clientesSelecionados = Array.from(new Set(usuariosVinculo))
+
+    const confirmar = confirm(
+      clientesSelecionados.length > 0
+        ? `Salvar vínculos deste embarque com ${clientesSelecionados.length} cliente(s)?`
+        : 'Remover todos os vínculos de cliente deste embarque?'
+    )
+
+    if (!confirmar) return
+
+    try {
+      const vinculosAtuais = vinculos
+        .filter((v) => String(v.embarque_id) === String(embarqueId))
+        .map((v) => String(v.cliente_id))
+
+      const clientesParaAdicionar = clientesSelecionados.filter(
+        (clienteId) => !vinculosAtuais.includes(String(clienteId))
+      )
+
+      const clientesParaRemover = vinculosAtuais.filter(
+        (clienteId) => !clientesSelecionados.map(String).includes(String(clienteId))
+      )
+
+      if (clientesParaAdicionar.length > 0) {
+        const registros = clientesParaAdicionar.map((clienteId) => ({
+          embarque_id: embarqueId,
+          cliente_id: clienteId,
+        }))
+
+        const { error: erroAdicionar } = await supabase
+          .from('embarque_clientes')
+          .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
+
+        if (erroAdicionar) {
+          throw new Error('Erro ao adicionar vínculo: ' + erroAdicionar.message)
+        }
+      }
+
+      if (clientesParaRemover.length > 0) {
+        const { error: erroRemover } = await supabase
+          .from('embarque_clientes')
+          .delete()
+          .eq('embarque_id', embarqueId)
+          .in('cliente_id', clientesParaRemover)
+
+        if (erroRemover) {
+          throw new Error('Erro ao remover vínculo: ' + erroRemover.message)
+        }
+      }
+
+      const primeiroClienteId = clientesSelecionados[0] || null
+      const primeiroCliente = usuarios.find((u) => u.id === primeiroClienteId)
+
+      const { error: erroEmbarque } = await supabase
+        .from('embarques')
+        .update({
+          usuario_id: primeiroClienteId,
+          empresa_id: primeiroCliente?.empresa_id || null,
+          ultima_atualizacao: new Date().toISOString(),
+        })
+        .eq('id', embarqueId)
+
+      if (erroEmbarque) {
+        throw new Error('Vínculos salvos, mas houve erro ao atualizar o cliente principal do embarque: ' + erroEmbarque.message)
+      }
+
+      alert('Vínculos atualizados com sucesso.')
+
+      setUsuariosVinculo([])
+      setVinculandoId(null)
+
+      await carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert('Erro ao salvar vínculos: ' + (error?.message || 'erro desconhecido'))
     }
-
-    const registros = usuariosVinculo.map((clienteId) => ({
-      embarque_id: embarqueId,
-      cliente_id: clienteId,
-    }))
-
-    const primeiroCliente = usuarios.find((u) => u.id === usuariosVinculo[0])
-
-    const { error: erroVinculos } = await supabase
-      .from('embarque_clientes')
-      .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
-
-    if (erroVinculos) {
-      alert(erroVinculos.message)
-      console.error('Erro Supabase:', erroVinculos)
-      return
-    }
-
-    await supabase
-      .from('embarques')
-      .update({
-        usuario_id: usuariosVinculo[0],
-        empresa_id: primeiroCliente?.empresa_id || null,
-        ultima_atualizacao: new Date().toISOString(),
-      })
-      .eq('id', embarqueId)
-
-    alert('Cliente(s) vinculado(s) ao embarque')
-
-    setVinculandoId(null)
-    setUsuariosVinculo([])
-    carregar()
   }
 
 
