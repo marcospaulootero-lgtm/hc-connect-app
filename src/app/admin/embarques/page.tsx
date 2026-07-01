@@ -64,6 +64,8 @@ export default function EmbarquesPage() {
 
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
   const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
+  const [clienteVinculoLote, setClienteVinculoLote] = useState('')
+  const [vinculandoLote, setVinculandoLote] = useState(false)
 
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<any>(null)
@@ -333,6 +335,7 @@ export default function EmbarquesPage() {
     setEmbarques(embarquesData || [])
     setVinculos(vinculosData || [])
     setEmbarquesSelecionados([])
+    setClienteVinculoLote('')
   }
 
   async function carregarUsuarios() {
@@ -789,6 +792,75 @@ export default function EmbarquesPage() {
     }
 
     setEmbarquesSelecionados(embarquesFiltrados.map((item) => item.id))
+  }
+
+  async function vincularSelecionadosAoCliente() {
+    if (vinculandoLote) return
+
+    if (embarquesSelecionados.length === 0) {
+      alert('Selecione pelo menos um embarque para vincular.')
+      return
+    }
+
+    if (!clienteVinculoLote) {
+      alert('Selecione o cliente/login que receberá os embarques.')
+      return
+    }
+
+    const cliente = usuarios.find((u) => u.id === clienteVinculoLote)
+
+    if (!cliente) {
+      alert('Cliente não encontrado. Atualize a página e tente novamente.')
+      return
+    }
+
+    const confirmar = confirm(
+      `Vincular ${embarquesSelecionados.length} embarque(s) ao cliente ${cliente.nome || cliente.email}?`
+    )
+
+    if (!confirmar) return
+
+    setVinculandoLote(true)
+
+    try {
+      const registros = embarquesSelecionados.map((embarqueId) => ({
+        embarque_id: embarqueId,
+        cliente_id: clienteVinculoLote,
+      }))
+
+      const { error: erroVinculos } = await supabase
+        .from('embarque_clientes')
+        .upsert(registros, { onConflict: 'embarque_id,cliente_id' })
+
+      if (erroVinculos) {
+        console.error('Erro ao vincular embarques em lote:', erroVinculos)
+        alert(erroVinculos.message)
+        return
+      }
+
+      const { error: erroEmbarques } = await supabase
+        .from('embarques')
+        .update({
+          usuario_id: clienteVinculoLote,
+          empresa_id: cliente.empresa_id || null,
+          ultima_atualizacao: new Date().toISOString(),
+        })
+        .in('id', embarquesSelecionados)
+
+      if (erroEmbarques) {
+        console.error('Erro ao atualizar usuário principal dos embarques:', erroEmbarques)
+        alert(erroEmbarques.message)
+        return
+      }
+
+      alert(`${embarquesSelecionados.length} embarque(s) vinculado(s) ao cliente com sucesso.`)
+
+      setEmbarquesSelecionados([])
+      setClienteVinculoLote('')
+      carregar()
+    } finally {
+      setVinculandoLote(false)
+    }
   }
 
   async function arquivarSelecionados(arquivar: boolean) {
@@ -1269,6 +1341,7 @@ export default function EmbarquesPage() {
               setFiltroTransportadora('')
               setFiltroArquivamento('ATIVOS')
               setEmbarquesSelecionados([])
+              setClienteVinculoLote('')
             }}
             className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
           >
@@ -1328,6 +1401,29 @@ export default function EmbarquesPage() {
               {embarquesSelecionados.length} selecionado(s)
             </span>
 
+            <select
+              value={clienteVinculoLote}
+              onChange={(e) => setClienteVinculoLote(e.target.value)}
+              disabled={embarquesSelecionados.length === 0 || vinculandoLote}
+              className="min-w-[260px] rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+            >
+              <option value="">Escolher cliente/login</option>
+              {usuarios.map((usuario) => (
+                <option key={usuario.id} value={usuario.id}>
+                  {usuario.nome || usuario.email}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={vincularSelecionadosAoCliente}
+              disabled={embarquesSelecionados.length === 0 || !clienteVinculoLote || vinculandoLote}
+              className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 px-4 py-3 rounded-xl font-bold text-sm"
+            >
+              {vinculandoLote ? 'Vinculando...' : 'Vincular selecionados'}
+            </button>
+
             <button
               type="button"
               onClick={() => arquivarSelecionados(true)}
@@ -1349,7 +1445,10 @@ export default function EmbarquesPage() {
             {embarquesSelecionados.length > 0 && (
               <button
                 type="button"
-                onClick={() => setEmbarquesSelecionados([])}
+                onClick={() => {
+                  setEmbarquesSelecionados([])
+                  setClienteVinculoLote('')
+                }}
                 className="bg-blue-700 hover:bg-blue-600 px-4 py-3 rounded-xl font-bold text-sm"
               >
                 Limpar seleção
