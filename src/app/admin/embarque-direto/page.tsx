@@ -13,6 +13,7 @@ export default function AdminEmbarqueDiretoPage() {
   const [convertendo, setConvertendo] = useState<string | number | null>(null)
   const [removendo, setRemovendo] = useState<string | number | null>(null)
   const [restaurando, setRestaurando] = useState<string | number | null>(null)
+  const [vinculandoExistente, setVinculandoExistente] = useState<string | number | null>(null)
 
   useEffect(() => {
     carregar()
@@ -123,16 +124,15 @@ export default function AdminEmbarqueDiretoPage() {
   }
 
   async function atualizarEmbarqueDiretoSeguro(id: string | number, payload: any) {
-    const executar = async (dados: any) => {
+    const executarUpdate = async (dados: any) => {
       return await supabase
         .from('embarque_direto')
         .update(dados)
         .eq('id', id)
-        .select('id, status, embarque_id, arquivado_admin, arquivado_admin_em, arquivado_admin_por')
-        .single()
     }
 
-    let { data, error } = await executar(payload)
+    let dadosAtualizacao = payload
+    let { error } = await executarUpdate(dadosAtualizacao)
 
     if (
       error &&
@@ -142,8 +142,8 @@ export default function AdminEmbarqueDiretoPage() {
       )
     ) {
       const { arquivado_admin_por, ...payloadSemPor } = payload
-      const tentativa = await executar(payloadSemPor)
-      data = tentativa.data
+      dadosAtualizacao = payloadSemPor
+      const tentativa = await executarUpdate(payloadSemPor)
       error = tentativa.error
     }
 
@@ -151,7 +151,24 @@ export default function AdminEmbarqueDiretoPage() {
       throw new Error(error.message)
     }
 
-    return data
+    const { data: atualizado, error: erroBusca } = await supabase
+      .from('embarque_direto')
+      .select('id, status, embarque_id, arquivado_admin, arquivado_admin_em, arquivado_admin_por')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (erroBusca) {
+      console.warn('Atualizou, mas não conseguiu confirmar a solicitação:', erroBusca)
+      return {
+        id,
+        ...dadosAtualizacao,
+      }
+    }
+
+    return atualizado || {
+      id,
+      ...dadosAtualizacao,
+    }
   }
 
   async function removerDaLista(item: any) {
@@ -410,6 +427,154 @@ export default function AdminEmbarqueDiretoPage() {
     }
   }
 
+  async function buscarEmbarqueExistentePorTermo(termoBusca: string) {
+    const termo = String(termoBusca || '').trim()
+
+    if (!termo) return null
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+    if (uuidRegex.test(termo)) {
+      const { data, error } = await supabase
+        .from('embarques')
+        .select('id, awb, referencia_hc, cliente_final, transportadora')
+        .eq('id', termo)
+        .maybeSingle()
+
+      if (error) throw new Error(error.message)
+      if (data) return data
+    }
+
+    const { data: porAwb, error: erroAwb } = await supabase
+      .from('embarques')
+      .select('id, awb, referencia_hc, cliente_final, transportadora')
+      .eq('awb', termo)
+      .limit(2)
+
+    if (erroAwb) throw new Error(erroAwb.message)
+
+    if ((porAwb || []).length === 1) return porAwb[0]
+
+    const { data: porReferencia, error: erroReferencia } = await supabase
+      .from('embarques')
+      .select('id, awb, referencia_hc, cliente_final, transportadora')
+      .ilike('referencia_hc', '%' + termo + '%')
+      .limit(5)
+
+    if (erroReferencia) throw new Error(erroReferencia.message)
+
+    if ((porReferencia || []).length === 1) return porReferencia[0]
+
+    const encontrados = [...(porAwb || []), ...(porReferencia || [])]
+
+    if (encontrados.length > 1) {
+      alert(
+        'Encontrei mais de um embarque possível. Use o ID exato ou o AWB exato.\n\n' +
+          encontrados
+            .slice(0, 5)
+            .map((e) => 'AWB: ' + (e.awb || '-') + ' | Ref HC: ' + (e.referencia_hc || '-') + ' | Cliente: ' + (e.cliente_final || '-'))
+            .join('\n')
+      )
+      return null
+    }
+
+    return null
+  }
+
+  async function vincularAEmbarqueExistente(item: any, arquivarDepois = false) {
+    if (item.embarque_id) {
+      alert('Esta solicitação já está vinculada a um embarque.')
+      return
+    }
+
+    const termo = prompt(
+      'Informe o AWB, referência HC ou ID do embarque já criado para vincular a esta solicitação:'
+    )
+
+    if (!termo) return
+
+    setVinculandoExistente(item.id)
+
+    try {
+      const embarque = await buscarEmbarqueExistentePorTermo(termo)
+
+      if (!embarque) {
+        alert('Não encontrei nenhum embarque com esse AWB, referência HC ou ID.')
+        return
+      }
+
+      const confirmar = confirm(
+        'Vincular esta solicitação ao embarque existente?\n\n' +
+          'AWB: ' + (embarque.awb || '-') + '\n' +
+          'Referência HC: ' + (embarque.referencia_hc || '-') + '\n' +
+          'Cliente: ' + (embarque.cliente_final || '-') +
+          (arquivarDepois ? '\n\nDepois de vincular, a solicitação será arquivada.' : '')
+      )
+
+      if (!confirmar) return
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const payload: any = {
+        status: 'CONVERTIDO EM EMBARQUE',
+        embarque_id: embarque.id,
+      }
+
+      if (arquivarDepois) {
+        payload.arquivado_admin = true
+        payload.arquivado_admin_em = new Date().toISOString()
+        payload.arquivado_admin_por = user?.id || null
+      }
+
+      await atualizarEmbarqueDiretoSeguro(item.id, payload)
+
+      alert(
+        arquivarDepois
+          ? 'Solicitação vinculada ao embarque existente e arquivada com sucesso.'
+          : 'Solicitação vinculada ao embarque existente com sucesso.'
+      )
+
+      await carregar()
+    } catch (error: any) {
+      console.log(error)
+      alert('Erro ao vincular embarque existente: ' + (error?.message || 'erro desconhecido'))
+    } finally {
+      setVinculandoExistente(null)
+    }
+  }
+
+  async function marcarComoConvertida(item: any) {
+    if (item.embarque_id) {
+      alert('Esta solicitação já está vinculada a um embarque.')
+      return
+    }
+
+    const confirmar = confirm(
+      'Marcar esta solicitação como CONVERTIDA sem criar novo embarque?\n\n' +
+        'Use isso apenas se o embarque já foi criado e você não quer duplicar.'
+    )
+
+    if (!confirmar) return
+
+    setVinculandoExistente(item.id)
+
+    try {
+      await atualizarEmbarqueDiretoSeguro(item.id, {
+        status: 'CONVERTIDO EM EMBARQUE',
+      })
+
+      alert('Solicitação marcada como convertida com sucesso.')
+      await carregar()
+    } catch (error: any) {
+      console.log(error)
+      alert('Erro ao marcar como convertida: ' + (error?.message || 'erro desconhecido'))
+    } finally {
+      setVinculandoExistente(null)
+    }
+  }
+
   function aplicarFiltroArquivadas() {
     setArquivamentoFiltro('ARQUIVADAS')
     setStatusFiltro('TODOS')
@@ -600,6 +765,30 @@ export default function AdminEmbarqueDiretoPage() {
                             className="bg-emerald-700 hover:bg-emerald-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
                           >
                             {convertendo === item.id ? 'Convertendo...' : 'Converter e arquivar'}
+                          </button>
+
+                          <button
+                            onClick={() => vincularAEmbarqueExistente(item, false)}
+                            disabled={vinculandoExistente === item.id || convertendo === item.id}
+                            className="bg-purple-700 hover:bg-purple-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                          >
+                            {vinculandoExistente === item.id ? 'Vinculando...' : 'Vincular a embarque existente'}
+                          </button>
+
+                          <button
+                            onClick={() => vincularAEmbarqueExistente(item, true)}
+                            disabled={vinculandoExistente === item.id || convertendo === item.id}
+                            className="bg-purple-900 hover:bg-purple-800 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                          >
+                            {vinculandoExistente === item.id ? 'Vinculando...' : 'Vincular e arquivar'}
+                          </button>
+
+                          <button
+                            onClick={() => marcarComoConvertida(item)}
+                            disabled={vinculandoExistente === item.id || convertendo === item.id}
+                            className="bg-yellow-600 hover:bg-yellow-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                          >
+                            Marcar como convertida
                           </button>
 
                           <button
