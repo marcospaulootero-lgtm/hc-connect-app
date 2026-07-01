@@ -278,6 +278,44 @@ export default function AdminEmbarqueDiretoPage() {
     return numero
   }
 
+  async function vincularEmbarqueAoClienteDaSolicitacao(embarqueId: string, item: any) {
+    if (!embarqueId || !item?.usuario_id) return
+
+    const { error: erroVinculo } = await supabase
+      .from('embarque_clientes')
+      .upsert(
+        [
+          {
+            embarque_id: embarqueId,
+            cliente_id: item.usuario_id,
+          },
+        ],
+        { onConflict: 'embarque_id,cliente_id' }
+      )
+
+    if (erroVinculo) {
+      throw new Error('Embarque criado/vinculado, mas houve erro ao liberar para o cliente: ' + erroVinculo.message)
+    }
+
+    const payloadEmbarque: any = {
+      usuario_id: item.usuario_id,
+      ultima_atualizacao: new Date().toISOString(),
+    }
+
+    if (item.empresa_id) {
+      payloadEmbarque.empresa_id = item.empresa_id
+    }
+
+    const { error: erroEmbarque } = await supabase
+      .from('embarques')
+      .update(payloadEmbarque)
+      .eq('id', embarqueId)
+
+    if (erroEmbarque) {
+      throw new Error('Vínculo criado, mas houve erro ao atualizar o embarque para o cliente: ' + erroEmbarque.message)
+    }
+  }
+
   async function converterEmEmbarque(item: any, arquivarDepois = false) {
     if (item.embarque_id) {
       alert(
@@ -372,6 +410,8 @@ export default function AdminEmbarqueDiretoPage() {
 
         throw new Error(error.message)
       }
+
+      await vincularEmbarqueAoClienteDaSolicitacao(novoEmbarque.id, item)
 
       const docs = docsDaSolicitacao(item.id)
 
@@ -512,6 +552,8 @@ export default function AdminEmbarqueDiretoPage() {
       )
 
       if (!confirmar) return
+
+      await vincularEmbarqueAoClienteDaSolicitacao(embarque.id, item)
 
       const {
         data: { user },
