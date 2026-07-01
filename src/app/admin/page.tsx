@@ -16,6 +16,7 @@ export default function DashboardPage() {
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
+  const [embarquesDiretos, setEmbarquesDiretos] = useState<any[]>([])
   const [suporte, setSuporte] = useState<any[]>([])
   const [financeiro, setFinanceiro] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
@@ -96,6 +97,7 @@ export default function DashboardPage() {
       perfisRes,
       embarquesCarregados,
       cotacoesCarregadas,
+      embarquesDiretosCarregados,
       suporteCarregado,
       financeiroCarregado,
       movimentacoesCarregadas,
@@ -105,6 +107,7 @@ export default function DashboardPage() {
       supabase.from('perfis').select('*').order('nome'),
       carregarTodos('embarques', 'criado_em', false),
       carregarTodos('cotacoes', 'criado_em', false),
+      carregarTodos('embarque_direto', 'criado_em', false),
       carregarTodos('suporte', 'criado_em', false),
       carregarTodos('financeiro_embarques', 'vencimento_cobranca', true),
       carregarTodos('financeiro_movimentacoes', 'data_vencimento', false),
@@ -123,6 +126,7 @@ export default function DashboardPage() {
     setUsuarios(perfisRes.data || [])
     setEmbarques(embarquesCarregados || [])
     setCotacoes(cotacoesCarregadas || [])
+    setEmbarquesDiretos(embarquesDiretosCarregados || [])
     setSuporte(suporteCarregado || [])
     setFinanceiro(financeiroCarregado || [])
     setMovimentacoes(movimentacoesCarregadas || [])
@@ -796,6 +800,48 @@ export default function DashboardPage() {
     ).length
   }, [cotacoes])
 
+  const embarquesDiretosPendentes = useMemo(() => {
+    return embarquesDiretos.filter((item) => {
+      const status = normalizarBusca(
+        item.status ||
+          item.status_solicitacao ||
+          item.status_operacional ||
+          item.situacao ||
+          ''
+      )
+
+      const flagArquivado = normalizarBusca(
+        item.arquivado || item.arquivada || item.oculto || item.oculta || ''
+      )
+
+      const arquivado =
+        item.arquivado === true ||
+        item.arquivada === true ||
+        item.oculto === true ||
+        item.oculta === true ||
+        ['SIM', 'TRUE', '1', 'ARQUIVADO', 'ARQUIVADA'].includes(flagArquivado) ||
+        status.includes('ARQUIVAD')
+
+      const convertido =
+        status.includes('CONVERTID') ||
+        status.includes('EMBARQUE CRIADO') ||
+        status.includes('VIROU EMBARQUE') ||
+        Boolean(
+          item.embarque_id ||
+            item.id_embarque ||
+            item.embarque_convertido_id ||
+            item.convertido_em_embarque_id
+        )
+
+      const recusado =
+        status.includes('RECUSAD') ||
+        status.includes('CANCELAD') ||
+        status.includes('EXCLUID')
+
+      return !arquivado && !convertido && !recusado
+    })
+  }, [embarquesDiretos])
+
   const clientesAtivos = usuarios.filter((u) => u.ativo !== false).length
 
   const pesoTotal = embarques.reduce(
@@ -807,6 +853,21 @@ export default function DashboardPage() {
 
   const alertasCriticos = useMemo(() => {
     const alertas: any[] = []
+
+    if (embarquesDiretosPendentes.length > 0) {
+      alertas.push({
+        titulo: 'Embarque direto pendente',
+        valor: embarquesDiretosPendentes.length,
+        detalhe:
+          embarquesDiretosPendentes.length === 1
+            ? 'Aguardando converter em embarque ou arquivar'
+            : 'Solicitações aguardando converter em embarque ou arquivar',
+        icone: '🚚',
+        cor: 'blue',
+        href: '/admin/embarque-direto',
+        acao: 'Ver solicitação',
+      })
+    }
 
     if (faturasResumo.vencidas.length > 0) {
       alertas.push({
@@ -1004,6 +1065,7 @@ export default function DashboardPage() {
     ultimoRastreio,
     suporteResumo.abertos,
     cotacoesPendentes,
+    embarquesDiretosPendentes,
   ])
 
   const ritmoOperacao = useMemo(() => {
