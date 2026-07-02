@@ -842,7 +842,7 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     // 1465762911 INVOICE 26600027 23/06/2026 ...
     // O número do INVOICE NÃO é AWB. O AWB real é o primeiro número de 10 dígitos antes de INVOICE.
     const regexInvoiceAwb =
-      /\\b(\\d{10})\\s+(INVOICE\\s+\\d+)\\s+(\\d{1,2}\\/\\d{1,2}\\/\\d{4})\\b/gi
+      /\b(\d{10})\s+(INVOICE\s+\d+)\s+(\d{1,2}\/\d{1,2}\/\d{4})\b/gi
 
     const linhasAwb = Array.from(textoBase.matchAll(regexInvoiceAwb))
       .map((match) => ({
@@ -862,7 +862,7 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
       const bloco = textoBase.slice(atual.index, fimBloco)
 
       const totalBrl =
-        numeroBR(bloco.match(/Total\\s*\\(\\s*BRL\\s*\\)\\s*:?\\s*([0-9.]+,\\d{2})/i)?.[1]) ||
+        numeroBR(bloco.match(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i)?.[1]) ||
         0
 
       const valorCompra =
