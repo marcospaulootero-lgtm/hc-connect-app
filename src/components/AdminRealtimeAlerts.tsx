@@ -373,31 +373,6 @@ export default function AdminRealtimeAlerts({
         ))}
       </div>
 
-      <div className="fixed bottom-5 right-5 z-[9998] flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-xl">
-        <span
-          className={[
-            'h-2.5 w-2.5 rounded-full',
-            conectado ? 'bg-emerald-500' : 'bg-slate-300',
-          ].join(' ')}
-        />
-
-        <span className="text-xs font-medium text-slate-600">
-          {conectado ? 'Tempo real ativo' : 'Conectando tempo real'}
-        </span>
-
-        <button
-          type="button"
-          onClick={ativarSom}
-          className={[
-            'ml-2 rounded-xl px-3 py-1.5 text-xs font-bold transition',
-            somAtivo
-              ? 'bg-blue-600 text-white hover:bg-blue-500'
-              : 'bg-slate-900 text-white hover:bg-slate-700',
-          ].join(' ')}
-        >
-          {somAtivo ? 'Som ativo' : 'Ativar som'}
-        </button>
-      </div>
     </>
   )
 }
