@@ -602,11 +602,16 @@ export default function FaturasTransportadorasPage() {
         itens.length > 12 ? `\n... +${itens.length - 12} AWB(s) no PDF` : ''
 
       const mensagem =
-        'Importação do PDF concluída.\n\n' +
+        (importacao.pendente_conferencia
+          ? 'PDF cadastrado como pendente de conferência.\n\n'
+          : 'Importação do PDF concluída.\n\n') +
         `Transportadora: ${preview.transportadora || '-'}\n` +
         `Fatura: ${preview.numero_fatura || importacao.numero_fatura || '-'}\n` +
         `Total da fatura: ${moeda(preview.valor_total || 0)}\n` +
-        `AWBs encontrados no PDF: ${itens.length}\n\n` +
+        `AWBs encontrados no PDF: ${itens.length}\n` +
+        (importacao.pendente_conferencia
+          ? '\nAtenção: o PDF foi cadastrado, mas os AWBs/valores não foram identificados automaticamente. Confira manualmente.\n\n'
+          : '\n') +
         `Itens salvos: ${importacao.itens_salvos ?? 'não informado'}\n` +
         `Custos lançados nos processos: ${importacao.custos_lancados ?? 0}\n` +
         `Aguardando criação do processo: ${importacao.aguardando_processo ?? 0}\n` +

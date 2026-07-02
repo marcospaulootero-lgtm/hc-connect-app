@@ -193,9 +193,7 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
     }))
     .filter((item) => item.awb && item.valor_compra > 0)
 
-  if (!itensValidos.length) {
-    throw new Error('Nenhum AWB válido encontrado para salvar no Supabase.')
-  }
+  const semItensAutomaticos = itensValidos.length === 0
 
   const totalItens = itensValidos.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
   const totalFatura = Number(preview.valor_total || totalItens || 0)
@@ -212,9 +210,11 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
     saldo: totalFatura,
     moeda: 'BRL',
     observacoes:
-      tipoLancamento === 'IMPOSTOS'
-        ? 'Fatura FedEx de impostos/taxas importada por PDF e sincronizada pelo Supabase.'
-        : 'Fatura de transportadora importada por PDF e sincronizada pelo Supabase.',
+      semItensAutomaticos
+        ? 'Fatura importada por PDF, mas nenhum AWB/valor foi identificado automaticamente. Conferir itens manualmente.'
+        : tipoLancamento === 'IMPOSTOS'
+          ? 'Fatura FedEx de impostos/taxas importada por PDF e sincronizada pelo Supabase.'
+          : 'Fatura de transportadora importada por PDF e sincronizada pelo Supabase.',
     atualizado_em: agora,
   }
 
@@ -254,6 +254,19 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
     }
 
     faturaId = faturaCriada.id
+  }
+
+  if (semItensAutomaticos) {
+    return {
+      fatura_id: faturaId,
+      numero_fatura: numeroFatura,
+      itens_salvos: 0,
+      custos_lancados: 0,
+      aguardando_processo: 0,
+      ja_tinham_custo: 0,
+      pendente_conferencia: true,
+      mensagem: 'Fatura cadastrada, mas o PDF não permitiu leitura automática dos AWBs/valores. Conferir manualmente.',
+    }
   }
 
   const awbsDoPdf = Array.from(new Set(itensValidos.map((item) => item.awb).filter(Boolean)))
@@ -868,10 +881,7 @@ export async function POST(req: Request) {
     }
 
     if (!preview.itens.length) {
-      return NextResponse.json(
-        { error: 'Não encontrei AWBs com Total (BRL) ou valor em R$ neste PDF. O leitor conseguiu abrir o PDF, mas não conseguiu associar rastreio + subtotal. Me envie o print deste alerta se continuar.' },
-        { status: 400 }
-      )
+      preview.itens = []
     }
 
     preview.numero_fatura = normalizarNumeroFaturaParaSistema(preview.numero_fatura)
