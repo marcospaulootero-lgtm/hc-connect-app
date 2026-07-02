@@ -22,6 +22,15 @@ function tituloCapa(tipo: string) {
   return 'PROCESSO IMPORTAÇÃO FORMAL'
 }
 
+function simNao(valor: any) {
+  const normalizado = String(valor || '').trim().toUpperCase()
+
+  if (valor === true || normalizado === 'SIM' || normalizado === 'S') return 'SIM'
+  if (valor === false || normalizado === 'NAO' || normalizado === 'NÃO' || normalizado === 'N') return 'NÃO'
+
+  return texto(valor) || '-'
+}
+
 function formatarData(valor: any) {
   if (!valor) return '-'
   const data = new Date(valor)
@@ -352,7 +361,7 @@ export default function CapasProcessosPage() {
           {capasFiltradas.map((capa) => (
             <article
               key={capa.id}
-              className="mx-auto flex min-h-[650px] w-full max-w-[430px] flex-col rounded-xl border border-slate-300 bg-white p-6 text-slate-900 shadow-2xl"
+              className="mx-auto flex min-h-[980px] w-full max-w-[430px] flex-col rounded-xl border border-slate-300 bg-white p-6 text-slate-900 shadow-2xl"
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -372,15 +381,67 @@ export default function CapasProcessosPage() {
                 </span>
               </div>
 
-              <div className="mt-6 grid grid-cols-1 gap-2 text-sm">
-                <Info label="Cliente" value={capa.cliente} />
-                <Info label="AWB" value={capa.awb} />
-                <Info label="Transportadora" value={capa.transportadora} />
-                <Info label="Incoterm" value={capa.carga?.incoterm} />
-                <Info label="Volumes" value={capa.carga?.volumes} />
-                <Info label="Peso bruto" value={capa.carga?.peso_bruto} />
-                <Info label="Peso taxado" value={capa.carga?.peso_taxado} />
-                <Info label="Dimensões" value={capa.carga?.dimensoes} />
+              <div className="mt-4 space-y-4 text-sm">
+                <SecaoFolha titulo="Identificação">
+                  <Info label="Código HC" value={capa.codigo_hc} />
+                  <Info label="Cliente / Importador" value={capa.cliente} />
+                  <Info label="CNPJ" value={capa.dados_gerais?.cnpj} />
+                  <Info label="Exportador" value={capa.dados_gerais?.exportador} />
+                  <Info label="Importador" value={capa.dados_gerais?.importador} />
+                  <Info label="Ref. cliente" value={capa.dados_gerais?.referencia_cliente} />
+                  <Info label="Ref. HC" value={capa.dados_gerais?.referencia_hc || capa.codigo_hc} />
+                  <Info label="AWB / HAWB" value={capa.awb} />
+                  <Info label="MAWB" value={capa.dados_gerais?.mawb} />
+                  <Info label="Transportadora" value={capa.transportadora} />
+                </SecaoFolha>
+
+                <SecaoFolha titulo="Operação">
+                  <Info label="Fatura original" value={simNao(capa.dados_gerais?.fatura_original)} />
+                  <Info label="País de origem" value={capa.dados_gerais?.pais_origem || capa.dados_gerais?.origem} />
+                  <Info label="Aeroporto liberação" value={capa.dados_gerais?.aeroporto_liberacao} />
+                  <Info label="Processo com DTA" value={simNao(capa.dados_gerais?.processo_dta)} />
+                  <Info label="Destino final" value={capa.dados_gerais?.destino || capa.dados_gerais?.destino_final} />
+                  <Info label="Serviço" value={capa.dados_gerais?.servico || capa.dados_gerais?.servico_porta_porta} />
+                  <Info label="Porta x aeroporto" value={capa.dados_gerais?.porta_aeroporto} />
+                  <Info label="Área remota" value={simNao(capa.dados_gerais?.area_remota)} />
+                  <Info label="Incoterm" value={capa.carga?.incoterm || capa.despesas?.incoterm} />
+                </SecaoFolha>
+
+                <SecaoFolha titulo="Carga">
+                  <Info label="Volumes" value={capa.carga?.volumes} />
+                  <Info label="Peso bruto" value={capa.carga?.peso_bruto} />
+                  <Info label="Peso taxado" value={capa.carga?.peso_taxado} />
+                  <Info label="Dimensões" value={capa.carga?.dimensoes} />
+                </SecaoFolha>
+
+                <SecaoFolha titulo="Despesas do processo">
+                  <Info label="Frete compra" value={capa.despesas?.frete_compra || capa.despesas?.frete} />
+                  <Info label="Frete venda" value={capa.despesas?.frete_venda} />
+                  <Info label="Seguro" value={capa.despesas?.seguro} />
+                  <Info label="Delivery / DOC" value={capa.despesas?.delivery_fee} />
+                  <Info label="Handling" value={capa.despesas?.handling} />
+                  <Info label="DGR" value={capa.despesas?.dgr} />
+                  <Info label="Outras taxas" value={capa.despesas?.outras_taxas} />
+                  <Info label="Emissão DUE" value={capa.despesas?.due} />
+                  <Info label="Impostos destino" value={capa.despesas?.impostos_destino} />
+                  <Info label="Profit HC" value={capa.despesas?.profit_hc} />
+                </SecaoFolha>
+
+                <SecaoFolha titulo="Instrução / acompanhamento">
+                  <Info label="Data instrução" value={capa.instrucao_embarque?.data_instrucao} />
+                  <Info label="Data coleta" value={capa.instrucao_embarque?.data_coleta} />
+                  <Info label="Data saída Brasil" value={capa.instrucao_embarque?.data_saida_brasil} />
+                  <Info label="Previsão chegada" value={capa.instrucao_embarque?.data_prevista_chegada} />
+                  <Info label="Chegada efetiva" value={capa.instrucao_embarque?.data_chegada_aeroporto} />
+                  <Info label="Referência coleta" value={capa.instrucao_embarque?.referencia_coleta} />
+                  <Info label="Follow up" value={capa.instrucao_embarque?.follow_up} />
+                  <Info label="Status" value={capa.status} />
+                </SecaoFolha>
+
+                <SecaoFolha titulo="Financeiro">
+                  <Info label="Enviado financeiro" value={simNao(capa.enviado_financeiro)} />
+                  <Info label="Data envio" value={capa.data_envio_financeiro} />
+                </SecaoFolha>
               </div>
 
               <div className="mt-auto flex flex-wrap gap-2 pt-6">
@@ -446,6 +507,17 @@ export default function CapasProcessosPage() {
         </section>
       )}
     </main>
+  )
+}
+
+function SecaoFolha({ titulo, children }: { titulo: string; children: any }) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-red-700">
+        {titulo}
+      </p>
+      <div className="space-y-1">{children}</div>
+    </div>
   )
 }
 
