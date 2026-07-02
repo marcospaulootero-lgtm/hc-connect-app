@@ -31,18 +31,132 @@ function tipoLabel(tipo: string) {
   return 'Importação Formal'
 }
 
+function normalizarStatusCapa(valor: any) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+}
+
+function statusTem(valor: any, termos: string[]) {
+  const base = normalizarStatusCapa(valor)
+  return termos.some((termo) => base.includes(normalizarStatusCapa(termo)))
+}
+
+function nomeDocumento(doc: any) {
+  return (
+    texto(doc?.nome_arquivo) ||
+    texto(doc?.nome) ||
+    texto(doc?.arquivo_nome) ||
+    texto(doc?.filename) ||
+    texto(doc?.tipo_documento) ||
+    'Documento do processo'
+  )
+}
+
+function origemDocumento(doc: any) {
+  return (
+    texto(doc?.origem) ||
+    texto(doc?.enviado_por_tipo) ||
+    texto(doc?.criado_por_tipo) ||
+    texto(doc?.perfil_origem) ||
+    texto(doc?.autor_tipo) ||
+    'Processo'
+  )
+}
+
+function dataDocumento(doc: any) {
+  const valor = doc?.criado_em || doc?.created_at || doc?.atualizado_em
+  if (!valor) return '-'
+
+  const data = new Date(valor)
+  if (Number.isNaN(data.getTime())) return '-'
+
+  return data.toLocaleString('pt-BR')
+}
+
 export default function EditarCapaProcessoPage() {
   const params = useParams()
   const router = useRouter()
   const id = String(params?.id || '')
 
   const [capa, setCapa] = useState<any>(null)
+  const [embarqueVinculado, setEmbarqueVinculado] = useState<any>(null)
+  const [documentosProcesso, setDocumentosProcesso] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
 
   useEffect(() => {
     carregar()
   }, [id])
+
+  useEffect(() => {
+    if (!capa?.id) return
+    carregarDadosDoEmbarque()
+  }, [capa?.id, capa?.embarque_id, capa?.awb])
+
+  useEffect(() => {
+    if (!capa?.id) return
+
+    const embarqueId = embarqueVinculado?.id || capa?.embarque_id || ''
+    const awb = texto(capa?.awb)
+
+    if (!embarqueId && !awb) return
+
+    const channel = supabase.channel(`capa-processo-${id}-realtime`)
+
+    if (embarqueId) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'embarques',
+          filter: `id=eq.${embarqueId}`,
+        },
+        () => carregarDadosDoEmbarque()
+      )
+
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'documentos_embarques',
+          filter: `embarque_id=eq.${embarqueId}`,
+        },
+        () => carregarDadosDoEmbarque()
+      )
+
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'timeline_embarques',
+          filter: `embarque_id=eq.${embarqueId}`,
+        },
+        () => carregarDadosDoEmbarque()
+      )
+    } else if (awb) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'embarques',
+          filter: `awb=eq.${awb}`,
+        },
+        () => carregarDadosDoEmbarque()
+      )
+    }
+
+    channel.subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [id, capa?.id, capa?.embarque_id, capa?.awb, embarqueVinculado?.id])
 
   async function carregar() {
     setCarregando(true)
@@ -61,6 +175,50 @@ export default function EditarCapaProcessoPage() {
 
     setCapa(data)
     setCarregando(false)
+  }
+
+  async function carregarDadosDoEmbarque() {
+    if (!capa?.id) return
+
+    let embarqueEncontrado: any = null
+
+    if (capa.embarque_id) {
+      const { data } = await supabase
+        .from('embarques')
+        .select('*')
+        .eq('id', capa.embarque_id)
+        .maybeSingle()
+
+      embarqueEncontrado = data || null
+    }
+
+    if (!embarqueEncontrado && capa.awb) {
+      const { data } = await supabase
+        .from('embarques')
+        .select('*')
+        .eq('awb', capa.awb)
+        .limit(1)
+        .maybeSingle()
+
+      embarqueEncontrado = data || null
+    }
+
+    setEmbarqueVinculado(embarqueEncontrado)
+
+    const embarqueId = embarqueEncontrado?.id || capa.embarque_id
+
+    if (!embarqueId) {
+      setDocumentosProcesso([])
+      return
+    }
+
+    const { data: documentos } = await supabase
+      .from('documentos_embarques')
+      .select('*')
+      .eq('embarque_id', embarqueId)
+      .order('criado_em', { ascending: false })
+
+    setDocumentosProcesso(documentos || [])
   }
 
   function setCampo(campo: string, valor: any) {
@@ -162,6 +320,22 @@ export default function EditarCapaProcessoPage() {
   const instrucao = capa.instrucao_embarque || {}
   const checklist = capa.checklist || {}
 
+  const statusOperacionalAtual =
+    embarqueVinculado?.status_operacional ||
+    dados.status_operacional ||
+    capa.status ||
+    'EM_ANDAMENTO'
+
+  const awbAtual = embarqueVinculado?.awb || capa.awb
+  const clienteAtual =
+    embarqueVinculado?.cliente_final ||
+    embarqueVinculado?.importador ||
+    capa.cliente
+
+  const transportadoraAtual = embarqueVinculado?.transportadora || capa.transportadora
+
+  const documentosRecebidos = documentosProcesso.length > 0 || Boolean(checklist.documentos_recebidos)
+
   return (
     <main className="space-y-6 pb-10">
       <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -203,10 +377,10 @@ export default function EditarCapaProcessoPage() {
       </header>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        <CardResumo icone="📄" label="AWB" valor={capa.awb} />
-        <CardResumo icone="👤" label="Cliente" valor={capa.cliente} />
-        <CardResumo icone="🚚" label="Status" valor={capa.status || 'EM_ANDAMENTO'} destaque="verde" />
-        <CardResumo icone="🏢" label="Transportadora" valor={capa.transportadora} />
+        <CardResumo icone="📄" label="AWB" valor={awbAtual} />
+        <CardResumo icone="👤" label="Cliente" valor={clienteAtual} />
+        <CardResumo icone="🚚" label="Status" valor={statusOperacionalAtual} destaque="verde" />
+        <CardResumo icone="🏢" label="Transportadora" valor={transportadoraAtual} />
       </section>
 
       <section className="grid grid-cols-1 gap-5 2xl:grid-cols-[1.45fr_0.8fr_1fr]">
@@ -271,26 +445,61 @@ export default function EditarCapaProcessoPage() {
       <section className="grid grid-cols-1 gap-5 2xl:grid-cols-[1fr_1.6fr]">
         <Painel numero="4" titulo="Linha do processo">
           <div className="flex items-center justify-between gap-2 pt-4">
-            <Etapa label="Aguardando coleta" ativo={capa.status === 'AGUARDANDO_COLETA'} icone="🕘" />
+            <Etapa label="Aguardando coleta" ativo={statusTem(statusOperacionalAtual, ['AGUARDANDO COLETA'])} icone="🕘" />
             <Linha />
-            <Etapa label="Coletado" ativo={capa.status === 'COLETADO'} icone="📦" />
+            <Etapa label="Coletado" ativo={statusTem(statusOperacionalAtual, ['COLETADO'])} icone="📦" />
             <Linha />
-            <Etapa label="Em trânsito" ativo={String(capa.status || '').includes('TRANSITO') || String(capa.status || '').includes('TRÂNSITO')} icone="🚚" />
+            <Etapa label="Em trânsito" ativo={statusTem(statusOperacionalAtual, ['EM TRANSITO', 'TRÂNSITO', 'TRANSITO'])} icone="🚚" />
             <Linha />
-            <Etapa label="Fiscalização" ativo={String(capa.status || '').includes('FISCAL')} icone="📋" />
+            <Etapa label="Fiscalização" ativo={statusTem(statusOperacionalAtual, ['FISCALIZACAO', 'FISCALIZAÇÃO'])} icone="📋" />
             <Linha />
-            <Etapa label="Liberado" ativo={String(capa.status || '').includes('LIBERADO')} icone="✅" />
+            <Etapa label="Liberado" ativo={statusTem(statusOperacionalAtual, ['LIBERADO'])} icone="✅" />
             <Linha />
-            <Etapa label="Entregue" ativo={String(capa.status || '').includes('ENTREGUE')} icone="🏁" />
+            <Etapa label="Entregue" ativo={statusTem(statusOperacionalAtual, ['ENTREGUE'])} icone="🏁" />
           </div>
         </Painel>
 
         <Painel numero="5" titulo="Documentos e financeiro">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <MiniCard titulo="Documentos recebidos" valor={checklist.documentos_recebidos ? 'Sim' : 'Pendente'} detalhe="Visualizar" cor="azul" />
+            <MiniCard titulo="Documentos recebidos" valor={documentosRecebidos ? String(documentosProcesso.length || 'Sim') : 'Pendente'} detalhe="Atualiza em tempo real" cor="azul" />
             <MiniCard titulo="Fatura transportadora" valor={checklist.fatura_transportadora_recebida ? 'Recebida' : 'Pendente'} detalhe="Visualizar" cor="verde" />
             <MiniCard titulo="Fatura cliente" valor={checklist.fatura_cliente_emitida ? 'Emitida' : 'Pendente'} detalhe="Visualizar" cor="amarelo" />
             <MiniCard titulo="Pagamento" valor={checklist.pagamento_confirmado ? 'Confirmado' : 'Em aberto'} detalhe="Visualizar" cor="vermelho" />
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black">Documentos do processo</h3>
+                <p className="text-xs font-bold text-slate-500">
+                  Cliente e admin, vinculados ao embarque
+                </p>
+              </div>
+
+              <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black text-blue-200">
+                {documentosProcesso.length} arquivo(s)
+              </span>
+            </div>
+
+            <div className="mt-4 max-h-[220px] space-y-2 overflow-y-auto pr-1">
+              {documentosProcesso.length === 0 ? (
+                <p className="rounded-xl border border-blue-950 bg-[#071225] p-3 text-sm font-bold text-slate-400">
+                  Nenhum documento encontrado para este embarque.
+                </p>
+              ) : (
+                documentosProcesso.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="rounded-xl border border-blue-950 bg-[#071225] p-3"
+                  >
+                    <p className="font-black text-white">{nomeDocumento(doc)}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500">
+                      Origem: {origemDocumento(doc)} · {dataDocumento(doc)}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-4">
