@@ -834,6 +834,57 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     return unicosPorAwb(itensExtraidos)
   }
 
+  function extrairItensDhlPorAwbETotalDireto(base: string) {
+    const textoBase = String(base || '')
+    const candidatos: ItemPdf[] = []
+
+    const matchesAwb = Array.from(textoBase.matchAll(/\b(\d{10})\b/g))
+
+    for (let i = 0; i < matchesAwb.length; i++) {
+      const match = matchesAwb[i]
+      const awb = normalizarAwb(match[1])
+      const index = Number(match.index || 0)
+
+      if (!awb || awb.length !== 10) continue
+
+      const contexto = textoBase.slice(Math.max(0, index - 150), index + 500).toUpperCase()
+
+      if (contexto.includes('CNPJ')) continue
+      if (contexto.includes('TELEFONE')) continue
+      if (contexto.includes('CONTA:')) continue
+      if (contexto.includes('NÚMERO DE PÁGINAS')) continue
+      if (contexto.includes('NUMERO DE PAGINAS')) continue
+
+      const proximoIndex = Number(matchesAwb[i + 1]?.index || 0)
+      const fim = proximoIndex > index ? proximoIndex : Math.min(textoBase.length, index + 5000)
+      const bloco = textoBase.slice(index, fim)
+
+      const valorBloco =
+        numeroBR(bloco.match(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i)?.[1]) ||
+        numeroBR(bloco.match(/Total\s*:\s*BRL\s*:?\s*(?:[0-9.,]+\s+){0,8}([0-9.]+,\d{2})/i)?.[1]) ||
+        0
+
+      const valorCompra =
+        valorBloco ||
+        (matchesAwb.length === 1 && valorTotal > 0 ? valorTotal : 0)
+
+      if (!valorCompra || valorCompra <= 0) continue
+
+      const refData = bloco.match(new RegExp(awb + '\\s+(.{0,80}?)\\s+(\\d{1,2}\\/\\d{1,2}\\/\\d{4})', 'i'))
+      const referencia = refData?.[1]?.trim() || null
+      const dataEnvio = dataBRParaISO(refData?.[2]) || null
+
+      candidatos.push({
+        awb,
+        referencia,
+        data_envio: dataEnvio,
+        valor_compra: Number(valorCompra.toFixed(2)),
+      })
+    }
+
+    return unicosPorAwb(candidatos)
+  }
+
   const detalhadoOriginal = areaDetalhadaDhl()
   const detalhadoLimpo = limparTexto(detalhadoOriginal)
 
@@ -857,6 +908,18 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   if (itens.length === 0) {
     itens = extrairItensPorBloco(texto)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlPorAwbETotalDireto(detalhadoOriginal)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlPorAwbETotalDireto(detalhadoLimpo)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlPorAwbETotalDireto(texto)
   }
 
   if (itens.length === 0) {
