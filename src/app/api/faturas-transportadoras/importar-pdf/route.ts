@@ -838,46 +838,44 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     const textoBase = String(base || '')
     const candidatos: ItemPdf[] = []
 
-    const matchesAwb = Array.from(textoBase.matchAll(/\b(\d{10})\b/g))
+    // DHL novo layout:
+    // 1465762911 INVOICE 26600027 23/06/2026 RTM, ROTTERDAM ...
+    // A referência pode ter números. Por isso NÃO podemos aceitar qualquer número de 10 dígitos.
+    // O AWB verdadeiro precisa aparecer no início de uma linha/bloco e antes de uma data.
+    const regexLinhaAwb =
+      /(?:^|\n)\s*(\d{10})\s+(.{0,120}?)\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+/g
 
-    for (let i = 0; i < matchesAwb.length; i++) {
-      const match = matchesAwb[i]
-      const awb = normalizarAwb(match[1])
-      const index = Number(match.index || 0)
+    const linhasAwb = Array.from(textoBase.matchAll(regexLinhaAwb))
+      .map((match) => ({
+        awb: normalizarAwb(match[1]),
+        referencia: String(match[2] || '').trim() || null,
+        dataEnvio: dataBRParaISO(match[3]) || null,
+        index: Number(match.index || 0),
+      }))
+      .filter((item) => item.awb && item.awb.length === 10)
 
-      if (!awb || awb.length !== 10) continue
+    if (!linhasAwb.length) return []
 
-      const contexto = textoBase.slice(Math.max(0, index - 150), index + 500).toUpperCase()
+    for (let i = 0; i < linhasAwb.length; i++) {
+      const atual = linhasAwb[i]
+      const proximo = linhasAwb[i + 1]
+      const fimBloco = proximo?.index || textoBase.length
+      const bloco = textoBase.slice(atual.index, fimBloco)
 
-      if (contexto.includes('CNPJ')) continue
-      if (contexto.includes('TELEFONE')) continue
-      if (contexto.includes('CONTA:')) continue
-      if (contexto.includes('NÚMERO DE PÁGINAS')) continue
-      if (contexto.includes('NUMERO DE PAGINAS')) continue
-
-      const proximoIndex = Number(matchesAwb[i + 1]?.index || 0)
-      const fim = proximoIndex > index ? proximoIndex : Math.min(textoBase.length, index + 5000)
-      const bloco = textoBase.slice(index, fim)
-
-      const valorBloco =
+      const totalBrl =
         numeroBR(bloco.match(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i)?.[1]) ||
-        numeroBR(bloco.match(/Total\s*:\s*BRL\s*:?\s*(?:[0-9.,]+\s+){0,8}([0-9.]+,\d{2})/i)?.[1]) ||
         0
 
       const valorCompra =
-        valorBloco ||
-        (matchesAwb.length === 1 && valorTotal > 0 ? valorTotal : 0)
+        totalBrl ||
+        (linhasAwb.length === 1 && valorTotal > 0 ? valorTotal : 0)
 
       if (!valorCompra || valorCompra <= 0) continue
 
-      const refData = bloco.match(new RegExp(awb + '\\s+(.{0,80}?)\\s+(\\d{1,2}\\/\\d{1,2}\\/\\d{4})', 'i'))
-      const referencia = refData?.[1]?.trim() || null
-      const dataEnvio = dataBRParaISO(refData?.[2]) || null
-
       candidatos.push({
-        awb,
-        referencia,
-        data_envio: dataEnvio,
+        awb: atual.awb,
+        referencia: atual.referencia,
+        data_envio: atual.dataEnvio,
         valor_compra: Number(valorCompra.toFixed(2)),
       })
     }
