@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import AdminFloatingNotes from '@/components/AdminFloatingNotes'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
@@ -135,6 +136,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <main className="min-h-screen pt-24 xl:pt-8 px-4 sm:px-6 xl:px-8 xl:ml-72">
         <OnlinePresence area="admin" />
         {children}
+      <AdminFloatingNotes />
       </main>
     </div>
   )
