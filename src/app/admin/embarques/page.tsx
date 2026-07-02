@@ -1031,6 +1031,62 @@ export default function EmbarquesPage() {
     embarquesFiltrados.length > 0 &&
     embarquesFiltrados.every((item) => embarquesSelecionados.includes(item.id))
 
+  function gerarRelatorioEmbarques() {
+    if (embarquesFiltrados.length === 0) {
+      alert('Nenhum embarque encontrado para gerar relatório.')
+      return
+    }
+
+    const colunas = [
+      'AWB',
+      'Master',
+      'Cliente',
+      'Referencia Cliente',
+      'Referencia HC',
+      'Transportadora',
+      'Servico',
+      'Origem',
+      'Destino',
+      'Status',
+      'Data prevista',
+      'Observacoes',
+    ]
+
+    const linhas = embarquesFiltrados.map((item) => [
+      item.awb || '',
+      item.master || '',
+      item.cliente_final || item.importador || '',
+      item.referencia_cliente || '',
+      item.referencia_hc || '',
+      item.transportadora || '',
+      item.servico || '',
+      item.origem || '',
+      item.destino || '',
+      item.status_operacional || '',
+      item.data_prevista || '',
+      item.observacoes || '',
+    ])
+
+    const csv = [colunas, ...linhas]
+      .map((linha) =>
+        linha
+          .map((campo) => '"' + String(campo).replace(/"/g, '""') + '"')
+          .join(';')
+      )
+      .join('\n')
+
+    const blob = new Blob(['\ufeff' + csv], {
+      type: 'text/csv;charset=utf-8;',
+    })
+
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'relatorio-embarques-hc.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <main className="w-full max-w-none p-8 text-white">
       <div className="mb-8 flex justify-between items-start gap-6">
@@ -1374,19 +1430,29 @@ export default function EmbarquesPage() {
         <div className="flex justify-between items-center gap-4 mb-7">
           <h2 className="text-2xl font-black">Embarques cadastrados</h2>
 
-          <button
-            onClick={() => {
-              setBusca('')
-              setFiltroStatus('')
-              setFiltroTransportadora('')
-              setFiltroArquivamento('ATIVOS')
-              setEmbarquesSelecionados([])
-              setClienteVinculoLote('')
-            }}
-            className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
-          >
-            Limpar filtros
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={gerarRelatorioEmbarques}
+              className="bg-green-700 hover:bg-green-600 px-4 py-3 rounded-xl font-bold"
+            >
+              📄 Relatório dos embarques
+            </button>
+
+            <button
+              onClick={() => {
+                setBusca('')
+                setFiltroStatus('')
+                setFiltroTransportadora('')
+                setFiltroArquivamento('ATIVOS')
+                setEmbarquesSelecionados([])
+                setClienteVinculoLote('')
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
