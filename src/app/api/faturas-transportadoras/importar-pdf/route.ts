@@ -838,14 +838,13 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     const textoBase = String(base || '')
     const candidatos: ItemPdf[] = []
 
-    // DHL novo layout:
-    // 1465762911 INVOICE 26600027 23/06/2026 RTM, ROTTERDAM ...
-    // A referência pode ter números. Por isso NÃO podemos aceitar qualquer número de 10 dígitos.
-    // O AWB verdadeiro precisa aparecer no início de uma linha/bloco e antes de uma data.
-    const regexLinhaAwb =
-      /(?:^|\n)\s*(\d{10})\s+(.{0,120}?)\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+/g
+    // Layout DHL encontrado:
+    // 1465762911 INVOICE 26600027 23/06/2026 ...
+    // O número do INVOICE NÃO é AWB. O AWB real é o primeiro número de 10 dígitos antes de INVOICE.
+    const regexInvoiceAwb =
+      /\\b(\\d{10})\\s+(INVOICE\\s+\\d+)\\s+(\\d{1,2}\\/\\d{1,2}\\/\\d{4})\\b/gi
 
-    const linhasAwb = Array.from(textoBase.matchAll(regexLinhaAwb))
+    const linhasAwb = Array.from(textoBase.matchAll(regexInvoiceAwb))
       .map((match) => ({
         awb: normalizarAwb(match[1]),
         referencia: String(match[2] || '').trim() || null,
@@ -863,7 +862,7 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
       const bloco = textoBase.slice(atual.index, fimBloco)
 
       const totalBrl =
-        numeroBR(bloco.match(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i)?.[1]) ||
+        numeroBR(bloco.match(/Total\\s*\\(\\s*BRL\\s*\\)\\s*:?\\s*([0-9.]+,\\d{2})/i)?.[1]) ||
         0
 
       const valorCompra =
