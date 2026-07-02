@@ -17,6 +17,11 @@ function labelTipo(tipo: string) {
   return TIPOS.find((item) => item.value === tipo)?.label || tipo || '-'
 }
 
+function tituloCapa(tipo: string) {
+  if (tipo === 'EXPORTACAO_COURIER') return 'PROCESSO EXPORTAÇÃO COURIER'
+  return 'PROCESSO IMPORTAÇÃO FORMAL'
+}
+
 function formatarData(valor: any) {
   if (!valor) return '-'
   const data = new Date(valor)
@@ -241,6 +246,23 @@ export default function CapasProcessosPage() {
     await carregarCapas()
   }
 
+  async function apagarCapa(capa: any) {
+    const ok = window.confirm('Tem certeza que deseja apagar esta capa? Esta ação não pode ser desfeita.')
+    if (!ok) return
+
+    const { error } = await supabase
+      .from('capas_processos')
+      .delete()
+      .eq('id', capa.id)
+
+    if (error) {
+      alert('Erro ao apagar capa: ' + error.message)
+      return
+    }
+
+    await carregarCapas()
+  }
+
   return (
     <main className="space-y-8">
       <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -326,31 +348,31 @@ export default function CapasProcessosPage() {
           Carregando capas...
         </section>
       ) : (
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <section className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
           {capasFiltradas.map((capa) => (
             <article
               key={capa.id}
-              className="rounded-3xl border border-blue-900 bg-[#071225] p-5 shadow-xl"
+              className="mx-auto flex min-h-[650px] w-full max-w-[430px] flex-col rounded-xl border border-slate-300 bg-white p-6 text-slate-900 shadow-2xl"
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-blue-300">
-                    {labelTipo(capa.tipo)}
+                  <p className="text-center text-sm font-black uppercase tracking-wide text-red-700">
+                    {tituloCapa(capa.tipo)}
                   </p>
-                  <h2 className="mt-1 text-2xl font-black">
+                  <h2 className="mt-4 text-2xl font-black text-slate-950">
                     {texto(capa.codigo_hc) || texto(capa.awb) || 'Sem referência'}
                   </h2>
-                  <p className="mt-1 text-sm font-bold text-slate-400">
+                  <p className="mt-1 text-xs font-bold text-slate-500">
                     Atualizada em {formatarData(capa.atualizado_em)}
                   </p>
                 </div>
 
-                <span className="rounded-full bg-blue-600/20 px-3 py-2 text-xs font-black text-blue-200">
+                <span className="rounded-full border border-green-600 bg-green-50 px-3 py-2 text-[10px] font-black text-green-700">
                   {capa.status || 'EM_ANDAMENTO'}
                 </span>
               </div>
 
-              <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div className="mt-6 grid grid-cols-1 gap-2 text-sm">
                 <Info label="Cliente" value={capa.cliente} />
                 <Info label="AWB" value={capa.awb} />
                 <Info label="Transportadora" value={capa.transportadora} />
@@ -361,7 +383,7 @@ export default function CapasProcessosPage() {
                 <Info label="Dimensões" value={capa.carga?.dimensoes} />
               </div>
 
-              <div className="mt-5 flex flex-wrap gap-3">
+              <div className="mt-auto flex flex-wrap gap-2 pt-6">
                 <Link
                   href={`/admin/capas-processos/${capa.id}`}
                   className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black hover:bg-blue-500"
@@ -375,6 +397,14 @@ export default function CapasProcessosPage() {
                   className="rounded-xl bg-slate-700 px-4 py-3 text-sm font-black hover:bg-slate-600"
                 >
                   Imprimir
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => apagarCapa(capa)}
+                  className="rounded-xl bg-red-700 px-4 py-3 text-sm font-black hover:bg-red-600"
+                >
+                  Apagar
                 </button>
 
                 {capa.arquivada ? (
@@ -421,11 +451,13 @@ export default function CapasProcessosPage() {
 
 function Info({ label, value }: { label: string; value: any }) {
   return (
-    <div className="rounded-2xl border border-blue-950 bg-[#020817] p-3">
-      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-        {label}
+    <div className="grid grid-cols-[135px_1fr] items-end gap-3 border-b border-slate-300 py-2">
+      <p className="text-[10px] font-black uppercase tracking-wide text-slate-700">
+        {label}:
       </p>
-      <p className="mt-1 font-black text-white">{texto(value) || '-'}</p>
+      <p className="min-h-[22px] font-black text-slate-950">
+        {texto(value) || '-'}
+      </p>
     </div>
   )
 }
