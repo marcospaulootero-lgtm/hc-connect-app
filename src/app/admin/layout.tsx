@@ -171,6 +171,13 @@ function MenuContent({ pathname }: { pathname: string | null }) {
           pathname={pathname}
         />
         <MenuItem
+          href="/admin/capas-processos"
+          label="Capas de Processo"
+          descricao="Controle operacional"
+          icon="📋"
+          pathname={pathname}
+        />
+        <MenuItem
           href="/admin/embarque-direto"
           label="Embarque Direto"
           descricao="Criar operação rápida"
