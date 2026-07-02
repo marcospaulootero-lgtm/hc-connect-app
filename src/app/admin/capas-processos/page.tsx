@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -361,13 +362,12 @@ export default function CapasProcessosPage() {
               </div>
 
               <div className="mt-5 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => alert('Na próxima etapa vamos abrir a edição completa desta capa.')}
+                <Link
+                  href={`/admin/capas-processos/${capa.id}`}
                   className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black hover:bg-blue-500"
                 >
                   Abrir / editar
-                </button>
+                </Link>
 
                 <button
                   type="button"
