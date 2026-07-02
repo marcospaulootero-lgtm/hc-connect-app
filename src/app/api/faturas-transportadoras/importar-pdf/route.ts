@@ -789,6 +789,51 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     return unicosPorAwb(itensExtraidos)
   }
 
+  function extrairItensPorTotalBrlDhl(base: string) {
+    const awbs = extrairAwbs(base)
+    const totaisGerais = extrairTotaisBrl(base)
+    const itensExtraidos: ItemPdf[] = []
+
+    if (!awbs.length) return []
+
+    for (let i = 0; i < awbs.length; i++) {
+      const atual = awbs[i]
+      const proximo = awbs[i + 1]
+      const fim = proximo?.index || base.length
+      const bloco = base.slice(atual.index, fim)
+
+      const totalNoBloco =
+        numeroBR(bloco.match(/Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9.]+,\d{2})/i)?.[1]) || 0
+
+      let valorCompra = totalNoBloco
+
+      if (!valorCompra && totaisGerais.length === awbs.length) {
+        valorCompra = totaisGerais[i] || 0
+      }
+
+      if (!valorCompra && awbs.length === 1 && totaisGerais.length === 1) {
+        valorCompra = totaisGerais[0] || 0
+      }
+
+      if (!valorCompra && awbs.length === 1 && valorTotal > 0) {
+        valorCompra = valorTotal
+      }
+
+      if (!valorCompra || valorCompra <= 0) continue
+
+      const { referencia, dataEnvio } = referenciaEDataDoBloco(atual.awb, bloco)
+
+      itensExtraidos.push({
+        awb: atual.awb,
+        referencia,
+        data_envio: dataEnvio,
+        valor_compra: Number(valorCompra.toFixed(2)),
+      })
+    }
+
+    return unicosPorAwb(itensExtraidos)
+  }
+
   const detalhadoOriginal = areaDetalhadaDhl()
   const detalhadoLimpo = limparTexto(detalhadoOriginal)
 
@@ -812,6 +857,18 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   if (itens.length === 0) {
     itens = extrairItensPorBloco(texto)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensPorTotalBrlDhl(detalhadoOriginal)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensPorTotalBrlDhl(detalhadoLimpo)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensPorTotalBrlDhl(texto)
   }
 
   return {
