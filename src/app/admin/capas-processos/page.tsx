@@ -17,41 +17,11 @@ function labelTipo(tipo: string) {
   return TIPOS.find((item) => item.value === tipo)?.label || tipo || '-'
 }
 
-function tituloCapa(tipo: string) {
-  if (tipo === 'EXPORTACAO_COURIER') return 'PROCESSO EXPORTAÇÃO COURIER'
-  return 'PROCESSO IMPORTAÇÃO FORMAL'
-}
-
-function simNao(valor: any) {
-  const normalizado = String(valor || '').trim().toUpperCase()
-
-  if (valor === true || normalizado === 'SIM' || normalizado === 'S') return 'SIM'
-  if (valor === false || normalizado === 'NAO' || normalizado === 'NÃO' || normalizado === 'N') return 'NÃO'
-
-  return texto(valor) || '-'
-}
-
 function formatarData(valor: any) {
   if (!valor) return '-'
   const data = new Date(valor)
   if (Number.isNaN(data.getTime())) return '-'
   return data.toLocaleString('pt-BR')
-}
-
-function awbPrincipal(capa: any) {
-  const candidatos = [
-    capa?.awb,
-    capa?.dados_gerais?.hawb,
-    capa?.dados_gerais?.awb,
-    capa?.dados_gerais?.mawb,
-  ]
-
-  for (const item of candidatos) {
-    const valor = texto(item)
-    if (valor && valor !== '-') return valor
-  }
-
-  return '-'
 }
 
 export default function CapasProcessosPage() {
@@ -106,6 +76,8 @@ export default function CapasProcessosPage() {
         capa.tipo,
         capa.dados_gerais?.referencia_cliente,
         capa.dados_gerais?.referencia_hc,
+        capa.dados_gerais?.exportador,
+        capa.dados_gerais?.importador,
       ]
         .join(' ')
         .toLowerCase()
@@ -176,6 +148,8 @@ export default function CapasProcessosPage() {
     }
 
     const despesas = {
+      frete_compra: '',
+      frete_venda: '',
       frete: '',
       seguro: '',
       handling: '',
@@ -294,12 +268,12 @@ export default function CapasProcessosPage() {
         <div>
           <h1 className="text-3xl font-black">Capas de Processo</h1>
           <p className="text-slate-400 mt-2">
-            Controle digital das capas usadas pela Hérica.
+            Lista das capas criadas. Abra uma capa para ver o modelo completo.
           </p>
         </div>
 
         <div className="rounded-3xl border border-blue-900 bg-[#071225] p-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-[220px_260px_160px] gap-3">
             <select
               value={tipoNova}
               onChange={(e) => setTipoNova(e.target.value)}
@@ -368,190 +342,94 @@ export default function CapasProcessosPage() {
         </div>
       </section>
 
-      {carregando ? (
-        <section className="rounded-3xl border border-blue-900 bg-[#071225] p-8 text-slate-400">
-          Carregando capas...
-        </section>
-      ) : (
-        <section className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
-          {capasFiltradas.map((capa) => (
-            <article
-              key={capa.id}
-              className="mx-auto flex aspect-[210/297] w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-slate-300 bg-white p-4 text-slate-900 shadow-2xl"
-            >
-              <div className="flex items-start justify-between gap-4">
+      <section className="rounded-3xl border border-blue-900 bg-[#071225] overflow-hidden">
+        <div className="grid grid-cols-[1.1fr_1.4fr_1.1fr_1fr_1fr_1fr_1.2fr_220px] gap-3 border-b border-blue-900 bg-[#020817] px-5 py-4 text-xs font-black uppercase tracking-widest text-slate-400">
+          <span>Tipo</span>
+          <span>Cliente</span>
+          <span>AWB</span>
+          <span>Ref. HC</span>
+          <span>Transportadora</span>
+          <span>Status</span>
+          <span>Atualização</span>
+          <span>Ações</span>
+        </div>
+
+        {carregando ? (
+          <div className="p-6 text-slate-400">Carregando capas...</div>
+        ) : capasFiltradas.length === 0 ? (
+          <div className="p-6 text-slate-400">Nenhuma capa encontrada.</div>
+        ) : (
+          <div className="divide-y divide-blue-950">
+            {capasFiltradas.map((capa) => (
+              <div
+                key={capa.id}
+                className="grid grid-cols-[1.1fr_1.4fr_1.1fr_1fr_1fr_1fr_1.2fr_220px] gap-3 px-5 py-4 text-sm hover:bg-blue-950/30"
+              >
                 <div>
-                  <p className="text-center text-[13px] font-black uppercase tracking-[0.12em] text-red-700">
-                    {tituloCapa(capa.tipo)}
-                  </p>
-                  <p className="mt-3 text-[8px] font-black uppercase tracking-[0.18em] text-slate-600">
-                    AWB / HAWB
-                  </p>
-                  <h2 className="text-[25px] font-black leading-none text-slate-950">
-                    {awbPrincipal(capa)}
-                  </h2>
-                  <p className="mt-1 text-[10px] font-black text-slate-600">
-                    Código HC: {texto(capa.codigo_hc) || '-'}
-                  </p>
-                  <p className="mt-1 text-[9px] font-bold text-slate-500">
-                    Atualizada em {formatarData(capa.atualizado_em)}
+                  <p className="font-black text-white">{labelTipo(capa.tipo)}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {capa.finalizada ? 'Finalizada' : capa.arquivada ? 'Arquivada' : 'Ativa'}
                   </p>
                 </div>
 
-                <span className="rounded-full border border-green-600 bg-green-50 px-3 py-2 text-[10px] font-black text-green-700">
-                  {capa.status || 'EM_ANDAMENTO'}
-                </span>
-              </div>
+                <div>
+                  <p className="font-black text-white">{texto(capa.cliente) || '-'}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    {texto(capa.dados_gerais?.exportador) || texto(capa.dados_gerais?.importador) || '-'}
+                  </p>
+                </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2 text-[8px] leading-tight">
-                <SecaoFolha titulo="Identificação">
-                  <Info label="Código HC" value={capa.codigo_hc} />
-                  <Info label="Cliente / Importador" value={capa.cliente} />
-                  <Info label="CNPJ" value={capa.dados_gerais?.cnpj} />
-                  <Info label="Exportador" value={capa.dados_gerais?.exportador} />
-                  <Info label="Importador" value={capa.dados_gerais?.importador} />
-                  <Info label="Ref. cliente" value={capa.dados_gerais?.referencia_cliente} />
-                  <Info label="Ref. HC" value={capa.dados_gerais?.referencia_hc || capa.codigo_hc} />
-                  <Info label="AWB / HAWB" value={capa.awb} />
-                  <Info label="MAWB" value={capa.dados_gerais?.mawb} />
-                  <Info label="Transportadora" value={capa.transportadora} />
-                </SecaoFolha>
+                <div className="font-black text-white">{texto(capa.awb) || '-'}</div>
+                <div className="font-black text-white">{texto(capa.codigo_hc) || '-'}</div>
+                <div className="font-black text-white">{texto(capa.transportadora) || '-'}</div>
 
-                <SecaoFolha titulo="Operação">
-                  <Info label="Fatura original" value={simNao(capa.dados_gerais?.fatura_original)} />
-                  <Info label="País de origem" value={capa.dados_gerais?.pais_origem || capa.dados_gerais?.origem} />
-                  <Info label="Aeroporto liberação" value={capa.dados_gerais?.aeroporto_liberacao} />
-                  <Info label="Processo com DTA" value={simNao(capa.dados_gerais?.processo_dta)} />
-                  <Info label="Destino final" value={capa.dados_gerais?.destino || capa.dados_gerais?.destino_final} />
-                  <Info label="Serviço" value={capa.dados_gerais?.servico || capa.dados_gerais?.servico_porta_porta} />
-                  <Info label="Porta x aeroporto" value={capa.dados_gerais?.porta_aeroporto} />
-                  <Info label="Área remota" value={simNao(capa.dados_gerais?.area_remota)} />
-                  <Info label="Incoterm" value={capa.carga?.incoterm || capa.despesas?.incoterm} />
-                </SecaoFolha>
+                <div>
+                  <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black text-blue-200">
+                    {texto(capa.status) || 'EM_ANDAMENTO'}
+                  </span>
+                </div>
 
-                <SecaoFolha titulo="Carga">
-                  <Info label="Volumes" value={capa.carga?.volumes} />
-                  <Info label="Peso bruto" value={capa.carga?.peso_bruto} />
-                  <Info label="Peso taxado" value={capa.carga?.peso_taxado} />
-                  <Info label="Dimensões" value={capa.carga?.dimensoes} />
-                </SecaoFolha>
+                <div className="text-slate-400">{formatarData(capa.atualizado_em)}</div>
 
-                <SecaoFolha titulo="Despesas do processo">
-                  <Info label="Frete compra" value={capa.despesas?.frete_compra || capa.despesas?.frete} />
-                  <Info label="Frete venda" value={capa.despesas?.frete_venda} />
-                  <Info label="Seguro" value={capa.despesas?.seguro} />
-                  <Info label="Delivery / DOC" value={capa.despesas?.delivery_fee} />
-                  <Info label="Handling" value={capa.despesas?.handling} />
-                  <Info label="DGR" value={capa.despesas?.dgr} />
-                  <Info label="Outras taxas" value={capa.despesas?.outras_taxas} />
-                  <Info label="Emissão DUE" value={capa.despesas?.due} />
-                  <Info label="Impostos destino" value={capa.despesas?.impostos_destino} />
-                  <Info label="Profit HC" value={capa.despesas?.profit_hc} />
-                </SecaoFolha>
-
-                <SecaoFolha titulo="Instrução / acompanhamento">
-                  <Info label="Data instrução" value={capa.instrucao_embarque?.data_instrucao} />
-                  <Info label="Data coleta" value={capa.instrucao_embarque?.data_coleta} />
-                  <Info label="Data saída Brasil" value={capa.instrucao_embarque?.data_saida_brasil} />
-                  <Info label="Previsão chegada" value={capa.instrucao_embarque?.data_prevista_chegada} />
-                  <Info label="Chegada efetiva" value={capa.instrucao_embarque?.data_chegada_aeroporto} />
-                  <Info label="Referência coleta" value={capa.instrucao_embarque?.referencia_coleta} />
-                  <Info label="Follow up" value={capa.instrucao_embarque?.follow_up} />
-                  <Info label="Status" value={capa.status} />
-                </SecaoFolha>
-
-                <SecaoFolha titulo="Financeiro">
-                  <Info label="Enviado financeiro" value={simNao(capa.enviado_financeiro)} />
-                  <Info label="Data envio" value={capa.data_envio_financeiro} />
-                </SecaoFolha>
-              </div>
-
-              <div className="mt-auto flex flex-wrap gap-1.5 pt-3">
-                <Link
-                  href={`/admin/capas-processos/${capa.id}`}
-                  className="rounded-lg bg-blue-600 px-3 py-2 text-[10px] font-black hover:bg-blue-500"
-                >
-                  Abrir / editar
-                </Link>
-
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="rounded-lg bg-slate-700 px-3 py-2 text-[10px] font-black hover:bg-slate-600"
-                >
-                  Imprimir
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => apagarCapa(capa)}
-                  className="rounded-lg bg-red-700 px-3 py-2 text-[10px] font-black hover:bg-red-600"
-                >
-                  Apagar
-                </button>
-
-                {capa.arquivada ? (
-                  <button
-                    type="button"
-                    onClick={() => alterarArquivamento(capa, false)}
-                    className="rounded-lg bg-green-700 px-3 py-2 text-[10px] font-black hover:bg-green-600"
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={`/admin/capas-processos/${capa.id}`}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
                   >
-                    Restaurar
-                  </button>
-                ) : (
-                  <>
+                    Abrir
+                  </Link>
+
+                  {capa.arquivada ? (
+                    <button
+                      type="button"
+                      onClick={() => alterarArquivamento(capa, false)}
+                      className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black hover:bg-green-600"
+                    >
+                      Restaurar
+                    </button>
+                  ) : (
                     <button
                       type="button"
                       onClick={() => alterarArquivamento(capa, true)}
-                      className="rounded-lg bg-slate-700 px-3 py-2 text-[10px] font-black hover:bg-slate-600"
+                      className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black hover:bg-slate-600"
                     >
                       Arquivar
                     </button>
+                  )}
 
-                    <button
-                      type="button"
-                      onClick={() => finalizarEArquivar(capa)}
-                      className="rounded-lg bg-purple-700 px-3 py-2 text-[10px] font-black hover:bg-purple-600"
-                    >
-                      Finalizar e arquivar
-                    </button>
-                  </>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => apagarCapa(capa)}
+                    className="rounded-lg bg-red-700 px-3 py-2 text-xs font-black hover:bg-red-600"
+                  >
+                    Apagar
+                  </button>
+                </div>
               </div>
-            </article>
-          ))}
-
-          {capasFiltradas.length === 0 && (
-            <div className="rounded-3xl border border-blue-900 bg-[#071225] p-8 text-slate-400">
-              Nenhuma capa encontrada.
-            </div>
-          )}
-        </section>
-      )}
+            ))}
+          </div>
+        )}
+      </section>
     </main>
-  )
-}
-
-function SecaoFolha({ titulo, children }: { titulo: string; children: any }) {
-  return (
-    <div className="rounded-md border border-slate-200 p-1.5">
-      <p className="mb-1 text-[8px] font-black uppercase tracking-[0.14em] text-red-700">
-        {titulo}
-      </p>
-      <div className="space-y-[1px]">{children}</div>
-    </div>
-  )
-}
-
-function Info({ label, value }: { label: string; value: any }) {
-  return (
-    <div className="grid grid-cols-[78px_1fr] items-start gap-2 border-b border-slate-200 py-[2px]">
-      <p className="text-[7px] font-black uppercase tracking-wide text-slate-600">
-        {label}:
-      </p>
-      <p className="min-h-[12px] break-words text-[8px] font-black text-slate-950">
-        {texto(value) || '-'}
-      </p>
-    </div>
   )
 }
