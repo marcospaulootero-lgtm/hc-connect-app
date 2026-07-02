@@ -38,6 +38,22 @@ function formatarData(valor: any) {
   return data.toLocaleString('pt-BR')
 }
 
+function awbPrincipal(capa: any) {
+  const candidatos = [
+    capa?.awb,
+    capa?.dados_gerais?.hawb,
+    capa?.dados_gerais?.awb,
+    capa?.dados_gerais?.mawb,
+  ]
+
+  for (const item of candidatos) {
+    const valor = texto(item)
+    if (valor && valor !== '-') return valor
+  }
+
+  return '-'
+}
+
 export default function CapasProcessosPage() {
   const [capas, setCapas] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -361,17 +377,23 @@ export default function CapasProcessosPage() {
           {capasFiltradas.map((capa) => (
             <article
               key={capa.id}
-              className="mx-auto flex min-h-[980px] w-full max-w-[430px] flex-col rounded-xl border border-slate-300 bg-white p-6 text-slate-900 shadow-2xl"
+              className="mx-auto flex aspect-[210/297] w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-slate-300 bg-white p-4 text-slate-900 shadow-2xl"
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-center text-sm font-black uppercase tracking-wide text-red-700">
+                  <p className="text-center text-[13px] font-black uppercase tracking-[0.12em] text-red-700">
                     {tituloCapa(capa.tipo)}
                   </p>
-                  <h2 className="mt-4 text-2xl font-black text-slate-950">
-                    {texto(capa.codigo_hc) || texto(capa.awb) || 'Sem referência'}
+                  <p className="mt-3 text-[8px] font-black uppercase tracking-[0.18em] text-slate-600">
+                    AWB / HAWB
+                  </p>
+                  <h2 className="text-[25px] font-black leading-none text-slate-950">
+                    {awbPrincipal(capa)}
                   </h2>
-                  <p className="mt-1 text-xs font-bold text-slate-500">
+                  <p className="mt-1 text-[10px] font-black text-slate-600">
+                    Código HC: {texto(capa.codigo_hc) || '-'}
+                  </p>
+                  <p className="mt-1 text-[9px] font-bold text-slate-500">
                     Atualizada em {formatarData(capa.atualizado_em)}
                   </p>
                 </div>
@@ -381,7 +403,7 @@ export default function CapasProcessosPage() {
                 </span>
               </div>
 
-              <div className="mt-4 space-y-4 text-sm">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[8px] leading-tight">
                 <SecaoFolha titulo="Identificação">
                   <Info label="Código HC" value={capa.codigo_hc} />
                   <Info label="Cliente / Importador" value={capa.cliente} />
@@ -444,10 +466,10 @@ export default function CapasProcessosPage() {
                 </SecaoFolha>
               </div>
 
-              <div className="mt-auto flex flex-wrap gap-2 pt-6">
+              <div className="mt-auto flex flex-wrap gap-1.5 pt-3">
                 <Link
                   href={`/admin/capas-processos/${capa.id}`}
-                  className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black hover:bg-blue-500"
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-[10px] font-black hover:bg-blue-500"
                 >
                   Abrir / editar
                 </Link>
@@ -455,7 +477,7 @@ export default function CapasProcessosPage() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="rounded-xl bg-slate-700 px-4 py-3 text-sm font-black hover:bg-slate-600"
+                  className="rounded-lg bg-slate-700 px-3 py-2 text-[10px] font-black hover:bg-slate-600"
                 >
                   Imprimir
                 </button>
@@ -463,7 +485,7 @@ export default function CapasProcessosPage() {
                 <button
                   type="button"
                   onClick={() => apagarCapa(capa)}
-                  className="rounded-xl bg-red-700 px-4 py-3 text-sm font-black hover:bg-red-600"
+                  className="rounded-lg bg-red-700 px-3 py-2 text-[10px] font-black hover:bg-red-600"
                 >
                   Apagar
                 </button>
@@ -472,7 +494,7 @@ export default function CapasProcessosPage() {
                   <button
                     type="button"
                     onClick={() => alterarArquivamento(capa, false)}
-                    className="rounded-xl bg-green-700 px-4 py-3 text-sm font-black hover:bg-green-600"
+                    className="rounded-lg bg-green-700 px-3 py-2 text-[10px] font-black hover:bg-green-600"
                   >
                     Restaurar
                   </button>
@@ -481,7 +503,7 @@ export default function CapasProcessosPage() {
                     <button
                       type="button"
                       onClick={() => alterarArquivamento(capa, true)}
-                      className="rounded-xl bg-slate-700 px-4 py-3 text-sm font-black hover:bg-slate-600"
+                      className="rounded-lg bg-slate-700 px-3 py-2 text-[10px] font-black hover:bg-slate-600"
                     >
                       Arquivar
                     </button>
@@ -489,7 +511,7 @@ export default function CapasProcessosPage() {
                     <button
                       type="button"
                       onClick={() => finalizarEArquivar(capa)}
-                      className="rounded-xl bg-purple-700 px-4 py-3 text-sm font-black hover:bg-purple-600"
+                      className="rounded-lg bg-purple-700 px-3 py-2 text-[10px] font-black hover:bg-purple-600"
                     >
                       Finalizar e arquivar
                     </button>
@@ -512,22 +534,22 @@ export default function CapasProcessosPage() {
 
 function SecaoFolha({ titulo, children }: { titulo: string; children: any }) {
   return (
-    <div className="rounded-lg border border-slate-200 p-3">
-      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-red-700">
+    <div className="rounded-md border border-slate-200 p-1.5">
+      <p className="mb-1 text-[8px] font-black uppercase tracking-[0.14em] text-red-700">
         {titulo}
       </p>
-      <div className="space-y-1">{children}</div>
+      <div className="space-y-[1px]">{children}</div>
     </div>
   )
 }
 
 function Info({ label, value }: { label: string; value: any }) {
   return (
-    <div className="grid grid-cols-[135px_1fr] items-end gap-3 border-b border-slate-300 py-2">
-      <p className="text-[10px] font-black uppercase tracking-wide text-slate-700">
+    <div className="grid grid-cols-[78px_1fr] items-start gap-2 border-b border-slate-200 py-[2px]">
+      <p className="text-[7px] font-black uppercase tracking-wide text-slate-600">
         {label}:
       </p>
-      <p className="min-h-[22px] font-black text-slate-950">
+      <p className="min-h-[12px] break-words text-[8px] font-black text-slate-950">
         {texto(value) || '-'}
       </p>
     </div>
