@@ -85,6 +85,7 @@ export default function EditarCapaProcessoPage() {
   const [documentosProcesso, setDocumentosProcesso] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
+  const [cardAtivo, setCardAtivo] = useState('DOCUMENTOS')
 
   useEffect(() => {
     carregar()
@@ -461,46 +462,160 @@ export default function EditarCapaProcessoPage() {
 
         <Painel numero="5" titulo="Documentos e financeiro">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <MiniCard titulo="Documentos recebidos" valor={documentosRecebidos ? String(documentosProcesso.length || 'Sim') : 'Pendente'} detalhe="Atualiza em tempo real" cor="azul" />
-            <MiniCard titulo="Fatura transportadora" valor={checklist.fatura_transportadora_recebida ? 'Recebida' : 'Pendente'} detalhe="Visualizar" cor="verde" />
-            <MiniCard titulo="Fatura cliente" valor={checklist.fatura_cliente_emitida ? 'Emitida' : 'Pendente'} detalhe="Visualizar" cor="amarelo" />
-            <MiniCard titulo="Pagamento" valor={checklist.pagamento_confirmado ? 'Confirmado' : 'Em aberto'} detalhe="Visualizar" cor="vermelho" />
+            <MiniCard
+              titulo="Documentos recebidos"
+              valor={documentosRecebidos ? String(documentosProcesso.length || 'Sim') : 'Pendente'}
+              detalhe="Clique para ver"
+              cor="azul"
+              ativo={cardAtivo === 'DOCUMENTOS'}
+              onClick={() => setCardAtivo('DOCUMENTOS')}
+            />
+
+            <MiniCard
+              titulo="Fatura transportadora"
+              valor={checklist.fatura_transportadora_recebida ? 'Recebida' : 'Pendente'}
+              detalhe="Clique para conferir"
+              cor="verde"
+              ativo={cardAtivo === 'FATURA_TRANSPORTADORA'}
+              onClick={() => setCardAtivo('FATURA_TRANSPORTADORA')}
+            />
+
+            <MiniCard
+              titulo="Fatura cliente"
+              valor={checklist.fatura_cliente_emitida ? 'Emitida' : 'Pendente'}
+              detalhe="Clique para conferir"
+              cor="amarelo"
+              ativo={cardAtivo === 'FATURA_CLIENTE'}
+              onClick={() => setCardAtivo('FATURA_CLIENTE')}
+            />
+
+            <MiniCard
+              titulo="Pagamento"
+              valor={checklist.pagamento_confirmado ? 'Confirmado' : 'Em aberto'}
+              detalhe="Clique para conferir"
+              cor="vermelho"
+              ativo={cardAtivo === 'PAGAMENTO'}
+              onClick={() => setCardAtivo('PAGAMENTO')}
+            />
           </div>
 
-          <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="font-black">Documentos do processo</h3>
-                <p className="text-xs font-bold text-slate-500">
-                  Cliente e admin, vinculados ao embarque
-                </p>
+          {cardAtivo === 'DOCUMENTOS' && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-black">Documentos do processo</h3>
+                  <p className="text-xs font-bold text-slate-500">
+                    Cliente e admin, vinculados ao embarque
+                  </p>
+                </div>
+
+                <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black text-blue-200">
+                  {documentosProcesso.length} arquivo(s)
+                </span>
               </div>
 
-              <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black text-blue-200">
-                {documentosProcesso.length} arquivo(s)
-              </span>
+              <div className="mt-4 max-h-[220px] space-y-2 overflow-y-auto pr-1">
+                {documentosProcesso.length === 0 ? (
+                  <p className="rounded-xl border border-blue-950 bg-[#071225] p-3 text-sm font-bold text-slate-400">
+                    Nenhum documento encontrado para este embarque.
+                  </p>
+                ) : (
+                  documentosProcesso.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="rounded-xl border border-blue-950 bg-[#071225] p-3"
+                    >
+                      <p className="font-black text-white">{nomeDocumento(doc)}</p>
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        Origem: {origemDocumento(doc)} · {dataDocumento(doc)}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
+          )}
 
-            <div className="mt-4 max-h-[220px] space-y-2 overflow-y-auto pr-1">
-              {documentosProcesso.length === 0 ? (
-                <p className="rounded-xl border border-blue-950 bg-[#071225] p-3 text-sm font-bold text-slate-400">
-                  Nenhum documento encontrado para este embarque.
-                </p>
-              ) : (
-                documentosProcesso.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="rounded-xl border border-blue-950 bg-[#071225] p-3"
-                  >
-                    <p className="font-black text-white">{nomeDocumento(doc)}</p>
-                    <p className="mt-1 text-xs font-bold text-slate-500">
-                      Origem: {origemDocumento(doc)} · {dataDocumento(doc)}
-                    </p>
-                  </div>
-                ))
-              )}
+          {cardAtivo === 'FATURA_TRANSPORTADORA' && (
+            <div className="mt-5 rounded-2xl border border-green-800 bg-[#020817] p-4">
+              <h3 className="font-black text-green-300">Fatura transportadora</h3>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Controle da fatura DHL/FedEx e custo do processo.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <Check
+                  label="Fatura transportadora recebida"
+                  checked={checklist.fatura_transportadora_recebida}
+                  onChange={(v) => setJson('checklist', 'fatura_transportadora_recebida', v)}
+                />
+                <Check
+                  label="Custo lançado"
+                  checked={checklist.custo_lancado}
+                  onChange={(v) => setJson('checklist', 'custo_lancado', v)}
+                />
+                <Campo
+                  label="Frete compra"
+                  value={despesas.frete_compra || despesas.frete}
+                  onChange={(v) => setJson('despesas', 'frete_compra', v)}
+                />
+              </div>
             </div>
-          </div>
+          )}
+
+          {cardAtivo === 'FATURA_CLIENTE' && (
+            <div className="mt-5 rounded-2xl border border-yellow-800 bg-[#020817] p-4">
+              <h3 className="font-black text-yellow-300">Fatura cliente</h3>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Controle do faturamento emitido para o cliente.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <Check
+                  label="Fatura cliente emitida"
+                  checked={checklist.fatura_cliente_emitida}
+                  onChange={(v) => setJson('checklist', 'fatura_cliente_emitida', v)}
+                />
+                <Campo
+                  label="Frete venda"
+                  value={despesas.frete_venda}
+                  onChange={(v) => setJson('despesas', 'frete_venda', v)}
+                />
+                <Campo
+                  label="Profit HC"
+                  value={despesas.profit_hc}
+                  onChange={(v) => setJson('despesas', 'profit_hc', v)}
+                />
+              </div>
+            </div>
+          )}
+
+          {cardAtivo === 'PAGAMENTO' && (
+            <div className="mt-5 rounded-2xl border border-red-800 bg-[#020817] p-4">
+              <h3 className="font-black text-red-300">Pagamento</h3>
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                Controle do recebimento e baixa financeira do processo.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <Check
+                  label="Pagamento confirmado"
+                  checked={checklist.pagamento_confirmado}
+                  onChange={(v) => setJson('checklist', 'pagamento_confirmado', v)}
+                />
+                <Check
+                  label="Processo finalizado"
+                  checked={checklist.processo_finalizado}
+                  onChange={(v) => setJson('checklist', 'processo_finalizado', v)}
+                />
+                <Check
+                  label="Enviado ao financeiro"
+                  checked={capa.enviado_financeiro}
+                  onChange={(v) => setCampo('enviado_financeiro', v)}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-4">
             <Campo label="Frete compra" value={despesas.frete_compra || despesas.frete} onChange={(v) => setJson('despesas', 'frete_compra', v)} />
@@ -618,7 +733,21 @@ function Linha() {
   return <div className="h-[2px] flex-1 bg-slate-700" />
 }
 
-function MiniCard({ titulo, valor, detalhe, cor }: { titulo: string; valor: string; detalhe: string; cor: string }) {
+function MiniCard({
+  titulo,
+  valor,
+  detalhe,
+  cor,
+  ativo = false,
+  onClick,
+}: {
+  titulo: string
+  valor: string
+  detalhe: string
+  cor: string
+  ativo?: boolean
+  onClick?: () => void
+}) {
   const cores: Record<string, string> = {
     azul: 'border-blue-700 text-blue-300',
     verde: 'border-green-700 text-green-300',
@@ -627,10 +756,16 @@ function MiniCard({ titulo, valor, detalhe, cor }: { titulo: string; valor: stri
   }
 
   return (
-    <div className={`rounded-2xl border bg-[#020817] p-4 ${cores[cor] || cores.azul}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border bg-[#020817] p-4 text-left transition hover:-translate-y-0.5 hover:bg-blue-950/40 ${
+        cores[cor] || cores.azul
+      } ${ativo ? 'ring-2 ring-blue-400' : ''}`}
+    >
       <p className="text-sm font-black text-white">{titulo}</p>
       <p className="mt-5 text-2xl font-black">{valor}</p>
       <p className="mt-4 text-sm font-bold opacity-80">{detalhe} ›</p>
-    </div>
+    </button>
   )
 }
