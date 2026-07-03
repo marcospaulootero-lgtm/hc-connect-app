@@ -2387,7 +2387,7 @@ export default function FaturasPage() {
     recalcularItensPorTaxa(valor)
   }
 
-  async function carregarCambioAutomaticoEmissor(tipoPreferencial?: string, aplicarAutomaticamente = false) {
+  async function carregarCambioAutomaticoEmissor(tipoPreferencial?: string, aplicarAutomaticamente = true) {
     setCarregandoCambioEmissor(true)
 
     try {
