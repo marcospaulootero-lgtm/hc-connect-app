@@ -13,6 +13,7 @@ export default function OnlinePresence({ area }: Props) {
 
   useEffect(() => {
     let ativo = true
+    let historicoRegistrado = false
 
     async function atualizarPresenca() {
       try {
@@ -30,18 +31,42 @@ export default function OnlinePresence({ area }: Props) {
 
         if (perfil?.ativo === false) return
 
+        const nome = perfil?.nome || user.email || 'Usuário'
+        const email = perfil?.email || user.email || ''
+        const tipoAcesso = perfil?.tipo_acesso || perfil?.tipo_usuario || area
+        const paginaAtual = pathname || '/'
+
         await supabase.from('usuarios_online').upsert(
           {
             user_id: user.id,
-            nome: perfil?.nome || user.email || 'Usuário',
-            email: perfil?.email || user.email || '',
-            tipo_acesso: perfil?.tipo_acesso || perfil?.tipo_usuario || area,
+            nome,
+            email,
+            tipo_acesso: tipoAcesso,
             area,
-            pagina_atual: pathname || '/',
+            pagina_atual: paginaAtual,
             ultima_atividade: new Date().toISOString(),
           },
           { onConflict: 'user_id' }
         )
+
+        if (!historicoRegistrado) {
+          historicoRegistrado = true
+
+          await supabase.from('presenca_historico').insert({
+            usuario_id: user.id,
+            nome,
+            email,
+            tipo_acesso: tipoAcesso,
+            area,
+            pagina: paginaAtual,
+            acao: 'ENTROU',
+            status: 'ATIVO',
+            metadata: {
+              user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+              origem: 'OnlinePresence',
+            },
+          })
+        }
       } catch (error) {
         console.error('Erro ao atualizar presença online:', error)
       }

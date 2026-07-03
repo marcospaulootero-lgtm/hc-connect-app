@@ -13,6 +13,19 @@ type UsuarioOnline = {
   ultima_atividade: string | null
 }
 
+type HistoricoPresenca = {
+  id: string
+  usuario_id: string | null
+  nome: string | null
+  email: string | null
+  tipo_acesso: string | null
+  area: string | null
+  pagina: string | null
+  acao: string | null
+  status: string | null
+  criado_em: string | null
+}
+
 const LIMITE_ONLINE_MS = 2 * 60 * 1000
 
 function tempoRelativo(data: string | null) {
@@ -27,6 +40,15 @@ function tempoRelativo(data: string | null) {
   return `ativo há ${minutos}min`
 }
 
+function formatarDataHora(data: string | null) {
+  if (!data) return '-'
+
+  const d = new Date(data)
+  if (Number.isNaN(d.getTime())) return '-'
+
+  return d.toLocaleString('pt-BR')
+}
+
 function nomePagina(pathname: string | null) {
   if (!pathname) return 'Portal'
 
@@ -34,6 +56,8 @@ function nomePagina(pathname: string | null) {
     '/admin': 'Dashboard admin',
     '/admin/financeiro': 'Financeiro',
     '/admin/embarques': 'Embarques',
+    '/admin/capas-processos': 'Capas de Processo',
+    '/admin/embarque-direto': 'Embarque Direto',
     '/admin/cotacoes': 'Cotações',
     '/admin/faturas': 'Faturas clientes',
     '/admin/faturas-transportadoras': 'Faturas DHL/FedEx',
@@ -52,7 +76,7 @@ function nomePagina(pathname: string | null) {
   return mapa[pathname] || pathname
 }
 
-function labelTipo(usuario: UsuarioOnline) {
+function labelTipo(usuario: { tipo_acesso?: string | null; area?: string | null }) {
   const tipo = String(usuario.tipo_acesso || usuario.area || '').toLowerCase()
 
   if (tipo.includes('admin')) return 'Admin'
@@ -63,8 +87,10 @@ function labelTipo(usuario: UsuarioOnline) {
 
 export default function AdminUsuariosOnline() {
   const [usuarios, setUsuarios] = useState<UsuarioOnline[]>([])
+  const [historico, setHistorico] = useState<HistoricoPresenca[]>([])
   const [loading, setLoading] = useState(true)
   const [aberto, setAberto] = useState(false)
+  const [aba, setAba] = useState<'ONLINE' | 'HISTORICO'>('ONLINE')
   const [agora, setAgora] = useState(Date.now())
 
   async function carregarOnline() {
@@ -83,18 +109,35 @@ export default function AdminUsuariosOnline() {
     setLoading(false)
   }
 
+  async function carregarHistorico() {
+    const { data, error } = await supabase
+      .from('presenca_historico')
+      .select('*')
+      .order('criado_em', { ascending: false })
+      .limit(80)
+
+    if (error) {
+      console.error('Erro ao carregar histórico de presença:', error.message)
+      return
+    }
+
+    setHistorico((data || []) as HistoricoPresenca[])
+  }
+
   useEffect(() => {
     carregarOnline()
+    carregarHistorico()
 
     const intervaloBusca = setInterval(() => {
       carregarOnline()
+      carregarHistorico()
     }, 15000)
 
     const intervaloTempo = setInterval(() => {
       setAgora(Date.now())
     }, 1000)
 
-    const canal = supabase
+    const canalOnline = supabase
       .channel('usuarios-online-admin')
       .on(
         'postgres_changes',
@@ -109,10 +152,26 @@ export default function AdminUsuariosOnline() {
       )
       .subscribe()
 
+    const canalHistorico = supabase
+      .channel('presenca-historico-admin')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'presenca_historico',
+        },
+        () => {
+          carregarHistorico()
+        }
+      )
+      .subscribe()
+
     return () => {
       clearInterval(intervaloBusca)
       clearInterval(intervaloTempo)
-      supabase.removeChannel(canal)
+      supabase.removeChannel(canalOnline)
+      supabase.removeChannel(canalHistorico)
     }
   }, [])
 
@@ -161,15 +220,17 @@ export default function AdminUsuariosOnline() {
       </button>
 
       {aberto && (
-        <div className="absolute right-0 top-full mt-3 w-[620px] max-w-[92vw] rounded-3xl border border-blue-800 bg-[#071225] p-4 text-white shadow-2xl">
+        <div className="absolute right-0 top-full mt-3 w-[680px] max-w-[92vw] rounded-3xl border border-blue-800 bg-[#071225] p-4 text-white shadow-2xl">
           <div className="mb-4 flex items-start justify-between gap-4 border-b border-blue-900 pb-3">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">
                 Presença em tempo real
               </p>
-              <h3 className="text-xl font-black">Usuários online agora</h3>
+              <h3 className="text-xl font-black">
+                {aba === 'ONLINE' ? 'Usuários online agora' : 'Histórico de acessos'}
+              </h3>
               <p className="mt-1 text-xs text-slate-400">
-                Atividade registrada nos últimos 2 minutos.
+                Online agora e registros de entrada no portal.
               </p>
             </div>
 
@@ -191,64 +252,131 @@ export default function AdminUsuariosOnline() {
             </div>
           </div>
 
-          {loading ? (
-            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
-              Carregando presença online...
-            </div>
-          ) : onlineAgora.length === 0 ? (
-            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
-              Nenhum usuário online agora.
-            </div>
+          <div className="mb-4 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setAba('ONLINE')}
+              className={`rounded-xl px-4 py-2 text-xs font-black ${
+                aba === 'ONLINE'
+                  ? 'bg-blue-600 text-white'
+                  : 'border border-blue-900 bg-[#020817] text-slate-300'
+              }`}
+            >
+              Online agora
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAba('HISTORICO')}
+              className={`rounded-xl px-4 py-2 text-xs font-black ${
+                aba === 'HISTORICO'
+                  ? 'bg-blue-600 text-white'
+                  : 'border border-blue-900 bg-[#020817] text-slate-300'
+              }`}
+            >
+              Histórico
+            </button>
+          </div>
+
+          {aba === 'ONLINE' ? (
+            loading ? (
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
+                Carregando presença online...
+              </div>
+            ) : onlineAgora.length === 0 ? (
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
+                Nenhum usuário online agora.
+              </div>
+            ) : (
+              <div className="max-h-[360px] space-y-3 overflow-auto pr-1">
+                {onlineAgora.map((usuario) => (
+                  <div
+                    key={usuario.user_id}
+                    className="rounded-2xl border border-blue-900 bg-[#020817] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black text-white">
+                          {usuario.nome || usuario.email || 'Usuário'}
+                        </p>
+                        <p className="text-xs text-slate-500">{usuario.email || '-'}</p>
+                      </div>
+
+                      <span className="rounded-full bg-green-500/15 px-3 py-1 text-xs font-black uppercase text-green-300">
+                        online
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
+                      <InfoMini label="Tipo" value={labelTipo(usuario)} />
+                      <InfoMini label="Atividade" value={tempoRelativo(usuario.ultima_atividade)} />
+                      <InfoMini label="Página atual" value={nomePagina(usuario.pagina_atual)} destaque />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
           ) : (
-            <div className="max-h-[360px] space-y-3 overflow-auto pr-1">
-              {onlineAgora.map((usuario) => (
-                <div
-                  key={usuario.user_id}
-                  className="rounded-2xl border border-blue-900 bg-[#020817] p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-black text-white">
-                        {usuario.nome || usuario.email || 'Usuário'}
-                      </p>
-                      <p className="text-xs text-slate-500">{usuario.email || '-'}</p>
-                    </div>
-
-                    <span className="rounded-full bg-green-500/15 px-3 py-1 text-xs font-black uppercase text-green-300">
-                      online
-                    </span>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
-                    <div className="rounded-xl bg-[#071225] p-2">
-                      <p className="font-bold text-slate-500">Tipo</p>
-                      <p className="font-black text-slate-100">{labelTipo(usuario)}</p>
-                    </div>
-
-                    <div className="rounded-xl bg-[#071225] p-2">
-                      <p className="font-bold text-slate-500">Atividade</p>
-                      <p className="font-black text-slate-100">
-                        {tempoRelativo(usuario.ultima_atividade)}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl bg-[#071225] p-2">
-                      <p className="font-bold text-slate-500">Página atual</p>
-                      <p className="font-black text-blue-300">
-                        {nomePagina(usuario.pagina_atual)}
-                      </p>
-                    </div>
-                  </div>
+            <div className="max-h-[420px] space-y-3 overflow-auto pr-1">
+              {historico.length === 0 ? (
+                <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
+                  Nenhum histórico registrado ainda.
                 </div>
-              ))}
+              ) : (
+                historico.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-blue-900 bg-[#020817] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black text-white">
+                          {item.nome || item.email || 'Usuário'}
+                        </p>
+                        <p className="text-xs text-slate-500">{item.email || '-'}</p>
+                      </div>
+
+                      <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black uppercase text-blue-200">
+                        {item.acao || 'ENTROU'}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-4">
+                      <InfoMini label="Tipo" value={labelTipo(item)} />
+                      <InfoMini label="Área" value={item.area || '-'} />
+                      <InfoMini label="Página" value={nomePagina(item.pagina)} destaque />
+                      <InfoMini label="Entrada" value={formatarDataHora(item.criado_em)} />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
 
           <p className="mt-3 text-right text-[11px] text-slate-500">
-            Passe o mouse para manter aberto ou clique no resumo para fixar temporariamente.
+            O histórico registra entrada e troca de página no portal.
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+function InfoMini({
+  label,
+  value,
+  destaque = false,
+}: {
+  label: string
+  value: string
+  destaque?: boolean
+}) {
+  return (
+    <div className="rounded-xl bg-[#071225] p-2">
+      <p className="font-bold text-slate-500">{label}</p>
+      <p className={`font-black ${destaque ? 'text-blue-300' : 'text-slate-100'}`}>
+        {value}
+      </p>
     </div>
   )
 }
