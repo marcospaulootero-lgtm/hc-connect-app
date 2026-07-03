@@ -188,3 +188,16 @@ button:hover {
     padding: 18px;
   }
 }
+
+/* HC Connect - melhora contraste do ícone de calendário em campos de data */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(2);
+  opacity: 0.95;
+  cursor: pointer;
+}
