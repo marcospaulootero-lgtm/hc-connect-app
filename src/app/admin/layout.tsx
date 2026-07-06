@@ -15,6 +15,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [carregando, setCarregando] = useState(true)
   const [usuario, setUsuario] = useState<any>(null)
   const [menuMobileAberto, setMenuMobileAberto] = useState(false)
+  const [notificacoesMenu, setNotificacoesMenu] = useState({
+    cotacoes: 0,
+  })
 
   useEffect(() => {
     verificarAcesso()
@@ -23,6 +26,29 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMenuMobileAberto(false)
   }, [pathname])
+
+  useEffect(() => {
+    carregarNotificacoesMenu()
+
+    const canal = supabase
+      .channel('notificacoes-menu-admin')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cotacoes',
+        },
+        () => {
+          carregarNotificacoesMenu()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
+  }, [])
 
   async function verificarAcesso() {
     const {
@@ -52,6 +78,30 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     })
 
     setCarregando(false)
+  }
+
+  async function carregarNotificacoesMenu() {
+    try {
+      const { count, error } = await supabase
+        .from('cotacoes')
+        .select('id', { count: 'exact', head: true })
+        .in('status', [
+          'AGUARDANDO ANÁLISE',
+          'AGUARDANDO ANALISE',
+          'AGUARDANDO_ANALISE',
+        ])
+
+      if (error) {
+        console.error('Erro ao carregar notificações do menu:', error.message)
+        return
+      }
+
+      setNotificacoesMenu({
+        cotacoes: count || 0,
+      })
+    } catch (error) {
+      console.error('Erro ao carregar notificações do menu:', error)
+    }
   }
 
   async function sair() {
@@ -116,7 +166,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <MenuContent pathname={pathname} />
+        <MenuContent pathname={pathname} notificacoes={notificacoesMenu} />
 
         <UserBox usuario={usuario} sair={sair} />
       </aside>
@@ -128,7 +178,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <p className="text-slate-500 mt-1">Painel Administrativo</p>
         </div>
 
-        <MenuContent pathname={pathname} />
+        <MenuContent pathname={pathname} notificacoes={notificacoesMenu} />
 
         <UserBox usuario={usuario} sair={sair} />
       </aside>
@@ -142,7 +192,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   )
 }
 
-function MenuContent({ pathname }: { pathname: string | null }) {
+function MenuContent({
+  pathname,
+  notificacoes,
+}: {
+  pathname: string | null
+  notificacoes: { cotacoes: number }
+}) {
   return (
     <nav className="space-y-6 overflow-y-auto pr-1 pb-6">
       <MenuGroup titulo="Visão geral">
@@ -189,6 +245,7 @@ function MenuContent({ pathname }: { pathname: string | null }) {
           label="Cotações"
           descricao="Pedidos e aprovações"
           icon="📄"
+          badge={notificacoes.cotacoes}
           pathname={pathname}
         />
         <MenuItem
@@ -303,6 +360,7 @@ function MenuItem({
   icon,
   pathname,
   destaque = false,
+  badge = 0,
 }: {
   href: string
   label: string
@@ -310,6 +368,7 @@ function MenuItem({
   icon: string
   pathname: string | null
   destaque?: boolean
+  badge?: number
 }) {
   const ativo =
     pathname === href ||
@@ -342,6 +401,11 @@ function MenuItem({
           </span>
         ) : null}
       </span>
+          {Number(badge) > 0 ? (
+        <span className="absolute right-3 top-3 min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-black leading-none text-white shadow-lg">
+          {Number(badge) > 99 ? '99+' : badge}
+        </span>
+      ) : null}
     </Link>
   )
 }
