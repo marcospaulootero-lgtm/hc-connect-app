@@ -185,6 +185,32 @@ const TIPOS_EXTRATO = [
   { value: 'AJUSTE_CAIXA', label: 'Ajustes de caixa' },
 ]
 
+
+function textoMesAnoProcessos(valor: string) {
+  if (!valor) return 'Todos os meses'
+
+  const [ano, mes] = valor.split('-')
+  const nomes = [
+    'Janeiro',
+    'Fevereiro',
+    'Março',
+    'Abril',
+    'Maio',
+    'Junho',
+    'Julho',
+    'Agosto',
+    'Setembro',
+    'Outubro',
+    'Novembro',
+    'Dezembro',
+  ]
+
+  const indice = Number(mes) - 1
+  const nome = nomes[indice] || mes
+
+  return `${nome}/${ano}`
+}
+
 export default function FinanceiroPage() {
   const [lancamentos, setLancamentos] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
@@ -211,6 +237,7 @@ export default function FinanceiroPage() {
   const [filtroTransportadora, setFiltroTransportadora] = useState<string[]>([])
   const [filtroDespachante, setFiltroDespachante] = useState<string[]>([])
   const [filtroServico, setFiltroServico] = useState<string[]>([])
+  const [filtroMesProcessos, setFiltroMesProcessos] = useState('')
 
   const [buscaMovimento, setBuscaMovimento] = useState('')
   const [filtroMesMovimento, setFiltroMesMovimento] = useState<string[]>([])
@@ -2499,6 +2526,25 @@ export default function FinanceiroPage() {
       const passaDespachante = filtraMultipla(filtroDespachante, item.despachante)
       const passaServico = filtraServicoMultipla(filtroServico, item.servico)
 
+      const mesesProcessoFiltro = [
+        item.mes_referencia,
+        mesReferenciaFinanceira(item.mes_profit),
+        mesReferenciaFinanceira(item.recebimento),
+        mesReferenciaFinanceira(item.recebimento_cliente),
+        mesReferenciaFinanceira(item.data_recebimento),
+        mesReferenciaFinanceira(item.data_pagamento),
+        mesReferenciaFinanceira(item.vencimento_cobranca),
+        mesReferenciaFinanceira(item.vencimento_cliente),
+        mesReferenciaFinanceira(item.vencimento),
+      ]
+        .map((mes) => String(mes || '').slice(0, 7))
+        .filter(Boolean)
+
+      const passaMesProcessos =
+        !filtroMesProcessos || mesesProcessoFiltro.includes(filtroMesProcessos)
+
+      if (!passaMesProcessos) return false
+
       return (
         passaAno &&
         passaAba &&
@@ -2517,6 +2563,7 @@ export default function FinanceiroPage() {
     filtroTransportadora,
     filtroDespachante,
     filtroServico,
+    filtroMesProcessos,
     anoFinanceiro,
   ])
 
@@ -3615,6 +3662,7 @@ export default function FinanceiroPage() {
         titulo: 'Processos faturados filtrados',
         subtitulo: 'Relatório de processos, recebimentos, custos e Profit HC conforme os filtros aplicados.',
         filtros: [
+          { label: 'Mês processos faturados', valor: filtroMesProcessos ? textoMesAnoProcessos(filtroMesProcessos) : 'Todos os meses' },
           { label: 'Status', valor: filtroStatusProcessos.length > 0 ? textoFiltroMultiplo(filtroStatusProcessos, STATUS_PROCESSOS) : (aba === 'TODOS' ? 'Todos' : aba) },
           { label: 'Busca', valor: busca || 'Todas' },
           { label: 'Transportadora', valor: textoFiltroMultiplo(filtroTransportadora, transportadoras.map((item: any) => ({ value: String(item), label: String(item) })), 'Todas') },
@@ -4614,7 +4662,37 @@ export default function FinanceiroPage() {
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-5">
               <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviço..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
-              <MultiSelect
+              
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-3">
+                <label className="block text-[11px] font-black uppercase tracking-widest text-slate-400">
+                  Mês do relatório
+                </label>
+
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="month"
+                    value={filtroMesProcessos}
+                    onChange={(e) => setFiltroMesProcessos(e.target.value)}
+                    className="w-full rounded-xl border border-blue-900 bg-[#071225] px-3 py-3 text-sm font-black text-white outline-none"
+                  />
+
+                  {filtroMesProcessos ? (
+                    <button
+                      type="button"
+                      onClick={() => setFiltroMesProcessos('')}
+                      className="rounded-xl bg-slate-700 px-3 py-2 text-xs font-black hover:bg-slate-600"
+                    >
+                      Limpar
+                    </button>
+                  ) : null}
+                </div>
+
+                <p className="mt-2 text-[11px] font-bold text-slate-500">
+                  {filtroMesProcessos ? textoMesAnoProcessos(filtroMesProcessos) : 'Todos os meses do ano selecionado'}
+                </p>
+              </div>
+
+<MultiSelect
                 label="Status"
                 values={filtroStatusProcessos}
                 onChange={(valores) => { setFiltroStatusProcessos(valores); if (valores.length > 0) setAba('TODOS'); setPagina(1) }}
