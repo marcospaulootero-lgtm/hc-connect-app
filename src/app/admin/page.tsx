@@ -1152,7 +1152,7 @@ export default function DashboardPage() {
       totalPeriodo === 0
         ? 'Nenhum embarque no período. Ação: revisar clientes parados, cotações abertas e prospecção.'
         : clientesPeriodo <= 3
-          ? 'Operação concentrada em poucos clientes. Ação: recuperar clientes parados e aumentar recorrência.'
+          ? 'Pouco movimento no período. Ação: revisar clientes parados, cobrar follow-up e recuperar recorrência.'
           : concentracaoTopCliente >= 40
             ? `Atenção: ${clienteMaisAtivo?.nome} concentra ${concentracaoTopCliente.toFixed(0)}% dos embarques.`
             : diasSemEmbarque > dias.length * 0.45
@@ -1600,9 +1600,9 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-black tracking-tight">Ritmo da operação</h2>
+                  <h2 className="text-2xl font-black tracking-tight">Movimento da operação</h2>
                   <p className="mt-1 text-sm text-slate-400">
-                    Volume por dia, concentração de clientes e pontos de ação.
+                    Entrada de embarques, dias parados e pontos de ação comercial.
                   </p>
                 </div>
               </div>
@@ -1693,8 +1693,8 @@ export default function DashboardPage() {
 
             <div className="mt-4 grid grid-cols-2 gap-3 border-y border-blue-950 py-3">
               <MetricDashboard icone="🚚" valor={String(ritmoOperacao.totalPeriodo)} titulo="Total período" detalhe="Embarques" />
-              <MetricDashboard icone="📈" valor={ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} titulo="Média diária" detalhe="Embarques/dia" />
-              <MetricDashboard icone="🗓️" valor={String(ritmoOperacao.diasSemEmbarque)} titulo="Dias sem embarque" detalhe="No período" />
+              <MetricDashboard icone="📈" valor={ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} titulo="Média por dia" detalhe="Ritmo do período" />
+              <MetricDashboard icone="🗓️" valor={String(ritmoOperacao.diasSemEmbarque)} titulo="Dias parados" detalhe="Sem novo embarque" />
               <MetricDashboard icone="⚖️" valor={`${ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`} titulo="Peso período" detalhe="Total embarcado" />
             </div>
 
