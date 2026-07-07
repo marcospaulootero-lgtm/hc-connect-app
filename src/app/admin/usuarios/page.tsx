@@ -13,6 +13,7 @@ export default function UsuariosPage() {
   const [filtroTipo, setFiltroTipo] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroDashboard, setFiltroDashboard] = useState('')
+  const [perfilExpandido, setPerfilExpandido] = useState<string | null>(null)
 
   useEffect(() => {
     aplicarFiltrosDaDashboard()
@@ -143,12 +144,81 @@ export default function UsuariosPage() {
     ).trim()
   }
 
+  function valorPerfilUsuario(usuario: any, campos: string[]) {
+    for (const campo of campos) {
+      const valor = String(usuario?.[campo] || '').trim()
+      if (valor) return valor
+    }
+
+    return ''
+  }
+
+  function ehClientePortal(usuario: any) {
+    return String(usuario?.tipo_acesso || 'cliente').toLowerCase() === 'cliente'
+  }
+
+  function contatoPrincipalUsuario(usuario: any) {
+    return valorPerfilUsuario(usuario, ['contato_responsavel', 'responsavel', 'nome']) || usuario?.email || '-'
+  }
+
+  function telefonePrincipalUsuario(usuario: any) {
+    return valorPerfilUsuario(usuario, ['telefone', 'whatsapp', 'celular', 'phone'])
+  }
+
+  function whatsappUsuario(usuario: any) {
+    return valorPerfilUsuario(usuario, ['whatsapp', 'telefone', 'celular'])
+  }
+
+  function emailContatoUsuario(usuario: any) {
+    return valorPerfilUsuario(usuario, ['email_contato', 'email'])
+  }
+
+  function enderecoCompletoUsuario(usuario: any) {
+    const endereco = valorPerfilUsuario(usuario, ['endereco', 'logradouro'])
+    const numero = valorPerfilUsuario(usuario, ['numero'])
+    const complemento = valorPerfilUsuario(usuario, ['complemento'])
+    const bairro = valorPerfilUsuario(usuario, ['bairro'])
+    const cidade = valorPerfilUsuario(usuario, ['cidade'])
+    const estado = valorPerfilUsuario(usuario, ['estado', 'uf'])
+    const cep = valorPerfilUsuario(usuario, ['cep'])
+
+    const cidadeEstado = [cidade, estado].filter(Boolean).join(' / ')
+
+    return [
+      [endereco, numero].filter(Boolean).join(', '),
+      complemento,
+      bairro,
+      cidadeEstado,
+      cep ? 'CEP ' + cep : '',
+    ].filter(Boolean).join(' - ')
+  }
+
+  function temDadosPerfilCliente(usuario: any) {
+    return Boolean(
+      valorPerfilUsuario(usuario, [
+        'contato_responsavel',
+        'telefone',
+        'whatsapp',
+        'email_contato',
+        'endereco',
+        'cidade',
+        'estado',
+        'cep',
+      ])
+    )
+  }
+
   const usuariosFiltrados = useMemo(() => {
     return usuarios.filter((usuario) => {
       const texto = `
         ${usuario.nome}
         ${usuario.email}
         ${empresaUsuario(usuario)}
+        ${contatoPrincipalUsuario(usuario)}
+        ${telefonePrincipalUsuario(usuario)}
+        ${whatsappUsuario(usuario)}
+        ${emailContatoUsuario(usuario)}
+        ${enderecoCompletoUsuario(usuario)}
         ${usuario.tipo_acesso}
       `.toLowerCase()
 
@@ -224,6 +294,121 @@ export default function UsuariosPage() {
         <Card titulo="Clientes" valor={totalClientes} detalhe="Acesso ao portal" icone="🏢" />
         <Card titulo="Ativos" valor={totalAtivos} detalhe="Podem acessar" icone="✅" />
         <Card titulo="Inativos" valor={totalInativos} detalhe="Acesso bloqueado" icone="🚫" />
+      </section>
+
+      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+              Dados atualizados pelo cliente
+            </p>
+
+            <h2 className="mt-2 text-2xl font-black">
+              Perfil cadastral dos clientes
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-400">
+              Aqui aparecem telefone, WhatsApp, e-mail de contato e endereço informados pelo próprio cliente no portal.
+            </p>
+          </div>
+
+          <span className="rounded-full border border-blue-800 bg-blue-600/10 px-4 py-2 text-sm font-black text-blue-200">
+            {usuariosFiltrados.filter((usuario: any) => ehClientePortal(usuario)).length} cliente(s)
+          </span>
+        </div>
+
+        {usuariosFiltrados.filter((usuario: any) => ehClientePortal(usuario)).length === 0 ? (
+          <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5 text-slate-400">
+            Nenhum cliente encontrado com os filtros atuais.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {usuariosFiltrados
+              .filter((usuario: any) => ehClientePortal(usuario))
+              .map((usuario: any) => {
+                const idPerfil = String(usuario.id)
+                const expandido = perfilExpandido === idPerfil
+                const telefone = telefonePrincipalUsuario(usuario)
+                const whatsapp = whatsappUsuario(usuario)
+                const emailContato = emailContatoUsuario(usuario)
+                const endereco = enderecoCompletoUsuario(usuario)
+                const perfilCompleto = temDadosPerfilCliente(usuario)
+
+                return (
+                  <div
+                    key={idPerfil + '-perfil-cliente'}
+                    className="rounded-2xl border border-blue-900 bg-[#020817] p-5"
+                  >
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-black text-white">
+                            {usuario.nome || usuario.email || 'Cliente sem nome'}
+                          </h3>
+
+                          <span
+                            className={
+                              perfilCompleto
+                                ? 'rounded-full bg-green-600/20 px-3 py-1 text-[11px] font-black uppercase text-green-300'
+                                : 'rounded-full bg-yellow-600/20 px-3 py-1 text-[11px] font-black uppercase text-yellow-300'
+                            }
+                          >
+                            {perfilCompleto ? 'Perfil atualizado' : 'Dados incompletos'}
+                          </span>
+                        </div>
+
+                        <p className="mt-1 text-sm font-bold text-slate-400">
+                          Login: {usuario.email || '-'}
+                        </p>
+
+                        <p className="mt-1 text-sm font-bold text-slate-400">
+                          Responsável: {contatoPrincipalUsuario(usuario)}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setPerfilExpandido(expandido ? null : idPerfil)}
+                        className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black hover:bg-blue-500"
+                      >
+                        {expandido ? 'Ocultar perfil' : 'Ver perfil'}
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <MiniInfoUsuario titulo="Telefone" valor={telefone || '-'} />
+                      <MiniInfoUsuario titulo="WhatsApp" valor={whatsapp || '-'} />
+                      <MiniInfoUsuario titulo="E-mail contato" valor={emailContato || '-'} />
+                    </div>
+
+                    {expandido && (
+                      <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <MiniInfoUsuario titulo="Empresa" valor={empresaUsuario(usuario) || usuario.nome || '-'} />
+                          <MiniInfoUsuario titulo="Tipo de acesso" valor={usuario.tipo_acesso || 'cliente'} />
+                          <MiniInfoUsuario titulo="Responsável" valor={contatoPrincipalUsuario(usuario)} />
+                          <MiniInfoUsuario titulo="E-mail de login" valor={usuario.email || '-'} />
+                          <MiniInfoUsuario titulo="Telefone" valor={telefone || '-'} />
+                          <MiniInfoUsuario titulo="WhatsApp" valor={whatsapp || '-'} />
+                          <MiniInfoUsuario titulo="E-mail de contato" valor={emailContato || '-'} />
+                          <MiniInfoUsuario titulo="Cidade / UF" valor={[usuario.cidade, usuario.estado].filter(Boolean).join(' / ') || '-'} />
+                        </div>
+
+                        <div className="mt-3 rounded-xl border border-blue-900 bg-[#020817] p-3">
+                          <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                            Endereço completo
+                          </p>
+                          <p className="mt-1 break-words text-sm font-bold text-slate-200">
+                            {endereco || '-'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+          </div>
+        )}
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
@@ -422,6 +607,19 @@ function Card({ titulo, valor, detalhe, icone }: any) {
 
         <div className="text-4xl">{icone}</div>
       </div>
+    </div>
+  )
+}
+
+function MiniInfoUsuario({ titulo, valor }: { titulo: string; valor: any }) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+        {titulo}
+      </p>
+      <p className="mt-1 break-words text-sm font-bold text-slate-200">
+        {valor || '-'}
+      </p>
     </div>
   )
 }
