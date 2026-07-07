@@ -237,6 +237,7 @@ export default function FinanceiroPage() {
   const [filtroTransportadora, setFiltroTransportadora] = useState<string[]>([])
   const [filtroDespachante, setFiltroDespachante] = useState<string[]>([])
   const [filtroServico, setFiltroServico] = useState<string[]>([])
+  const [filtroAnoProcessos, setFiltroAnoProcessos] = useState(String(new Date().getFullYear()))
   const [filtroMesProcessos, setFiltroMesProcessos] = useState('')
 
   const [buscaMovimento, setBuscaMovimento] = useState('')
@@ -2540,10 +2541,19 @@ export default function FinanceiroPage() {
         .map((mes) => String(mes || '').slice(0, 7))
         .filter(Boolean)
 
+      const anosProcessoFiltro = mesesProcessoFiltro
+        .map((mes) => String(mes || '').slice(0, 4))
+        .filter(Boolean)
+
+      const passaAnoProcessos =
+        !filtroAnoProcessos ||
+        filtroAnoProcessos === 'TODOS' ||
+        anosProcessoFiltro.includes(filtroAnoProcessos)
+
       const passaMesProcessos =
         !filtroMesProcessos || mesesProcessoFiltro.includes(filtroMesProcessos)
 
-      if (!passaMesProcessos) return false
+      if (!passaAnoProcessos || !passaMesProcessos) return false
 
       return (
         passaAno &&
@@ -2563,6 +2573,7 @@ export default function FinanceiroPage() {
     filtroTransportadora,
     filtroDespachante,
     filtroServico,
+    filtroAnoProcessos,
     filtroMesProcessos,
     anoFinanceiro,
   ])
@@ -3662,6 +3673,7 @@ export default function FinanceiroPage() {
         titulo: 'Processos faturados filtrados',
         subtitulo: 'Relatório de processos, recebimentos, custos e Profit HC conforme os filtros aplicados.',
         filtros: [
+          { label: 'Ano processos faturados', valor: filtroAnoProcessos === 'TODOS' ? 'Todos os anos' : filtroAnoProcessos },
           { label: 'Mês processos faturados', valor: filtroMesProcessos ? textoMesAnoProcessos(filtroMesProcessos) : 'Todos os meses' },
           { label: 'Status', valor: filtroStatusProcessos.length > 0 ? textoFiltroMultiplo(filtroStatusProcessos, STATUS_PROCESSOS) : (aba === 'TODOS' ? 'Todos' : aba) },
           { label: 'Busca', valor: busca || 'Todas' },
@@ -4663,6 +4675,40 @@ export default function FinanceiroPage() {
               <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviço..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
               
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-3">
+                <label className="block text-[11px] font-black uppercase tracking-widest text-slate-400">
+                  Ano do relatório
+                </label>
+
+                <select
+                  value={filtroAnoProcessos}
+                  onChange={(e) => {
+                    const novoAno = e.target.value
+                    setFiltroAnoProcessos(novoAno)
+
+                    if (
+                      filtroMesProcessos &&
+                      novoAno !== 'TODOS' &&
+                      !filtroMesProcessos.startsWith(novoAno)
+                    ) {
+                      setFiltroMesProcessos('')
+                    }
+                  }}
+                  className="mt-2 w-full rounded-xl border border-blue-900 bg-[#071225] px-3 py-3 text-sm font-black text-white outline-none"
+                >
+                  <option value="TODOS">Todos os anos</option>
+                  <option value="2026">2026</option>
+                  <option value="2025">2025</option>
+                  <option value="2024">2024</option>
+                  <option value="2023">2023</option>
+                  <option value="2022">2022</option>
+                </select>
+
+                <p className="mt-2 text-[11px] font-bold text-slate-500">
+                  {filtroAnoProcessos === 'TODOS' ? 'Todos os anos permitidos' : `Processos de ${filtroAnoProcessos}`}
+                </p>
+              </div>
+
               <div className="rounded-2xl border border-blue-900 bg-[#020817] p-3">
                 <label className="block text-[11px] font-black uppercase tracking-widest text-slate-400">
                   Mês do relatório
