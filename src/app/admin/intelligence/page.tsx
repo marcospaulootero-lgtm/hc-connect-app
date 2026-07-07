@@ -1307,7 +1307,7 @@ export default function IntelligencePage() {
           <Kpi titulo="Ticket médio" valor={moeda(resumoCarteira.ticketMedio)} detalhe="Receita / processos pagos" icone="🧾" cor="blue" />
         </section>
 
-        <IntelligenceCRM />
+        <IntelligenceCRMComercial />
 
         <section className="grid grid-cols-1 2xl:grid-cols-5 gap-6 mb-6">
           <Card className="2xl:col-span-3">
@@ -1890,5 +1890,624 @@ function RankingOperacional({ lista, moeda, vazio }: any) {
         </div>
       ))}
     </div>
+  )
+}
+
+
+function IntelligenceCRMComercial() {
+  const [crmClientes, setCrmClientes] = useState<any[]>([])
+  const [crmInteracoes, setCrmInteracoes] = useState<any[]>([])
+  const [carregandoCrm, setCarregandoCrm] = useState(false)
+  const [modoCadastro, setModoCadastro] = useState(false)
+  const [clienteSelecionado, setClienteSelecionado] = useState<any>(null)
+
+  const [filtroStatusCrm, setFiltroStatusCrm] = useState('TODOS')
+  const [filtroTipoAcaoCrm, setFiltroTipoAcaoCrm] = useState('TODOS')
+  const [buscaCrm, setBuscaCrm] = useState('')
+
+  const [formCrm, setFormCrm] = useState({
+    cliente: '',
+    nome_contato: '',
+    telefone: '',
+    email: '',
+    origem: '',
+    servico_interesse: '',
+    status_comercial: 'NOVO_LEAD',
+    tipo_acao: 'PROSPECCAO',
+    proxima_acao: '',
+    data_proxima_acao: '',
+    responsavel: '',
+    observacoes: '',
+  })
+
+  const [formInteracao, setFormInteracao] = useState({
+    tipo_contato: 'WHATSAPP',
+    resumo: '',
+    feedback_cliente: '',
+    proxima_acao: '',
+    data_proxima_acao: '',
+    status_comercial: '',
+    responsavel: '',
+  })
+
+  useEffect(() => {
+    carregarCrmComercial()
+
+    const canal = supabase
+      .channel('crm-comercial-intelligence')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'crm_clientes',
+        },
+        () => carregarCrmComercial()
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'crm_interacoes',
+        },
+        () => carregarCrmComercial()
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
+  }, [])
+
+  async function carregarCrmComercial() {
+    setCarregandoCrm(true)
+
+    const { data: clientes, error: erroClientes } = await supabase
+      .from('crm_clientes')
+      .select('*')
+      .order('atualizado_em', { ascending: false })
+
+    const { data: interacoes, error: erroInteracoes } = await supabase
+      .from('crm_interacoes')
+      .select('*')
+      .order('criado_em', { ascending: false })
+      .limit(200)
+
+    if (erroClientes) console.error('Erro ao carregar CRM clientes:', erroClientes.message)
+    if (erroInteracoes) console.error('Erro ao carregar CRM interações:', erroInteracoes.message)
+
+    setCrmClientes(clientes || [])
+    setCrmInteracoes(interacoes || [])
+    setCarregandoCrm(false)
+  }
+
+  const crmFiltrado = useMemo(() => {
+    const termo = buscaCrm.trim().toLowerCase()
+
+    return crmClientes.filter((item) => {
+      if (filtroStatusCrm !== 'TODOS' && item.status_comercial !== filtroStatusCrm) return false
+      if (filtroTipoAcaoCrm !== 'TODOS' && item.tipo_acao !== filtroTipoAcaoCrm) return false
+
+      if (!termo) return true
+
+      const base = [
+        item.cliente,
+        item.nome_contato,
+        item.email,
+        item.telefone,
+        item.origem,
+        item.status_comercial,
+        item.tipo_acao,
+        item.servico_interesse,
+        item.proxima_acao,
+        item.observacoes,
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      return base.includes(termo)
+    })
+  }, [crmClientes, buscaCrm, filtroStatusCrm, filtroTipoAcaoCrm])
+
+  const resumoCrm = useMemo(() => {
+    return {
+      total: crmClientes.filter((item) => !item.ignorado).length,
+      prospeccao: crmClientes.filter((item) => item.tipo_acao === 'PROSPECCAO' && !item.ignorado).length,
+      recuperar: crmClientes.filter((item) => item.tipo_acao === 'RECUPERACAO' && !item.ignorado).length,
+      reajustar: crmClientes.filter((item) => ['REAJUSTE', 'AUMENTO_TICKET'].includes(item.tipo_acao) && !item.ignorado).length,
+      semInteresse: crmClientes.filter((item) => item.ignorado || item.status_comercial === 'SEM_INTERESSE').length,
+    }
+  }, [crmClientes])
+
+  function abordagemSugerida(cliente: any) {
+    const tipo = String(cliente?.tipo_acao || '').toUpperCase()
+    const dias = Number(cliente?.dias_sem_embarque || 0)
+    const margem = Number(cliente?.margem || 0)
+    const ticket = Number(cliente?.ticket_medio || 0)
+
+    if (tipo === 'RECUPERACAO' || dias >= 45) {
+      return 'Olá, tudo bem? Notei que faz um tempo que não movimentamos embarques juntos. Queria entender se vocês têm previsão de novas importações/exportações ou se houve alguma mudança no fluxo.'
+    }
+
+    if (tipo === 'REAJUSTE' || margem > 0 && margem < 15) {
+      return 'Quero alinhar com você uma atualização de valores para mantermos o mesmo nível de acompanhamento, conferência e suporte operacional nos próximos processos.'
+    }
+
+    if (tipo === 'AUMENTO_TICKET' || ticket > 0 && ticket < 1500) {
+      return 'Nos próximos embarques, podemos trabalhar com uma taxa mínima ou incluir um acompanhamento mais completo para deixar o processo mais seguro e organizado.'
+    }
+
+    if (tipo === 'COBRANCA') {
+      return 'Antes de seguirmos com novos processos, preciso alinhar a pendência em aberto para mantermos o fluxo operacional seguro para ambos.'
+    }
+
+    return 'Olá, tudo bem? Estou entrando em contato para entender o fluxo atual de embarques de vocês e avaliar como a HC pode apoiar nos próximos processos.'
+  }
+
+  function dataCurta(valor: any) {
+    if (!valor) return '-'
+    const data = new Date(valor)
+    if (Number.isNaN(data.getTime())) return '-'
+    return data.toLocaleDateString('pt-BR')
+  }
+
+  async function salvarClienteCrm() {
+    if (!formCrm.cliente.trim()) {
+      alert('Informe o nome da empresa/cliente.')
+      return
+    }
+
+    const abordagem = abordagemSugerida(formCrm)
+
+    const { error } = await supabase.from('crm_clientes').insert({
+      cliente: formCrm.cliente.trim(),
+      nome_contato: formCrm.nome_contato || null,
+      telefone: formCrm.telefone || null,
+      email: formCrm.email || null,
+      origem: formCrm.origem || null,
+      tipo_cliente: 'PROSPECCAO',
+      servico_interesse: formCrm.servico_interesse || null,
+      status_comercial: formCrm.status_comercial,
+      tipo_acao: formCrm.tipo_acao,
+      abordagem_sugerida: abordagem,
+      proxima_acao: formCrm.proxima_acao || null,
+      data_proxima_acao: formCrm.data_proxima_acao || null,
+      responsavel: formCrm.responsavel || null,
+      observacoes: formCrm.observacoes || null,
+    })
+
+    if (error) {
+      alert('Erro ao salvar contato: ' + error.message)
+      return
+    }
+
+    setFormCrm({
+      cliente: '',
+      nome_contato: '',
+      telefone: '',
+      email: '',
+      origem: '',
+      servico_interesse: '',
+      status_comercial: 'NOVO_LEAD',
+      tipo_acao: 'PROSPECCAO',
+      proxima_acao: '',
+      data_proxima_acao: '',
+      responsavel: '',
+      observacoes: '',
+    })
+
+    setModoCadastro(false)
+    await carregarCrmComercial()
+  }
+
+  async function atualizarClienteCrm(id: string, dados: any) {
+    const { error } = await supabase
+      .from('crm_clientes')
+      .update({
+        ...dados,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq('id', id)
+
+    if (error) {
+      alert('Erro ao atualizar CRM: ' + error.message)
+      return
+    }
+
+    await carregarCrmComercial()
+  }
+
+  async function salvarInteracao(cliente: any) {
+    if (!formInteracao.resumo.trim()) {
+      alert('Informe o resumo do contato.')
+      return
+    }
+
+    const novoStatus = formInteracao.status_comercial || cliente.status_comercial
+    const novaProximaAcao = formInteracao.proxima_acao || cliente.proxima_acao
+    const novaData = formInteracao.data_proxima_acao || cliente.data_proxima_acao
+
+    const { error } = await supabase.from('crm_interacoes').insert({
+      crm_cliente_id: cliente.id,
+      cliente: cliente.cliente,
+      tipo_contato: formInteracao.tipo_contato,
+      resumo: formInteracao.resumo,
+      feedback_cliente: formInteracao.feedback_cliente || null,
+      proxima_acao: novaProximaAcao || null,
+      data_proxima_acao: novaData || null,
+      status_comercial: novoStatus || null,
+      responsavel: formInteracao.responsavel || cliente.responsavel || null,
+    })
+
+    if (error) {
+      alert('Erro ao registrar interação: ' + error.message)
+      return
+    }
+
+    await atualizarClienteCrm(cliente.id, {
+      status_comercial: novoStatus,
+      proxima_acao: novaProximaAcao || null,
+      data_proxima_acao: novaData || null,
+      responsavel: formInteracao.responsavel || cliente.responsavel || null,
+      atualizado_em: new Date().toISOString(),
+    })
+
+    setFormInteracao({
+      tipo_contato: 'WHATSAPP',
+      resumo: '',
+      feedback_cliente: '',
+      proxima_acao: '',
+      data_proxima_acao: '',
+      status_comercial: '',
+      responsavel: '',
+    })
+  }
+
+  function interacoesDoCliente(cliente: any) {
+    return crmInteracoes
+      .filter((item) => String(item.crm_cliente_id || '') === String(cliente.id))
+      .slice(0, 5)
+  }
+
+  return (
+    <section className="mb-6 rounded-3xl border border-blue-900 bg-[#071225] p-5 shadow-xl">
+      <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">
+            CRM Comercial HC
+          </p>
+          <h2 className="mt-2 text-3xl font-black">Prospecção, recuperação e aumento de ticket</h2>
+          <p className="mt-1 max-w-4xl text-sm font-semibold text-slate-400">
+            Registre novos contatos, acompanhe clientes parados, marque quem não interessa recuperar e organize próximas ações comerciais.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setModoCadastro((valor) => !valor)}
+          className="rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500"
+        >
+          {modoCadastro ? 'Fechar cadastro' : '+ Novo contato'}
+        </button>
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-5">
+        <ResumoCrm titulo="Carteira ativa" valor={resumoCrm.total} cor="blue" />
+        <ResumoCrm titulo="Prospecção" valor={resumoCrm.prospeccao} cor="cyan" />
+        <ResumoCrm titulo="Recuperar" valor={resumoCrm.recuperar} cor="orange" />
+        <ResumoCrm titulo="Ticket/reajuste" valor={resumoCrm.reajustar} cor="yellow" />
+        <ResumoCrm titulo="Sem interesse" valor={resumoCrm.semInteresse} cor="red" />
+      </div>
+
+      {modoCadastro && (
+        <div className="mb-5 rounded-3xl border border-blue-900 bg-[#020817] p-5">
+          <h3 className="mb-4 text-xl font-black">Cadastrar novo lead / contato comercial</h3>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <InputCrm label="Empresa / cliente" value={formCrm.cliente} onChange={(v: string) => setFormCrm({ ...formCrm, cliente: v })} />
+            <InputCrm label="Nome do contato" value={formCrm.nome_contato} onChange={(v: string) => setFormCrm({ ...formCrm, nome_contato: v })} />
+            <InputCrm label="Telefone / WhatsApp" value={formCrm.telefone} onChange={(v: string) => setFormCrm({ ...formCrm, telefone: v })} />
+            <InputCrm label="E-mail" value={formCrm.email} onChange={(v: string) => setFormCrm({ ...formCrm, email: v })} />
+            <InputCrm label="Origem do contato" value={formCrm.origem} onChange={(v: string) => setFormCrm({ ...formCrm, origem: v })} />
+            <InputCrm label="Serviço de interesse" value={formCrm.servico_interesse} onChange={(v: string) => setFormCrm({ ...formCrm, servico_interesse: v })} />
+
+            <SelectCrm label="Tipo de ação" value={formCrm.tipo_acao} onChange={(v: string) => setFormCrm({ ...formCrm, tipo_acao: v })}>
+              <option value="PROSPECCAO">Prospecção</option>
+              <option value="RECUPERACAO">Recuperação</option>
+              <option value="AUMENTO_TICKET">Aumento de ticket</option>
+              <option value="REAJUSTE">Reajuste</option>
+              <option value="COBRANCA">Cobrança antes de vender</option>
+            </SelectCrm>
+
+            <SelectCrm label="Status comercial" value={formCrm.status_comercial} onChange={(v: string) => setFormCrm({ ...formCrm, status_comercial: v })}>
+              <option value="NOVO_LEAD">Novo lead</option>
+              <option value="EM_CONTATO">Em contato</option>
+              <option value="ENVIAR_PROPOSTA">Enviar proposta</option>
+              <option value="AGUARDANDO_RETORNO">Aguardando retorno</option>
+              <option value="CONVERTIDO">Convertido</option>
+              <option value="SEM_INTERESSE">Sem interesse</option>
+              <option value="PERDIDO">Perdido</option>
+            </SelectCrm>
+
+            <InputCrm label="Responsável" value={formCrm.responsavel} onChange={(v: string) => setFormCrm({ ...formCrm, responsavel: v })} />
+            <InputCrm label="Próxima ação" value={formCrm.proxima_acao} onChange={(v: string) => setFormCrm({ ...formCrm, proxima_acao: v })} />
+            <InputCrm label="Data próxima ação" type="date" value={formCrm.data_proxima_acao} onChange={(v: string) => setFormCrm({ ...formCrm, data_proxima_acao: v })} />
+          </div>
+
+          <label className="mt-3 block">
+            <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">Observações</span>
+            <textarea
+              value={formCrm.observacoes}
+              onChange={(e) => setFormCrm({ ...formCrm, observacoes: e.target.value })}
+              className="min-h-[90px] w-full rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 font-bold text-white outline-none"
+            />
+          </label>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={salvarClienteCrm}
+              className="rounded-xl bg-green-700 px-5 py-3 font-black hover:bg-green-600"
+            >
+              Salvar contato
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-5 rounded-3xl border border-blue-900 bg-[#020817] p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <input
+            value={buscaCrm}
+            onChange={(e) => setBuscaCrm(e.target.value)}
+            placeholder="Buscar empresa, contato, status..."
+            className="w-full rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 font-bold text-white outline-none"
+          />
+
+          <select value={filtroTipoAcaoCrm} onChange={(e) => setFiltroTipoAcaoCrm(e.target.value)}>
+            <option value="TODOS">Tipo: todos</option>
+            <option value="PROSPECCAO">Prospecção</option>
+            <option value="RECUPERACAO">Recuperação</option>
+            <option value="AUMENTO_TICKET">Aumento de ticket</option>
+            <option value="REAJUSTE">Reajuste</option>
+            <option value="COBRANCA">Cobrança</option>
+          </select>
+
+          <select value={filtroStatusCrm} onChange={(e) => setFiltroStatusCrm(e.target.value)}>
+            <option value="TODOS">Status: todos</option>
+            <option value="NOVO_LEAD">Novo lead</option>
+            <option value="EM_CONTATO">Em contato</option>
+            <option value="ENVIAR_PROPOSTA">Enviar proposta</option>
+            <option value="AGUARDANDO_RETORNO">Aguardando retorno</option>
+            <option value="CONVERTIDO">Convertido</option>
+            <option value="SEM_INTERESSE">Sem interesse</option>
+            <option value="PERDIDO">Perdido</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => {
+              setBuscaCrm('')
+              setFiltroStatusCrm('TODOS')
+              setFiltroTipoAcaoCrm('TODOS')
+            }}
+            className="rounded-xl bg-slate-700 px-4 py-3 font-black hover:bg-slate-600"
+          >
+            Limpar filtros
+          </button>
+        </div>
+      </div>
+
+      {carregandoCrm ? (
+        <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5 text-slate-400">
+          Carregando CRM comercial...
+        </div>
+      ) : crmFiltrado.length === 0 ? (
+        <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5 text-slate-400">
+          Nenhum contato comercial cadastrado ainda.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {crmFiltrado.map((cliente) => (
+            <div key={cliente.id} className="rounded-3xl border border-blue-900 bg-[#020817] p-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-black">{cliente.cliente}</h3>
+                    <BadgeCrm>{cliente.tipo_acao || 'PROSPECCAO'}</BadgeCrm>
+                    <BadgeCrm>{cliente.status_comercial || 'NOVO_LEAD'}</BadgeCrm>
+                    {cliente.ignorado ? <BadgeCrm cor="red">SEM INTERESSE</BadgeCrm> : null}
+                  </div>
+
+                  <p className="mt-1 text-sm font-bold text-slate-400">
+                    {cliente.nome_contato || 'Contato não informado'} · {cliente.telefone || '-'} · {cliente.email || '-'}
+                  </p>
+
+                  <p className="mt-2 text-sm text-slate-300">
+                    <strong>Origem:</strong> {cliente.origem || '-'} · <strong>Serviço:</strong> {cliente.servico_interesse || '-'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setClienteSelecionado(clienteSelecionado?.id === cliente.id ? null : cliente)}
+                    className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black hover:bg-blue-500"
+                  >
+                    Registrar contato
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => atualizarClienteCrm(cliente.id, { ignorado: true, status_comercial: 'SEM_INTERESSE', motivo_ignorar: 'Marcado manualmente como sem interesse' })}
+                    className="rounded-xl bg-slate-700 px-4 py-3 text-sm font-black hover:bg-slate-600"
+                  >
+                    Sem interesse
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => atualizarClienteCrm(cliente.id, { convertido: true, status_comercial: 'CONVERTIDO', data_convertido: new Date().toISOString().slice(0, 10) })}
+                    className="rounded-xl bg-green-700 px-4 py-3 text-sm font-black hover:bg-green-600"
+                  >
+                    Convertido
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-blue-300">Abordagem sugerida</p>
+                  <p className="mt-2 text-sm font-bold leading-relaxed text-slate-200">
+                    {cliente.abordagem_sugerida || abordagemSugerida(cliente)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-yellow-300">Próxima ação</p>
+                  <p className="mt-2 text-sm font-bold text-slate-200">{cliente.proxima_acao || '-'}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500">{dataCurta(cliente.data_proxima_acao)}</p>
+                </div>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-cyan-300">Histórico recente</p>
+                  {interacoesDoCliente(cliente).length === 0 ? (
+                    <p className="mt-2 text-sm font-bold text-slate-500">Nenhum contato registrado.</p>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      {interacoesDoCliente(cliente).map((interacao) => (
+                        <div key={interacao.id} className="rounded-xl bg-[#020817] p-2">
+                          <p className="text-xs font-black text-white">{interacao.tipo_contato} · {dataCurta(interacao.criado_em)}</p>
+                          <p className="text-xs text-slate-400">{interacao.resumo}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {clienteSelecionado?.id === cliente.id && (
+                <div className="mt-4 rounded-2xl border border-blue-800 bg-[#071225] p-4">
+                  <h4 className="mb-3 text-lg font-black">Registrar novo contato</h4>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <SelectCrm label="Tipo de contato" value={formInteracao.tipo_contato} onChange={(v: string) => setFormInteracao({ ...formInteracao, tipo_contato: v })}>
+                      <option value="WHATSAPP">WhatsApp</option>
+                      <option value="LIGACAO">Ligação</option>
+                      <option value="EMAIL">E-mail</option>
+                      <option value="REUNIAO">Reunião</option>
+                    </SelectCrm>
+
+                    <SelectCrm label="Novo status" value={formInteracao.status_comercial} onChange={(v: string) => setFormInteracao({ ...formInteracao, status_comercial: v })}>
+                      <option value="">Manter status atual</option>
+                      <option value="EM_CONTATO">Em contato</option>
+                      <option value="ENVIAR_PROPOSTA">Enviar proposta</option>
+                      <option value="AGUARDANDO_RETORNO">Aguardando retorno</option>
+                      <option value="CONVERTIDO">Convertido</option>
+                      <option value="SEM_INTERESSE">Sem interesse</option>
+                      <option value="PERDIDO">Perdido</option>
+                    </SelectCrm>
+
+                    <InputCrm label="Responsável" value={formInteracao.responsavel} onChange={(v: string) => setFormInteracao({ ...formInteracao, responsavel: v })} />
+
+                    <InputCrm label="Próxima ação" value={formInteracao.proxima_acao} onChange={(v: string) => setFormInteracao({ ...formInteracao, proxima_acao: v })} />
+                    <InputCrm label="Data próxima ação" type="date" value={formInteracao.data_proxima_acao} onChange={(v: string) => setFormInteracao({ ...formInteracao, data_proxima_acao: v })} />
+                  </div>
+
+                  <label className="mt-3 block">
+                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">Resumo do contato</span>
+                    <textarea
+                      value={formInteracao.resumo}
+                      onChange={(e) => setFormInteracao({ ...formInteracao, resumo: e.target.value })}
+                      className="min-h-[90px] w-full rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white outline-none"
+                      placeholder="Ex.: falei com o cliente, pediu cotação para próxima semana..."
+                    />
+                  </label>
+
+                  <label className="mt-3 block">
+                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">Feedback do cliente</span>
+                    <textarea
+                      value={formInteracao.feedback_cliente}
+                      onChange={(e) => setFormInteracao({ ...formInteracao, feedback_cliente: e.target.value })}
+                      className="min-h-[70px] w-full rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white outline-none"
+                    />
+                  </label>
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => salvarInteracao(cliente)}
+                      className="rounded-xl bg-green-700 px-5 py-3 font-black hover:bg-green-600"
+                    >
+                      Salvar interação
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ResumoCrm({ titulo, valor, cor }: { titulo: string; valor: any; cor: string }) {
+  const cores: Record<string, string> = {
+    blue: 'border-blue-800 text-blue-300',
+    cyan: 'border-cyan-800 text-cyan-300',
+    orange: 'border-orange-800 text-orange-300',
+    yellow: 'border-yellow-800 text-yellow-300',
+    red: 'border-red-800 text-red-300',
+  }
+
+  return (
+    <div className={`rounded-2xl border bg-[#020817] p-4 ${cores[cor] || cores.blue}`}>
+      <p className="text-xs font-black uppercase tracking-widest text-slate-400">{titulo}</p>
+      <p className="mt-2 text-3xl font-black">{valor}</p>
+    </div>
+  )
+}
+
+function InputCrm({ label, value, onChange, type = 'text' }: any) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">{label}</span>
+      <input
+        type={type}
+        value={String(value || '')}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 font-bold text-white outline-none"
+      />
+    </label>
+  )
+}
+
+function SelectCrm({ label, value, onChange, children }: any) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">{label}</span>
+      <select
+        value={String(value || '')}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 font-bold text-white outline-none"
+      >
+        {children}
+      </select>
+    </label>
+  )
+}
+
+function BadgeCrm({ children, cor = 'blue' }: any) {
+  const cores: Record<string, string> = {
+    blue: 'bg-blue-600/20 text-blue-200',
+    red: 'bg-red-600/20 text-red-200',
+  }
+
+  return (
+    <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${cores[cor] || cores.blue}`}>
+      {children}
+    </span>
   )
 }
