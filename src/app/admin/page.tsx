@@ -1587,24 +1587,17 @@ export default function DashboardPage() {
         </section>
 
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <div className="card overflow-hidden bg-gradient-to-br from-[#071225] via-[#061126] to-[#020817] shadow-[0_0_28px_rgba(37,99,235,0.10)]">
-            <div className="mb-4 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="mt-1 text-blue-500">
-                  <svg width="24" height="24" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-                    <rect x="4" y="17" width="4" height="10" rx="1" fill="currentColor" />
-                    <rect x="11" y="10" width="4" height="17" rx="1" fill="currentColor" />
-                    <rect x="18" y="5" width="4" height="22" rx="1" fill="currentColor" />
-                    <rect x="25" y="14" width="4" height="13" rx="1" fill="currentColor" />
-                  </svg>
+          <div className="card overflow-hidden bg-gradient-to-br from-[#081a33] via-[#061126] to-[#020817] shadow-[0_0_34px_rgba(37,99,235,0.18)]">
+            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-800 bg-blue-600/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-blue-300">
+                  ⚡ Controle operacional
                 </div>
 
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight">Movimento da operação</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Entrada de embarques, dias parados e pontos de ação comercial.
-                  </p>
-                </div>
+                <h2 className="mt-3 text-3xl font-black tracking-tight">Movimento da operação</h2>
+                <p className="mt-1 max-w-xl text-sm font-semibold text-slate-400">
+                  Leitura rápida do volume de embarques e das ações que precisam de atenção hoje.
+                </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -1615,94 +1608,150 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-blue-950/70 bg-[#030b1d]/70 p-3 overflow-hidden">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-xs font-bold text-blue-200">Embarques</p>
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">{ritmoOperacao.label}</p>
+            <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="rounded-3xl border border-blue-800 bg-[#020817]/80 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-blue-300">Total do período</p>
+                <p className="mt-3 text-4xl font-black text-white">{ritmoOperacao.totalPeriodo}</p>
+                <p className="mt-1 text-xs font-bold text-slate-500">embarques registrados</p>
               </div>
 
-              <div className="relative h-[210px] overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-9 w-8 flex flex-col justify-between text-xs font-bold text-blue-200/70">
-                  {ritmoOperacao.yTicks.map((tick) => (
-                    <span key={tick}>{tick}</span>
-                  ))}
+              <div className="rounded-3xl border border-emerald-800 bg-emerald-500/10 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Média diária</p>
+                <p className="mt-3 text-4xl font-black text-emerald-300">
+                  {ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-500">embarques por dia</p>
+              </div>
+
+              <div className="rounded-3xl border border-orange-800 bg-orange-500/10 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-orange-300">Dias parados</p>
+                <p className="mt-3 text-4xl font-black text-orange-300">{ritmoOperacao.diasSemEmbarque}</p>
+                <p className="mt-1 text-xs font-bold text-slate-500">sem novo embarque</p>
+              </div>
+
+              <div className="rounded-3xl border border-purple-800 bg-purple-500/10 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-purple-300">Peso movimentado</p>
+                <p className="mt-3 text-3xl font-black text-purple-300">
+                  {ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-500">no período</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[1.25fr_0.75fr]">
+              <div className="rounded-3xl border border-blue-900 bg-[#020817]/75 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-white">Embarques por dia</p>
+                    <p className="text-xs font-bold text-slate-500">{ritmoOperacao.label}</p>
+                  </div>
+
+                  <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black text-blue-200">
+                    Clique nas barras
+                  </span>
                 </div>
 
-                <div className="absolute left-9 right-0 top-0 bottom-9 border-l border-b border-blue-900/80">
-                  {ritmoOperacao.yTicks.map((tick) => (
+                <div className="relative h-[210px] overflow-hidden">
+                  <div className="absolute left-0 top-0 bottom-9 w-8 flex flex-col justify-between text-xs font-bold text-blue-200/70">
+                    {ritmoOperacao.yTicks.map((tick) => (
+                      <span key={tick}>{tick}</span>
+                    ))}
+                  </div>
+
+                  <div className="absolute left-9 right-0 top-0 bottom-9 border-l border-b border-blue-900/80">
+                    {ritmoOperacao.yTicks.map((tick) => (
+                      <div
+                        key={tick}
+                        className="absolute left-0 right-0 border-t border-dashed border-blue-700/35"
+                        style={{ top: `${((ritmoOperacao.yMax - tick) / ritmoOperacao.yMax) * 100}%` }}
+                      />
+                    ))}
+
                     <div
-                      key={tick}
-                      className="absolute left-0 right-0 border-t border-dashed border-blue-700/35"
-                      style={{ top: `${((ritmoOperacao.yMax - tick) / ritmoOperacao.yMax) * 100}%` }}
-                    />
-                  ))}
+                      className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-2 px-3"
+                      style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
+                    >
+                      {ritmoOperacao.dias.map((item) => {
+                        const altura = `${Math.max((item.total / ritmoOperacao.yMax) * 145, item.total > 0 ? 7 : 3)}px`
+                        const ativo = diaSelecionado === item.key
+
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setDiaSelecionado(ativo ? null : item.key)}
+                            className="group relative flex h-full min-w-0 flex-col items-center justify-end"
+                            title={`${item.diaSemana} ${item.diaLabel}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
+                          >
+                            <span className="mb-1 text-sm font-black text-white drop-shadow opacity-100">
+                              {item.total}
+                            </span>
+
+                            <span
+                              className={
+                                ativo
+                                  ? 'w-full max-w-[54px] rounded-t-xl bg-emerald-500 shadow-[0_0_22px_rgba(16,185,129,0.55)] ring-2 ring-emerald-300 transition'
+                                  : item.total > 0
+                                    ? 'w-full max-w-[54px] rounded-t-xl bg-gradient-to-t from-blue-700 to-blue-400 shadow-[0_0_18px_rgba(37,99,235,0.35)] transition hover:from-blue-600 hover:to-blue-300'
+                                    : 'w-full max-w-[54px] rounded-t-xl bg-blue-950/80 transition hover:bg-blue-900'
+                              }
+                              style={{ height: altura }}
+                            />
+
+                            <span className="pointer-events-none absolute -top-10 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-blue-800 bg-[#071225] px-3 py-2 text-xs font-black text-blue-100 shadow-2xl group-hover:block">
+                              {item.diaSemana} {item.diaLabel} • {item.total} embarque(s)
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
 
                   <div
-                    className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-2 px-3"
+                    className="absolute left-9 right-0 bottom-0 grid gap-2 px-3 text-center"
                     style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
                   >
-                    {ritmoOperacao.dias.map((item) => {
-                      const altura = `${Math.max((item.total / ritmoOperacao.yMax) * 145, item.total > 0 ? 7 : 3)}px`
-                      const ativo = diaSelecionado === item.key
-
-                      return (
-                        <button
-                          key={item.key}
-                          type="button"
-                          onClick={() => setDiaSelecionado(ativo ? null : item.key)}
-                          className="group relative flex h-full min-w-0 flex-col items-center justify-end"
-                          title={`${item.diaSemana} ${item.diaLabel}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
-                        >
-                          <span className="mb-1 text-sm font-black text-white drop-shadow opacity-100">
-                            {item.total}
-                          </span>
-
-                          <span
-                            className={
-                              ativo
-                                ? 'w-full max-w-[44px] rounded-t-md bg-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.40)] ring-2 ring-emerald-300 transition'
-                                : item.total > 0
-                                  ? 'w-full max-w-[44px] rounded-t-md bg-gradient-to-t from-blue-700 to-blue-400 shadow-[0_0_18px_rgba(37,99,235,0.30)] transition hover:from-blue-600 hover:to-blue-300'
-                                  : 'w-full max-w-[44px] rounded-t-md bg-blue-950/80 transition hover:bg-blue-900'
-                            }
-                            style={{ height: altura }}
-                          />
-
-                          <span className="pointer-events-none absolute -top-10 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-blue-800 bg-[#071225] px-3 py-2 text-xs font-black text-blue-100 shadow-2xl group-hover:block">
-                            {item.diaSemana} {item.diaLabel} • {item.total} embarque(s)
-                          </span>
-                        </button>
-                      )
-                    })}
+                    {ritmoOperacao.dias.map((item) => (
+                      <div key={item.key} className="min-w-0">
+                        <p className="truncate text-[10px] font-black text-blue-100/80">{item.diaSemana}</p>
+                        <p className="truncate text-[10px] font-bold text-blue-200/60">{item.diaLabel}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
-
-                <div
-                  className="absolute left-9 right-0 bottom-0 grid gap-2 px-3 text-center"
-                  style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
-                >
-                  {ritmoOperacao.dias.map((item) => (
-                    <div key={item.key} className="min-w-0">
-                      <p className="truncate text-[10px] font-black text-blue-100/80">{item.diaSemana}</p>
-                      <p className="truncate text-[10px] font-bold text-blue-200/60">{item.diaLabel}</p>
-                    </div>
-                  ))}
-                </div>
               </div>
-            </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3 border-y border-blue-950 py-3">
-              <MetricDashboard icone="🚚" valor={String(ritmoOperacao.totalPeriodo)} titulo="Total período" detalhe="Embarques" />
-              <MetricDashboard icone="📈" valor={ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} titulo="Média por dia" detalhe="Ritmo do período" />
-              <MetricDashboard icone="🗓️" valor={String(ritmoOperacao.diasSemEmbarque)} titulo="Dias parados" detalhe="Sem novo embarque" />
-              <MetricDashboard icone="⚖️" valor={`${ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`} titulo="Peso período" detalhe="Total embarcado" />
-            </div>
+              <div className="space-y-3">
+                <a
+                  href="/admin/intelligence"
+                  className="block rounded-3xl border border-orange-800 bg-orange-500/10 p-4 hover:bg-orange-500/15"
+                >
+                  <p className="text-sm font-black text-orange-300">🔥 Clientes parados</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">Ver clientes que precisam de contato comercial.</p>
+                </a>
 
-            <div className="mt-4 rounded-2xl border border-blue-900 bg-[#020817]/80 p-3 flex items-start gap-3">
-              <div className="text-xl text-blue-400">✦</div>
-              <div>
-                <p className="text-sm font-black uppercase tracking-wide text-blue-400">Análise automática</p>
-                <p className="mt-1 text-xs font-semibold text-slate-200 leading-relaxed">{ritmoOperacao.analise}</p>
+                <a
+                  href="/admin/financeiro"
+                  className="block rounded-3xl border border-yellow-800 bg-yellow-500/10 p-4 hover:bg-yellow-500/15"
+                >
+                  <p className="text-sm font-black text-yellow-300">⚠️ Aguardando custo</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">Conferir processos que travam profit e faturamento.</p>
+                </a>
+
+                <a
+                  href="/admin/embarques"
+                  className="block rounded-3xl border border-blue-800 bg-blue-500/10 p-4 hover:bg-blue-500/15"
+                >
+                  <p className="text-sm font-black text-blue-300">🚚 Ver operação</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">Abrir embarques em trânsito, fiscalização e liberados.</p>
+                </a>
+
+                <div className="rounded-3xl border border-blue-900 bg-[#020817]/80 p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-blue-300">Análise operacional</p>
+                  <p className="mt-2 text-sm font-bold leading-relaxed text-slate-200">
+                    {ritmoOperacao.analise}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
