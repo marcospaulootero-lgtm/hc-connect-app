@@ -2193,11 +2193,60 @@ function IntelligenceCRMComercial() {
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-5">
-        <ResumoCrm titulo="Carteira ativa" valor={resumoCrm.total} cor="blue" />
-        <ResumoCrm titulo="Prospecção" valor={resumoCrm.prospeccao} cor="cyan" />
-        <ResumoCrm titulo="Recuperar" valor={resumoCrm.recuperar} cor="orange" />
-        <ResumoCrm titulo="Ticket/reajuste" valor={resumoCrm.reajustar} cor="yellow" />
-        <ResumoCrm titulo="Sem interesse" valor={resumoCrm.semInteresse} cor="red" />
+        <ResumoCrm
+          titulo="Carteira ativa"
+          valor={resumoCrm.total}
+          cor="blue"
+          ativo={filtroTipoAcaoCrm === 'TODOS' && filtroStatusCrm === 'TODOS'}
+          onClick={() => {
+            setFiltroTipoAcaoCrm('TODOS')
+            setFiltroStatusCrm('TODOS')
+          }}
+        />
+
+        <ResumoCrm
+          titulo="Prospecção"
+          valor={resumoCrm.prospeccao}
+          cor="cyan"
+          ativo={filtroTipoAcaoCrm === 'PROSPECCAO'}
+          onClick={() => {
+            setFiltroTipoAcaoCrm('PROSPECCAO')
+            setFiltroStatusCrm('TODOS')
+          }}
+        />
+
+        <ResumoCrm
+          titulo="Recuperar"
+          valor={resumoCrm.recuperar}
+          cor="orange"
+          ativo={filtroTipoAcaoCrm === 'RECUPERACAO'}
+          onClick={() => {
+            setFiltroTipoAcaoCrm('RECUPERACAO')
+            setFiltroStatusCrm('TODOS')
+          }}
+        />
+
+        <ResumoCrm
+          titulo="Ticket/reajuste"
+          valor={resumoCrm.reajustar}
+          cor="yellow"
+          ativo={['AUMENTO_TICKET', 'REAJUSTE'].includes(filtroTipoAcaoCrm)}
+          onClick={() => {
+            setFiltroTipoAcaoCrm('AUMENTO_TICKET')
+            setFiltroStatusCrm('TODOS')
+          }}
+        />
+
+        <ResumoCrm
+          titulo="Sem interesse"
+          valor={resumoCrm.semInteresse}
+          cor="red"
+          ativo={filtroStatusCrm === 'SEM_INTERESSE'}
+          onClick={() => {
+            setFiltroTipoAcaoCrm('TODOS')
+            setFiltroStatusCrm('SEM_INTERESSE')
+          }}
+        />
       </div>
 
       {modoCadastro && (
@@ -2453,20 +2502,46 @@ function IntelligenceCRMComercial() {
   )
 }
 
-function ResumoCrm({ titulo, valor, cor }: { titulo: string; valor: any; cor: string }) {
+function ResumoCrm({
+  titulo,
+  valor,
+  cor,
+  ativo = false,
+  onClick,
+}: {
+  titulo: string
+  valor: any
+  cor: string
+  ativo?: boolean
+  onClick?: () => void
+}) {
   const cores: Record<string, string> = {
-    blue: 'border-blue-800 text-blue-300',
-    cyan: 'border-cyan-800 text-cyan-300',
-    orange: 'border-orange-800 text-orange-300',
-    yellow: 'border-yellow-800 text-yellow-300',
-    red: 'border-red-800 text-red-300',
+    blue: 'border-blue-800 text-blue-300 hover:border-blue-400 hover:bg-blue-500/10',
+    cyan: 'border-cyan-800 text-cyan-300 hover:border-cyan-400 hover:bg-cyan-500/10',
+    orange: 'border-orange-800 text-orange-300 hover:border-orange-400 hover:bg-orange-500/10',
+    yellow: 'border-yellow-800 text-yellow-300 hover:border-yellow-400 hover:bg-yellow-500/10',
+    red: 'border-red-800 text-red-300 hover:border-red-400 hover:bg-red-500/10',
   }
 
   return (
-    <div className={`rounded-2xl border bg-[#020817] p-4 ${cores[cor] || cores.blue}`}>
-      <p className="text-xs font-black uppercase tracking-widest text-slate-400">{titulo}</p>
-      <p className="mt-2 text-3xl font-black">{valor}</p>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border bg-[#020817] p-4 text-left transition ${cores[cor] || cores.blue} ${
+        ativo ? 'ring-2 ring-blue-300 bg-blue-500/10 shadow-[0_0_22px_rgba(37,99,235,0.25)]' : ''
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400">{titulo}</p>
+          <p className="mt-2 text-3xl font-black">{valor}</p>
+        </div>
+
+        <span className="rounded-full border border-current px-2 py-1 text-[10px] font-black uppercase opacity-70">
+          filtrar
+        </span>
+      </div>
+    </button>
   )
 }
 
