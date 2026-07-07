@@ -502,6 +502,9 @@ export default function ClientePage() {
               <a href="/cliente/embarque-direto" className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold">
                 🚚 Embarque direto
               </a>
+              <a href="/cliente/perfil" className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold">
+                👤 Meu perfil
+              </a>
             </div>
           </div>
 
