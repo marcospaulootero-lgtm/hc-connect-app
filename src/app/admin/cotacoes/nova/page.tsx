@@ -250,6 +250,9 @@ export default function NovaCotacaoManualPage() {
     },
   ])
 
+  const usarCamposAgente = modelo === 'AGENTE_CARGA_FORMAL'
+  const divisorPesoDimensional = usarCamposAgente ? 6000 : 5000
+
   const volumesCalculados = useMemo(() => {
     return volumes.map((volume, index) => {
       const quantidade = Math.max(numero(volume.quantidade), 1)
@@ -258,7 +261,7 @@ export default function NovaCotacaoManualPage() {
       const altura = numero(volume.altura_cm)
       const pesoRealUnitario = numero(volume.peso_kg)
 
-      const pesoDimensionalUnitario = (comprimento * largura * altura) / 5000
+      const pesoDimensionalUnitario = (comprimento * largura * altura) / divisorPesoDimensional
       const maiorPesoUnitario = Math.max(pesoRealUnitario, pesoDimensionalUnitario)
 
       return {
@@ -275,7 +278,7 @@ export default function NovaCotacaoManualPage() {
         maiorPesoTotal: maiorPesoUnitario * quantidade,
       }
     })
-  }, [volumes])
+  }, [volumes, divisorPesoDimensional])
 
   const resumo = useMemo(() => {
     const quantidadeVolumes = volumesCalculados.reduce((acc, item) => acc + item.quantidade, 0)
@@ -290,12 +293,7 @@ export default function NovaCotacaoManualPage() {
       pesoTaxado: arredondarMeioKg(pesoTaxado),
     }
   }, [volumesCalculados])
-
-  const usarCamposAgente =
-    modelo === 'AGENTE_CARGA_FORMAL' ||
-    String(form.servico || '').toUpperCase().includes('FORMAL')
-
-  const valores = useMemo(() => {
+const valores = useMemo(() => {
     const valorMercadoria = numero(form.valor_mercadoria)
     const percentualSeguro = numero(form.percentualSeguro)
     const seguroMinimo = numero(form.seguroMinimo)
@@ -906,7 +904,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
         <div className="mb-6 flex items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-black">Volumes</h2>
-            <p className="mt-1 text-sm text-slate-400">Peso dimensional: comprimento x largura x altura / 5000.</p>
+            <p className="mt-1 text-sm text-slate-400">Peso dimensional: comprimento x largura x altura / {divisorPesoDimensional}.</p>
           </div>
 
           <button type="button" onClick={adicionarVolume} className="rounded-xl bg-blue-600 px-5 py-3 font-bold hover:bg-blue-500">
