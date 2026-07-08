@@ -26,11 +26,11 @@ export default function NovaCotacaoManualPage() {
   const [form, setForm] = useState({
     origem_solicitacao: 'EMAIL',
     solicitante_email: '',
-    cliente_final: '',
-    contato: '',
+    empresa_solicitante: '',
+    solicitante_nome: '',
+    responsavel_solicitante: '',
+    telefone_solicitante: '',
     referencia_cliente: '',
-    exportador: '',
-    importador: '',
     servico: 'IMPORTAÇÃO FORMAL',
     transportadora: 'DHL',
     origem: '',
@@ -124,8 +124,8 @@ export default function NovaCotacaoManualPage() {
       return
     }
 
-    if (!form.cliente_final.trim() && !form.importador.trim() && !form.exportador.trim()) {
-      alert('Informe o cliente, importador ou exportador.')
+    if (!form.empresa_solicitante.trim() && !form.solicitante_nome.trim()) {
+      alert('Informe a empresa solicitante ou o nome do solicitante.')
       return
     }
 
@@ -143,10 +143,14 @@ export default function NovaCotacaoManualPage() {
         {
           origem_solicitacao: form.origem_solicitacao,
           solicitante_email: form.solicitante_email.trim(),
-          cliente_final: form.cliente_final || null,
+          cliente_final: form.empresa_solicitante || form.solicitante_nome || null,
+          empresa_solicitante: form.empresa_solicitante || null,
+          solicitante_nome: form.solicitante_nome || null,
+          responsavel_solicitante: form.responsavel_solicitante || form.solicitante_nome || null,
+          telefone_solicitante: form.telefone_solicitante || null,
           referencia_cliente: form.referencia_cliente || null,
-          exportador: form.exportador || form.cliente_final || null,
-          importador: form.importador || null,
+          exportador: null,
+          importador: null,
           servico: form.servico,
           tipo_operacao: form.servico,
           transportadoras_consulta: [form.transportadora],
@@ -205,8 +209,10 @@ export default function NovaCotacaoManualPage() {
           </Campo>
 
           <Campo label="E-mail do cliente" value={form.solicitante_email} onChange={(v) => atualizarCampo('solicitante_email', v)} />
-          <Campo label="Cliente final" value={form.cliente_final} onChange={(v) => atualizarCampo('cliente_final', v)} />
-          <Campo label="Contato" value={form.contato} onChange={(v) => atualizarCampo('contato', v)} />
+          <Campo label="Empresa solicitante" value={form.empresa_solicitante} onChange={(v) => atualizarCampo('empresa_solicitante', v)} />
+          <Campo label="Nome do solicitante" value={form.solicitante_nome} onChange={(v) => atualizarCampo('solicitante_nome', v)} />
+          <Campo label="Responsável / contato" value={form.responsavel_solicitante} onChange={(v) => atualizarCampo('responsavel_solicitante', v)} />
+          <Campo label="Telefone / WhatsApp" value={form.telefone_solicitante} onChange={(v) => atualizarCampo('telefone_solicitante', v)} />
           <Campo label="Referência cliente" value={form.referencia_cliente} onChange={(v) => atualizarCampo('referencia_cliente', v)} />
         </div>
       </section>
@@ -215,9 +221,6 @@ export default function NovaCotacaoManualPage() {
         <h2 className="mb-6 text-2xl font-black">Dados da operação</h2>
 
         <div className="form-grid">
-          <Campo label="Exportador" value={form.exportador} onChange={(v) => atualizarCampo('exportador', v)} />
-          <Campo label="Importador" value={form.importador} onChange={(v) => atualizarCampo('importador', v)} />
-
           <Campo label="Serviço" value={form.servico} onChange={(v) => atualizarCampo('servico', v)} tipo="select">
             <option value="IMPORTAÇÃO FORMAL">Importação formal</option>
             <option value="IMPORTAÇÃO COURIER">Importação courier</option>

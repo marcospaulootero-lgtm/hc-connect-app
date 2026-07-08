@@ -117,8 +117,8 @@ export default function EmissorCotacaoHC({
   const [gerando, setGerando] = useState(false)
 
   const [form, setForm] = useState<FormEmissor>({
-    cliente: cotacao?.importador || cotacao?.exportador || cotacao?.cliente_final || '',
-    contato: cotacao?.solicitante_email || '',
+    cliente: cotacao?.empresa_solicitante || cotacao?.cliente_final || cotacao?.solicitante_nome || '',
+    contato: cotacao?.responsavel_solicitante || cotacao?.solicitante_nome || cotacao?.solicitante_email || '',
     origem: cotacao?.origem || '',
     destino: cotacao?.destino || '',
     aod: '',
@@ -334,8 +334,9 @@ export default function EmissorCotacaoHC({
 
     secao('DADOS DA COTAÇÃO')
     info('Referência HC', referenciaHC || cotacao?.referencia_hc || '-')
-    info('Cliente', form.cliente || '-')
-    info('Contato', form.contato || '-')
+    info('Empresa solicitante', form.cliente || '-')
+    info('Solicitante / responsável', form.contato || '-')
+    info('E-mail do cliente', cotacao?.solicitante_email || '-')
     info('Origem', form.origem || '-')
     info('Destino', form.destino || '-')
     info('AOD / Formalização', form.aod || '-')
@@ -418,7 +419,7 @@ export default function EmissorCotacaoHC({
 
     secao('MERCADORIA E OBSERVAÇÕES')
     info('Descrição', form.descricaoMercadoria || '-')
-    info('Observações comerciais', form.observacoesComerciais || '-')
+    info('Observações comerciais', form.observacoesComerciais || cotacao?.observacoes || '-')
 
     doc.setTextColor(100, 116, 139)
     doc.setFont('helvetica', 'normal')
