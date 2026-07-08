@@ -1445,14 +1445,7 @@ export default function EmbarquesPage() {
           <h2 className="text-2xl font-black">Embarques cadastrados</h2>
 
               <div className="mt-4 rounded-2xl border border-yellow-700/60 bg-yellow-950/20 p-4">
-                <div className="mb-3">
-                  <p className="text-sm font-black text-yellow-300">
-                    Valor de compra previsto
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-yellow-100/80">
-                    Este valor é apenas previsão operacional e NÃO entra em Processos Faturados, NÃO altera profit e NÃO lança custo real.
-                  </p>
-                </div>
+                
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   <label className="block">
