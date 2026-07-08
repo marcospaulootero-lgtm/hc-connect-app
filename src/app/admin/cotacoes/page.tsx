@@ -189,7 +189,14 @@ export default function CotacoesAdminPage() {
           </p>
         </div>
 
-        <button
+                <a
+          href="/admin/cotacoes/nova"
+          className="rounded-xl bg-green-700 px-5 py-3 font-black text-white hover:bg-green-600"
+        >
+          + Cotação manual
+        </a>
+
+<button
           onClick={carregar}
           className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
         >
