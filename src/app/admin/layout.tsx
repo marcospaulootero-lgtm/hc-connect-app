@@ -8,6 +8,18 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import OnlinePresence from '@/components/OnlinePresence'
 
+
+const STATUS_COTACOES_BADGE = [
+  'AGUARDANDO ANÁLISE',
+  'AGUARDANDO ANALISE',
+  'NOVA',
+  'NOVO',
+  'PENDENTE',
+  'EM ANÁLISE',
+  'EM ANALISE',
+  'AGUARDANDO TRANSPORTADORA',
+]
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -19,8 +31,45 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     cotacoes: 0,
   })
 
+
+  async function carregarBadgeCotacoes() {
+    const { count, error } = await supabase
+      .from('cotacoes')
+      .select('id', { count: 'exact', head: true })
+      .in('status', STATUS_COTACOES_BADGE)
+
+    if (error) {
+      console.log('Erro ao carregar badge de cotações:', error)
+      setNotificacoesMenu((atual) => ({ ...atual, cotacoes: 0 }))
+      return
+    }
+
+    setNotificacoesMenu((atual) => ({ ...atual, cotacoes: count || 0 }))
+  }
+
   useEffect(() => {
     verificarAcesso()
+  }, [])
+
+  useEffect(() => {
+    carregarBadgeCotacoes()
+
+    const canalBadgeCotacoes = supabase
+      .channel('badge-cotacoes-admin-menu')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cotacoes',
+        },
+        () => carregarBadgeCotacoes()
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canalBadgeCotacoes)
+    }
   }, [])
 
   useEffect(() => {
@@ -245,8 +294,8 @@ function MenuContent({
           label="Cotações"
           descricao="Pedidos e aprovações"
           icon="📄"
-          badge={notificacoes.cotacoes}
           pathname={pathname}
+          badge={Number(notificacoes?.cotacoes || 0)}
         />
         <MenuItem
           href="/admin/faturas"
@@ -388,7 +437,14 @@ function MenuItem({
       <span className="text-xl">{icon}</span>
 
       <span className="min-w-0">
-        <span className="block leading-tight">{label}</span>
+        <span className="block leading-tight"><span className="inline-flex items-center gap-2">
+              {label}
+              {badge > 0 && (
+                <span className="min-w-[22px] rounded-full bg-red-600 px-2 py-0.5 text-center text-[11px] font-black text-white">
+                  {badge}
+                </span>
+              )}
+            </span></span>
         {descricao ? (
           <span
             className={
