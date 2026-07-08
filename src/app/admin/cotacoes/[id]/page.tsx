@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import EmissorCotacaoHC from '@/components/EmissorCotacaoHC'
 
 export default function DetalheCotacaoAdminPage() {
   const params = useParams()
@@ -535,6 +536,13 @@ Observações do cliente: ${cotacao.observacoes || '-'}
           </div>
         )}
       </section>
+
+      <EmissorCotacaoHC
+        cotacao={cotacao}
+        referenciaHC={referenciaHC || cotacao?.referencia_hc || ''}
+        onPdfSalvo={carregar}
+        enviarEmailCotacao={enviarEmailCotacao}
+      />
 
       <section className="card mb-8">
         <h2 className="text-2xl font-black mb-6">Resposta da cotação</h2>
