@@ -93,6 +93,40 @@ async function buscarLogoHC() {
   return null
 }
 
+async function imagemComOpacidade(dataUrl: string, opacidade = 0.08) {
+  try {
+    return await new Promise<string>((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const largura = img.naturalWidth || img.width
+        const altura = img.naturalHeight || img.height
+
+        const canvas = document.createElement('canvas')
+        canvas.width = largura
+        canvas.height = altura
+
+        const ctx = canvas.getContext('2d')
+
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
+
+        ctx.clearRect(0, 0, largura, altura)
+        ctx.globalAlpha = opacidade
+        ctx.drawImage(img, 0, 0, largura, altura)
+
+        resolve(canvas.toDataURL('image/png'))
+      }
+
+      img.onerror = () => resolve(dataUrl)
+      img.src = dataUrl
+    })
+  } catch {
+    return dataUrl
+  }
+}
+
 export default function NovaCotacaoManualPage() {
   const [salvando, setSalvando] = useState(false)
   const [modelo, setModelo] = useState<ModeloCotacao>('DHL_IMPORTACAO_FORMAL')
@@ -365,13 +399,44 @@ export default function NovaCotacaoManualPage() {
 
     const logoHC = await buscarLogoHC()
 
-    if (logoHC) {
+    async function inserirMarcaDaguaLogoDados() {
+      if (!logoHC) return
+
       try {
-        const tipoLogo = logoHC.includes('image/jpeg') || logoHC.includes('image/jpg') ? 'JPEG' : 'PNG'
-        doc.addImage(logoHC, tipoLogo, 154, 5, 34, 20)
+        const logoTransparente = await imagemComOpacidade(logoHC, 0.08)
+        doc.addImage(logoTransparente, 'PNG', 112, 55, 76, 50)
       } catch (error) {
-        console.log('Não foi possível inserir a logo no PDF:', error)
+        console.log('Não foi possível inserir a marca d água da logo:', error)
       }
+    }
+
+    function inserirRodapePdf() {
+      const yRodape = 276
+
+      if (y > yRodape - 16) {
+        doc.addPage()
+        y = 14
+      }
+
+      doc.setDrawColor(203, 213, 225)
+      doc.line(14, yRodape - 6, 196, yRodape - 6)
+
+      doc.setTextColor(100, 116, 139)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7)
+
+      const textoRodape = doc.splitTextToSize(
+        'Cotação sujeita à confirmação de peso, dimensões, documentação, disponibilidade de rota, regras da transportadora, validade informada nesta proposta e demais condições operacionais.',
+        128
+      )
+
+      doc.text(textoRodape, 14, yRodape)
+
+      doc.setFont('helvetica', 'bold')
+      doc.text('HC Consultoria', 196, yRodape, { align: 'right' })
+
+      doc.setFont('helvetica', 'normal')
+      doc.text('portal.hcbhz.com', 196, yRodape + 4, { align: 'right' })
     }
 
     doc.setTextColor(255, 255, 255)
@@ -390,6 +455,8 @@ export default function NovaCotacaoManualPage() {
     y = 38
 
     secao('DADOS DA COTAÇÃO')
+    await inserirMarcaDaguaLogoDados()
+
     info('Referência HC', form.referencia_hc || '-')
     info('Empresa solicitante', form.empresa_solicitante || '-')
     info('Nome do solicitante', form.solicitante_nome || '-')
@@ -481,11 +548,7 @@ export default function NovaCotacaoManualPage() {
     info('Descrição da mercadoria', form.descricao_mercadoria || '-')
     info('Observações comerciais', form.observacoes || '-')
 
-    doc.setTextColor(100, 116, 139)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.text('Cotação sujeita à confirmação de peso, dimensões, documentos, disponibilidade de rota e regras da transportadora.', 14, 286)
-    doc.text('HC Consultoria - portal.hcbhz.com', 196, 286, { align: 'right' })
+    inserirRodapePdf()
 
     return doc
   }
