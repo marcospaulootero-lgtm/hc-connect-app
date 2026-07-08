@@ -3,6 +3,40 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
+
+async function enviarAlertaNovoUsuarioPortal(dados: {
+  nome?: string
+  email?: string
+  empresa?: string
+  telefone?: string
+  tipo_acesso?: string
+}) {
+  try {
+    await fetch('/api/email-alerta-hc', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tipo: 'NOVO_USUARIO_PORTAL',
+        titulo: 'Novo usuário cadastrado no HC Connect',
+        mensagem: 'Um novo usuário criou conta pelo portal e precisa ser conferido no painel administrativo.',
+        dados: {
+          Nome: dados.nome || '-',
+          Email: dados.email || '-',
+          Empresa: dados.empresa || '-',
+          Telefone: dados.telefone || '-',
+          Acesso: dados.tipo_acesso || 'cliente',
+          Origem: 'Cadastro público do portal',
+          Link: 'https://portal.hcbhz.com/admin/usuarios',
+        },
+      }),
+    })
+  } catch (error) {
+    console.log('Erro ao enviar alerta de novo usuário:', error)
+  }
+}
+
 export default function CadastroPage() {
   const [nome, setNome] = useState('')
   const [email, setEmail] = useState('')
@@ -82,7 +116,16 @@ export default function CadastroPage() {
     setLoading(false)
 
     if (sessao.session) {
-      alert('Conta criada com sucesso. Seus embarques serão vinculados pela equipe da HC.')
+      
+    await enviarAlertaNovoUsuarioPortal({
+      nome,
+      email,
+      empresa: typeof empresa !== 'undefined' ? empresa : '',
+      telefone: '',
+      tipo_acesso: 'cliente',
+    })
+
+alert('Conta criada com sucesso. Seus embarques serão vinculados pela equipe da HC.')
       window.location.href = '/cliente'
     } else {
       alert('Conta criada com sucesso. Faça login para acessar o portal.')
