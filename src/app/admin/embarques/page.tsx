@@ -93,6 +93,9 @@ export default function EmbarquesPage() {
     observacoes: '',
 
     valor_cobrado_cliente: '',
+    moeda_compra_prevista: 'USD',
+    valor_compra_previsto: '',
+    observacao_compra_prevista: '',
     moeda_cobranca: 'USD',
     servicos_financeiros: [] as ServicoFinanceiroEmbarque[],
 
@@ -486,6 +489,11 @@ export default function EmbarquesPage() {
             peso_taxado: numero(form.peso_taxado),
 
             valor_cobrado_cliente: totalFinanceiro || null,
+            moeda_compra_prevista: form.moeda_compra_prevista || form.moeda_cobranca || 'USD',
+            valor_compra_previsto: form.valor_compra_previsto
+              ? Number(String(form.valor_compra_previsto).replace(/\./g, '').replace(',', '.')) || null
+              : null,
+            observacao_compra_prevista: form.observacao_compra_prevista || null,
             moeda_cobranca: form.moeda_cobranca || 'USD',
             taxa_conversao: null,
             spread_percentual: null,
@@ -592,6 +600,12 @@ export default function EmbarquesPage() {
       valor_cobrado_cliente: item.valor_cobrado_cliente
         ? String(item.valor_cobrado_cliente)
         : '',
+      moeda_compra_prevista: item.moeda_compra_prevista || item.moeda_cobranca || 'USD',
+      valor_compra_previsto:
+        item.valor_compra_previsto !== null && item.valor_compra_previsto !== undefined
+          ? String(item.valor_compra_previsto)
+          : '',
+      observacao_compra_prevista: item.observacao_compra_prevista || '',
       moeda_cobranca: item.moeda_cobranca || 'USD',
       servicos_financeiros: servicosFinanceirosLista(item.servicos_financeiros),
 
@@ -1429,6 +1443,57 @@ export default function EmbarquesPage() {
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225]">
         <div className="flex justify-between items-center gap-4 mb-7">
           <h2 className="text-2xl font-black">Embarques cadastrados</h2>
+
+              <div className="mt-4 rounded-2xl border border-yellow-700/60 bg-yellow-950/20 p-4">
+                <div className="mb-3">
+                  <p className="text-sm font-black text-yellow-300">
+                    Valor de compra previsto
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-yellow-100/80">
+                    Este valor é apenas previsão operacional e NÃO entra em Processos Faturados, NÃO altera profit e NÃO lança custo real.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
+                      Moeda prevista
+                    </span>
+                    <select
+                      value={form.moeda_compra_prevista || 'USD'}
+                      onChange={(e) => setForm({ ...form, moeda_compra_prevista: e.target.value })}
+                    >
+                      <option value="USD">USD</option>
+                      <option value="BRL">BRL</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GBP">GBP</option>
+                      <option value="CNY">CNY</option>
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
+                      Compra prevista
+                    </span>
+                    <input
+                      value={form.valor_compra_previsto || ''}
+                      onChange={(e) => setForm({ ...form, valor_compra_previsto: e.target.value })}
+                      placeholder="Ex.: 120.00"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
+                      Observação prevista
+                    </span>
+                    <input
+                      value={form.observacao_compra_prevista || ''}
+                      onChange={(e) => setForm({ ...form, observacao_compra_prevista: e.target.value })}
+                      placeholder="Ex.: valor estimado DHL/FedEx"
+                    />
+                  </label>
+                </div>
+              </div>
 
           <div className="flex flex-wrap gap-3">
             <button
