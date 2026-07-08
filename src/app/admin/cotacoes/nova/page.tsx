@@ -75,10 +75,11 @@ async function imagemBase64(url: string) {
 
 async function buscarLogoHC() {
   const caminhos = [
+    '/HC-CONSULTORIA-TRANSPARENTE.png',
     '/logo-hc.png',
+    '/logo-hc.jpg',
     '/logo.png',
     '/hc-logo.png',
-    '/logo-hc.jpg',
     '/logo.jpg',
     '/images/logo.png',
     '/assets/logo.png',
