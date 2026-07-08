@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { jsPDF } from 'jspdf'
 import { supabase } from '@/lib/supabaseClient'
+import { AEROPORTOS_BRASIL } from '@/lib/aeroportos-brasil'
 
 type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'FEDEX_EXPORTACAO'
 
@@ -51,6 +52,44 @@ function kg(valor: any) {
 
 function nomeModelo(modelo: ModeloCotacao) {
   return modelo === 'FEDEX_EXPORTACAO' ? 'FedEx - Exportação' : 'DHL - Importação Formal'
+}
+
+async function imagemBase64(url: string) {
+  try {
+    const resposta = await fetch(url)
+
+    if (!resposta.ok) return null
+
+    const blob = await resposta.blob()
+
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(String(reader.result))
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
+async function buscarLogoHC() {
+  const caminhos = [
+    '/logo-hc.png',
+    '/logo.png',
+    '/hc-logo.png',
+    '/logo-hc.jpg',
+    '/logo.jpg',
+    '/images/logo.png',
+    '/assets/logo.png',
+  ]
+
+  for (const caminho of caminhos) {
+    const imagem = await imagemBase64(caminho)
+    if (imagem) return imagem
+  }
+
+  return null
 }
 
 export default function NovaCotacaoManualPage() {
@@ -271,7 +310,7 @@ export default function NovaCotacaoManualPage() {
       .replace(/_+/g, '_')
   }
 
-  function montarPdf() {
+  async function montarPdf() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     let y = 12
 
@@ -322,6 +361,17 @@ export default function NovaCotacaoManualPage() {
 
     doc.setFillColor(2, 8, 23)
     doc.rect(0, 0, 210, 28, 'F')
+
+    const logoHC = await buscarLogoHC()
+
+    if (logoHC) {
+      try {
+        const tipoLogo = logoHC.includes('image/jpeg') || logoHC.includes('image/jpg') ? 'JPEG' : 'PNG'
+        doc.addImage(logoHC, tipoLogo, 154, 5, 34, 20)
+      } catch (error) {
+        console.log('Não foi possível inserir a logo no PDF:', error)
+      }
+    }
 
     doc.setTextColor(255, 255, 255)
     doc.setFont('helvetica', 'bold')
@@ -439,8 +489,9 @@ export default function NovaCotacaoManualPage() {
     return doc
   }
 
-  function baixarPdf() {
-    montarPdf().save(nomeArquivoPdf())
+  async function baixarPdf() {
+    const doc = await montarPdf()
+    doc.save(nomeArquivoPdf())
   }
 
   async function salvarCotacao(enviarEmail: boolean) {
@@ -502,7 +553,7 @@ export default function NovaCotacaoManualPage() {
         return
       }
 
-      const doc = montarPdf()
+      const doc = await montarPdf()
       const blob = doc.output('blob') as Blob
       const arquivo = new File([blob], nomeArquivoPdf(cotacaoCriada.id), { type: 'application/pdf' })
       const nomeStorage = `${cotacaoCriada.id}-${Date.now()}-${arquivo.name}`
@@ -638,7 +689,7 @@ export default function NovaCotacaoManualPage() {
           <Campo label="Transportadora" value={form.transportadora} onChange={(v) => atualizarCampo('transportadora', v)} />
           <Campo label="Origem" value={form.origem} onChange={(v) => atualizarCampo('origem', v)} />
           <Campo label="Destino" value={form.destino} onChange={(v) => atualizarCampo('destino', v)} />
-          <Campo label="AOD / Formalização" value={form.aod} onChange={(v) => atualizarCampo('aod', v)} />
+          <CampoAeroporto label="AOD / Formalização" value={form.aod} onChange={(v) => atualizarCampo('aod', v)} />
           <Campo label="Trânsito estimado" value={form.transito} onChange={(v) => atualizarCampo('transito', v)} />
           <Campo label="Validade" value={form.validade} onChange={(v) => atualizarCampo('validade', v)} />
           <Campo label="Moeda mercadoria" value={form.moeda} onChange={(v) => atualizarCampo('moeda', v)} />
@@ -764,6 +815,43 @@ export default function NovaCotacaoManualPage() {
         </div>
       </section>
     </main>
+  )
+}
+
+function CampoAeroporto({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (valor: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-bold text-slate-400">{label}</span>
+
+      <input
+        list="aeroportos-brasil"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value.toUpperCase())}
+        placeholder="Ex.: CNF"
+      />
+
+      <datalist id="aeroportos-brasil">
+        {AEROPORTOS_BRASIL.map((aeroporto) => (
+          <option
+            key={aeroporto.sigla}
+            value={aeroporto.sigla}
+            label={`${aeroporto.sigla} - ${aeroporto.nome} - ${aeroporto.cidade}/${aeroporto.uf}`}
+          />
+        ))}
+      </datalist>
+
+      <p className="mt-1 text-xs font-semibold text-slate-500">
+        Digite ou selecione a sigla do aeroporto.
+      </p>
+    </label>
   )
 }
 
