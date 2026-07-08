@@ -685,14 +685,32 @@ export default function NovaCotacaoManualPage() {
         <h2 className="mb-6 text-2xl font-black">Operação</h2>
 
         <div className="form-grid">
-          <Campo label="Serviço" value={form.servico} onChange={(v) => atualizarCampo('servico', v)} />
+          <CampoSelect label="Serviço" value={form.servico} onChange={(v) => atualizarCampo('servico', v)}>
+            <option value="IMPORTAÇÃO FORMAL">Importação formal</option>
+            <option value="IMPORTAÇÃO COURIER">Importação courier</option>
+            <option value="EXPORTAÇÃO FORMAL">Exportação formal</option>
+            <option value="EXPORTAÇÃO COURIER">Exportação courier</option>
+            <option value="EXPORTAÇÃO TEMPORÁRIA">Exportação temporária</option>
+            <option value="NACIONAL">Nacional</option>
+          </CampoSelect>
           <Campo label="Transportadora" value={form.transportadora} onChange={(v) => atualizarCampo('transportadora', v)} />
           <Campo label="Origem" value={form.origem} onChange={(v) => atualizarCampo('origem', v)} />
           <Campo label="Destino" value={form.destino} onChange={(v) => atualizarCampo('destino', v)} />
           <CampoAeroporto label="AOD / Formalização" value={form.aod} onChange={(v) => atualizarCampo('aod', v)} />
           <Campo label="Trânsito estimado" value={form.transito} onChange={(v) => atualizarCampo('transito', v)} />
           <Campo label="Validade" value={form.validade} onChange={(v) => atualizarCampo('validade', v)} />
-          <Campo label="Moeda mercadoria" value={form.moeda} onChange={(v) => atualizarCampo('moeda', v)} />
+          <CampoSelect label="Moeda mercadoria" value={form.moeda} onChange={(v) => atualizarCampo('moeda', v)}>
+            <option value="USD">USD - Dólar americano</option>
+            <option value="EUR">EUR - Euro</option>
+            <option value="GBP">GBP - Libra esterlina</option>
+            <option value="CNY">CNY - Yuan chinês</option>
+            <option value="BRL">BRL - Real brasileiro</option>
+            <option value="HKD">HKD - Dólar de Hong Kong</option>
+            <option value="JPY">JPY - Iene japonês</option>
+            <option value="CHF">CHF - Franco suíço</option>
+            <option value="CAD">CAD - Dólar canadense</option>
+            <option value="AUD">AUD - Dólar australiano</option>
+          </CampoSelect>
           <Campo label="Valor mercadoria" type="number" value={form.valor_mercadoria} onChange={(v) => atualizarCampo('valor_mercadoria', v)} />
         </div>
       </section>
