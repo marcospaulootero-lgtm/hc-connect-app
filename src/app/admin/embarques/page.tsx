@@ -489,11 +489,9 @@ export default function EmbarquesPage() {
             peso_taxado: numero(form.peso_taxado),
 
             valor_cobrado_cliente: totalFinanceiro || null,
-            moeda_compra_prevista: form.moeda_compra_prevista || form.moeda_cobranca || 'USD',
             valor_compra_previsto: form.valor_compra_previsto
               ? Number(String(form.valor_compra_previsto).replace(/\./g, '').replace(',', '.')) || null
               : null,
-            observacao_compra_prevista: form.observacao_compra_prevista || null,
             moeda_cobranca: form.moeda_cobranca || 'USD',
             taxa_conversao: null,
             spread_percentual: null,
@@ -1396,6 +1394,20 @@ export default function EmbarquesPage() {
                     {item}
                   </label>
 
+              <label className="mt-4 block max-w-xs">
+                <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
+                  Valor de compra
+                </span>
+                <input
+                  value={form.valor_compra_previsto || ''}
+                  onChange={(e) => setForm({ ...form, valor_compra_previsto: e.target.value })}
+                  placeholder="Ex.: 120.00"
+                />
+                <p className="mt-1 text-xs font-semibold text-yellow-300">
+                  Apenas previsão. Não entra em Processos Faturados.
+                </p>
+              </label>
+
                   {selecionado && (
                     <input
                       value={valorItemFinanceiro(form.servicos_financeiros, item)}
@@ -1447,45 +1459,7 @@ export default function EmbarquesPage() {
               <div className="mt-4 rounded-2xl border border-yellow-700/60 bg-yellow-950/20 p-4">
                 
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
-                      Moeda prevista
-                    </span>
-                    <select
-                      value={form.moeda_compra_prevista || 'USD'}
-                      onChange={(e) => setForm({ ...form, moeda_compra_prevista: e.target.value })}
-                    >
-                      <option value="USD">USD</option>
-                      <option value="BRL">BRL</option>
-                      <option value="EUR">EUR</option>
-                      <option value="GBP">GBP</option>
-                      <option value="CNY">CNY</option>
-                    </select>
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
-                      Compra prevista
-                    </span>
-                    <input
-                      value={form.valor_compra_previsto || ''}
-                      onChange={(e) => setForm({ ...form, valor_compra_previsto: e.target.value })}
-                      placeholder="Ex.: 120.00"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
-                      Observação prevista
-                    </span>
-                    <input
-                      value={form.observacao_compra_prevista || ''}
-                      onChange={(e) => setForm({ ...form, observacao_compra_prevista: e.target.value })}
-                      placeholder="Ex.: valor estimado DHL/FedEx"
-                    />
-                  </label>
-                </div>
+                
               </div>
 
           <div className="flex flex-wrap gap-3">
