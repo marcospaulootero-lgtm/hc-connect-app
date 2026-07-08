@@ -199,6 +199,21 @@ const SERVICOS_AGENTE_CARGA = [
   'AWB Fee',
 ]
 
+
+const INCOTERMS_COTACAO = [
+  'EXW',
+  'FCA',
+  'FAS',
+  'FOB',
+  'CFR',
+  'CIF',
+  'CPT',
+  'CIP',
+  'DAP',
+  'DPU',
+  'DDP',
+]
+
 export default function NovaCotacaoManualPage() {
   const [salvando, setSalvando] = useState(false)
   const [modelo, setModelo] = useState<ModeloCotacao>('DHL_IMPORTACAO_FORMAL')
@@ -221,6 +236,7 @@ export default function NovaCotacaoManualPage() {
     validade: '7 dias',
     moeda: 'USD',
     valor_mercadoria: '',
+    incoterm: 'EXW',
     percentualSeguro: '0.60',
     seguroMinimo: '13.20',
     usarSeguroManual: false,
@@ -586,6 +602,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
     info('Origem da solicitação', form.origem_solicitacao || '-')
     info('Origem', form.origem || '-')
     info('Destino', form.destino || '-')
+    info('Incoterm', form.incoterm || '-')
     info('AOD / Formalização', form.aod || '-')
     info('Trânsito estimado', form.transito || '-')
     info('Validade', form.validade || '-')
@@ -895,6 +912,14 @@ const totaisAgenteMoedaTela = useMemo(() => {
             <option value="CHF">CHF - Franco suíço</option>
             <option value="CAD">CAD - Dólar canadense</option>
             <option value="AUD">AUD - Dólar australiano</option>
+          </CampoSelect>
+
+          <CampoSelect label="Incoterm" value={form.incoterm || 'EXW'} onChange={(v) => atualizarCampo('incoterm', v)}>
+            {INCOTERMS_COTACAO.map((incoterm) => (
+              <option key={incoterm} value={incoterm}>
+                {incoterm}
+              </option>
+            ))}
           </CampoSelect>
           <Campo label="Valor mercadoria" type="number" value={form.valor_mercadoria} onChange={(v) => atualizarCampo('valor_mercadoria', v)} />
         </div>
