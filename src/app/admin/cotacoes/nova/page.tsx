@@ -6,7 +6,7 @@ import { jsPDF } from 'jspdf'
 import { supabase } from '@/lib/supabaseClient'
 import { AEROPORTOS_BRASIL } from '@/lib/aeroportos-brasil'
 
-type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'FEDEX_EXPORTACAO'
+type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'FEDEX_EXPORTACAO' | 'AGENTE_CARGA_FORMAL'
 
 type VolumeCotacao = {
   quantidade: string
@@ -36,11 +36,21 @@ function arredondarMeioKg(valor: number) {
   return Math.ceil((Number(valor) || 0) / 0.5) * 0.5
 }
 
-function dinheiro(valor: any) {
-  return `USD ${numero(valor).toLocaleString('pt-BR', {
+function dinheiro(valor: any, moeda = 'USD') {
+  return `${moeda} ${numero(valor).toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
+}
+
+function resumoTotalMoedas(totais: Record<string, number>) {
+  const entradas = Object.entries(totais).filter(([, valor]) => valor > 0)
+
+  if (entradas.length === 0) return 'USD 0,00'
+
+  return entradas
+    .map(([moeda, valor]) => dinheiro(valor, moeda))
+    .join(' + ')
 }
 
 function kg(valor: any) {
@@ -51,7 +61,7 @@ function kg(valor: any) {
 }
 
 function nomeModelo(modelo: ModeloCotacao) {
-  return modelo === 'FEDEX_EXPORTACAO' ? 'FedEx - Exportação' : 'DHL - Importação Formal'
+  return modelo === 'FEDEX_EXPORTACAO' ? 'FedEx - Exportação' : 'DHL - Importação Formal - Courier'
 }
 
 async function imagemBase64(url: string) {
@@ -147,6 +157,47 @@ async function imagemComOpacidade(dataUrl: string, opacidade = 0.10) {
     return dataUrl
   }
 }
+
+
+const SERVICOS_AGENTE_CARGA = [
+  'Frete Internacional',
+  'Insurance',
+  'Export Log Fee',
+  'Airport Transfer',
+  'Teste Magnético',
+  'Ad Valorem',
+  'Serviços de seguro de carga',
+  'Delivery Fee',
+  'Taxa Origem',
+  'Desembaraço Aduaneiro',
+  'DESCONTO',
+  'Coleta',
+  'Pick Up',
+  'DTA - Trânsito Aduaneiro',
+  'Documentation Fee',
+  'Local Charges',
+  'X-Ray Charge',
+  'Handling',
+  'EXW Charges',
+  'Desconsolidação',
+  'Customs Clearance',
+  'IOF',
+  'Armazenagem Aérea',
+  'THC Aéreo',
+  'SAF',
+  'DGR Fee',
+  'Administration Fee',
+  'Ex Works',
+  'Destination Charges',
+  'FCA Charges',
+  'AMS-AWB',
+  'Adicional DTA',
+  'Fuel',
+  'Airline Docs Release',
+  'Collect Fee',
+  'Handling Destino',
+  'AWB Fee',
+]
 
 export default function NovaCotacaoManualPage() {
   const [salvando, setSalvando] = useState(false)
@@ -299,6 +350,48 @@ export default function NovaCotacaoManualPage() {
     }
   }, [form, modelo])
 
+    const [itensAgente, setItensAgente] = useState(() =>
+    SERVICOS_AGENTE_CARGA.map((servico) => ({
+      usar: false,
+      servico,
+      moeda: 'USD',
+      valor: '',
+      observacao: '',
+    }))
+  )
+
+const totaisAgenteMoedaTela = useMemo(() => {
+    return itensAgente.reduce<Record<string, number>>((acc, item) => {
+      if (!item.usar) return acc
+
+      const moeda = item.moeda || 'USD'
+      const valor = numero(item.valor)
+
+      if (valor <= 0) return acc
+
+      acc[moeda] = (acc[moeda] || 0) + valor
+
+      return acc
+    }, {})
+  }, [itensAgente])
+
+  function atualizarItemAgente(
+    index: number,
+    campo: 'usar' | 'servico' | 'moeda' | 'valor' | 'observacao',
+    valor: string | boolean
+  ) {
+    setItensAgente((atuais) =>
+      atuais.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              [campo]: valor,
+            }
+          : item
+      )
+    )
+  }
+
   function atualizarCampo(campo: keyof typeof form, valor: string | boolean) {
     setForm((atual) => ({
       ...atual,
@@ -403,7 +496,11 @@ export default function NovaCotacaoManualPage() {
       y += Math.max(6, linhas.length * 5)
     }
 
-    function valor(label: string, numeroValor: any) {
+    function valor(label: string, numeroValor: any, moeda = 'USD') {
+      const valorNumerico = numero(numeroValor)
+
+      if (valorNumerico <= 0) return
+
       novaPagina(7)
       doc.setTextColor(15, 23, 42)
       doc.setFont('helvetica', 'normal')
@@ -411,7 +508,7 @@ export default function NovaCotacaoManualPage() {
       doc.text(label, 118, y)
 
       doc.setFont('helvetica', 'bold')
-      doc.text(dinheiro(numeroValor), 190, y, { align: 'right' })
+      doc.text(dinheiro(valorNumerico, moeda), 190, y, { align: 'right' })
       y += 6
     }
 
@@ -562,7 +659,7 @@ export default function NovaCotacaoManualPage() {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(11)
     doc.text('TOTAL ALL IN USD', 118, y + 8)
-    doc.text(dinheiro(valores.total), 192, y + 8, { align: 'right' })
+    doc.text(dinheiro(valores.total, 'USD'), 192, y + 8, { align: 'right' })
     y += 18
 
     secao('MERCADORIA E OBSERVAÇÕES')
@@ -739,13 +836,14 @@ export default function NovaCotacaoManualPage() {
 
           <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-right">
             <p className="text-xs font-black uppercase tracking-widest text-slate-500">Total all in</p>
-            <p className="mt-1 text-3xl font-black text-green-400">{dinheiro(valores.total)}</p>
+            <p className="mt-1 text-3xl font-black text-green-400">{modelo === 'AGENTE_CARGA_FORMAL' ? resumoTotalMoedas(totaisAgenteMoedaTela) : dinheiro(valores.total)}</p>
           </div>
         </div>
 
         <div className="form-grid">
           <CampoSelect label="Modelo da cotação" value={modelo} onChange={(v) => trocarModelo(v as ModeloCotacao)}>
-            <option value="DHL_IMPORTACAO_FORMAL">DHL - Importação Formal</option>
+            <option value="DHL_IMPORTACAO_FORMAL">DHL - Importação Formal - Courier</option>
+            <option value="AGENTE_CARGA_FORMAL">Agente de carga - Formal</option>
             <option value="FEDEX_EXPORTACAO">FedEx - Exportação</option>
           </CampoSelect>
 
