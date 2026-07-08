@@ -291,6 +291,10 @@ export default function NovaCotacaoManualPage() {
     }
   }, [volumesCalculados])
 
+  const usarCamposAgente =
+    modelo === 'AGENTE_CARGA_FORMAL' ||
+    String(form.servico || '').toUpperCase().includes('FORMAL')
+
   const valores = useMemo(() => {
     const valorMercadoria = numero(form.valor_mercadoria)
     const percentualSeguro = numero(form.percentualSeguro)
@@ -836,7 +840,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
           <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-right">
             <p className="text-xs font-black uppercase tracking-widest text-slate-500">Total all in</p>
-            <p className="mt-1 text-3xl font-black text-green-400">{modelo === 'AGENTE_CARGA_FORMAL' ? resumoTotalMoedas(totaisAgenteMoedaTela) : dinheiro(valores.total)}</p>
+            <p className="mt-1 text-3xl font-black text-green-400">{usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : dinheiro(valores.total)}</p>
           </div>
         </div>
 
@@ -955,26 +959,107 @@ const totaisAgenteMoedaTela = useMemo(() => {
       <section className="card mb-8">
         <h2 className="mb-6 text-2xl font-black">Valores do envio</h2>
 
-        <div className="form-grid">
-          <Campo label="Frete USD" type="number" value={form.frete} onChange={(v) => atualizarCampo('frete', v)} />
-          <Campo label="Sobretaxa emergencial USD" type="number" value={form.sobretaxa} onChange={(v) => atualizarCampo('sobretaxa', v)} />
-          <Campo label="Área remota USD" type="number" value={form.areaRemota} onChange={(v) => atualizarCampo('areaRemota', v)} />
-          <Campo label="Peso excedente USD" type="number" value={form.pesoExcedente} onChange={(v) => atualizarCampo('pesoExcedente', v)} />
+        {usarCamposAgente ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+              <p className="text-sm font-black text-blue-300">Agente de carga / formal</p>
+              <p className="mt-1 text-xs font-semibold text-slate-400">
+                Marque apenas os valores que entram na cotação. Cada item pode ter uma moeda diferente.
+              </p>
+            </div>
 
-          {modelo === 'DHL_IMPORTACAO_FORMAL' ? (
-            <>
-              <Campo label="DTA USD" type="number" value={form.dta} onChange={(v) => atualizarCampo('dta', v)} />
-              <Campo label="Delivery doc fee USD" type="number" value={form.deliveryDocFee} onChange={(v) => atualizarCampo('deliveryDocFee', v)} />
-              <Campo label="Dimensão excedente USD" type="number" value={form.dimensaoExcedente} onChange={(v) => atualizarCampo('dimensaoExcedente', v)} />
-            </>
-          ) : (
-            <>
-              <Campo label="Emissão de DUE USD" type="number" value={form.emissaoDue} onChange={(v) => atualizarCampo('emissaoDue', v)} />
-              <Campo label="Volume excedente USD" type="number" value={form.volumeExcedente} onChange={(v) => atualizarCampo('volumeExcedente', v)} />
-              <Campo label="Impostos no destino USD" type="number" value={form.impostosDestino} onChange={(v) => atualizarCampo('impostosDestino', v)} />
-            </>
-          )}
-        </div>
+            <div className="overflow-x-auto rounded-2xl border border-blue-900">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead className="bg-[#020817] text-xs uppercase tracking-widest text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">Usar</th>
+                    <th className="px-4 py-3">Serviço</th>
+                    <th className="px-4 py-3">Moeda</th>
+                    <th className="px-4 py-3">Valor</th>
+                    <th className="px-4 py-3">Observação</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {itensAgente.map((item, index) => (
+                    <tr key={item.servico} className="border-t border-blue-950">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={item.usar}
+                          onChange={(e) => atualizarItemAgente(index, 'usar', e.target.checked)}
+                        />
+                      </td>
+
+                      <td className="px-4 py-3 font-black text-white">{item.servico}</td>
+
+                      <td className="px-4 py-3">
+                        <select
+                          value={item.moeda}
+                          onChange={(e) => atualizarItemAgente(index, 'moeda', e.target.value)}
+                          className="min-w-[110px]"
+                        >
+                          <option value="USD">USD</option>
+                          <option value="BRL">BRL</option>
+                          <option value="EUR">EUR</option>
+                          <option value="GBP">GBP</option>
+                          <option value="CNY">CNY</option>
+                          <option value="HKD">HKD</option>
+                        </select>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <input
+                          value={item.valor}
+                          onChange={(e) => atualizarItemAgente(index, 'valor', e.target.value)}
+                          placeholder="0,00"
+                          className="min-w-[140px]"
+                        />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <input
+                          value={item.observacao}
+                          onChange={(e) => atualizarItemAgente(index, 'observacao', e.target.value)}
+                          placeholder="Opcional"
+                          className="min-w-[260px]"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total por moeda</p>
+              <p className="mt-2 text-2xl font-black text-green-400">
+                {resumoTotalMoedas(totaisAgenteMoedaTela)}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="form-grid">
+            <Campo label="Frete USD" type="number" value={form.frete} onChange={(v) => atualizarCampo('frete', v)} />
+            <Campo label="Sobretaxa emergencial USD" type="number" value={form.sobretaxa} onChange={(v) => atualizarCampo('sobretaxa', v)} />
+            <Campo label="Área remota USD" type="number" value={form.areaRemota} onChange={(v) => atualizarCampo('areaRemota', v)} />
+            <Campo label="Peso excedente USD" type="number" value={form.pesoExcedente} onChange={(v) => atualizarCampo('pesoExcedente', v)} />
+
+            {modelo === 'DHL_IMPORTACAO_FORMAL' ? (
+              <>
+                <Campo label="DTA USD" type="number" value={form.dta} onChange={(v) => atualizarCampo('dta', v)} />
+                <Campo label="Delivery doc fee USD" type="number" value={form.deliveryDocFee} onChange={(v) => atualizarCampo('deliveryDocFee', v)} />
+                <Campo label="Dimensão excedente USD" type="number" value={form.dimensaoExcedente} onChange={(v) => atualizarCampo('dimensaoExcedente', v)} />
+              </>
+            ) : (
+              <>
+                <Campo label="Emissão de DUE USD" type="number" value={form.emissaoDue} onChange={(v) => atualizarCampo('emissaoDue', v)} />
+                <Campo label="Volume excedente USD" type="number" value={form.volumeExcedente} onChange={(v) => atualizarCampo('volumeExcedente', v)} />
+                <Campo label="Impostos no destino USD" type="number" value={form.impostosDestino} onChange={(v) => atualizarCampo('impostosDestino', v)} />
+              </>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="card mb-8">
