@@ -1200,7 +1200,7 @@ export default function EmbarquesPage() {
                 <label key={usuario.id} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={form.usuarios_ids.includes(usuario.id)}
+                    checked={usuariosVinculo.includes(usuario.id)}
                     onChange={(e) => alterarSelecaoCliente(usuario.id, e.target.checked)}
                   />
                   {usuario.nome || usuario.email}
@@ -1379,13 +1379,13 @@ export default function EmbarquesPage() {
                   <label className="flex items-center gap-2 font-bold text-sm">
                     <input
                       type="checkbox"
-                      checked={selecionado}
+                      checked={form.servicos_financeiros.includes(item as any)}
                       onChange={(e) =>
                         setForm({
                           ...form,
                           servicos_financeiros: atualizarItemFinanceiro(
                             form.servicos_financeiros,
-                            item,
+                            item as any,
                             e.target.checked
                           ),
                         })
@@ -1396,17 +1396,16 @@ export default function EmbarquesPage() {
 
               <label className="mt-4 block max-w-xs">
                 <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
-                  Valor de compra
+                  Valor de compra do embarque
                 </span>
                 <input
                   value={form.valor_compra_previsto || ''}
                   onChange={(e) => setForm({ ...form, valor_compra_previsto: e.target.value })}
                   placeholder="Ex.: 120.00"
                 />
-                <p className="mt-1 text-xs font-semibold text-yellow-300">
-                  Apenas previsão. Não entra em Processos Faturados.
-                </p>
               </label>
+
+              
 
                   {selecionado && (
                     <input
@@ -1454,15 +1453,7 @@ export default function EmbarquesPage() {
       {abaTela === 'LISTAGEM' && (
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225]">
         <div className="flex justify-between items-center gap-4 mb-7">
-          <h2 className="text-2xl font-black">Embarques cadastrados</h2>
-
-              <div className="mt-4 rounded-2xl border border-yellow-700/60 bg-yellow-950/20 p-4">
-                
-
-                
-              </div>
-
-          <div className="flex flex-wrap gap-3">
+          <h2 className="text-2xl font-black">Embarques cadastrados</h2><div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={gerarRelatorioEmbarques}
@@ -1528,7 +1519,6 @@ export default function EmbarquesPage() {
           <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
             <input
               type="checkbox"
-              checked={todosFiltradosSelecionados}
               onChange={(e) => selecionarTodosFiltrados(e.target.checked)}
             />
             Selecionar todos os embarques filtrados
