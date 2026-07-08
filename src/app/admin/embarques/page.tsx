@@ -93,9 +93,6 @@ export default function EmbarquesPage() {
     observacoes: '',
 
     valor_cobrado_cliente: '',
-    moeda_compra_prevista: 'USD',
-    valor_compra_previsto: '',
-    observacao_compra_prevista: '',
     moeda_cobranca: 'USD',
     servicos_financeiros: [] as ServicoFinanceiroEmbarque[],
 
@@ -489,9 +486,6 @@ export default function EmbarquesPage() {
             peso_taxado: numero(form.peso_taxado),
 
             valor_cobrado_cliente: totalFinanceiro || null,
-            valor_compra_previsto: form.valor_compra_previsto
-              ? Number(String(form.valor_compra_previsto).replace(/\./g, '').replace(',', '.')) || null
-              : null,
             moeda_cobranca: form.moeda_cobranca || 'USD',
             taxa_conversao: null,
             spread_percentual: null,
@@ -598,12 +592,6 @@ export default function EmbarquesPage() {
       valor_cobrado_cliente: item.valor_cobrado_cliente
         ? String(item.valor_cobrado_cliente)
         : '',
-      moeda_compra_prevista: item.moeda_compra_prevista || item.moeda_cobranca || 'USD',
-      valor_compra_previsto:
-        item.valor_compra_previsto !== null && item.valor_compra_previsto !== undefined
-          ? String(item.valor_compra_previsto)
-          : '',
-      observacao_compra_prevista: item.observacao_compra_prevista || '',
       moeda_cobranca: item.moeda_cobranca || 'USD',
       servicos_financeiros: servicosFinanceirosLista(item.servicos_financeiros),
 
@@ -1200,7 +1188,7 @@ export default function EmbarquesPage() {
                 <label key={usuario.id} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={usuariosVinculo.includes(usuario.id)}
+                    checked={form.usuarios_ids.includes(usuario.id)}
                     onChange={(e) => alterarSelecaoCliente(usuario.id, e.target.checked)}
                   />
                   {usuario.nome || usuario.email}
@@ -1379,13 +1367,13 @@ export default function EmbarquesPage() {
                   <label className="flex items-center gap-2 font-bold text-sm">
                     <input
                       type="checkbox"
-                      checked={form.servicos_financeiros.includes(item as any)}
+                      checked={selecionado}
                       onChange={(e) =>
                         setForm({
                           ...form,
                           servicos_financeiros: atualizarItemFinanceiro(
                             form.servicos_financeiros,
-                            item as any,
+                            item,
                             e.target.checked
                           ),
                         })
@@ -1393,19 +1381,6 @@ export default function EmbarquesPage() {
                     />
                     {item}
                   </label>
-
-              <label className="mt-4 block max-w-xs">
-                <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">
-                  Valor de compra do embarque
-                </span>
-                <input
-                  value={form.valor_compra_previsto || ''}
-                  onChange={(e) => setForm({ ...form, valor_compra_previsto: e.target.value })}
-                  placeholder="Ex.: 120.00"
-                />
-              </label>
-
-              
 
                   {selecionado && (
                     <input
@@ -1453,7 +1428,9 @@ export default function EmbarquesPage() {
       {abaTela === 'LISTAGEM' && (
       <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225]">
         <div className="flex justify-between items-center gap-4 mb-7">
-          <h2 className="text-2xl font-black">Embarques cadastrados</h2><div className="flex flex-wrap gap-3">
+          <h2 className="text-2xl font-black">Embarques cadastrados</h2>
+
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={gerarRelatorioEmbarques}
@@ -1519,6 +1496,7 @@ export default function EmbarquesPage() {
           <label className="flex items-center gap-3 text-sm font-bold text-slate-300">
             <input
               type="checkbox"
+              checked={todosFiltradosSelecionados}
               onChange={(e) => selecionarTodosFiltrados(e.target.checked)}
             />
             Selecionar todos os embarques filtrados
