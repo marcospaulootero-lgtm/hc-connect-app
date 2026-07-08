@@ -119,11 +119,6 @@ export default function NovaCotacaoManualPage() {
   }
 
   async function salvarCotacaoManual() {
-    if (!form.solicitante_email.trim()) {
-      alert('Informe o e-mail do cliente.')
-      return
-    }
-
     if (!form.empresa_solicitante.trim() && !form.solicitante_nome.trim()) {
       alert('Informe a empresa solicitante ou o nome do solicitante.')
       return
@@ -142,7 +137,7 @@ export default function NovaCotacaoManualPage() {
       .insert([
         {
           origem_solicitacao: form.origem_solicitacao,
-          solicitante_email: form.solicitante_email.trim(),
+          solicitante_email: form.solicitante_email.trim() || null,
           cliente_final: form.empresa_solicitante || form.solicitante_nome || null,
           empresa_solicitante: form.empresa_solicitante || null,
           solicitante_nome: form.solicitante_nome || null,
