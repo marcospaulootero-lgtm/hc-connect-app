@@ -93,10 +93,11 @@ async function buscarLogoHC() {
   return null
 }
 
-async function imagemComOpacidade(dataUrl: string, opacidade = 0.08) {
+async function imagemComOpacidade(dataUrl: string, opacidade = 0.10) {
   try {
     return await new Promise<string>((resolve) => {
       const img = new Image()
+
       img.onload = () => {
         const largura = img.naturalWidth || img.width
         const altura = img.naturalHeight || img.height
@@ -113,8 +114,28 @@ async function imagemComOpacidade(dataUrl: string, opacidade = 0.08) {
         }
 
         ctx.clearRect(0, 0, largura, altura)
-        ctx.globalAlpha = opacidade
         ctx.drawImage(img, 0, 0, largura, altura)
+
+        const imagem = ctx.getImageData(0, 0, largura, altura)
+        const pixels = imagem.data
+
+        for (let i = 0; i < pixels.length; i += 4) {
+          const r = pixels[i]
+          const g = pixels[i + 1]
+          const b = pixels[i + 2]
+          const a = pixels[i + 3]
+
+          const muitoClaro = r > 225 && g > 225 && b > 225
+          const quaseCinzaClaro = Math.abs(r - g) < 8 && Math.abs(g - b) < 8 && r > 215
+
+          if (muitoClaro || quaseCinzaClaro || a < 18) {
+            pixels[i + 3] = 0
+          } else {
+            pixels[i + 3] = Math.round(a * opacidade)
+          }
+        }
+
+        ctx.putImageData(imagem, 0, 0)
 
         resolve(canvas.toDataURL('image/png'))
       }
@@ -403,7 +424,7 @@ export default function NovaCotacaoManualPage() {
       if (!logoHC) return
 
       try {
-        const logoTransparente = await imagemComOpacidade(logoHC, 0.08)
+        const logoTransparente = await imagemComOpacidade(logoHC, 0.10)
         doc.addImage(logoTransparente, 'PNG', 112, 55, 76, 50)
       } catch (error) {
         console.log('Não foi possível inserir a marca d água da logo:', error)
