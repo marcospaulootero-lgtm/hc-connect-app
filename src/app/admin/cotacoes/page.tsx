@@ -387,11 +387,13 @@ export default function CotacoesAdminPage() {
 
                   <td>
                     <div className="flex gap-2 flex-wrap">
-                      <a
-                        href={`/admin/cotacoes/${item.id}`}
+                                            <a
+                        href={item.pdf_cotacao_url || item.arquivo_resposta_url || `/admin/cotacoes/${item.id}`}
+                        target={item.pdf_cotacao_url || item.arquivo_resposta_url ? '_blank' : undefined}
+                        rel={item.pdf_cotacao_url || item.arquivo_resposta_url ? 'noreferrer' : undefined}
                         className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold"
                       >
-                        Ver
+                        Ver PDF
                       </a>
 
                       <a
@@ -400,17 +402,6 @@ export default function CotacoesAdminPage() {
                       >
                         Editar
                       </a>
-
-                      {item.pdf_cotacao_url ? (
-                        <a
-                          href={item.pdf_cotacao_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="bg-green-700 hover:bg-green-600 px-4 py-2 rounded-xl text-white font-bold"
-                        >
-                          PDF
-                        </a>
-                      ) : null}
 
                       <button
                         onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
