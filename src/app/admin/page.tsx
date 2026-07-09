@@ -1283,7 +1283,7 @@ export default function DashboardPage() {
               type="button"
               onClick={atualizarDadosManual}
               disabled={carregando}
-              className="rounded-2xl bg-blue-600 px-5 py-4 font-black text-white shadow-[0_0_24px_rgba(37,99,235,0.25)] hover:bg-blue-500 disabled:opacity-60"
+              className="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_24px_rgba(37,99,235,0.25)] hover:bg-blue-500 disabled:opacity-60"
             >
               {carregando ? 'Atualizando...' : '↻ Atualizar dashboard'}
             </button>
@@ -1292,16 +1292,16 @@ export default function DashboardPage() {
               type="button"
               onClick={atualizarTodosRastreios}
               disabled={rodandoRastreio}
-              className="rounded-2xl border border-blue-800 bg-[#071225] px-5 py-4 font-black text-blue-100 hover:bg-blue-600/20 disabled:opacity-60"
+              className="rounded-2xl border border-blue-800 bg-[#071225] px-5 py-3 font-black text-blue-100 hover:bg-blue-600/20 disabled:opacity-60"
             >
               {rodandoRastreio ? 'Rodando rastreio...' : '📡 Rodar rastreio'}
             </button>
 
-            <a href="/admin/embarques" className="rounded-2xl bg-emerald-600 px-5 py-4 font-black text-white hover:bg-emerald-500">
+            <a href="/admin/embarques" className="rounded-2xl bg-emerald-600 px-5 py-3 font-black text-white hover:bg-emerald-500">
               + Novo embarque
             </a>
 
-            <a href="/admin/financeiro" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-4 font-black text-white hover:bg-slate-700">
+            <a href="/admin/financeiro" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-3 font-black text-white hover:bg-slate-700">
               Financeiro
             </a>
           </div>
@@ -1385,7 +1385,7 @@ export default function DashboardPage() {
         </section>
 
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="card">
+          <div className="card h-full">
             <div className="mb-4 flex flex-col gap-3">
               <div>
                 <div className="flex items-center gap-3">
@@ -1424,7 +1424,7 @@ export default function DashboardPage() {
 
           
 
-                    <div data-dashboard-ultimos-topo="true" className="card">
+                    <div data-dashboard-ultimos-topo="true" className="card h-full">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-black">Últimos embarques</h2>
@@ -1437,7 +1437,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="overflow-auto">
-              <table className="w-full min-w-[620px] text-sm">
+              <table className="w-full min-w-[520px] text-sm">
                 <thead>
                   <tr className="border-b border-blue-950 text-left text-slate-400">
                     <th className="pb-3">AWB</th>
@@ -1475,7 +1475,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-<div className="card">
+<div className="card h-full">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-3">
@@ -1551,7 +1551,7 @@ export default function DashboardPage() {
         </section>
 
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="card">
+          <div className="card h-full">
             <div className="mb-6 flex items-center gap-3">
               <span className="text-3xl">💳</span>
               <div>
@@ -1578,7 +1578,7 @@ export default function DashboardPage() {
             </a>
           </div>
 
-          <div className="card">
+          <div className="card h-full">
             <div className="mb-6 flex items-center gap-3">
               <span className="text-3xl">📡</span>
               <div>
@@ -1608,7 +1608,7 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="card">
+          <div className="card h-full">
             <div className="mb-6 flex items-center gap-3">
               <span className="text-3xl">🎧</span>
               <div>
@@ -1810,7 +1810,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-6">
-            <div className="card">
+            <div className="card h-full">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black">Receita x Profit</h2>
@@ -1854,7 +1854,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="card">
+            <div className="card h-full">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black">Status operacional</h2>
@@ -1887,7 +1887,7 @@ export default function DashboardPage() {
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
           
 
-          <div className="card">
+          <div className="card h-full">
             <div className="mb-6 flex justify-between items-center">
               <h2 className="text-2xl font-black">Pendências financeiras recentes</h2>
               <a href="/admin/financeiro?aba=PROCESSOS" className="text-blue-400 font-bold">
