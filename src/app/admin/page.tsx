@@ -1256,8 +1256,8 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-[#020817] text-white">
       <AdminUsuariosOnline />
-      <section className="p-5 xl:p-8 overflow-auto">
-        <header className="mb-8 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-6">
+      <section className="p-5 xl:p-5 overflow-auto">
+        <header className="mb-5 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
           <div>
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.22em] text-blue-300">
@@ -1269,7 +1269,7 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            <h1 className="text-4xl xl:text-6xl font-black tracking-tight">
+            <h1 className="text-xl xl:text-xl font-black tracking-tight">
               HC Connect
             </h1>
 
@@ -1283,7 +1283,7 @@ export default function DashboardPage() {
               type="button"
               onClick={atualizarDadosManual}
               disabled={carregando}
-              className="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_24px_rgba(37,99,235,0.25)] hover:bg-blue-500 disabled:opacity-60"
+              className="rounded-2xl bg-blue-600 px-5 py-2 font-black text-white shadow-[0_0_24px_rgba(37,99,235,0.25)] hover:bg-blue-500 disabled:opacity-60"
             >
               {carregando ? 'Atualizando...' : '↻ Atualizar dashboard'}
             </button>
@@ -1292,22 +1292,22 @@ export default function DashboardPage() {
               type="button"
               onClick={atualizarTodosRastreios}
               disabled={rodandoRastreio}
-              className="rounded-2xl border border-blue-800 bg-[#071225] px-5 py-3 font-black text-blue-100 hover:bg-blue-600/20 disabled:opacity-60"
+              className="rounded-2xl border border-blue-800 bg-[#071225] px-5 py-2 font-black text-blue-100 hover:bg-blue-600/20 disabled:opacity-60"
             >
               {rodandoRastreio ? 'Rodando rastreio...' : '📡 Rodar rastreio'}
             </button>
 
-            <a href="/admin/embarques" className="rounded-2xl bg-emerald-600 px-5 py-3 font-black text-white hover:bg-emerald-500">
+            <a href="/admin/embarques" className="rounded-2xl bg-emerald-600 px-5 py-2 font-black text-white hover:bg-emerald-500">
               + Novo embarque
             </a>
 
-            <a href="/admin/financeiro" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-3 font-black text-white hover:bg-slate-700">
+            <a href="/admin/financeiro" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-2 font-black text-white hover:bg-slate-700">
               Financeiro
             </a>
           </div>
         </header>
 
-        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-5">
+        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
           <HeroCard
             titulo="A receber"
             valor={moeda(financeiroResumo.aReceber)}
@@ -1373,7 +1373,7 @@ export default function DashboardPage() {
           />
         </section>
 
-        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-4">
+        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-4">
           <KpiCard titulo="Aguardando custo" valor={financeiroResumo.aguardandoCusto.length} detalhe={moeda(financeiroResumo.totalAguardandoCusto)} icone="⚠️" cor="orange" href="/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO" />
           <KpiCard titulo="Vencidos" valor={financeiroResumo.atrasado.length} detalhe={moeda(financeiroResumo.vencido)} icone="⏰" cor="red" href="/admin/financeiro?aba=PROCESSOS&status=ATRASADO" />
           <KpiCard titulo="Aguardando coleta" valor={operacionalResumo.aguardandoColeta} detalhe="Pré-coleta" icone="📦" cor="orange" href="/admin/embarques?status=Aguardando%20coleta" />
@@ -1384,12 +1384,12 @@ export default function DashboardPage() {
           <KpiCard titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" href="/admin/embarques" />
         </section>
 
-        <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="card h-full">
+        <section className="mb-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="card h-full text-sm">
             <div className="mb-4 flex flex-col gap-3">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl">🚨</span>
+                  <span className="text-xl">🚨</span>
                   <h2 className="text-xl font-black">Alertas críticos</h2>
                 </div>
                 <p className="mt-1 text-xs font-semibold text-slate-400">
@@ -1424,7 +1424,7 @@ export default function DashboardPage() {
 
           
 
-                    <div data-dashboard-ultimos-topo="true" className="card h-full">
+                    <div data-dashboard-ultimos-topo="true" className="card h-full text-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-black">Últimos embarques</h2>
@@ -1440,24 +1440,24 @@ export default function DashboardPage() {
               <table className="w-full min-w-[520px] text-sm">
                 <thead>
                   <tr className="border-b border-blue-950 text-left text-slate-400">
-                    <th className="pb-3">AWB</th>
-                    <th className="pb-3">Exportador</th>
-                    <th className="pb-3">Importador</th>
-                    <th className="pb-3">Status</th>
+                    <th className="pb-2">AWB</th>
+                    <th className="pb-2">Exportador</th>
+                    <th className="pb-2">Importador</th>
+                    <th className="pb-2">Status</th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {ultimosEmbarques.slice(0, 6).map((item) => (
                     <tr key={item.id} className="border-b border-blue-950">
-                      <td className="py-3 font-bold text-blue-400">
+                      <td className="py-2 font-bold text-blue-400">
                         <a href={'/admin/embarques/' + item.id} className="hover:underline">
                           {item.awb || '-'}
                         </a>
                       </td>
-                      <td className="py-3">{item.exportador || '-'}</td>
-                      <td className="py-3">{item.importador || '-'}</td>
-                      <td className="py-3">
+                      <td className="py-2">{item.exportador || '-'}</td>
+                      <td className="py-2">{item.importador || '-'}</td>
+                      <td className="py-2">
                         <StatusPillDashboard status={item.status_operacional || '-'} />
                       </td>
                     </tr>
@@ -1465,7 +1465,7 @@ export default function DashboardPage() {
 
                   {ultimosEmbarques.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-slate-500">
+                      <td colSpan={4} className="py-5 text-center text-slate-500">
                         Nenhum embarque encontrado.
                       </td>
                     </tr>
@@ -1475,11 +1475,11 @@ export default function DashboardPage() {
             </div>
           </div>
 
-<div className="card h-full">
+<div className="card h-full text-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="text-3xl">📄</span>
+                  <span className="text-xl">📄</span>
                   <h2 className="text-xl font-black">DHL/FedEx</h2>
                 </div>
                 <p className="mt-2 text-sm text-slate-400">
@@ -1550,12 +1550,12 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="card h-full">
-            <div className="mb-6 flex items-center gap-3">
-              <span className="text-3xl">💳</span>
+        <section className="mb-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="card h-full text-sm">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="text-xl">💳</span>
               <div>
-                <h2 className="text-2xl font-black">Painel financeiro</h2>
+                <h2 className="text-xl font-black">Painel financeiro</h2>
                 <p className="text-sm text-slate-400">Resultado rápido do mês atual.</p>
               </div>
             </div>
@@ -1573,16 +1573,16 @@ export default function DashboardPage() {
               <LinhaResumo titulo="Fundo atual do ano" valor={moeda(financeiroResumo.fundoAtual)} cor="blue" />
             </div>
 
-            <a href="/admin/financeiro" className="mt-6 block text-right font-black text-blue-400 hover:text-blue-300">
+            <a href="/admin/financeiro" className="mt-4 block text-right font-black text-blue-400 hover:text-blue-300">
               Abrir financeiro →
             </a>
           </div>
 
-          <div className="card h-full">
-            <div className="mb-6 flex items-center gap-3">
-              <span className="text-3xl">📡</span>
+          <div className="card h-full text-sm">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="text-xl">📡</span>
               <div>
-                <h2 className="text-2xl font-black">Rastreio automático</h2>
+                <h2 className="text-xl font-black">Rastreio automático</h2>
                 <p className="text-sm text-slate-400">Última execução registrada.</p>
               </div>
             </div>
@@ -1608,11 +1608,11 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="card h-full">
-            <div className="mb-6 flex items-center gap-3">
-              <span className="text-3xl">🎧</span>
+          <div className="card h-full text-sm">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="text-xl">🎧</span>
               <div>
-                <h2 className="text-2xl font-black">Suporte e cotações</h2>
+                <h2 className="text-xl font-black">Suporte e cotações</h2>
                 <p className="text-sm text-slate-400">Atendimento e demanda comercial.</p>
               </div>
             </div>
@@ -1639,7 +1639,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <section className="mb-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="card overflow-hidden bg-gradient-to-br from-[#081a33] via-[#061126] to-[#020817] shadow-[0_0_34px_rgba(37,99,235,0.18)]">
             <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
@@ -1647,7 +1647,7 @@ export default function DashboardPage() {
                   ⚡ Controle operacional
                 </div>
 
-                <h2 className="mt-3 text-3xl font-black tracking-tight">Movimento da operação</h2>
+                <h2 className="mt-3 text-xl font-black tracking-tight">Movimento da operação</h2>
                 <p className="mt-1 max-w-xl text-sm font-semibold text-slate-400">
                   Leitura rápida do volume de embarques e das ações que precisam de atenção hoje.
                 </p>
@@ -1662,37 +1662,37 @@ export default function DashboardPage() {
             </div>
 
             <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-              <div className="rounded-3xl border border-blue-800 bg-[#020817]/80 p-4">
+              <div className="rounded-2xl border border-blue-800 bg-[#020817]/80 p-4">
                 <p className="text-xs font-black uppercase tracking-widest text-blue-300">Total do período</p>
-                <p className="mt-3 text-4xl font-black text-white">{ritmoOperacao.totalPeriodo}</p>
+                <p className="mt-3 text-xl font-black text-white">{ritmoOperacao.totalPeriodo}</p>
                 <p className="mt-1 text-xs font-bold text-slate-500">embarques registrados</p>
               </div>
 
-              <div className="rounded-3xl border border-emerald-800 bg-emerald-500/10 p-4">
+              <div className="rounded-2xl border border-emerald-800 bg-emerald-500/10 p-4">
                 <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Média diária</p>
-                <p className="mt-3 text-4xl font-black text-emerald-300">
+                <p className="mt-3 text-xl font-black text-emerald-300">
                   {ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                 </p>
                 <p className="mt-1 text-xs font-bold text-slate-500">embarques por dia</p>
               </div>
 
-              <div className="rounded-3xl border border-orange-800 bg-orange-500/10 p-4">
+              <div className="rounded-2xl border border-orange-800 bg-orange-500/10 p-4">
                 <p className="text-xs font-black uppercase tracking-widest text-orange-300">Dias parados</p>
-                <p className="mt-3 text-4xl font-black text-orange-300">{ritmoOperacao.diasSemEmbarque}</p>
+                <p className="mt-3 text-xl font-black text-orange-300">{ritmoOperacao.diasSemEmbarque}</p>
                 <p className="mt-1 text-xs font-bold text-slate-500">sem novo embarque</p>
               </div>
 
-              <div className="rounded-3xl border border-purple-800 bg-purple-500/10 p-4">
+              <div className="rounded-2xl border border-purple-800 bg-purple-500/10 p-4">
                 <p className="text-xs font-black uppercase tracking-widest text-purple-300">Peso movimentado</p>
-                <p className="mt-3 text-3xl font-black text-purple-300">
+                <p className="mt-3 text-xl font-black text-purple-300">
                   {ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg
                 </p>
                 <p className="mt-1 text-xs font-bold text-slate-500">no período</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[1.25fr_0.75fr]">
-              <div className="rounded-3xl border border-blue-900 bg-[#020817]/75 p-4">
+            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1.25fr_0.75fr]">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817]/75 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-black text-white">Embarques por dia</p>
@@ -1777,7 +1777,7 @@ export default function DashboardPage() {
               <div className="space-y-3">
                 <a
                   href="/admin/intelligence"
-                  className="block rounded-3xl border border-orange-800 bg-orange-500/10 p-4 hover:bg-orange-500/15"
+                  className="block rounded-2xl border border-orange-800 bg-orange-500/10 p-4 hover:bg-orange-500/15"
                 >
                   <p className="text-sm font-black text-orange-300">🔥 Clientes parados</p>
                   <p className="mt-1 text-xs font-bold text-slate-400">Ver clientes que precisam de contato comercial.</p>
@@ -1785,7 +1785,7 @@ export default function DashboardPage() {
 
                 <a
                   href="/admin/financeiro"
-                  className="block rounded-3xl border border-yellow-800 bg-yellow-500/10 p-4 hover:bg-yellow-500/15"
+                  className="block rounded-2xl border border-yellow-800 bg-yellow-500/10 p-4 hover:bg-yellow-500/15"
                 >
                   <p className="text-sm font-black text-yellow-300">⚠️ Aguardando custo</p>
                   <p className="mt-1 text-xs font-bold text-slate-400">Conferir processos que travam profit e faturamento.</p>
@@ -1793,13 +1793,13 @@ export default function DashboardPage() {
 
                 <a
                   href="/admin/embarques"
-                  className="block rounded-3xl border border-blue-800 bg-blue-500/10 p-4 hover:bg-blue-500/15"
+                  className="block rounded-2xl border border-blue-800 bg-blue-500/10 p-4 hover:bg-blue-500/15"
                 >
                   <p className="text-sm font-black text-blue-300">🚚 Ver operação</p>
                   <p className="mt-1 text-xs font-bold text-slate-400">Abrir embarques em trânsito, fiscalização e liberados.</p>
                 </a>
 
-                <div className="rounded-3xl border border-blue-900 bg-[#020817]/80 p-4">
+                <div className="rounded-2xl border border-blue-900 bg-[#020817]/80 p-4">
                   <p className="text-xs font-black uppercase tracking-widest text-blue-300">Análise operacional</p>
                   <p className="mt-2 text-sm font-bold leading-relaxed text-slate-200">
                     {ritmoOperacao.analise}
@@ -1809,11 +1809,11 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6">
-            <div className="card h-full">
+          <div className="grid grid-cols-1 gap-4">
+            <div className="card h-full text-sm">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-black">Receita x Profit</h2>
+                  <h2 className="text-xl font-black">Receita x Profit</h2>
                   <p className="mt-1 text-sm text-slate-400">Últimos 6 meses pagos.</p>
                 </div>
                 <a href="/admin/financeiro?aba=RESULTADO" className="text-sm font-black text-blue-400">Ver resultado</a>
@@ -1854,10 +1854,10 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="card h-full">
+            <div className="card h-full text-sm">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-black">Status operacional</h2>
+                  <h2 className="text-xl font-black">Status operacional</h2>
                   <p className="mt-1 text-sm text-slate-400">Distribuição atual dos embarques.</p>
                 </div>
                 <a href="/admin/embarques" className="text-sm font-black text-blue-400">Ver embarques</a>
@@ -1884,12 +1884,12 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <section className="mb-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
           
 
-          <div className="card h-full">
-            <div className="mb-6 flex justify-between items-center">
-              <h2 className="text-2xl font-black">Pendências financeiras recentes</h2>
+          <div className="card h-full text-sm">
+            <div className="mb-4 flex justify-between items-center">
+              <h2 className="text-xl font-black">Pendências financeiras recentes</h2>
               <a href="/admin/financeiro?aba=PROCESSOS" className="text-blue-400 font-bold">
                 Ver financeiro
               </a>
@@ -1951,17 +1951,17 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <footer className="py-8 text-center text-sm font-semibold text-slate-500">
+        <footer className="py-5 text-center text-sm font-semibold text-slate-500">
           HC Connect © 2026 • Sistema desenvolvido por Marcos Paulo Otero
         </footer>
       </section>
 
       {modalErrosRastreio && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="w-full max-w-3xl rounded-3xl border border-red-500 bg-[#071225] p-6 shadow-2xl">
-            <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="w-full max-w-3xl rounded-2xl border border-red-500 bg-[#071225] p-4 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-white">
+                <h2 className="text-xl font-black text-white">
                   🔍 Erros do Rastreio Automático
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
@@ -2013,7 +2013,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-center">
                 <p className="text-slate-400">
                   Existem erros contabilizados, mas este log ainda não possui detalhes salvos.
                 </p>
@@ -2028,10 +2028,10 @@ export default function DashboardPage() {
 
       {modalFaturas && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="w-full max-w-5xl rounded-3xl border border-orange-500 bg-[#071225] p-6 shadow-2xl">
-            <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="w-full max-w-5xl rounded-2xl border border-orange-500 bg-[#071225] p-4 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-white">
+                <h2 className="text-xl font-black text-white">
                   🚨 Faturas DHL/FedEx
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
@@ -2059,14 +2059,14 @@ export default function DashboardPage() {
               <table className="w-full min-w-[980px] text-sm">
                 <thead className="bg-[#020817] text-slate-400">
                   <tr>
-                    <th className="px-4 py-3 text-left font-black">Transportadora</th>
-                    <th className="px-4 py-3 text-left font-black">Fatura</th>
-                    <th className="px-4 py-3 text-left font-black">Conta</th>
-                    <th className="px-4 py-3 text-left font-black">Banco</th>
-                    <th className="px-4 py-3 text-left font-black">Saldo</th>
-                    <th className="px-4 py-3 text-left font-black">Vencimento</th>
-                    <th className="px-4 py-3 text-left font-black">Situação</th>
-                    <th className="px-4 py-3 text-left font-black">Ação</th>
+                    <th className="px-4 py-2 text-left font-black">Transportadora</th>
+                    <th className="px-4 py-2 text-left font-black">Fatura</th>
+                    <th className="px-4 py-2 text-left font-black">Conta</th>
+                    <th className="px-4 py-2 text-left font-black">Banco</th>
+                    <th className="px-4 py-2 text-left font-black">Saldo</th>
+                    <th className="px-4 py-2 text-left font-black">Vencimento</th>
+                    <th className="px-4 py-2 text-left font-black">Situação</th>
+                    <th className="px-4 py-2 text-left font-black">Ação</th>
                   </tr>
                 </thead>
 
@@ -2078,13 +2078,13 @@ export default function DashboardPage() {
 
                     return (
                       <tr key={item.id} className="border-t border-blue-950">
-                        <td className="px-4 py-3 font-bold">{nomeTransportadoraFaturaCurto(item)}</td>
-                        <td className="px-4 py-3 font-black text-blue-300">{numeroFaturaTransportadora(item) || '-'}</td>
-                        <td className="px-4 py-3">{contaFaturaTransportadora(item) || '-'}</td>
-                        <td className="px-4 py-3">{bancoFaturaTransportadora(item) || '-'}</td>
-                        <td className="px-4 py-3">{moeda(saldoFaturaTransportadora(item))}</td>
-                        <td className="px-4 py-3">{dataBR(vencimento)}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-2 font-bold">{nomeTransportadoraFaturaCurto(item)}</td>
+                        <td className="px-4 py-2 font-black text-blue-300">{numeroFaturaTransportadora(item) || '-'}</td>
+                        <td className="px-4 py-2">{contaFaturaTransportadora(item) || '-'}</td>
+                        <td className="px-4 py-2">{bancoFaturaTransportadora(item) || '-'}</td>
+                        <td className="px-4 py-2">{moeda(saldoFaturaTransportadora(item))}</td>
+                        <td className="px-4 py-2">{dataBR(vencimento)}</td>
+                        <td className="px-4 py-2">
                           {!vencimento ? (
                             <span className="rounded-full bg-slate-500/20 px-3 py-1 text-xs font-black text-slate-300">Sem data</span>
                           ) : status === 'VENCIDA' ? (
@@ -2095,7 +2095,7 @@ export default function DashboardPage() {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-2">
                           <a
                             href={`/admin/faturas-transportadoras?busca=${encodeURIComponent(numeroFaturaTransportadora(item) || contaFaturaTransportadora(item) || '')}`}
                             className="font-black text-blue-400 hover:text-blue-300"
@@ -2109,7 +2109,7 @@ export default function DashboardPage() {
 
                   {[...faturasResumo.vencidas, ...faturasResumo.proximas, ...faturasResumo.semData].length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={8} className="px-4 py-5 text-center text-slate-500">
                         Nenhuma fatura DHL/FedEx vencida, próxima ou sem data.
                       </td>
                     </tr>
@@ -2145,14 +2145,14 @@ function HeroCard({ titulo, valor, detalhe, icone, cor, href, onClick }: any) {
           : 'from-blue-500/20 to-blue-900/10 border-blue-500/40 text-blue-300'
 
   const conteudo = (
-    <div className={`h-full rounded-3xl border bg-gradient-to-br p-6 shadow-[0_0_35px_rgba(37,99,235,0.10)] ${classeCor}`}>
+    <div className={`h-full rounded-2xl border bg-gradient-to-br p-4 shadow-[0_0_35px_rgba(37,99,235,0.10)] ${classeCor}`}>
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] opacity-80">{titulo}</p>
-          <h2 className="mt-3 text-3xl xl:text-4xl font-black tracking-tight text-white">{valor}</h2>
+          <h2 className="mt-3 text-xl xl:text-xl font-black tracking-tight text-white">{valor}</h2>
         </div>
 
-        <span className="text-4xl">{icone}</span>
+        <span className="text-xl">{icone}</span>
       </div>
 
       <p className="text-sm font-bold opacity-80">{detalhe}</p>
@@ -2181,16 +2181,16 @@ function KpiCard({ titulo, valor, detalhe, icone, cor, href }: any) {
     <div className="flex justify-between items-start gap-3">
       <div className="min-w-0">
         <p className="truncate text-sm text-slate-400">{titulo}</p>
-        <h2 className={`mt-3 text-3xl font-black ${corNumero}`}>{valor}</h2>
+        <h2 className={`mt-3 text-xl font-black ${corNumero}`}>{valor}</h2>
         <p className="mt-2 truncate text-xs text-slate-500">{detalhe}</p>
       </div>
 
-      <div className="text-3xl">{icone}</div>
+      <div className="text-xl">{icone}</div>
     </div>
   )
 
   const classe =
-    'block rounded-3xl border border-blue-900 bg-[#071225] p-5 shadow-[0_0_25px_rgba(37,99,235,0.08)] transition hover:border-blue-400 hover:bg-blue-600/10'
+    'block rounded-2xl border border-blue-900 bg-[#071225] p-5 shadow-[0_0_25px_rgba(37,99,235,0.08)] transition hover:border-blue-400 hover:bg-blue-600/10'
 
   if (href) {
     return (
@@ -2221,7 +2221,7 @@ function MiniBox({ titulo, valor, cor, href }: any) {
 
   const conteudo = (
     <div className={`rounded-2xl border p-4 ${classes}`}>
-      <h3 className="break-words text-xl xl:text-2xl font-black">{valor}</h3>
+      <h3 className="break-words text-xl xl:text-xl font-black">{valor}</h3>
       <p className="mt-1 text-xs font-bold opacity-80">{titulo}</p>
     </div>
   )
@@ -2240,7 +2240,7 @@ function AutoBox({ titulo, valor, cor, href, onClick }: any) {
 
   const conteudo = (
     <div className="block rounded-2xl border border-blue-900 bg-[#020817] p-4 text-center transition hover:border-blue-400 hover:bg-blue-600/10">
-      <h3 className={`text-2xl font-black ${classe}`}>{valor}</h3>
+      <h3 className={`text-xl font-black ${classe}`}>{valor}</h3>
       <p className="mt-1 text-xs text-slate-500">{titulo}</p>
     </div>
   )
@@ -2316,7 +2316,7 @@ function AlertaAcao({ alerta }: any) {
   const conteudo = (
     <div className={`flex items-center justify-between gap-4 rounded-2xl border p-4 transition hover:bg-blue-600/10 ${cor}`}>
       <div className="flex min-w-0 items-center gap-3">
-        <span className="text-2xl">{alerta.icone}</span>
+        <span className="text-xl">{alerta.icone}</span>
         <div className="min-w-0">
           <p className="truncate font-black text-white">{alerta.titulo}</p>
           <p className="mt-1 text-xs font-semibold opacity-75">{alerta.detalhe}</p>
@@ -2324,7 +2324,7 @@ function AlertaAcao({ alerta }: any) {
       </div>
 
       <div className="text-right">
-        <p className="text-2xl font-black">{alerta.valor}</p>
+        <p className="text-xl font-black">{alerta.valor}</p>
         <p className="text-xs font-black opacity-75">{alerta.acao}</p>
       </div>
     </div>
@@ -2348,7 +2348,7 @@ function LinhaResumo({ titulo, valor, cor }: any) {
             : 'text-blue-400'
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-950 bg-[#020817] px-4 py-3">
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-950 bg-[#020817] px-4 py-2">
       <p className="text-sm font-bold text-slate-400">{titulo}</p>
       <p className={`text-right text-sm font-black ${classe}`}>{valor}</p>
     </div>
