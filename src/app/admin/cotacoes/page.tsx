@@ -394,6 +394,24 @@ export default function CotacoesAdminPage() {
                         Ver
                       </a>
 
+                      <a
+                        href={`/admin/cotacoes/nova?editar=${item.id}`}
+                        className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl text-white font-bold"
+                      >
+                        Editar
+                      </a>
+
+                      {item.pdf_cotacao_url ? (
+                        <a
+                          href={item.pdf_cotacao_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-green-700 hover:bg-green-600 px-4 py-2 rounded-xl text-white font-bold"
+                        >
+                          PDF
+                        </a>
+                      ) : null}
+
                       <button
                         onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
                         className="bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-xl font-bold"

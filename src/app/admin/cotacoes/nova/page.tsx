@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { jsPDF } from 'jspdf'
 import { supabase } from '@/lib/supabaseClient'
 import { AEROPORTOS_BRASIL } from '@/lib/aeroportos-brasil'
+import { useSearchParams } from 'next/navigation'
 
-type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'FEDEX_EXPORTACAO' | 'AGENTE_CARGA_FORMAL'
+type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'DHL_IMPORTACAO_COURIER' | 'FEDEX_EXPORTACAO' | 'AGENTE_CARGA_FORMAL'
 
 type VolumeCotacao = {
   quantidade: string
@@ -61,7 +62,10 @@ function kg(valor: any) {
 }
 
 function nomeModelo(modelo: ModeloCotacao) {
-  return modelo === 'FEDEX_EXPORTACAO' ? 'FedEx - Exportação' : 'DHL - Importação Formal - Courier'
+  if (modelo === 'AGENTE_CARGA_FORMAL') return 'Agente de carga - Formal'
+  if (modelo === 'FEDEX_EXPORTACAO') return 'FedEx - Exportação'
+  if (modelo === 'DHL_IMPORTACAO_COURIER') return 'DHL - Importação Courier'
+  return 'DHL - Importação Formal'
 }
 
 async function imagemBase64(url: string) {
@@ -200,21 +204,37 @@ const SERVICOS_AGENTE_CARGA = [
 ]
 
 
-const INCOTERMS_COTACAO = [
-  'EXW',
-  'FCA',
-  'FAS',
-  'FOB',
-  'CFR',
-  'CIF',
-  'CPT',
-  'CIP',
-  'DAP',
-  'DPU',
-  'DDP',
-]
+const CODIGOS_PAISES_COTACAO = [
+  'BR','CN','US','DE','GB','PT','ES','FR','IT','NL','BE','CH','AT','SE','NO','DK','FI','IE',
+  'JP','KR','TW','HK','SG','IN','ID','MY','TH','VN','AE','SA','TR','IL','CA','MX','AR','CL',
+  'CO','PE','UY','PY','BO','EC','AU','NZ','ZA','EG','MA','PL','CZ','SK','HU','RO','BG','GR',
+  'SI','HR','RS','RU','UA','QA','KW','BH','OM','JO','LB','AF','AL','DZ','AD','AO','AG','AM',
+  'AZ','BS','BD','BB','BY','BZ','BJ','BT','BA','BW','BN','BF','BI','CV','KH','CM','CF','TD',
+  'KM','CG','CD','CR','CI','CU','CY','DJ','DM','DO','SV','ER','EE','ET','FJ','GA','GM','GE',
+  'GH','GD','GT','GN','GW','GY','HT','HN','IS','IQ','JM','KZ','KE','KG','LA','LV','LS','LR',
+  'LY','LI','LT','LU','MG','MW','MV','ML','MT','MR','MU','MD','MC','MN','ME','MZ','MM','NA',
+  'NP','NI','NE','NG','MK','PK','PA','PG','PH','RW','SN','SC','SL','SO','LK','SD','SR','TJ',
+  'TZ','TG','TN','TM','UG','UZ','VE','YE','ZM','ZW'
+] as const
+
+const displayPaisesCotacao =
+  typeof Intl !== 'undefined' && (Intl as any).DisplayNames
+    ? new (Intl as any).DisplayNames(['pt-BR'], { type: 'region' })
+    : null
+
+const PAISES_COTACAO = CODIGOS_PAISES_COTACAO
+  .map((codigo) => {
+    const nome = displayPaisesCotacao?.of?.(codigo) || codigo
+    return `${nome} (${codigo})`
+  })
+  .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+
+const INCOTERMS_COTACAO = ['EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP']
 
 export default function NovaCotacaoManualPage() {
+  const searchParams = useSearchParams()
+  const cotacaoEditandoId = searchParams.get('editar')
   const [salvando, setSalvando] = useState(false)
   const [modelo, setModelo] = useState<ModeloCotacao>('DHL_IMPORTACAO_FORMAL')
 
@@ -268,6 +288,77 @@ export default function NovaCotacaoManualPage() {
 
   const usarCamposAgente = modelo === 'AGENTE_CARGA_FORMAL'
   const divisorPesoDimensional = usarCamposAgente ? 6000 : 5000
+
+
+  useEffect(() => {
+    if (!cotacaoEditandoId) return
+
+    async function carregarCotacaoParaEdicao() {
+      const { data, error } = await supabase
+        .from('cotacoes')
+        .select('*')
+        .eq('id', cotacaoEditandoId)
+        .single()
+
+      if (error || !data) {
+        console.log(error)
+        alert('Não foi possível carregar a cotação para edição.')
+        return
+      }
+
+      setForm((atual) => ({
+        ...atual,
+        origem_solicitacao: data.origem_solicitacao || atual.origem_solicitacao,
+        solicitante_email: data.solicitante_email || '',
+        empresa_solicitante: data.empresa_solicitante || data.cliente_final || '',
+        solicitante_nome: data.solicitante_nome || '',
+        responsavel_solicitante: data.responsavel_solicitante || '',
+        telefone_solicitante: data.telefone_solicitante || '',
+        referencia_cliente: data.referencia_cliente || '',
+        referencia_hc: data.referencia_hc || '',
+        servico: data.servico || data.tipo_operacao || atual.servico,
+        transportadora: Array.isArray(data.transportadoras_consulta)
+          ? data.transportadoras_consulta[0] || atual.transportadora
+          : atual.transportadora,
+        origem: data.origem || '',
+        destino: data.destino || '',
+        moeda: data.moeda || atual.moeda || 'USD',
+        valor_mercadoria: data.valor_mercadoria ? String(data.valor_mercadoria) : '',
+        descricao_mercadoria: data.descricao_mercadoria || '',
+        observacoes: data.observacoes || '',
+      }))
+
+      if (Array.isArray(data.volumes) && data.volumes.length > 0) {
+        setVolumes(
+          data.volumes.map((v: any) => ({
+            quantidade: String(v.quantidade || v.qtd || 1),
+            comprimento_cm: String(v.comprimento_cm || v.comprimento || ''),
+            largura_cm: String(v.largura_cm || v.largura || ''),
+            altura_cm: String(v.altura_cm || v.altura || ''),
+            peso_kg: String(v.peso_kg || v.peso || ''),
+          }))
+        )
+      }
+
+      const transportadora = Array.isArray(data.transportadoras_consulta)
+        ? String(data.transportadoras_consulta[0] || '').toUpperCase()
+        : ''
+
+      const servico = String(data.servico || data.tipo_operacao || '').toUpperCase()
+
+      if (transportadora.includes('FEDEX') || servico.includes('EXPORT')) {
+        setModelo('FEDEX_EXPORTACAO')
+      } else if (transportadora.includes('AGENTE')) {
+        setModelo('AGENTE_CARGA_FORMAL')
+      } else if (servico.includes('COURIER')) {
+        setModelo('DHL_IMPORTACAO_COURIER')
+      } else {
+        setModelo('DHL_IMPORTACAO_FORMAL')
+      }
+    }
+
+    carregarCotacaoParaEdicao()
+  }, [cotacaoEditandoId])
 
   const volumesCalculados = useMemo(() => {
     return volumes.map((volume, index) => {
@@ -364,7 +455,7 @@ const valores = useMemo(() => {
       volumeExcedente,
       emissaoDue,
       impostosDestino,
-      total: modelo === 'DHL_IMPORTACAO_FORMAL' ? totalDhl : totalFedex,
+      total: modelo === 'FEDEX_EXPORTACAO' ? totalFedex : totalDhl,
     }
   }, [form, modelo])
 
@@ -420,11 +511,29 @@ const totaisAgenteMoedaTela = useMemo(() => {
   function trocarModelo(novoModelo: ModeloCotacao) {
     setModelo(novoModelo)
 
+    if (novoModelo === 'AGENTE_CARGA_FORMAL') {
+      setForm((atual) => ({
+        ...atual,
+        servico: 'IMPORTAÇÃO FORMAL',
+        transportadora: 'AGENTE',
+      }))
+      return
+    }
+
     if (novoModelo === 'FEDEX_EXPORTACAO') {
       setForm((atual) => ({
         ...atual,
         servico: 'EXPORTAÇÃO',
         transportadora: 'FEDEX',
+      }))
+      return
+    }
+
+    if (novoModelo === 'DHL_IMPORTACAO_COURIER') {
+      setForm((atual) => ({
+        ...atual,
+        servico: 'IMPORTAÇÃO COURIER',
+        transportadora: 'DHL',
       }))
       return
     }
@@ -483,8 +592,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
     function novaPagina(altura = 8) {
       if (y + altura > 282) {
-        doc.addPage()
-        y = 14
+        y = 268
       }
     }
 
@@ -550,8 +658,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
       const yRodape = 276
 
       if (y > yRodape - 16) {
-        doc.addPage()
-        y = 14
+        y = 268
       }
 
       doc.setDrawColor(203, 213, 225)
@@ -657,7 +764,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
     valor('Sobretaxa emergencial', valores.sobretaxa)
     valor('Seguro', valores.seguro)
 
-    if (modelo === 'DHL_IMPORTACAO_FORMAL') {
+    if (modelo !== 'FEDEX_EXPORTACAO') {
       valor('Área remota', valores.areaRemota)
       valor('DTA', valores.dta)
       valor('Delivery doc fee', valores.deliveryDocFee)
@@ -713,10 +820,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
         .map((v) => `${v.quantidade || 1} vol - ${v.comprimento_cm || 0} x ${v.largura_cm || 0} x ${v.altura_cm || 0} cm - ${v.peso_kg || 0} kg`)
         .join(' | ')
 
-      const { data: cotacaoCriada, error } = await supabase
-        .from('cotacoes')
-        .insert([
-          {
+      const payloadCotacao = {
             origem_solicitacao: form.origem_solicitacao,
             solicitante_email: form.solicitante_email.trim() || null,
             empresa_solicitante: form.empresa_solicitante || null,
@@ -742,10 +846,13 @@ const totaisAgenteMoedaTela = useMemo(() => {
             peso_real: resumo.pesoReal,
             peso_taxado: resumo.pesoTaxado,
             status: 'COTAÇÃO DISPONÍVEL',
-          },
-        ])
-        .select()
-        .single()
+      }
+
+      const operacaoCotacao = cotacaoEditandoId
+        ? supabase.from('cotacoes').update(payloadCotacao).eq('id', cotacaoEditandoId)
+        : supabase.from('cotacoes').insert([payloadCotacao])
+
+      const { data: cotacaoCriada, error } = await operacaoCotacao.select().single()
 
       if (error) {
         console.log(error)
@@ -861,7 +968,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
         <div className="form-grid">
           <CampoSelect label="Modelo da cotação" value={modelo} onChange={(v) => trocarModelo(v as ModeloCotacao)}>
-            <option value="DHL_IMPORTACAO_FORMAL">DHL - Importação Formal - Courier</option>
+            <option value="DHL_IMPORTACAO_FORMAL">DHL - Importação Formal</option>
+            <option value="DHL_IMPORTACAO_COURIER">DHL - Importação Courier</option>
             <option value="AGENTE_CARGA_FORMAL">Agente de carga - Formal</option>
             <option value="FEDEX_EXPORTACAO">FedEx - Exportação</option>
           </CampoSelect>
@@ -896,8 +1004,22 @@ const totaisAgenteMoedaTela = useMemo(() => {
             <option value="NACIONAL">Nacional</option>
           </CampoSelect>
           <Campo label="Transportadora" value={form.transportadora} onChange={(v) => atualizarCampo('transportadora', v)} />
-          <Campo label="Origem" value={form.origem} onChange={(v) => atualizarCampo('origem', v)} />
-          <Campo label="Destino" value={form.destino} onChange={(v) => atualizarCampo('destino', v)} />
+          <CampoSelect label="Origem" value={form.origem || ''} onChange={(v) => atualizarCampo('origem', v)}>
+            <option value="">Selecione o país</option>
+            {PAISES_COTACAO.map((pais) => (
+              <option key={pais} value={pais}>
+                {pais}
+              </option>
+            ))}
+          </CampoSelect>
+          <CampoSelect label="Destino" value={form.destino || ''} onChange={(v) => atualizarCampo('destino', v)}>
+            <option value="">Selecione o país</option>
+            {PAISES_COTACAO.map((pais) => (
+              <option key={pais} value={pais}>
+                {pais}
+              </option>
+            ))}
+          </CampoSelect>
           <CampoAeroporto label="AOD / Formalização" value={form.aod} onChange={(v) => atualizarCampo('aod', v)} />
           <Campo label="Trânsito estimado" value={form.transito} onChange={(v) => atualizarCampo('transito', v)} />
           <Campo label="Validade" value={form.validade} onChange={(v) => atualizarCampo('validade', v)} />
@@ -1068,7 +1190,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             <Campo label="Área remota USD" type="number" value={form.areaRemota} onChange={(v) => atualizarCampo('areaRemota', v)} />
             <Campo label="Peso excedente USD" type="number" value={form.pesoExcedente} onChange={(v) => atualizarCampo('pesoExcedente', v)} />
 
-            {modelo === 'DHL_IMPORTACAO_FORMAL' ? (
+            {modelo !== 'FEDEX_EXPORTACAO' ? (
               <>
                 <Campo label="DTA USD" type="number" value={form.dta} onChange={(v) => atualizarCampo('dta', v)} />
                 <Campo label="Delivery doc fee USD" type="number" value={form.deliveryDocFee} onChange={(v) => atualizarCampo('deliveryDocFee', v)} />
@@ -1110,7 +1232,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             disabled={salvando}
             className="rounded-xl bg-blue-600 px-6 py-3 font-black hover:bg-blue-500 disabled:opacity-60"
           >
-            {salvando ? 'Salvando...' : 'Salvar no histórico'}
+            {salvando ? 'Salvando...' : cotacaoEditandoId ? 'Atualizar cotação' : 'Salvar cotação'}
           </button>
 
           <button
