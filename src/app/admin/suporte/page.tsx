@@ -13,6 +13,12 @@ export default function SuporteAdminPage() {
   const [resposta, setResposta] = useState('')
   const [adminLogado, setAdminLogado] = useState<any>(null)
 
+  const [novoContatoAberto, setNovoContatoAberto] = useState(false)
+  const [novoContatoClienteId, setNovoContatoClienteId] = useState('')
+  const [novoContatoAssunto, setNovoContatoAssunto] = useState('')
+  const [novoContatoMensagem, setNovoContatoMensagem] = useState('')
+  const [novoContatoSalvando, setNovoContatoSalvando] = useState(false)
+
   useEffect(() => {
     carregarTudo()
 
@@ -216,6 +222,94 @@ export default function SuporteAdminPage() {
     carregarMensagens()
   }
 
+  async function iniciarContatoComCliente() {
+    if (!novoContatoClienteId) {
+      alert('Selecione o cliente.')
+      return
+    }
+
+    if (!novoContatoAssunto.trim() || !novoContatoMensagem.trim()) {
+      alert('Preencha assunto e mensagem.')
+      return
+    }
+
+    const adminAtual = adminLogado || (await carregarAdminLogado())
+
+    if (!adminAtual?.id) {
+      alert('Não foi possível identificar o admin logado. Faça login novamente.')
+      return
+    }
+
+    const cliente = usuarios.find((item) => item.id === novoContatoClienteId)
+
+    if (!cliente?.id) {
+      alert('Cliente não encontrado.')
+      return
+    }
+
+    const assuntoFinal = novoContatoAssunto.trim()
+    const mensagemFinal = novoContatoMensagem.trim()
+
+    setNovoContatoSalvando(true)
+
+    try {
+      const { data: chamadoCriado, error: erroChamado } = await supabase
+        .from('suporte')
+        .insert([
+          {
+            usuario_id: cliente.id,
+            empresa_id: cliente.empresa_id || null,
+            email: cliente.email || null,
+            assunto: assuntoFinal,
+            mensagem: mensagemFinal,
+            status: 'RESPONDIDO',
+            resposta: mensagemFinal,
+            respondido_por: adminAtual.id,
+            respondido_por_nome: adminAtual.nome || adminAtual.email || 'Equipe HC',
+            respondido_em: new Date().toISOString(),
+          },
+        ])
+        .select()
+        .single()
+
+      if (erroChamado) throw erroChamado
+
+      const { error: erroMensagem } = await supabase.from('mensagens_suporte').insert([
+        {
+          chamado_id: chamadoCriado.id,
+          empresa_id: cliente.empresa_id || null,
+          embarque_id: null,
+          usuario_id: adminAtual.id,
+          assunto: assuntoFinal,
+          mensagem: mensagemFinal,
+          autor: 'ADMIN',
+          criado_por: 'ADMIN',
+          autor_nome: adminAtual.nome || adminAtual.email || 'Equipe HC',
+          autor_email: adminAtual.email || null,
+          status: 'RESPONDIDO',
+          respondido_em: new Date().toISOString(),
+        },
+      ])
+
+      if (erroMensagem) throw erroMensagem
+
+      setNovoContatoClienteId('')
+      setNovoContatoAssunto('')
+      setNovoContatoMensagem('')
+      setNovoContatoAberto(false)
+
+      await carregarChamados()
+      await carregarMensagens()
+
+      alert('Contato enviado para o cliente no portal.')
+    } catch (error: any) {
+      console.error('Erro ao iniciar contato com cliente:', error)
+      alert(error?.message || 'Erro ao iniciar contato com cliente.')
+    } finally {
+      setNovoContatoSalvando(false)
+    }
+  }
+
   async function excluirChamado(id: string) {
     const confirmar = confirm('Deseja realmente excluir este chamado?')
     if (!confirmar) return
@@ -265,13 +359,75 @@ export default function SuporteAdminPage() {
           </p>
         </div>
 
-        <button
-          onClick={carregarTudo}
-          className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
-        >
-          Atualizar chamados
-        </button>
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setNovoContatoAberto((atual) => !atual)}
+            className="bg-emerald-600 hover:bg-emerald-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            + Novo contato com cliente
+          </button>
+
+          <button
+            onClick={carregarTudo}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Atualizar chamados
+          </button>
+        </div>
       </div>
+
+      {novoContatoAberto ? (
+        <section className="mb-8 rounded-3xl border border-emerald-900 bg-[#071225] p-7">
+          <div className="mb-6">
+            <p className="mb-2 text-sm font-black uppercase tracking-widest text-emerald-400">Contato ativo</p>
+            <h2 className="text-2xl font-black">Novo contato com cliente</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              A conversa será criada no suporte do cliente e ele poderá responder pelo portal.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <select
+              value={novoContatoClienteId}
+              onChange={(e) => setNovoContatoClienteId(e.target.value)}
+            >
+              <option value="">Selecione o cliente</option>
+              {usuarios
+                .filter((usuario) => {
+                  const tipo = String(usuario.tipo_acesso || usuario.tipo_usuario || '').toLowerCase()
+                  return tipo !== 'admin' && tipo !== 'administrador'
+                })
+                .map((usuario) => (
+                  <option key={usuario.id} value={usuario.id}>
+                    {usuario.nome || usuario.email} {usuario.email ? `- ${usuario.email}` : ''}
+                  </option>
+                ))}
+            </select>
+
+            <input
+              value={novoContatoAssunto}
+              onChange={(e) => setNovoContatoAssunto(e.target.value)}
+              placeholder="Assunto"
+            />
+
+            <button
+              type="button"
+              onClick={iniciarContatoComCliente}
+              disabled={novoContatoSalvando}
+              className="rounded-2xl bg-emerald-600 px-6 py-4 font-black text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {novoContatoSalvando ? 'Enviando...' : 'Enviar contato para cliente'}
+            </button>
+          </div>
+
+          <textarea
+            value={novoContatoMensagem}
+            onChange={(e) => setNovoContatoMensagem(e.target.value)}
+            placeholder="Digite a mensagem que aparecerá para o cliente no portal..."
+            className="mt-4 min-h-[140px] w-full"
+          />
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
         <Card titulo="Total" valor={chamados.length} detalhe="Chamados recebidos" icone="🎫" />
