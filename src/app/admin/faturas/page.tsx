@@ -2011,6 +2011,44 @@ export default function FaturasPage() {
     return pagamento.status === 'PAGO' || String(fatura.status_pagamento || '').toUpperCase() === 'PAGO'
   }
 
+  async function alternarArquivamentoFaturamento(embarque: Embarque, fatura: Fatura | null | undefined) {
+    if (fatura?.id) {
+      await alternarArquivamentoFatura(fatura, !fatura.arquivado_admin)
+      return
+    }
+
+    const confirmar = confirm(
+      `Este embarque ainda não tem fatura emitida. Deseja arquivar mesmo assim da aba de faturas?`
+    )
+
+    if (!confirmar) return
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const { error } = await supabase.from('faturas').insert([
+        {
+          embarque_id: embarque.id,
+          arquivo_pdf: null,
+          visivel_cliente: false,
+          arquivado_admin: true,
+          arquivado_admin_em: new Date().toISOString(),
+          arquivado_admin_por: user?.id || null,
+        },
+      ])
+
+      if (error) throw error
+
+      await carregar()
+      alert('Embarque sem fatura arquivado na aba de faturas.')
+    } catch (error: any) {
+      console.error('Erro ao arquivar embarque sem fatura:', error)
+      alert(error?.message || 'Erro ao arquivar embarque sem fatura.')
+    }
+  }
+
   async function arquivarFaturamentoFinalizado(fatura: Fatura, mostrarAlerta = true) {
     const {
       data: { user },
@@ -4160,6 +4198,21 @@ export default function FaturasPage() {
                             >
                               Anexar PDF pronto
                             </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
                           </div>
                         )}
                       </td>
@@ -4291,14 +4344,14 @@ export default function FaturasPage() {
 
                           {fatura && (
                             <button
-                              onClick={() => alternarArquivamentoFatura(fatura, !fatura.arquivado_admin)}
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
                               className={
                                 fatura.arquivado_admin
                                   ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
                                   : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
                               }
                             >
-                              {fatura.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
                             </button>
                           )}
 
