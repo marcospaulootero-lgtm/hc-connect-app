@@ -963,13 +963,13 @@ const totaisAgenteMoedaTela = useMemo(() => {
           const erro = await respostaEmail.json().catch(() => null)
           console.log(erro)
           alert('PDF salvo, mas houve erro ao enviar o e-mail.')
-          window.location.href = `/admin/cotacoes/${cotacaoAtualizada.id}`
+          window.location.href = '/admin/cotacoes'
           return
         }
       }
 
-      alert(enviarEmail ? 'Cotação salva e enviada por e-mail.' : 'Cotação salva no histórico.')
-      window.location.href = `/admin/cotacoes/${cotacaoAtualizada.id}`
+      alert(enviarEmail ? 'Cotação salva e enviada por e-mail.' : cotacaoEditandoId ? 'Cotação atualizada e PDF salvo.' : 'Cotação salva no histórico.')
+      window.location.href = '/admin/cotacoes'
     } catch (error) {
       console.log(error)
       alert('Erro ao processar cotação.')
