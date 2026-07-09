@@ -1424,7 +1424,58 @@ export default function DashboardPage() {
 
           
 
-          <div className="card">
+                    <div data-dashboard-ultimos-topo="true" className="card">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black">Últimos embarques</h2>
+                <p className="mt-1 text-xs text-slate-400">Processos recentes da operação.</p>
+              </div>
+
+              <a href="/admin/embarques" className="text-sm font-bold text-blue-400 hover:text-blue-300">
+                Ver todos
+              </a>
+            </div>
+
+            <div className="overflow-auto">
+              <table className="w-full min-w-[620px] text-sm">
+                <thead>
+                  <tr className="border-b border-blue-950 text-left text-slate-400">
+                    <th className="pb-3">AWB</th>
+                    <th className="pb-3">Exportador</th>
+                    <th className="pb-3">Importador</th>
+                    <th className="pb-3">Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {ultimosEmbarques.slice(0, 6).map((item) => (
+                    <tr key={item.id} className="border-b border-blue-950">
+                      <td className="py-3 font-bold text-blue-400">
+                        <a href={'/admin/embarques/' + item.id} className="hover:underline">
+                          {item.awb || '-'}
+                        </a>
+                      </td>
+                      <td className="py-3">{item.exportador || '-'}</td>
+                      <td className="py-3">{item.importador || '-'}</td>
+                      <td className="py-3">
+                        <StatusPillDashboard status={item.status_operacional || '-'} />
+                      </td>
+                    </tr>
+                  ))}
+
+                  {ultimosEmbarques.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-slate-500">
+                        Nenhum embarque encontrado.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+<div className="card">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-3">
@@ -1588,7 +1639,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-5">
           <div className="card overflow-hidden bg-gradient-to-br from-[#081a33] via-[#061126] to-[#020817] shadow-[0_0_34px_rgba(37,99,235,0.18)]">
             <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
