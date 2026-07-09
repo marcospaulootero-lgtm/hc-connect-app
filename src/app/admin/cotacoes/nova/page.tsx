@@ -306,6 +306,37 @@ export default function NovaCotacaoManualPage() {
         return
       }
 
+      const dadosEmissor = data.dados_emissor || {}
+
+      if (dadosEmissor?.form) {
+        setForm((atual) => ({
+          ...atual,
+          ...dadosEmissor.form,
+        }))
+
+        if (Array.isArray(dadosEmissor.volumes) && dadosEmissor.volumes.length > 0) {
+          setVolumes(
+            dadosEmissor.volumes.map((v: any) => ({
+              quantidade: String(v.quantidade || v.qtd || 1),
+              comprimento_cm: String(v.comprimento_cm || v.comprimento || ''),
+              largura_cm: String(v.largura_cm || v.largura || ''),
+              altura_cm: String(v.altura_cm || v.altura || ''),
+              peso_kg: String(v.peso_kg || v.peso || ''),
+            }))
+          )
+        }
+
+        if (Array.isArray(dadosEmissor.itensAgente)) {
+          setItensAgente(dadosEmissor.itensAgente)
+        }
+
+        if (dadosEmissor.modelo) {
+          setModelo(dadosEmissor.modelo as ModeloCotacao)
+        }
+
+        return
+      }
+
       setForm((atual) => ({
         ...atual,
         origem_solicitacao: data.origem_solicitacao || atual.origem_solicitacao,
@@ -846,6 +877,16 @@ const totaisAgenteMoedaTela = useMemo(() => {
             peso_real: resumo.pesoReal,
             peso_taxado: resumo.pesoTaxado,
             status: 'COTAÇÃO DISPONÍVEL',
+            dados_emissor: {
+              modelo,
+              form,
+              volumes,
+              itensAgente,
+              resumo,
+              valores,
+              totaisAgenteMoeda: totaisAgenteMoedaTela,
+              atualizado_em: new Date().toISOString(),
+            },
       }
 
       const operacaoCotacao = cotacaoEditandoId
@@ -914,7 +955,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             pdf_url: publicUrl.publicUrl,
             pdf_nome: arquivo.name,
             modelo: nomeModelo(modelo),
-            total: dinheiro(valores.total),
+            total: usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : dinheiro(valores.total),
           }),
         })
 
