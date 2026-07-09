@@ -1384,15 +1384,15 @@ export default function DashboardPage() {
           <KpiCard titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" href="/admin/embarques" />
         </section>
 
-        <section className="mb-8 grid grid-cols-1 xl:grid-cols-12 gap-6">
-          <div className="xl:col-span-8 card">
-            <div className="mb-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <section className="mb-8 grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="card">
+            <div className="mb-4 flex flex-col gap-3">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="text-3xl">🚨</span>
-                  <h2 className="text-2xl font-black">Alertas críticos</h2>
+                  <span className="text-2xl">🚨</span>
+                  <h2 className="text-xl font-black">Alertas críticos</h2>
                 </div>
-                <p className="mt-2 text-sm font-semibold text-slate-400">
+                <p className="mt-1 text-xs font-semibold text-slate-400">
                   Pendências que podem gerar atraso, perda de prazo ou distorção financeira.
                 </p>
               </div>
@@ -1414,7 +1414,7 @@ export default function DashboardPage() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-3">
                 {alertasCriticos.slice(0, 8).map((alerta, index) => (
                   <AlertaAcao key={index} alerta={alerta} />
                 ))}
@@ -1422,12 +1422,14 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="xl:col-span-4 card">
-            <div className="mb-5 flex items-center justify-between gap-3">
+          
+
+          <div className="card">
+            <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-3">
                   <span className="text-3xl">📄</span>
-                  <h2 className="text-2xl font-black">DHL/FedEx</h2>
+                  <h2 className="text-xl font-black">DHL/FedEx</h2>
                 </div>
                 <p className="mt-2 text-sm text-slate-400">
                   Valores em aberto, vencimentos de hoje e programação de amanhã.
@@ -1443,7 +1445,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="grid grid-cols-2 gap-3 mb-4">
               <MiniBox titulo="A pagar hoje" valor={moeda(faturasResumo.totalHoje)} cor={faturasResumo.totalHoje > 0 ? 'red' : 'green'} />
               <MiniBox titulo="A pagar amanhã" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
               <MiniBox titulo="Total em aberto" valor={moeda(faturasResumo.totalAbertas)} cor="blue" />
@@ -1588,7 +1590,7 @@ export default function DashboardPage() {
 
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
           <div className="card overflow-hidden bg-gradient-to-br from-[#081a33] via-[#061126] to-[#020817] shadow-[0_0_34px_rgba(37,99,235,0.18)]">
-            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-blue-800 bg-blue-600/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-blue-300">
                   ⚡ Controle operacional
@@ -1608,7 +1610,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
               <div className="rounded-3xl border border-blue-800 bg-[#020817]/80 p-4">
                 <p className="text-xs font-black uppercase tracking-widest text-blue-300">Total do período</p>
                 <p className="mt-3 text-4xl font-black text-white">{ritmoOperacao.totalPeriodo}</p>
@@ -1758,7 +1760,7 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 gap-6">
             <div className="card">
-              <div className="mb-5 flex items-center justify-between gap-3">
+              <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black">Receita x Profit</h2>
                   <p className="mt-1 text-sm text-slate-400">Últimos 6 meses pagos.</p>
@@ -1802,7 +1804,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="card">
-              <div className="mb-5 flex items-center justify-between gap-3">
+              <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-black">Status operacional</h2>
                   <p className="mt-1 text-sm text-slate-400">Distribuição atual dos embarques.</p>
@@ -1832,54 +1834,7 @@ export default function DashboardPage() {
         </section>
 
         <section className="mb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <div className="card">
-            <div className="mb-6 flex justify-between items-center">
-              <h2 className="text-2xl font-black">Últimos embarques</h2>
-              <a href="/admin/embarques" className="text-blue-400 font-bold">
-                Ver todos
-              </a>
-            </div>
-
-            <div className="overflow-auto">
-              <table className="w-full min-w-[860px]">
-                <thead>
-                  <tr className="border-b border-blue-950 text-left text-slate-400">
-                    <th className="pb-4">AWB</th>
-                    <th className="pb-4">Exportador</th>
-                    <th className="pb-4">Importador</th>
-                    <th className="pb-4">Transportadora</th>
-                    <th className="pb-4">Status</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {ultimosEmbarques.map((item) => (
-                    <tr key={item.id} className="border-b border-blue-950">
-                      <td className="py-4 font-bold text-blue-400">
-                        <a href={`/admin/embarques/${item.id}`} className="hover:underline">
-                          {item.awb || '-'}
-                        </a>
-                      </td>
-                      <td className="py-4">{item.exportador || '-'}</td>
-                      <td className="py-4">{item.importador || '-'}</td>
-                      <td className="py-4">{item.transportadora || '-'}</td>
-                      <td className="py-4">
-                        <StatusPillDashboard status={item.status_operacional || '-'} />
-                      </td>
-                    </tr>
-                  ))}
-
-                  {ultimosEmbarques.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-500">
-                        Nenhum embarque encontrado.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          
 
           <div className="card">
             <div className="mb-6 flex justify-between items-center">
@@ -2042,7 +1997,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div className="mb-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
               <MiniBox titulo="A pagar hoje" valor={moeda(faturasResumo.totalHoje)} cor={faturasResumo.totalHoje > 0 ? 'red' : 'green'} />
               <MiniBox titulo="A pagar amanhã" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
               <MiniBox titulo="Total em aberto" valor={moeda(faturasResumo.totalAbertas)} cor="blue" />
@@ -2140,7 +2095,7 @@ function HeroCard({ titulo, valor, detalhe, icone, cor, href, onClick }: any) {
 
   const conteudo = (
     <div className={`h-full rounded-3xl border bg-gradient-to-br p-6 shadow-[0_0_35px_rgba(37,99,235,0.10)] ${classeCor}`}>
-      <div className="mb-5 flex items-start justify-between gap-4">
+      <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] opacity-80">{titulo}</p>
           <h2 className="mt-3 text-3xl xl:text-4xl font-black tracking-tight text-white">{valor}</h2>
