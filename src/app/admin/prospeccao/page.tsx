@@ -45,6 +45,141 @@ const formInicial = {
   observacoes: '',
 }
 
+function gerarAnaliseIA(base: any) {
+  const texto = [
+    base.empresa,
+    base.segmento,
+    base.cidade,
+    base.uf,
+    base.site,
+    base.perfil_operacional,
+    base.dor_logistica,
+    base.observacoes,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  let perfil = base.perfil_operacional || 'Acompanhamento operacional'
+  let dor = base.dor_logistica || ''
+  let prioridade = base.prioridade || 'MORNO'
+
+  const empresa = base.empresa || 'a empresa'
+  const segmento = base.segmento || 'segmento informado'
+
+  if (
+    texto.includes('medic') ||
+    texto.includes('hospital') ||
+    texto.includes('laboratório') ||
+    texto.includes('laboratorio') ||
+    texto.includes('pharma') ||
+    texto.includes('farm')
+  ) {
+    perfil = base.perfil_operacional || 'Importação courier'
+    dor =
+      base.dor_logistica ||
+      'Possível demanda recorrente de importação de equipamentos, peças, amostras ou materiais sensíveis, com necessidade de controle de documentos, impostos, rastreio e faturas DHL/FedEx.'
+    prioridade = 'QUENTE'
+  } else if (
+    texto.includes('máquina') ||
+    texto.includes('maquina') ||
+    texto.includes('industrial') ||
+    texto.includes('autope') ||
+    texto.includes('peças') ||
+    texto.includes('pecas') ||
+    texto.includes('metal') ||
+    texto.includes('usinagem')
+  ) {
+    perfil = base.perfil_operacional || 'Importação formal'
+    dor =
+      base.dor_logistica ||
+      'Possível demanda de importação de peças, máquinas ou componentes industriais, com risco de divergência de peso, cobrança adicional, documentação incompleta e necessidade de acompanhamento operacional.'
+    prioridade = 'QUENTE'
+  } else if (
+    texto.includes('eletr') ||
+    texto.includes('tecnologia') ||
+    texto.includes('componentes') ||
+    texto.includes('sensor') ||
+    texto.includes('automação') ||
+    texto.includes('automacao')
+  ) {
+    perfil = base.perfil_operacional || 'Importação courier'
+    dor =
+      base.dor_logistica ||
+      'Possível demanda de importação de componentes eletrônicos e peças urgentes via courier, com necessidade de rastreio, conferência de faturas e suporte em eventuais retenções.'
+    prioridade = 'MORNO'
+  } else if (
+    texto.includes('export') ||
+    texto.includes('alimento') ||
+    texto.includes('cosmet') ||
+    texto.includes('amostra') ||
+    texto.includes('moda') ||
+    texto.includes('confecção') ||
+    texto.includes('confeccao')
+  ) {
+    perfil = base.perfil_operacional || 'Exportação courier'
+    dor =
+      base.dor_logistica ||
+      'Possível demanda de exportação courier, emissão de documentos, acompanhamento de coleta, rastreio e suporte com DUE/Export Declaration quando aplicável.'
+    prioridade = 'MORNO'
+  } else if (
+    texto.includes('dhl') ||
+    texto.includes('fedex') ||
+    texto.includes('fatura') ||
+    texto.includes('cobrança') ||
+    texto.includes('cobranca')
+  ) {
+    perfil = base.perfil_operacional || 'DHL/FedEx - conferência de faturas'
+    dor =
+      base.dor_logistica ||
+      'Possível dor com conferência de faturas DHL/FedEx, divergência de peso, cobrança duplicada, vencimentos e falta de visibilidade para o financeiro.'
+    prioridade = 'QUENTE'
+  }
+
+  if (!base.email && !base.telefone) prioridade = prioridade === 'QUENTE' ? 'MORNO' : 'FRIO'
+
+  const contato = base.contato_nome || 'tudo bem'
+  const whatsapp = `Olá, ${contato}. Me chamo Marcos, da HC Consultoria.
+
+Vi que a ${empresa} atua em ${segmento} e pode ter demanda relacionada a ${perfil}.
+
+A HC apoia empresas no acompanhamento de processos DHL/FedEx, importação/exportação courier e formal, conferência de faturas, divergências de peso/cobrança, documentos, rastreio e suporte operacional.
+
+Também disponibilizamos o portal HC Connect, onde o cliente acompanha processos, documentos, faturas e chamados em tempo real.
+
+Com quem posso falar sobre logística ou comércio exterior?`
+
+  const email = `Assunto: Apoio em logística internacional e processos DHL/FedEx
+
+Olá, tudo bem?
+
+Sou Marcos, da HC Consultoria. Identifiquei que a ${empresa} pode ter demanda em ${perfil}.
+
+Atuamos com acompanhamento de processos DHL/FedEx, importação/exportação courier e formal, conferência de faturas, divergências de peso/cobrança, documentos e suporte operacional.
+
+Também disponibilizamos o portal HC Connect, onde o cliente acompanha processos, documentos, faturas e chamados em tempo real.
+
+Poderia me direcionar ao responsável por logística ou comércio exterior?`
+
+  const plano = [
+    '1. Enviar primeira abordagem por WhatsApp ou e-mail.',
+    '2. Se não responder, fazer follow-up em 3 dias.',
+    '3. Se responder, entender volume mensal, transportadoras utilizadas e dores atuais.',
+    '4. Apresentar o portal HC Connect como diferencial de controle operacional e financeiro.',
+    '5. Se houver processo ativo, pedir uma fatura ou AWB para análise inicial.',
+  ].join('\n')
+
+  return {
+    perfil,
+    dor,
+    prioridade,
+    whatsapp,
+    email,
+    plano,
+    resumo: `Perfil sugerido: ${perfil}. Prioridade: ${prioridade}. Dor provável: ${dor}`,
+  }
+}
+
 function hojeISO() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -61,6 +196,7 @@ export default function ProspeccaoPage() {
   const [salvando, setSalvando] = useState(false)
   const [form, setForm] = useState<any>(formInicial)
   const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [analiseIA, setAnaliseIA] = useState<any | null>(null)
 
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
@@ -195,6 +331,61 @@ export default function ProspeccaoPage() {
     })
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function aplicarAnaliseNoFormulario() {
+    if (!form.empresa.trim()) {
+      alert('Informe a empresa antes de gerar a análise.')
+      return
+    }
+
+    const ia = gerarAnaliseIA(form)
+
+    setForm((atual: any) => ({
+      ...atual,
+      perfil_operacional: ia.perfil,
+      dor_logistica: ia.dor,
+      prioridade: ia.prioridade,
+      proximo_followup: atual.proximo_followup || addDias(3),
+      observacoes: atual.observacoes
+        ? atual.observacoes + '\n\nAnálise IA:\n' + ia.plano
+        : 'Análise IA:\n' + ia.plano,
+    }))
+
+    setAnaliseIA({
+      empresa: form.empresa,
+      ...ia,
+    })
+  }
+
+  async function analisarProspectExistente(item: any) {
+    const ia = gerarAnaliseIA(item)
+
+    const { error } = await supabase
+      .from('prospects_comerciais')
+      .update({
+        perfil_operacional: ia.perfil,
+        dor_logistica: ia.dor,
+        prioridade: ia.prioridade,
+        proximo_followup: item.proximo_followup || addDias(3),
+        observacoes: item.observacoes
+          ? item.observacoes + '\n\nAnálise IA:\n' + ia.plano
+          : 'Análise IA:\n' + ia.plano,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq('id', item.id)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    setAnaliseIA({
+      empresa: item.empresa,
+      ...ia,
+    })
+
+    await carregar()
   }
 
   async function atualizarStatus(item: any, status: string) {
@@ -370,6 +561,14 @@ Poderia me direcionar ao responsável por logística ou comércio exterior da ${
             {salvando ? 'Salvando...' : editandoId ? 'Salvar alterações' : 'Cadastrar prospect'}
           </button>
 
+          <button
+            type="button"
+            onClick={aplicarAnaliseNoFormulario}
+            className="rounded-2xl bg-purple-700 px-6 py-4 font-black text-white hover:bg-purple-600"
+          >
+            🤖 Gerar análise IA
+          </button>
+
           {editandoId ? (
             <button
               onClick={() => {
@@ -383,6 +582,72 @@ Poderia me direcionar ao responsável por logística ou comércio exterior da ${
           ) : null}
         </div>
       </section>
+
+      {analiseIA ? (
+        <section className="card mb-8 border-purple-700/70 bg-purple-950/20">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-widest text-purple-300">
+                Análise IA comercial
+              </p>
+              <h2 className="text-2xl font-black">{analiseIA.empresa}</h2>
+              <p className="mt-2 text-sm text-slate-300">{analiseIA.resumo}</p>
+            </div>
+
+            <button
+              onClick={() => setAnaliseIA(null)}
+              className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-black text-white hover:bg-slate-600"
+            >
+              Fechar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-blue-300">Perfil sugerido</p>
+              <p className="mt-2 font-black">{analiseIA.perfil}</p>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-[#020817] p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-green-300">Prioridade</p>
+              <p className="mt-2 font-black">{analiseIA.prioridade}</p>
+            </div>
+
+            <div className="rounded-2xl border border-yellow-900 bg-[#020817] p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-yellow-300">Próxima ação</p>
+              <p className="mt-2 font-black">Contato inicial + follow-up em 3 dias</p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+            <p className="text-xs font-black uppercase tracking-widest text-yellow-300">Dor provável</p>
+            <p className="mt-2 text-sm text-slate-200">{analiseIA.dor}</p>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <button
+              onClick={() => copiar(analiseIA.whatsapp)}
+              className="rounded-2xl bg-green-700 px-5 py-4 font-black text-white hover:bg-green-600"
+            >
+              Copiar WhatsApp IA
+            </button>
+
+            <button
+              onClick={() => copiar(analiseIA.email)}
+              className="rounded-2xl bg-blue-700 px-5 py-4 font-black text-white hover:bg-blue-600"
+            >
+              Copiar e-mail IA
+            </button>
+
+            <button
+              onClick={() => copiar(analiseIA.plano)}
+              className="rounded-2xl bg-purple-700 px-5 py-4 font-black text-white hover:bg-purple-600"
+            >
+              Copiar plano de abordagem
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="card mb-8">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -462,6 +727,10 @@ Poderia me direcionar ao responsável por logística ou comércio exterior da ${
                   </div>
 
                   <div className="flex flex-wrap gap-2">
+                    <button onClick={() => analisarProspectExistente(item)} className="rounded-xl bg-purple-700 px-4 py-2 text-sm font-black text-white hover:bg-purple-600">
+                      Analisar IA
+                    </button>
+
                     <button onClick={() => copiar(mensagemWhatsApp(item))} className="rounded-xl bg-green-700 px-4 py-2 text-sm font-black text-white hover:bg-green-600">
                       WhatsApp
                     </button>
