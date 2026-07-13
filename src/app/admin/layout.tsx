@@ -265,6 +265,13 @@ function MenuContent({
           icon="🚨"
           pathname={pathname}
         />
+<MenuItem
+          href="/admin/prospeccao"
+          label="Prospecção IA"
+          descricao="O que precisa de ação"
+          icon="🚨"
+          pathname={pathname}
+        />
       </MenuGroup>
 
       <MenuGroup titulo="Operação">
