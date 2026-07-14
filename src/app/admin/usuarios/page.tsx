@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import CriarUsuarioAdmin from '@/components/admin/CriarUsuarioAdmin'
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<any[]>([])
@@ -241,6 +242,10 @@ export default function UsuariosPage() {
 
   return (
     <main className="w-full max-w-none p-8 text-white">
+      <CriarUsuarioAdmin onCriado={() => {
+        if (typeof carregarUsuarios === 'function') carregarUsuarios()
+      }} />
+
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
         <div>
           <p className="text-blue-400 font-bold mb-2">
