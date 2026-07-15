@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import ImportarFichaCnpjCliente from '@/components/admin/ImportarFichaCnpjCliente'
 
 type ClienteFaturamento = {
   id: string
@@ -575,7 +576,10 @@ export default function ClientesFaturamentoPage() {
         <KpiCard titulo="Com e-mail" valor={totais.comEmail} detalhe="Contato fiscal" icone="📧" />
       </section>
 
-      <section id="form_cliente_faturamento" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+      
+      <ImportarFichaCnpjCliente />
+
+<section id="form_cliente_faturamento" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
         <div className="flex flex-col lg:flex-row justify-between gap-4 mb-6">
           <div>
             <h2 className="text-2xl font-black">
