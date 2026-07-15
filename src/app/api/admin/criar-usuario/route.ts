@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
       return erro('Tipo de acesso inválido.')
     }
 
+    let userId = ''
+
     const { data: criado, error: erroCriar } = await supabaseAdmin.auth.admin.createUser({
       email,
       password: senha,
@@ -72,14 +74,39 @@ export async function POST(req: NextRequest) {
       user_metadata: {
         nome,
         tipo_acesso: tipoAcesso,
+        tipo_usuario: tipoAcesso,
       },
     })
 
     if (erroCriar || !criado.user?.id) {
-      return erro(erroCriar?.message || 'Erro ao criar usuário.', 400)
-    }
+      const mensagemErro = String(erroCriar?.message || '').toLowerCase()
 
-    const userId = criado.user.id
+      if (
+        mensagemErro.includes('already') ||
+        mensagemErro.includes('registered') ||
+        mensagemErro.includes('exists') ||
+        mensagemErro.includes('já')
+      ) {
+        const { data: usuarios } = await supabaseAdmin.auth.admin.listUsers({
+          page: 1,
+          perPage: 1000,
+        })
+
+        const usuarioExistente = usuarios?.users?.find(
+          (u) => String(u.email || '').toLowerCase() === email
+        )
+
+        if (!usuarioExistente?.id) {
+          return erro('Login já existe no Auth, mas não consegui localizar o ID do usuário.', 400)
+        }
+
+        userId = usuarioExistente.id
+      } else {
+        return erro(erroCriar?.message || 'Erro ao criar usuário.', 400)
+      }
+    } else {
+      userId = criado.user.id
+    }
 
     const { error: erroPerfilNovo } = await supabaseAdmin
       .from('perfis')
@@ -89,6 +116,7 @@ export async function POST(req: NextRequest) {
           nome,
           email,
           tipo_acesso: tipoAcesso,
+          tipo_usuario: tipoAcesso,
           ativo,
           atualizado_em: new Date().toISOString(),
         },
