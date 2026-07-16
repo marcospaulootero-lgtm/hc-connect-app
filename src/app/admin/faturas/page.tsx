@@ -880,6 +880,73 @@ export default function FaturasPage() {
     return arquivosFaturas.filter((arquivo) => arquivo.fatura_id === faturaId)
   }
 
+  function documentosComplementaresDoEmbarque(embarque: Embarque, faturaPrincipal?: Fatura | null) {
+    const embarqueId = embarque?.id
+
+    if (!embarqueId) return []
+
+    const complementaresFaturas = faturas
+      .filter((f: any) => {
+        if (f.embarque_id !== embarqueId) return false
+        if (!f.arquivo_pdf) return false
+
+        const tipo = String(f.tipo_fatura || '').toUpperCase()
+
+        return f.fatura_complementar === true || tipo.includes('IMPOSTOS') || tipo.includes('COMPLEMENTAR')
+      })
+      .map((f: any) => ({
+        id: f.id,
+        nome: f.numero_fatura ? `Complementar ${f.numero_fatura}` : 'Fatura complementar',
+        url: f.arquivo_pdf,
+        origem: 'faturas',
+      }))
+
+    const idsFaturasDoEmbarque = new Set(
+      faturas
+        .filter((f: any) => f.embarque_id === embarqueId)
+        .map((f: any) => f.id)
+        .filter(Boolean)
+    )
+
+    if (faturaPrincipal?.id) {
+      idsFaturasDoEmbarque.add(faturaPrincipal.id)
+    }
+
+    const complementaresArquivos = arquivosFaturas
+      .filter((arquivo: any) => {
+        const tipo = String(arquivo.tipo || arquivo.nome || '').toUpperCase()
+
+        return (
+          arquivo.url &&
+          (
+            arquivo.embarque_id === embarqueId ||
+            idsFaturasDoEmbarque.has(arquivo.fatura_id)
+          ) &&
+          (
+            tipo.includes('COMPLEMENTAR') ||
+            tipo.includes('IMPOSTOS') ||
+            tipo.includes('FATURA_EXTRA') ||
+            tipo.includes('FATURA')
+          )
+        )
+      })
+      .map((arquivo: any) => ({
+        id: arquivo.id,
+        nome: arquivo.nome || arquivo.tipo || 'Anexo complementar',
+        url: arquivo.url,
+        origem: 'fatura_arquivos',
+      }))
+
+    const mapa = new Map()
+
+    for (const doc of [...complementaresFaturas, ...complementaresArquivos]) {
+      if (!doc.url) continue
+      mapa.set(doc.url, doc)
+    }
+
+    return Array.from(mapa.values())
+  }
+
   function labelTipoArquivoFatura(tipo?: string | null) {
     const normalizado = normalizarTexto(tipo || 'OUTRO')
     if (normalizado.includes('BOLETO')) return 'Boleto'
@@ -4326,6 +4393,22 @@ export default function FaturasPage() {
                             >
                               Emitir fatura
                             </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <a
+                                        key={doc.id || doc.url}
+                                        href={doc.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-lg bg-yellow-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-yellow-500"
+                                      >
+                                        Abrir complementar
+                                      </a>
+                                    ))}
+                                  </div>
+                                ) : null}
 
                                   <button
                                     onClick={() => abrirEmissaoFaturaComplementar(embarque)}
