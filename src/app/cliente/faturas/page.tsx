@@ -492,8 +492,39 @@ export default function FaturasClientePage() {
                           <Info label="Arquivada em" valor={dataHoraBR(fatura.arquivado_em)} />
                         </div>
 
-                        {!arquivada && (
-                          <div className="mt-6 border border-blue-950 bg-[#071225] rounded-2xl p-5">
+                        
+                  {arquivosComplementaresDaFatura(fatura).length > 0 && (
+                    <div data-complementar-cliente="true" className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-4">
+                      <div className="mb-3">
+                        <h3 className="text-lg font-black text-yellow-200">
+                          Fatura complementar / impostos
+                        </h3>
+                        <p className="mt-1 text-sm text-yellow-100">
+                          Documento complementar liberado pela HC para este AWB.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3">
+                        {arquivosComplementaresDaFatura(fatura).map((arquivo: any, index: number) => (
+                          <a
+                            key={arquivo.id || arquivo.url || index}
+                            href={arquivo.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-2xl bg-yellow-600 px-5 py-3 text-sm font-black text-white hover:bg-yellow-500"
+                          >
+                            Baixar complementar
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {!arquivada && (
+                          
+                  
+
+<div className="mt-6 border border-blue-950 bg-[#071225] rounded-2xl p-5">
                             <h4 className="text-xl font-black mb-2">Comprovante de pagamento</h4>
                             <p className="text-slate-400 text-sm mb-4">
                               Envie aqui o comprovante referente a esta fatura. Formatos aceitos: PDF, JPG ou PNG.
@@ -593,7 +624,7 @@ export default function FaturasClientePage() {
                         )}
 
                         {arquivada ? (
-                          <> {/* fragmento-complementar-cliente */}
+                          
 <button
                             onClick={() => restaurarFatura(fatura)}
                             disabled={!!arquivando[fatura.id]}
@@ -601,22 +632,6 @@ export default function FaturasClientePage() {
                           >
                             {arquivando[fatura.id] ? 'Restaurando...' : 'Restaurar'}
                           </button>
-
-                      {arquivosComplementaresDaFatura(fatura).length > 0 ? (
-                        <div className="mt-2 flex flex-col gap-2">
-                          {arquivosComplementaresDaFatura(fatura).map((arquivo: any, index: number) => (
-                            <a
-                              key={arquivo.id || arquivo.url || index}
-                              href={arquivo.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded-2xl bg-yellow-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-yellow-500"
-                            >
-                              Baixar complementar
-                            </a>
-                          ))}
-                        </div>
-                      ) : null}
 </>
                         ) : (
                           <button
