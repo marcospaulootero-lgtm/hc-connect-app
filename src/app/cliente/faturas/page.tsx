@@ -102,10 +102,45 @@ export default function FaturasClientePage() {
       console.log('ERRO FATURAS:', error)
     }
 
+    const idsFaturas = ((data as any[]) || []).map((fatura) => fatura.id).filter(Boolean)
+
+    let arquivosPorFatura = new Map<string, any[]>()
+
+    if (idsFaturas.length > 0) {
+      const { data: arquivosExtras, error: erroArquivosExtras } = await supabase
+        .from('fatura_arquivos')
+        .select('id, fatura_id, embarque_id, tipo, nome, url, criado_em')
+        .in('fatura_id', idsFaturas)
+        .order('criado_em', { ascending: false })
+
+      if (erroArquivosExtras) {
+        console.log('ERRO ANEXOS COMPLEMENTARES:', erroArquivosExtras)
+      }
+
+      for (const arquivo of (arquivosExtras || []) as any[]) {
+        if (!arquivo?.url || !arquivo?.fatura_id) continue
+
+        const tipo = String(arquivo.tipo || arquivo.nome || '').toUpperCase()
+
+        const ehComplementar =
+          tipo.includes('COMPLEMENTAR') ||
+          tipo.includes('IMPOSTOS') ||
+          tipo.includes('FATURA_EXTRA') ||
+          tipo.includes('FATURA')
+
+        if (!ehComplementar) continue
+
+        const lista = arquivosPorFatura.get(arquivo.fatura_id) || []
+        lista.push(arquivo)
+        arquivosPorFatura.set(arquivo.fatura_id, lista)
+      }
+    }
+
     const faturasComArquivamento = (data || []).map((fatura: any) => ({
       ...fatura,
       arquivada_cliente: mapaArquivadas.has(fatura.id),
       arquivado_em: mapaArquivadas.get(fatura.id) || null,
+      arquivos_complementares: arquivosPorFatura.get(fatura.id) || [],
     }))
 
     setFaturas(faturasComArquivamento)
@@ -246,6 +281,10 @@ export default function FaturasClientePage() {
   function dataHoraBR(data?: string | null) {
     if (!data) return '-'
     return new Date(data).toLocaleString('pt-BR')
+  }
+
+  function arquivosComplementaresDaFatura(fatura: any) {
+    return (fatura?.arquivos_complementares || []).filter((arquivo: any) => arquivo?.url)
   }
 
   const faturasFiltradas = useMemo(() => {
@@ -515,13 +554,31 @@ export default function FaturasClientePage() {
                         )}
 
                         {arquivada ? (
-                          <button
+                          <> {/* fragmento-complementar-cliente */}
+<button
                             onClick={() => restaurarFatura(fatura)}
                             disabled={!!arquivando[fatura.id]}
                             className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-3 rounded-xl text-white font-bold text-center"
                           >
                             {arquivando[fatura.id] ? 'Restaurando...' : 'Restaurar'}
                           </button>
+
+                      {arquivosComplementaresDaFatura(fatura).length > 0 ? (
+                        <div className="mt-2 flex flex-col gap-2">
+                          {arquivosComplementaresDaFatura(fatura).map((arquivo: any, index: number) => (
+                            <a
+                              key={arquivo.id || arquivo.url || index}
+                              href={arquivo.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-2xl bg-yellow-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-yellow-500"
+                            >
+                              Baixar complementar
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
+</>
                         ) : (
                           <button
                             onClick={() => arquivarFatura(fatura)}
