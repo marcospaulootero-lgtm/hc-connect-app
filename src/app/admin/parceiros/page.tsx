@@ -33,6 +33,7 @@ export default function ParceirosPage() {
   const [emailAssuntoPdf, setEmailAssuntoPdf] = useState('')
   const [emailCorpoPdf, setEmailCorpoPdf] = useState('')
   const [enviandoEmailPdf, setEnviandoEmailPdf] = useState(false)
+  const [marcandoSelecionadosPago, setMarcandoSelecionadosPago] = useState(false)
 
   const [form, setForm] = useState({
     parceiro: '',
@@ -218,6 +219,48 @@ export default function ParceirosPage() {
 
   function limparUsuariosSelecionados() {
     setUsuariosSelecionadosPortal([])
+  }
+
+  async function marcarSelecionadosComoPago() {
+    if (selecionadosPdf.length === 0) {
+      alert('Selecione pelo menos um processo.')
+      return
+    }
+
+    const selecionados = registros.filter((item) => selecionadosPdf.includes(item.id))
+    const totalSelecionado = selecionados.reduce((total, item) => total + Number(item.debito_terceiro || 0), 0)
+
+    const confirmar = confirm(
+      `Deseja marcar ${selecionados.length} processo(s), total ${moeda(totalSelecionado)}, como PAGO?`
+    )
+
+    if (!confirmar) return
+
+    setMarcandoSelecionadosPago(true)
+
+    try {
+      const mesAtual = new Date().toISOString().slice(0, 7)
+
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update({
+          pgta_terceiros: 'PAGO',
+          mes_pgto: mesAtual,
+        })
+        .in('id', selecionadosPdf)
+
+      if (error) throw error
+
+      alert(`${selecionados.length} processo(s) marcado(s) como PAGO.`)
+
+      setSelecionadosPdf([])
+      await carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(error?.message || 'Erro ao marcar selecionados como pago.')
+    } finally {
+      setMarcandoSelecionadosPago(false)
+    }
   }
 
   function normalizarBusca(valor: any) {
@@ -1917,7 +1960,17 @@ export default function ParceirosPage() {
                 Qtd. mais antigos
               </button>
 
-              <button
+              
+                  <button
+                    type="button"
+                    onClick={marcarSelecionadosComoPago}
+                    disabled={selecionadosPdf.length === 0 || marcandoSelecionadosPago}
+                    className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {marcandoSelecionadosPago ? 'Marcando...' : '✓ Marcar selecionados como pago'}
+                  </button>
+
+<button
                 type="button"
                 onClick={limparSelecaoPdf}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
