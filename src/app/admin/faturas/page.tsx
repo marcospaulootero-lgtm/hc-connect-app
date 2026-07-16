@@ -233,6 +233,7 @@ export default function FaturasPage() {
   const [emissorClienteId, setEmissorClienteId] = useState('')
   const [emissorUsuarioId, setEmissorUsuarioId] = useState('')
   const [emissorDespachante, setEmissorDespachante] = useState('')
+  const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS'>('FRETE')
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
@@ -358,6 +359,10 @@ export default function FaturasPage() {
         recibo_observacoes,
         dados_cliente_faturamento,
         itens_fatura,
+        tipo_fatura,
+        fatura_complementar,
+        fatura_principal_id,
+        valor_impostos,
         arquivado_admin,
         arquivado_admin_em,
         arquivado_admin_por,
@@ -677,7 +682,16 @@ export default function FaturasPage() {
   }
 
   function faturaDoEmbarque(embarqueId: string) {
-    return faturas.find((f) => f.embarque_id === embarqueId) || null
+    const faturasDoEmbarque = faturas.filter((f) => f.embarque_id === embarqueId)
+
+    return (
+      faturasDoEmbarque.find((f) => {
+        const item: any = f
+        return item.fatura_complementar !== true && String(item.tipo_fatura || 'FRETE').toUpperCase() !== 'IMPOSTOS'
+      }) ||
+      faturasDoEmbarque[0] ||
+      null
+    )
   }
 
   function financeiroDoEmbarque(embarque: Embarque) {
@@ -1649,6 +1663,17 @@ export default function FaturasPage() {
       throw new Error('Informe uma data de recebimento válida.')
     }
 
+    const ehFaturaImpostos = emissorTipoFatura === 'IMPOSTOS'
+    const valorAnteriorCobranca = numero(financeiroAtual?.valor_cobranca)
+    const valorAnteriorDocDta = numero(financeiroAtual?.doc_dta)
+    const numeroFaturaFinanceiro = ehFaturaImpostos && financeiroAtual?.fatura
+      ? [financeiroAtual.fatura, emissorNumeroFatura].filter(Boolean).join(' + ')
+      : emissorNumeroFatura || null
+
+    const observacaoTipoFatura = ehFaturaImpostos
+      ? `Fatura complementar de impostos/DOC/DTA lançada em ${dataBR(new Date().toISOString())}: ${moeda(totaisEmissor.totalBRL)}.`
+      : 'Fatura principal de frete/serviços emitida pelo HC Connect.'
+
     const payloadBase: any = {
       cliente:
         financeiroAtual?.cliente ||
@@ -2611,6 +2636,7 @@ export default function FaturasPage() {
     setEmissorClienteId('')
     setEmissorUsuarioId('')
     setEmissorDespachante('')
+    setEmissorTipoFatura('FRETE')
     setEmissorNumeroFatura('')
     setEmissorVencimento('')
     setEmissorTaxaConversao('')
@@ -2690,22 +2716,38 @@ export default function FaturasPage() {
         ? `HANDLING sem spread lançado em débito terceiro${emissorDespachante ? ` para ${emissorDespachante}` : ''}: ${moeda(handlingSemSpread)}. Spread/Profit do HANDLING: ${moeda(spreadHandling)}.`
         : ''
 
+    const ehFaturaImpostos = emissorTipoFatura === 'IMPOSTOS'
+    const valorAnteriorCobranca = numero(financeiroAtual?.valor_cobranca)
+    const valorAnteriorDocDta = numero(financeiroAtual?.doc_dta)
+
+    const numeroFaturaFinanceiro =
+      ehFaturaImpostos && financeiroAtual?.fatura
+        ? [financeiroAtual.fatura, emissorNumeroFatura].filter(Boolean).join(' + ')
+        : emissorNumeroFatura || null
+
+    const observacaoTipoFatura = ehFaturaImpostos
+      ? `Fatura complementar de impostos/DOC/DTA lançada em ${dataBR(new Date().toISOString())}: ${moeda(totaisEmissor.totalBRL)}.`
+      : 'Fatura principal de frete/serviços emitida pelo HC Connect.'
+
     const payloadBase: any = {
       cliente: emissorClienteSelecionado.nome_empresa || emissorEmbarqueSelecionado.cliente_final || emissorEmbarqueSelecionado.importador || null,
       awb: emissorEmbarqueSelecionado.awb || null,
-      fatura: emissorNumeroFatura || null,
+      fatura: numeroFaturaFinanceiro,
       despachante: emissorDespachante || financeiroAtual?.despachante || null,
       transportadora: emissorEmbarqueSelecionado.transportadora || null,
       servico: emissorEmbarqueSelecionado.servico || null,
-      valor_cobranca: totaisEmissor.totalBRL,
-      doc_dta: numero(financeiroAtual?.doc_dta),
+      valor_cobranca: ehFaturaImpostos ? valorAnteriorCobranca + totaisEmissor.totalBRL : totaisEmissor.totalBRL,
+      doc_dta: ehFaturaImpostos ? valorAnteriorDocDta + totaisEmissor.totalBRL : valorAnteriorDocDta,
       debito_terceiro: debitoTerceiroAtualizado,
       valor_compra: numero(financeiroAtual?.valor_compra),
       vencimento_cobranca: emissorVencimento || null,
       recebimento: financeiroAtual?.recebimento || null,
       mes: mesFinanceiroDaFatura(),
       mes_profit: financeiroAtual?.mes_profit || '',
-      observacoes: `Fatura emitida pelo HC Connect. PDF: ${arquivoPdfUrl}. Itens: ${itensResumo}${observacaoHandling ? ` | ${observacaoHandling}` : ''}${emissorObservacoes ? ` | Obs: ${emissorObservacoes}` : ''}`,
+      observacoes: [
+        financeiroAtual?.observacoes || '',
+        `${observacaoTipoFatura} PDF: ${arquivoPdfUrl}. Itens: ${itensResumo}${observacaoHandling ? ` | ${observacaoHandling}` : ''}${emissorObservacoes ? ` | Obs: ${emissorObservacoes}` : ''}`,
+      ].filter(Boolean).join(' | '),
     }
 
     if (financeiroAtual?.id) {
@@ -2783,6 +2825,8 @@ export default function FaturasPage() {
       return alert('Selecione pelo menos um serviço com valor para emitir a fatura.')
     }
 
+    const ehFaturaImpostos = emissorTipoFatura === 'IMPOSTOS'
+
     setSalvandoEmissao(true)
 
     try {
@@ -2810,7 +2854,7 @@ export default function FaturasPage() {
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(11)
-      pdf.text('FATURA DE SERVIÇO', margem, 34)
+      pdf.text(ehFaturaImpostos ? 'FATURA COMPLEMENTAR - IMPOSTOS' : 'FATURA DE SERVIÇO', margem, 34)
       pdf.text(`CÓDIGO CLIENTE: ${codigoClientePdf}`, 210, 34)
       pdf.text(`FATURA Nº: ${numeroFaturaPdf}`, larguraPagina - margem, 34, { align: 'right' })
 
@@ -3024,8 +3068,9 @@ export default function FaturasPage() {
 
       const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
       const urlPdf = urlData.publicUrl
-      const faturaExistente = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
-      const caminhoAntigo = extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
 
       if (caminhoAntigo) {
         await supabase.storage.from('faturas').remove([caminhoAntigo])
@@ -3046,6 +3091,10 @@ export default function FaturasPage() {
         taxa_conversao: taxaConversaoFinal(),
         spread: numero(emissorSpread),
         vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totaisEmissor.totalBRL : 0,
       }
 
       if (faturaExistente) {
@@ -3059,9 +3108,11 @@ export default function FaturasPage() {
       await garantirLoginVinculadoAoEmbarque()
       await salvarFinanceiroDaFatura(urlPdf)
 
-      const mensagemSucesso = emissorUsuarioId
-        ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
-        : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida. O valor foi somado ao processo e lançado em DOC/DTA/Impostos.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
 
       alert(mensagemSucesso)
       limparEmissor()
@@ -3550,6 +3601,30 @@ export default function FaturasPage() {
               <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
 
               <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
                 <input
                   value={emissorNumeroFatura}
                   onChange={(e) => setEmissorNumeroFatura(e.target.value)}
