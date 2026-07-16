@@ -309,6 +309,23 @@ export default function DetalheCliente() {
     return Array.from(mapa.values())
   }
 
+  function faturaPrincipalParaComplementarId() {
+    const principais = faturasPrincipaisCliente()
+
+    const emAberto = principais.find((fatura: any) => {
+      const status = String(fatura.status_pagamento || '').toUpperCase()
+
+      return (
+        !fatura.recibo_pdf &&
+        !fatura.data_pagamento &&
+        !status.includes('PAGO') &&
+        !status.includes('RECEBIDO')
+      )
+    })
+
+    return (emAberto || principais[0])?.id || ''
+  }
+
   function normalizarDocumento(valor: any) {
     return String(valor || '')
       .toLowerCase()
@@ -764,7 +781,7 @@ export default function DetalheCliente() {
                         </div>
 
                         
-                    {faturasPrincipaisCliente().findIndex((item) => item.id === fatura.id) === 0 && documentosComplementaresUnicosCliente().length > 0 && (
+                    {fatura.id === faturaPrincipalParaComplementarId() && documentosComplementaresUnicosCliente().length > 0 && (
                       <div data-complementar-detalhe-cliente="true" className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-4">
                         <h3 className="text-lg font-black text-yellow-200">
                           Fatura complementar / impostos
@@ -774,7 +791,7 @@ export default function DetalheCliente() {
                         </p>
 
                         <div className="mt-3 flex flex-wrap gap-3">
-                          {documentosComplementaresUnicosCliente().map((item, index) => (
+                          {documentosComplementaresUnicosCliente().slice(0, 1).map((item, index) => (
                               <a
                                 key={item.id || item.url || index}
                                 href={item.url}
