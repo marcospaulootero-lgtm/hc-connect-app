@@ -286,6 +286,29 @@ export default function DetalheCliente() {
     })
   }
 
+  function documentosComplementaresUnicosCliente() {
+    const docs = [
+      ...faturasComplementaresCliente().map((faturaComplementar: any) => ({
+        id: faturaComplementar.id,
+        nome: 'Fatura complementar / impostos',
+        url: faturaComplementar.arquivo_pdf,
+      })),
+      ...anexosComplementares.map((anexo: any) => ({
+        id: anexo.id,
+        nome: anexo.nome || 'Fatura complementar / impostos',
+        url: anexo.url,
+      })),
+    ].filter((item) => item.url)
+
+    const mapa = new Map<string, any>()
+
+    for (const item of docs) {
+      mapa.set(item.url, item)
+    }
+
+    return Array.from(mapa.values())
+  }
+
   function normalizarDocumento(valor: any) {
     return String(valor || '')
       .toLowerCase()
@@ -683,7 +706,7 @@ export default function DetalheCliente() {
                 <h2 className="text-2xl font-black">💵 Faturas vinculadas</h2>
 
                 <span className="bg-green-600/20 border border-green-500 text-green-300 px-4 py-2 rounded-full text-sm font-bold">
-                  {faturasPrincipaisCliente().length + faturasComplementaresCliente().length + anexosComplementares.length} fatura(s)
+                  {faturasPrincipaisCliente().length + documentosComplementaresUnicosCliente().length} fatura(s)
                 </span>
               </div>
 
@@ -708,7 +731,7 @@ export default function DetalheCliente() {
                               Comprovante enviado em: {dataHoraBR(fatura.data_comprovante)}
                             </p>
 
-                            {!ehFaturaComplementarCliente(fatura) && fatura.observacao_pagamento && (
+                            {fatura.observacao_pagamento && !String(fatura.observacao_pagamento).toLowerCase().includes('recibo emitido') && (
                               <p className="text-yellow-300 text-sm mt-2">
                                 Observação HC: {fatura.observacao_pagamento}
                               </p>
@@ -741,18 +764,7 @@ export default function DetalheCliente() {
                         </div>
 
                         
-                    {[
-                      ...faturasComplementaresCliente().map((faturaComplementar: any) => ({
-                        id: faturaComplementar.id,
-                        nome: 'Fatura complementar / impostos',
-                        url: faturaComplementar.arquivo_pdf,
-                      })),
-                      ...anexosComplementaresDaFatura(fatura).map((anexo: any) => ({
-                        id: anexo.id,
-                        nome: anexo.nome || 'Fatura complementar / impostos',
-                        url: anexo.url,
-                      })),
-                    ].filter((item) => item.url).length > 0 && (
+                    {faturasPrincipaisCliente().findIndex((item) => item.id === fatura.id) === 0 && documentosComplementaresUnicosCliente().length > 0 && (
                       <div data-complementar-detalhe-cliente="true" className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-4">
                         <h3 className="text-lg font-black text-yellow-200">
                           Fatura complementar / impostos
@@ -762,20 +774,7 @@ export default function DetalheCliente() {
                         </p>
 
                         <div className="mt-3 flex flex-wrap gap-3">
-                          {[
-                            ...faturasComplementaresCliente().map((faturaComplementar: any) => ({
-                              id: faturaComplementar.id,
-                              nome: 'Fatura complementar / impostos',
-                              url: faturaComplementar.arquivo_pdf,
-                            })),
-                            ...anexosComplementaresDaFatura(fatura).map((anexo: any) => ({
-                              id: anexo.id,
-                              nome: anexo.nome || 'Fatura complementar / impostos',
-                              url: anexo.url,
-                            })),
-                          ]
-                            .filter((item) => item.url)
-                            .map((item, index) => (
+                          {documentosComplementaresUnicosCliente().map((item, index) => (
                               <a
                                 key={item.id || item.url || index}
                                 href={item.url}
