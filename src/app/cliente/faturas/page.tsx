@@ -632,7 +632,6 @@ export default function FaturasClientePage() {
                           >
                             {arquivando[fatura.id] ? 'Restaurando...' : 'Restaurar'}
                           </button>
-</>
                         ) : (
                           <button
                             onClick={() => arquivarFatura(fatura)}

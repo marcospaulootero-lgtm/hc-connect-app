@@ -31,7 +31,19 @@ type Fatura = {
   data_comprovante?: string | null
   status_pagamento?: string | null
   observacao_pagamento?: string | null
+  tipo_fatura?: string | null
+  fatura_complementar?: boolean | null
   criado_em: string
+}
+
+type AnexoComplementar = {
+  id: string
+  fatura_id?: string | null
+  embarque_id?: string | null
+  tipo?: string | null
+  nome?: string | null
+  url: string
+  criado_em?: string | null
 }
 
 export default function DetalheCliente() {
@@ -41,6 +53,7 @@ export default function DetalheCliente() {
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [timeline, setTimeline] = useState<TimelineItem[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
+  const [anexosComplementares, setAnexosComplementares] = useState<AnexoComplementar[]>([])
   const [arquivoSelecionado, setArquivoSelecionado] = useState<Record<string, File | null>>({})
   const [enviandoComprovante, setEnviandoComprovante] = useState<Record<string, boolean>>({})
 
@@ -118,6 +131,8 @@ export default function DetalheCliente() {
         data_comprovante,
         status_pagamento,
         observacao_pagamento,
+        tipo_fatura,
+        fatura_complementar,
         criado_em
       `)
       .eq('embarque_id', params.id)
@@ -129,6 +144,56 @@ export default function DetalheCliente() {
     }
 
     setFaturas(faturasData || [])
+
+    const idsFaturas = ((faturasData as any[]) || []).map((fatura) => fatura.id).filter(Boolean)
+
+    const anexosEncontrados: any[] = []
+
+    if (idsFaturas.length > 0) {
+      const { data: anexosPorFatura, error: erroAnexosPorFatura } = await supabase
+        .from('fatura_arquivos')
+        .select('id, fatura_id, embarque_id, tipo, nome, url, criado_em')
+        .in('fatura_id', idsFaturas)
+        .order('criado_em', { ascending: false })
+
+      if (erroAnexosPorFatura) {
+        console.log('ERRO ANEXOS COMPLEMENTARES POR FATURA:', erroAnexosPorFatura)
+      }
+
+      anexosEncontrados.push(...((anexosPorFatura || []) as any[]))
+    }
+
+    const { data: anexosPorEmbarque, error: erroAnexosPorEmbarque } = await supabase
+      .from('fatura_arquivos')
+      .select('id, fatura_id, embarque_id, tipo, nome, url, criado_em')
+      .eq('embarque_id', params.id)
+      .order('criado_em', { ascending: false })
+
+    if (erroAnexosPorEmbarque) {
+      console.log('ERRO ANEXOS COMPLEMENTARES POR EMBARQUE:', erroAnexosPorEmbarque)
+    }
+
+    anexosEncontrados.push(...((anexosPorEmbarque || []) as any[]))
+
+    const mapaAnexos = new Map<string, AnexoComplementar>()
+
+    for (const anexo of anexosEncontrados) {
+      if (!anexo?.url) continue
+
+      const tipo = String(anexo.tipo || anexo.nome || '').toUpperCase()
+
+      const ehComplementar =
+        tipo.includes('COMPLEMENTAR') ||
+        tipo.includes('IMPOSTOS') ||
+        tipo.includes('FATURA_EXTRA') ||
+        tipo.includes('FATURA')
+
+      if (!ehComplementar) continue
+
+      mapaAnexos.set(anexo.id || anexo.url, anexo)
+    }
+
+    setAnexosComplementares(Array.from(mapaAnexos.values()))
   }
 
   async function enviarComprovante(fatura: Fatura) {
@@ -193,6 +258,32 @@ export default function DetalheCliente() {
     } finally {
       setEnviandoComprovante((prev) => ({ ...prev, [fatura.id]: false }))
     }
+  }
+
+  function ehFaturaComplementarCliente(fatura: Fatura) {
+    const tipo = String(fatura.tipo_fatura || '').toUpperCase()
+
+    return (
+      fatura.fatura_complementar === true ||
+      tipo.includes('IMPOSTOS') ||
+      tipo.includes('COMPLEMENTAR')
+    )
+  }
+
+  function faturasPrincipaisCliente() {
+    return faturas.filter((fatura) => !ehFaturaComplementarCliente(fatura))
+  }
+
+  function faturasComplementaresCliente() {
+    return faturas.filter((fatura) => ehFaturaComplementarCliente(fatura))
+  }
+
+  function anexosComplementaresDaFatura(fatura?: Fatura | null) {
+    if (!fatura) return anexosComplementares
+
+    return anexosComplementares.filter((anexo) => {
+      return anexo.fatura_id === fatura.id || anexo.embarque_id === params.id
+    })
   }
 
   function normalizarDocumento(valor: any) {
@@ -592,7 +683,7 @@ export default function DetalheCliente() {
                 <h2 className="text-2xl font-black">💵 Faturas vinculadas</h2>
 
                 <span className="bg-green-600/20 border border-green-500 text-green-300 px-4 py-2 rounded-full text-sm font-bold">
-                  {faturas.length} fatura(s)
+                  {faturasPrincipaisCliente().length + faturasComplementaresCliente().length + anexosComplementares.length} fatura(s)
                 </span>
               </div>
 
@@ -617,7 +708,7 @@ export default function DetalheCliente() {
                               Comprovante enviado em: {dataHoraBR(fatura.data_comprovante)}
                             </p>
 
-                            {fatura.observacao_pagamento && (
+                            {!ehFaturaComplementarCliente(fatura) && fatura.observacao_pagamento && (
                               <p className="text-yellow-300 text-sm mt-2">
                                 Observação HC: {fatura.observacao_pagamento}
                               </p>
@@ -649,7 +740,57 @@ export default function DetalheCliente() {
                           </div>
                         </div>
 
-                        <div className="mt-5 border border-blue-950 bg-[#071225] rounded-2xl p-5">
+                        
+                    {[
+                      ...faturasComplementaresCliente().map((faturaComplementar: any) => ({
+                        id: faturaComplementar.id,
+                        nome: 'Fatura complementar / impostos',
+                        url: faturaComplementar.arquivo_pdf,
+                      })),
+                      ...anexosComplementaresDaFatura(fatura).map((anexo: any) => ({
+                        id: anexo.id,
+                        nome: anexo.nome || 'Fatura complementar / impostos',
+                        url: anexo.url,
+                      })),
+                    ].filter((item) => item.url).length > 0 && (
+                      <div data-complementar-detalhe-cliente="true" className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-4">
+                        <h3 className="text-lg font-black text-yellow-200">
+                          Fatura complementar / impostos
+                        </h3>
+                        <p className="mt-1 text-sm text-yellow-100">
+                          Documento complementar liberado pela HC para este AWB.
+                        </p>
+
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          {[
+                            ...faturasComplementaresCliente().map((faturaComplementar: any) => ({
+                              id: faturaComplementar.id,
+                              nome: 'Fatura complementar / impostos',
+                              url: faturaComplementar.arquivo_pdf,
+                            })),
+                            ...anexosComplementaresDaFatura(fatura).map((anexo: any) => ({
+                              id: anexo.id,
+                              nome: anexo.nome || 'Fatura complementar / impostos',
+                              url: anexo.url,
+                            })),
+                          ]
+                            .filter((item) => item.url)
+                            .map((item, index) => (
+                              <a
+                                key={item.id || item.url || index}
+                                href={item.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-xl bg-yellow-600 px-4 py-3 text-sm font-black text-white hover:bg-yellow-500"
+                              >
+                                Baixar complementar
+                              </a>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+<div className="mt-5 border border-blue-950 bg-[#071225] rounded-2xl p-5">
                           <h4 className="font-black mb-2">Comprovante de pagamento</h4>
                           <p className="text-slate-400 text-sm mb-4">
                             Envie aqui o comprovante referente a esta fatura. Formatos aceitos: PDF, JPG ou PNG.
