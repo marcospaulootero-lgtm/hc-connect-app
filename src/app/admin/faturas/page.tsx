@@ -1932,6 +1932,12 @@ export default function FaturasPage() {
       const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
       const urlRecibo = urlData.publicUrl
 
+      const abrirPdfReciboGerado = window.open(urlRecibo, '_blank', 'noopener,noreferrer')
+
+      if (!abrirPdfReciboGerado) {
+        alert('Recibo gerado, mas o navegador bloqueou a abertura automática. Use o botão Abrir/Recibo na tabela.')
+      }
+
       const caminhoAntigo = extrairCaminhoStorage(fatura.recibo_pdf)
       if (caminhoAntigo) {
         await supabase.storage.from('faturas').remove([caminhoAntigo])
@@ -1957,7 +1963,7 @@ export default function FaturasPage() {
       await salvarFinanceiroDoRecibo(reciboSelecionado, fatura, urlRecibo)
 
       const desejaArquivar = confirm(
-        `Recibo emitido com sucesso e pagamento registrado em Processos Faturados.\n\n` +
+        `Recibo emitido com sucesso, PDF aberto em nova aba e pagamento registrado em Processos Faturados.\n\n` +
           `Faturamento finalizado para o AWB ${reciboSelecionado.awb || '-'}.\n` +
           `Deseja arquivar este processo na aba de faturas?`
       )
