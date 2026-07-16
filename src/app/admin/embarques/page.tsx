@@ -238,6 +238,41 @@ export default function EmbarquesPage() {
     return null
   }
 
+  function ehValorCompraEmbarque(nome: any) {
+    const texto = String(nome || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+
+    return (
+      texto.includes('valor de compra') ||
+      texto.includes('prestacao de contas')
+    )
+  }
+
+  function servicosCobradosCliente(servicos: ServicoFinanceiroEmbarque[]) {
+    return (servicos || []).filter((item) => !ehValorCompraEmbarque(item.nome))
+  }
+
+  function servicosValorCompra(servicos: ServicoFinanceiroEmbarque[]) {
+    return (servicos || []).filter((item) => ehValorCompraEmbarque(item.nome))
+  }
+
+  function totalCobradoClienteServicos(servicos: ServicoFinanceiroEmbarque[]) {
+    return servicosCobradosCliente(servicos).reduce(
+      (total, item) => total + numeroFinanceiro(item.valor),
+      0
+    )
+  }
+
+  function totalValorCompraServicos(servicos: ServicoFinanceiroEmbarque[]) {
+    return servicosValorCompra(servicos).reduce(
+      (total, item) => total + numeroFinanceiro(item.valor),
+      0
+    )
+  }
+
   function moeda(valor: any, moedaBase = 'USD') {
     if (valor === null || valor === undefined || valor === '') return '-'
 
@@ -1336,7 +1371,7 @@ export default function EmbarquesPage() {
               Financeiro do Embarque
             </h3>
             <p className="text-slate-400 text-sm mt-1">
-              Selecione quais serviços entram neste embarque e informe o valor de cada item. O total será gravado como valor cobrado do embarque.
+              Selecione os valores cobrados do cliente. O item VALOR DE COMPRA é custo interno da HC, não entra no total cobrado e será salvo como valor de compra.
             </p>
           </div>
 
@@ -1405,7 +1440,7 @@ export default function EmbarquesPage() {
           </div>
 
           <div className="md:col-span-5 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
-            <p className="text-slate-400 text-sm font-bold">Total selecionado</p>
+            <p className="text-slate-400 text-sm font-bold">Total cobrado do cliente</p>
             <h3 className="text-3xl font-black text-green-400 mt-2">
               {moeda(totalServicosFinanceiros(form.servicos_financeiros), form.moeda_cobranca || 'USD')}
             </h3>
@@ -1804,7 +1839,7 @@ export default function EmbarquesPage() {
                     </div>
 
                     <div className="md:col-span-3 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
-                      <p className="text-slate-400 text-sm font-bold">Total selecionado</p>
+                      <p className="text-slate-400 text-sm font-bold">Total cobrado do cliente</p>
                       <h3 className="text-3xl font-black text-green-400 mt-2">
                         {moeda(totalServicosFinanceiros(editForm.servicos_financeiros), editForm.moeda_cobranca || 'USD')}
                       </h3>
