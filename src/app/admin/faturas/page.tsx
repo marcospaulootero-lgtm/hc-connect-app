@@ -2572,6 +2572,19 @@ export default function FaturasPage() {
     }, 100)
   }
 
+
+  function abrirEmissaoFaturaComplementar(embarque: Embarque) {
+    setAbaAtiva('EMISSOR')
+    setEmissorTipoFatura('IMPOSTOS')
+    setBuscaEmissorAwb(String(embarque.awb || embarque.cliente_final || embarque.importador || ''))
+    selecionarEmbarqueEmissor(embarque.id)
+
+    setTimeout(() => {
+      setEmissorTipoFatura('IMPOSTOS')
+      document.getElementById('emissor_fatura')?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }
+
   function atualizarItemFatura(id: string, campo: keyof ItemFaturaServico, valor: string | boolean) {
     setItensFatura((atuais) =>
       atuais.map((item) => {
@@ -3103,7 +3116,23 @@ export default function FaturasPage() {
         valor_impostos: ehFaturaImpostos ? totaisEmissor.totalBRL : 0,
       }
 
-      if (faturaExistente) {
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
         const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
         if (error) throw new Error(error.message)
       } else {
@@ -3115,7 +3144,7 @@ export default function FaturasPage() {
       await salvarFinanceiroDaFatura(urlPdf)
 
       const mensagemSucesso = ehFaturaImpostos
-        ? 'Fatura complementar de impostos emitida. O valor foi somado ao processo e lançado em DOC/DTA/Impostos.'
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
         : emissorUsuarioId
           ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
           : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
@@ -3424,6 +3453,32 @@ export default function FaturasPage() {
 
     return (
       <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
         <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
           <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
             <div>
@@ -4271,6 +4326,13 @@ export default function FaturasPage() {
                             >
                               Emitir fatura
                             </button>
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
 
                             <button
                               type="button"
