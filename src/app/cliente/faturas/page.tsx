@@ -103,36 +103,70 @@ export default function FaturasClientePage() {
     }
 
     const idsFaturas = ((data as any[]) || []).map((fatura) => fatura.id).filter(Boolean)
+    const idsEmbarquesFaturas = ((data as any[]) || []).map((fatura) => fatura.embarque_id).filter(Boolean)
 
     let arquivosPorFatura = new Map<string, any[]>()
+    let arquivosPorEmbarque = new Map<string, any[]>()
+
+    const anexosExtras: any[] = []
 
     if (idsFaturas.length > 0) {
-      const { data: arquivosExtras, error: erroArquivosExtras } = await supabase
+      const { data: arquivosPorIdFatura, error: erroPorIdFatura } = await supabase
         .from('fatura_arquivos')
         .select('id, fatura_id, embarque_id, tipo, nome, url, criado_em')
         .in('fatura_id', idsFaturas)
         .order('criado_em', { ascending: false })
 
-      if (erroArquivosExtras) {
-        console.log('ERRO ANEXOS COMPLEMENTARES:', erroArquivosExtras)
+      if (erroPorIdFatura) {
+        console.log('ERRO ANEXOS POR FATURA:', erroPorIdFatura)
       }
 
-      for (const arquivo of (arquivosExtras || []) as any[]) {
-        if (!arquivo?.url || !arquivo?.fatura_id) continue
+      anexosExtras.push(...((arquivosPorIdFatura || []) as any[]))
+    }
 
-        const tipo = String(arquivo.tipo || arquivo.nome || '').toUpperCase()
+    if (idsEmbarquesFaturas.length > 0) {
+      const { data: arquivosPorEmbarqueData, error: erroPorEmbarque } = await supabase
+        .from('fatura_arquivos')
+        .select('id, fatura_id, embarque_id, tipo, nome, url, criado_em')
+        .in('embarque_id', idsEmbarquesFaturas)
+        .order('criado_em', { ascending: false })
 
-        const ehComplementar =
-          tipo.includes('COMPLEMENTAR') ||
-          tipo.includes('IMPOSTOS') ||
-          tipo.includes('FATURA_EXTRA') ||
-          tipo.includes('FATURA')
+      if (erroPorEmbarque) {
+        console.log('ERRO ANEXOS POR EMBARQUE:', erroPorEmbarque)
+      }
 
-        if (!ehComplementar) continue
+      anexosExtras.push(...((arquivosPorEmbarqueData || []) as any[]))
+    }
 
+    const anexosUnicos = new Map<string, any>()
+
+    for (const arquivo of anexosExtras) {
+      if (!arquivo?.url) continue
+
+      const tipo = String(arquivo.tipo || arquivo.nome || '').toUpperCase()
+
+      const ehComplementar =
+        tipo.includes('COMPLEMENTAR') ||
+        tipo.includes('IMPOSTOS') ||
+        tipo.includes('FATURA_EXTRA') ||
+        tipo.includes('FATURA')
+
+      if (!ehComplementar) continue
+
+      anexosUnicos.set(arquivo.id || arquivo.url, arquivo)
+    }
+
+    for (const arquivo of Array.from(anexosUnicos.values())) {
+      if (arquivo.fatura_id) {
         const lista = arquivosPorFatura.get(arquivo.fatura_id) || []
         lista.push(arquivo)
         arquivosPorFatura.set(arquivo.fatura_id, lista)
+      }
+
+      if (arquivo.embarque_id) {
+        const lista = arquivosPorEmbarque.get(arquivo.embarque_id) || []
+        lista.push(arquivo)
+        arquivosPorEmbarque.set(arquivo.embarque_id, lista)
       }
     }
 
@@ -140,7 +174,12 @@ export default function FaturasClientePage() {
       ...fatura,
       arquivada_cliente: mapaArquivadas.has(fatura.id),
       arquivado_em: mapaArquivadas.get(fatura.id) || null,
-      arquivos_complementares: arquivosPorFatura.get(fatura.id) || [],
+      arquivos_complementares: [
+        ...(arquivosPorFatura.get(fatura.id) || []),
+        ...(arquivosPorEmbarque.get(fatura.embarque_id) || []),
+      ].filter((arquivo, index, lista) =>
+        lista.findIndex((item) => (item.id || item.url) === (arquivo.id || arquivo.url)) === index
+      ),
     }))
 
     setFaturas(faturasComArquivamento)
