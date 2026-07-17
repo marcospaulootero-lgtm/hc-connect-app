@@ -142,16 +142,7 @@ export default function FaturasClientePage() {
 
     for (const arquivo of anexosExtras) {
       if (!arquivo?.url) continue
-
-      const tipo = String(arquivo.tipo || arquivo.nome || '').toUpperCase()
-
-      const ehComplementar =
-        tipo.includes('COMPLEMENTAR') ||
-        tipo.includes('IMPOSTOS') ||
-        tipo.includes('FATURA_EXTRA') ||
-        tipo.includes('FATURA')
-
-      if (!ehComplementar) continue
+      if (!arquivo?.url) continue
 
       anexosUnicos.set(arquivo.id || arquivo.url, arquivo)
     }
@@ -326,6 +317,74 @@ export default function FaturasClientePage() {
     return (fatura?.arquivos_complementares || []).filter((arquivo: any) => arquivo?.url)
   }
 
+  function nomeDocumentoFaturaCliente(documento: any) {
+    const texto = String(
+      String(documento?.tipo || '') + ' ' + String(documento?.nome || '') + ' ' + String(documento?.label || '')
+    )
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+
+    if (texto.includes('BOLETO')) return 'Boleto'
+    if (texto.includes('RECIBO')) return 'Recibo'
+    if (texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')) return 'Fatura complementar'
+    if (texto.includes('COMPROVANTE')) return 'Comprovante'
+    if (texto.includes('FATURA')) return 'Fatura'
+
+    return documento?.nome || documento?.label || 'Documento'
+  }
+
+  function documentosDaFaturaCliente(fatura: any) {
+    const documentos: any[] = []
+
+    if (fatura?.arquivo_pdf) {
+      documentos.push({
+        id: String(fatura.id || '') + '-fatura-principal',
+        label: 'Fatura',
+        url: fatura.arquivo_pdf,
+        tipo: 'FATURA',
+      })
+    }
+
+    for (const arquivo of arquivosComplementaresDaFatura(fatura)) {
+      if (!arquivo?.url) continue
+
+      documentos.push({
+        id: arquivo.id || arquivo.url,
+        label: nomeDocumentoFaturaCliente(arquivo),
+        url: arquivo.url,
+        tipo: arquivo.tipo || arquivo.nome || 'ANEXO',
+      })
+    }
+
+    if (fatura?.recibo_pdf) {
+      documentos.push({
+        id: String(fatura.id || '') + '-recibo',
+        label: 'Recibo',
+        url: fatura.recibo_pdf,
+        tipo: 'RECIBO',
+      })
+    }
+
+    if (fatura?.comprovante_pagamento) {
+      documentos.push({
+        id: String(fatura.id || '') + '-comprovante',
+        label: 'Comprovante',
+        url: fatura.comprovante_pagamento,
+        tipo: 'COMPROVANTE',
+      })
+    }
+
+    const mapa = new Map<string, any>()
+
+    for (const documento of documentos) {
+      if (!documento.url) continue
+      mapa.set(documento.url, documento)
+    }
+
+    return Array.from(mapa.values())
+  }
+
   const faturasFiltradas = useMemo(() => {
     return faturas.filter((fatura) => {
       const emb = dadosEmbarque(fatura)
@@ -493,27 +552,27 @@ export default function FaturasClientePage() {
                         </div>
 
                         
-                  {arquivosComplementaresDaFatura(fatura).length > 0 && (
-                    <div data-complementar-cliente="true" className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-4">
+                                    {documentosDaFaturaCliente(fatura).length > 0 && (
+                    <div data-documentos-fatura-cliente="true" className="rounded-2xl border border-blue-800 bg-[#071225] p-4">
                       <div className="mb-3">
-                        <h3 className="text-lg font-black text-yellow-200">
-                          Fatura complementar / impostos
+                        <h3 className="text-lg font-black text-white">
+                          Documentos disponíveis
                         </h3>
-                        <p className="mt-1 text-sm text-yellow-100">
-                          Documento complementar liberado pela HC para este AWB.
+                        <p className="mt-1 text-sm text-slate-400">
+                          Fatura, complementar, boleto, recibo e demais anexos liberados pela HC.
                         </p>
                       </div>
 
                       <div className="flex flex-wrap gap-3">
-                        {arquivosComplementaresDaFatura(fatura).map((arquivo: any, index: number) => (
+                        {documentosDaFaturaCliente(fatura).map((documento: any, index: number) => (
                           <a
-                            key={arquivo.id || arquivo.url || index}
-                            href={arquivo.url}
+                            key={documento.id || documento.url || index}
+                            href={documento.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded-2xl bg-yellow-600 px-5 py-3 text-sm font-black text-white hover:bg-yellow-500"
+                            className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-500"
                           >
-                            Baixar complementar
+                            Baixar {documento.label}
                           </a>
                         ))}
                       </div>
