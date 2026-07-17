@@ -687,7 +687,7 @@ export default function FaturasPage() {
     return (
       faturasDoEmbarque.find((f) => {
         const item: any = f
-        return item.fatura_complementar !== true && String(item.tipo_fatura || 'FRETE').toUpperCase() !== 'IMPOSTOS'
+        return item.fatura_complementar !== true && String((item as any).tipo_fatura || 'FRETE').toUpperCase() !== 'IMPOSTOS'
       }) ||
       faturasDoEmbarque[0] ||
       null
@@ -929,6 +929,117 @@ export default function FaturasPage() {
 
     alert('Anexo removido.')
     await carregar()
+  }
+
+  function documentosPacoteAdmin(embarque: any, faturaPrincipal?: any | null) {
+    const embarqueId = embarque?.id
+    if (!embarqueId) return []
+
+    const docs: any[] = []
+
+    const faturaPrincipalAny: any = faturaPrincipal
+
+    if (faturaPrincipalAny?.arquivo_pdf) {
+      docs.push({
+        id: String(faturaPrincipal.id || '') + '-fatura-principal',
+        origem: 'faturas',
+        tipo: 'FATURA_PRINCIPAL',
+        nome: faturaPrincipalAny.numero_fatura
+          ? 'Fatura principal ' + faturaPrincipalAny.numero_fatura
+          : 'Fatura principal',
+        url: faturaPrincipalAny.arquivo_pdf,
+        valor_total: faturaPrincipalAny.valor_total,
+        criado_em: faturaPrincipalAny.criado_em,
+        bloqueado_financeiro: true,
+      })
+    }
+
+    const faturasDoEmbarque = faturas.filter((item: any) => item.embarque_id === embarqueId)
+
+    for (const item of faturasDoEmbarque) {
+      if (!item?.arquivo_pdf) continue
+      if (faturaPrincipal?.id && item.id === faturaPrincipal.id) continue
+
+      const itemFatura: any = item
+      const tipo = String(itemFatura.tipo_fatura || '').toUpperCase()
+      const complementar =
+        itemFatura.fatura_complementar === true ||
+        tipo.includes('IMPOSTOS') ||
+        tipo.includes('COMPLEMENTAR')
+
+      docs.push({
+        id: item.id,
+        origem: 'faturas',
+        tipo: complementar ? 'FATURA_COMPLEMENTAR_IMPOSTOS' : itemFatura.tipo_fatura || 'FATURA',
+        nome: complementar
+          ? 'Fatura complementar / impostos ' + (item.numero_fatura || '')
+          : 'Fatura adicional ' + (item.numero_fatura || ''),
+        url: item.arquivo_pdf,
+        valor_total: itemFatura.valor_total,
+        criado_em: item.criado_em,
+        fatura_complementar: itemFatura.fatura_complementar,
+        bloqueado_financeiro: true,
+      })
+    }
+
+    const idsFaturasDoEmbarque = new Set(
+      faturasDoEmbarque.map((item: any) => item.id).filter(Boolean)
+    )
+
+    if (faturaPrincipal?.id) idsFaturasDoEmbarque.add(faturaPrincipal.id)
+
+    for (const arquivo of arquivosFaturas || []) {
+      if (!arquivo?.url) continue
+
+      const pertenceAoEmbarque =
+        arquivo.embarque_id === embarqueId ||
+        idsFaturasDoEmbarque.has(arquivo.fatura_id)
+
+      if (!pertenceAoEmbarque) continue
+
+      docs.push({
+        ...arquivo,
+        origem: 'fatura_arquivos',
+        bloqueado_financeiro: false,
+      })
+    }
+
+    if (faturaPrincipal?.recibo_pdf) {
+      docs.push({
+        id: String(faturaPrincipal.id || '') + '-recibo',
+        origem: 'faturas',
+        tipo: 'RECIBO',
+        nome: faturaPrincipalAny.recibo_nome || 'Recibo',
+        url: faturaPrincipalAny.recibo_pdf,
+        criado_em: faturaPrincipalAny.data_pagamento || faturaPrincipalAny.criado_em,
+        bloqueado_financeiro: true,
+      })
+    }
+
+    if (faturaPrincipal?.comprovante_pagamento) {
+      docs.push({
+        id: String(faturaPrincipal.id || '') + '-comprovante',
+        origem: 'faturas',
+        tipo: 'COMPROVANTE',
+        nome: 'Comprovante de pagamento',
+        url: faturaPrincipalAny.comprovante_pagamento,
+        criado_em: faturaPrincipalAny.data_comprovante || faturaPrincipalAny.criado_em,
+        bloqueado_financeiro: true,
+      })
+    }
+
+    const mapa = new Map<string, any>()
+
+    for (const doc of docs) {
+      if (!doc?.url) continue
+      mapa.set(doc.url, doc)
+    }
+
+    return Array.from(mapa.values()).sort((a: any, b: any) => {
+      const dataA = new Date(a.criado_em || 0).getTime()
+      const dataB = new Date(b.criado_em || 0).getTime()
+      return dataB - dataA
+    })
   }
 
   function arquivosDaFatura(faturaId?: string | null) {
@@ -4438,9 +4549,9 @@ export default function FaturasPage() {
                               />
                             </label>
 
-                            {arquivosDaFatura(fatura.id).length > 0 ? (
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
                               <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
-                                + {arquivosDaFatura(fatura.id).length} arquivo(s)
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
                               </span>
                             ) : null}
                           </div>
@@ -4788,9 +4899,9 @@ export default function FaturasPage() {
                             <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
                               <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                                 <div>
-                                  <h3 className="text-xl font-black text-purple-300">Arquivos adicionais para o cliente</h3>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
                                   <p className="text-sm text-slate-400">
-                                    Use para anexar boleto, PDF de faturamento pronto, fatura complementar ou outros documentos relacionados a esta cobrança.
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
                                   </p>
                                 </div>
 
@@ -4810,11 +4921,11 @@ export default function FaturasPage() {
                                 </div>
                               </div>
 
-                              {arquivosDaFatura(fatura.id).length === 0 ? (
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
                                 <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
                               ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                  {arquivosDaFatura(fatura.id).map((arquivo) => (
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
                                     <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
                                       <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
                                       <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
