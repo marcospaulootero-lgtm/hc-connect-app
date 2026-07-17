@@ -84,6 +84,8 @@ export default function FaturasClientePage() {
         observacao_pagamento,
         criado_em,
         visivel_cliente,
+        tipo_fatura,
+        fatura_complementar,
         embarques (
           id,
           awb,
@@ -173,7 +175,7 @@ export default function FaturasClientePage() {
       ),
     }))
 
-    setFaturas(faturasComArquivamento)
+    setFaturas(agruparFaturasClientePorEmbarque(faturasComArquivamento))
     setLoading(false)
   }
 
@@ -383,6 +385,101 @@ export default function FaturasClientePage() {
     }
 
     return Array.from(mapa.values())
+  }
+
+  function ehFaturaComplementarRegistro(fatura: any) {
+    const texto = String(
+      String(fatura?.tipo_fatura || '') + ' ' + String(fatura?.numero_fatura || '') + ' ' + String(fatura?.observacao_pagamento || '')
+    )
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+
+    return (
+      fatura?.fatura_complementar === true ||
+      texto.includes('COMPLEMENTAR') ||
+      texto.includes('IMPOSTOS')
+    )
+  }
+
+  function agruparFaturasClientePorEmbarque(lista: any[]) {
+    const grupos = new Map<string, any[]>()
+
+    for (const fatura of lista || []) {
+      const emb = dadosEmbarque(fatura)
+      const chave = String(fatura?.embarque_id || emb?.id || emb?.awb || fatura?.id || '')
+
+      if (!chave) continue
+
+      const atual = grupos.get(chave) || []
+      atual.push(fatura)
+      grupos.set(chave, atual)
+    }
+
+    const resultado: any[] = []
+
+    for (const [, grupo] of grupos) {
+      const principal =
+        grupo.find((fatura) => !ehFaturaComplementarRegistro(fatura)) ||
+        grupo[0]
+
+      const base = { ...principal }
+
+      const todosArquivosExtras: any[] = []
+
+      for (const fatura of grupo) {
+        for (const arquivo of fatura?.arquivos_complementares || []) {
+          if (arquivo?.url) todosArquivosExtras.push(arquivo)
+        }
+
+        if (fatura.id !== base.id && fatura.arquivo_pdf) {
+          todosArquivosExtras.push({
+            id: 'fatura-extra-' + fatura.id,
+            fatura_id: fatura.id,
+            embarque_id: fatura.embarque_id,
+            tipo: ehFaturaComplementarRegistro(fatura)
+              ? 'FATURA_COMPLEMENTAR_IMPOSTOS'
+              : 'FATURA_EXTRA',
+            nome: ehFaturaComplementarRegistro(fatura)
+              ? 'Fatura complementar / impostos'
+              : 'Fatura adicional',
+            url: fatura.arquivo_pdf,
+            criado_em: fatura.criado_em,
+          })
+        }
+      }
+
+      const faturaComRecibo = grupo.find((fatura) => fatura.recibo_pdf)
+      const faturaComComprovante = grupo.find((fatura) => fatura.comprovante_pagamento)
+      const faturaPago = grupo.find((fatura) =>
+        String(fatura.status_pagamento || '').toUpperCase().includes('PAGO') ||
+        String(fatura.status_pagamento || '').toUpperCase().includes('CONFIRMADO')
+      )
+
+      base.recibo_pdf = faturaComRecibo?.recibo_pdf || base.recibo_pdf
+      base.recibo_nome = faturaComRecibo?.recibo_nome || base.recibo_nome
+      base.data_pagamento = faturaComRecibo?.data_pagamento || base.data_pagamento
+      base.comprovante_pagamento = faturaComComprovante?.comprovante_pagamento || base.comprovante_pagamento
+      base.data_comprovante = faturaComComprovante?.data_comprovante || base.data_comprovante
+
+      if (faturaPago?.status_pagamento && !String(base.status_pagamento || '').toUpperCase().includes('AGUARDANDO')) {
+        base.status_pagamento = faturaPago.status_pagamento
+      }
+
+      const mapaArquivos = new Map<string, any>()
+
+      for (const arquivo of todosArquivosExtras) {
+        if (!arquivo?.url) continue
+        mapaArquivos.set(arquivo.url, arquivo)
+      }
+
+      base.arquivos_complementares = Array.from(mapaArquivos.values())
+      base.faturas_agrupadas = grupo
+
+      resultado.push(base)
+    }
+
+    return resultado
   }
 
   const faturasFiltradas = useMemo(() => {
