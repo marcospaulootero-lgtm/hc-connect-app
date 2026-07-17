@@ -875,6 +875,62 @@ export default function FaturasPage() {
   }
 
 
+  function labelDocumentoPacoteFatura(item: any) {
+    const texto = String(`${item?.tipo || ''} ${item?.nome || ''} ${item?.tipo_fatura || ''}`)
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+
+    if (texto.includes('BOLETO')) return 'Boleto'
+    if (texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')) return 'Fatura complementar / impostos'
+    if (texto.includes('RECIBO')) return 'Recibo'
+    if (texto.includes('FRETE')) return 'Fatura principal / frete'
+    if (texto.includes('FATURA')) return 'Fatura'
+    return item?.nome || item?.tipo || 'Documento'
+  }
+
+  function origemDocumentoPacoteFatura(item: any) {
+    if (item?.origem) return item.origem
+    if (item?.fatura_complementar !== undefined || item?.tipo_fatura) return 'faturas'
+    return 'fatura_arquivos'
+  }
+
+  function dataDocumentoPacoteFatura(item: any) {
+    return item?.criado_em ? dataBR(item.criado_em) : '-'
+  }
+
+  function valorDocumentoPacoteFatura(item: any) {
+    return numero(item?.valor_total) > 0 ? moeda(item.valor_total) : '-'
+  }
+
+  async function removerAnexoPacoteFatura(item: any) {
+    const origem = origemDocumentoPacoteFatura(item)
+
+    if (origem !== 'fatura_arquivos') {
+      alert('Este item é uma fatura lançada no financeiro. Para remover, primeiro precisa cancelar/ajustar o lançamento financeiro.')
+      return
+    }
+
+    const confirmar = confirm(
+      `Deseja remover este anexo?\n\n${labelDocumentoPacoteFatura(item)}\n${item?.nome || ''}`
+    )
+
+    if (!confirmar) return
+
+    const { error } = await supabase
+      .from('fatura_arquivos')
+      .delete()
+      .eq('id', item.id)
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    alert('Anexo removido.')
+    await carregar()
+  }
+
   function arquivosDaFatura(faturaId?: string | null) {
     if (!faturaId) return []
     return arquivosFaturas.filter((arquivo) => arquivo.fatura_id === faturaId)
@@ -899,6 +955,10 @@ export default function FaturasPage() {
         nome: f.numero_fatura ? `Complementar ${f.numero_fatura}` : 'Fatura complementar',
         url: f.arquivo_pdf,
         origem: 'faturas',
+        tipo: f.tipo_fatura || 'IMPOSTOS',
+        valor_total: f.valor_total,
+        criado_em: f.criado_em,
+        fatura_complementar: f.fatura_complementar,
       }))
 
     const idsFaturasDoEmbarque = new Set(
@@ -4397,15 +4457,47 @@ export default function FaturasPage() {
                                 {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
                                   <div className="mt-2 flex flex-col gap-1">
                                     {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
-                                      <a
+                                      <div
                                         key={doc.id || doc.url}
-                                        href={doc.url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="rounded-lg bg-yellow-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-yellow-500"
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
                                       >
-                                        Abrir complementar
-                                      </a>
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
                                     ))}
                                   </div>
                                 ) : null}
