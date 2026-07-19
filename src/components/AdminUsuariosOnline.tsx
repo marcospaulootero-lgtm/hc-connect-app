@@ -113,8 +113,9 @@ export default function AdminUsuariosOnline() {
     const { data, error } = await supabase
       .from('presenca_historico')
       .select('*')
+      .gte('criado_em', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
       .order('criado_em', { ascending: false })
-      .limit(80)
+      .limit(500)
 
     if (error) {
       console.error('Erro ao carregar histórico de presença:', error.message)
@@ -192,6 +193,26 @@ export default function AdminUsuariosOnline() {
     String(item.tipo_acesso || item.area || '').toLowerCase().includes('cliente')
   ).length
 
+  const historicoUltimas24h = useMemo(() => {
+    const limite = Date.now() - 24 * 60 * 60 * 1000
+    const mapa = new Map<string, HistoricoPresenca>()
+
+    for (const item of historico) {
+      if (!item.criado_em) continue
+
+      const data = new Date(item.criado_em).getTime()
+      if (Number.isNaN(data) || data < limite) continue
+
+      const chave = String(item.usuario_id || item.email || item.nome || item.id)
+
+      if (!mapa.has(chave)) {
+        mapa.set(chave, item)
+      }
+    }
+
+    return Array.from(mapa.values())
+  }, [historico, agora])
+
   return (
     <div
       className="relative z-50 mb-4 flex justify-end"
@@ -227,10 +248,10 @@ export default function AdminUsuariosOnline() {
                 Presença em tempo real
               </p>
               <h3 className="text-xl font-black">
-                {aba === 'ONLINE' ? 'Usuários online agora' : 'Histórico de acessos'}
+                {aba === 'ONLINE' ? 'Usuários online agora' : 'Entraram nas últimas 24h'}
               </h3>
               <p className="mt-1 text-xs text-slate-400">
-                Online agora e registros de entrada no portal.
+                Online agora e histórico resumido das últimas 24 horas.
               </p>
             </div>
 
@@ -274,7 +295,7 @@ export default function AdminUsuariosOnline() {
                   : 'border border-blue-900 bg-[#020817] text-slate-300'
               }`}
             >
-              Histórico
+              Últimas 24h
             </button>
           </div>
 
@@ -318,12 +339,12 @@ export default function AdminUsuariosOnline() {
             )
           ) : (
             <div className="max-h-[420px] space-y-3 overflow-auto pr-1">
-              {historico.length === 0 ? (
+              {historicoUltimas24h.length === 0 ? (
                 <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
                   Nenhum histórico registrado ainda.
                 </div>
               ) : (
-                historico.map((item) => (
+                historicoUltimas24h.map((item) => (
                   <div
                     key={item.id}
                     className="rounded-2xl border border-blue-900 bg-[#020817] p-4"
@@ -337,15 +358,15 @@ export default function AdminUsuariosOnline() {
                       </div>
 
                       <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black uppercase text-blue-200">
-                        {item.acao || 'ENTROU'}
+                        ENTROU NAS 24H
                       </span>
                     </div>
 
                     <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-4">
                       <InfoMini label="Tipo" value={labelTipo(item)} />
-                      <InfoMini label="Área" value={item.area || '-'} />
-                      <InfoMini label="Página" value={nomePagina(item.pagina)} destaque />
-                      <InfoMini label="Entrada" value={formatarDataHora(item.criado_em)} />
+                      <InfoMini label="Tipo" value={labelTipo(item)} />
+                      <InfoMini label="Entrada" value={formatarDataHora(item.criado_em)} destaque />
+                      <InfoMini label="Último registro" value={tempoRelativo(item.criado_em)} />
                     </div>
                   </div>
                 ))
