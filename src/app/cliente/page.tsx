@@ -449,6 +449,17 @@ export default function ClientePage() {
   const suporteResolvidos = chamadosSuporte.filter((c) => c.status === 'RESOLVIDO').length
   const suporteAtivos = chamadosSuporte.filter((c) => c.status !== 'RESOLVIDO').length
 
+  const faturasSemRecibo = faturas.filter((f) => !f.recibo_pdf).length
+  const documentosRecentesCliente = Object.values(documentosPorEmbarque)
+    .flatMap((lista: any) => Array.isArray(lista) ? lista : [])
+    .slice(0, 6)
+
+  const totalAcoesPendentesCliente =
+    faturasSemRecibo +
+    cotacoesDisponiveis +
+    suporteAtivos +
+    documentosTotal
+
   return (
     <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
       <div className="w-full max-w-none mx-auto">
@@ -471,7 +482,7 @@ export default function ClientePage() {
             </h1>
 
             <p className="text-slate-400 text-lg mb-5">
-              Acompanhe embarques, documentos, cotações, faturas e atualizações operacionais em tempo real.
+              Veja rapidamente o que precisa da sua atenção, acompanhe seus embarques e baixe documentos liberados pela HC.
             </p>
 
             <div className="flex gap-4 flex-wrap">
@@ -504,6 +515,45 @@ export default function ClientePage() {
               </a>
               <a href="/cliente/perfil" className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold">
                 👤 Meu perfil
+              </a>
+            </div>
+
+            <div data-cliente-acoes-rapidas="true" className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <a
+                href="/cliente/faturas"
+                className="rounded-2xl border border-green-800 bg-green-950/20 p-4 hover:bg-green-900/30"
+              >
+                <p className="text-xs font-black uppercase tracking-widest text-green-300">Faturas</p>
+                <p className="mt-2 text-2xl font-black text-white">{faturasDisponiveis}</p>
+                <p className="text-sm text-slate-400">{faturasSemRecibo} aguardando recibo/comprovante</p>
+              </a>
+
+              <a
+                href="/cliente/embarques"
+                className="rounded-2xl border border-blue-800 bg-blue-950/20 p-4 hover:bg-blue-900/30"
+              >
+                <p className="text-xs font-black uppercase tracking-widest text-blue-300">Embarques ativos</p>
+                <p className="mt-2 text-2xl font-black text-white">{embarques.length}</p>
+                <p className="text-sm text-slate-400">Clique para acompanhar detalhes</p>
+              </a>
+
+              <a
+                href="/cliente/minhas-cotacoes"
+                className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-4 hover:bg-yellow-900/30"
+              >
+                <p className="text-xs font-black uppercase tracking-widest text-yellow-300">Cotações</p>
+                <p className="mt-2 text-2xl font-black text-white">{cotacoesDisponiveis}</p>
+                <p className="text-sm text-slate-400">disponíveis para análise</p>
+              </a>
+
+              <a
+                href="/cliente/suporte"
+                className="rounded-2xl border border-purple-800 bg-purple-950/20 p-4 hover:bg-purple-900/30"
+              >
+                <p className="text-xs font-black uppercase tracking-widest text-purple-300">Suporte</p>
+                <p className="mt-2 text-2xl font-black text-white">{suporteAtivos}</p>
+                <p className="mt-2 text-2xl font-black text-white">{suporteAtivos}</p>
+                <p className="text-sm text-slate-400">chamado(s) em andamento</p>
               </a>
             </div>
           </div>
@@ -619,21 +669,21 @@ export default function ClientePage() {
 
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
           <div className="card">
-            <h2 className="text-2xl font-black mb-5">🚨 Alertas importantes</h2>
+            <h2 className="text-2xl font-black mb-5">🚨 O que precisa da sua atenção</h2>
 
             <div className="space-y-4">
               <Alerta titulo="Aguardando coleta" valor={aguardandoColeta} icone="📄" cor="blue" />
               <Alerta titulo="Embarques em fiscalização" valor={fiscalizacao} icone="🛃" cor="yellow" />
               <Alerta titulo="Cotações disponíveis" valor={cotacoesDisponiveis} icone="📄" cor="green" />
-              <Alerta titulo="Faturas disponíveis" valor={faturasDisponiveis} icone="🧾" cor="blue" />
+              <Alerta titulo="Faturas e documentos disponíveis" valor={faturasDisponiveis} icone="🧾" cor="blue" />
               <Alerta titulo="Recebimentos liberados" valor={repassesDisponiveis} icone="💰" cor="yellow" />
               <Alerta titulo="Suporte ativo" valor={suporteAtivos} icone="🎧" cor="purple" />
-              <Alerta titulo="Documentos disponíveis" valor={documentosTotal} icone="📎" cor="purple" />
+              <Alerta titulo="Documentos liberados" valor={documentosTotal} icone="📎" cor="purple" />
             </div>
           </div>
 
           <div className="card">
-            <h2 className="text-2xl font-black mb-5">📊 Resumo operacional</h2>
+            <h2 className="text-2xl font-black mb-5">📊 Sua operação</h2>
 
             <div className="grid grid-cols-2 gap-4">
               <Resumo titulo="Cotações" valor={cotacoes.length} />
@@ -649,7 +699,41 @@ export default function ClientePage() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+                <section data-cliente-documentos-recentes="true" className="border border-blue-900 bg-[#071225] rounded-3xl p-6 mb-8">
+          <div className="flex items-center justify-between gap-4 mb-5">
+            <div>
+              <h2 className="text-2xl font-black">Documentos recentes</h2>
+              <p className="text-sm text-slate-400">
+                Últimos documentos de embarque liberados pela HC.
+              </p>
+            </div>
+
+            <a href="/cliente/embarques" className="text-blue-400 font-bold text-sm">
+              Ver embarques
+            </a>
+          </div>
+
+          {documentosRecentesCliente.length === 0 ? (
+            <p className="text-slate-400 text-sm">Nenhum documento recente disponível.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {documentosRecentesCliente.map((doc: any) => (
+                <a
+                  key={doc.id || doc.url}
+                  href={doc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-2xl border border-blue-900 bg-[#020817] p-4 hover:bg-blue-950/30"
+                >
+                  <p className="font-black text-white truncate">{doc.nome || 'Documento'}</p>
+                  <p className="mt-1 text-xs text-slate-500">{dataBR(doc.criado_em)}</p>
+                </a>
+              ))}
+            </div>
+          )}
+        </section>
+
+<section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
           <div className="card">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-black">Últimos embarques</h2>
