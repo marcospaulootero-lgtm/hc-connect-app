@@ -460,6 +460,83 @@ export default function ClientePage() {
     suporteAtivos +
     documentosTotal
 
+  const mapaEmbarquesPorId = new Map(embarques.map((item) => [item.id, item]))
+
+  const embarqueFiscalizacaoAcao = embarques.find((item) =>
+    normalizarTexto(item.status_operacional).includes('fiscalizacao')
+  )
+
+  const embarqueLiberadoAcao = embarques.find((item) =>
+    normalizarTexto(item.status_operacional).includes('liberado')
+  )
+
+  const documentoRecenteAcao: any = documentosRecentesCliente[0]
+
+  const proximasAcoesCliente = [
+    {
+      id: 'fatura-pendente',
+      icone: '🧾',
+      titulo: 'Fatura aguardando comprovante',
+      detalhe: faturasSemRecibo > 0
+        ? `${faturasSemRecibo} fatura(s) aguardando recibo ou comprovante.`
+        : '',
+      href: '/cliente/faturas',
+      mostrar: faturasSemRecibo > 0,
+    },
+    {
+      id: 'cotacao-disponivel',
+      icone: '📄',
+      titulo: 'Cotação disponível para análise',
+      detalhe: cotacoesDisponiveis > 0
+        ? `${cotacoesDisponiveis} cotação(ões) aguardando sua análise.`
+        : '',
+      href: '/cliente/minhas-cotacoes',
+      mostrar: cotacoesDisponiveis > 0,
+    },
+    {
+      id: 'documento-recente',
+      icone: '📎',
+      titulo: 'Documento liberado pela HC',
+      detalhe: documentoRecenteAcao?.nome || 'Existe documento recente disponível.',
+      href: '/cliente/embarques',
+      mostrar: documentosRecentesCliente.length > 0,
+    },
+    {
+      id: 'embarque-fiscalizacao',
+      icone: '🛃',
+      titulo: 'Embarque em fiscalização',
+      detalhe: embarqueFiscalizacaoAcao?.awb
+        ? `AWB ${embarqueFiscalizacaoAcao.awb} aguardando liberação.`
+        : '',
+      href: embarqueFiscalizacaoAcao?.id
+        ? `/cliente/embarques/${embarqueFiscalizacaoAcao.id}`
+        : '/cliente/embarques',
+      mostrar: Boolean(embarqueFiscalizacaoAcao),
+    },
+    {
+      id: 'embarque-liberado',
+      icone: '✅',
+      titulo: 'Embarque liberado',
+      detalhe: embarqueLiberadoAcao?.awb
+        ? `AWB ${embarqueLiberadoAcao.awb} pronto para seguir.`
+        : '',
+      href: embarqueLiberadoAcao?.id
+        ? `/cliente/embarques/${embarqueLiberadoAcao.id}`
+        : '/cliente/embarques',
+      mostrar: Boolean(embarqueLiberadoAcao),
+    },
+    {
+      id: 'suporte-ativo',
+      icone: '🎧',
+      titulo: 'Suporte em andamento',
+      detalhe: suporteAtivos > 0
+        ? `${suporteAtivos} chamado(s) em andamento.`
+        : '',
+      href: '/cliente/suporte',
+      mostrar: suporteAtivos > 0,
+    },
+  ].filter((item) => item.mostrar).slice(0, 4)
+
   return (
     <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
       <div className="w-full max-w-none mx-auto">
@@ -552,7 +629,6 @@ export default function ClientePage() {
               >
                 <p className="text-xs font-black uppercase tracking-widest text-purple-300">Suporte</p>
                 <p className="mt-2 text-2xl font-black text-white">{suporteAtivos}</p>
-                <p className="mt-2 text-2xl font-black text-white">{suporteAtivos}</p>
                 <p className="text-sm text-slate-400">chamado(s) em andamento</p>
               </a>
             </div>
@@ -573,6 +649,48 @@ export default function ClientePage() {
             </div>
           )}
         </header>
+
+        {proximasAcoesCliente.length > 0 && (
+          <section data-cliente-proximas-acoes="true" className="mb-8 rounded-3xl border border-cyan-800 bg-cyan-950/10 p-6">
+            <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">
+                  Prioridades
+                </p>
+                <h2 className="text-2xl font-black text-white">
+                  Próximas ações
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Acompanhe primeiro o que precisa da sua atenção agora.
+                </p>
+              </div>
+
+              <span className="rounded-full border border-cyan-700 bg-cyan-950/30 px-4 py-2 text-sm font-black text-cyan-200">
+                {totalAcoesPendentesCliente} ponto(s) de atenção
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {proximasAcoesCliente.map((acao) => (
+                <a
+                  key={acao.id}
+                  href={acao.href}
+                  className="rounded-2xl border border-cyan-900 bg-[#020817] p-4 hover:border-cyan-400 hover:bg-cyan-950/20"
+                >
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <span className="text-2xl">{acao.icone}</span>
+                    <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-[11px] font-black uppercase text-cyan-300">
+                      Abrir
+                    </span>
+                  </div>
+
+                  <p className="font-black text-white">{acao.titulo}</p>
+                  <p className="mt-1 text-sm text-slate-400">{acao.detalhe}</p>
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-10 gap-5 mb-8">
           <Kpi
@@ -717,18 +835,33 @@ export default function ClientePage() {
             <p className="text-slate-400 text-sm">Nenhum documento recente disponível.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {documentosRecentesCliente.map((doc: any) => (
-                <a
-                  key={doc.id || doc.url}
-                  href={doc.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-2xl border border-blue-900 bg-[#020817] p-4 hover:bg-blue-950/30"
-                >
-                  <p className="font-black text-white truncate">{doc.nome || 'Documento'}</p>
-                  <p className="mt-1 text-xs text-slate-500">{dataBR(doc.criado_em)}</p>
-                </a>
-              ))}
+              {documentosRecentesCliente.map((doc: any) => {
+                const embDoc: any = mapaEmbarquesPorId.get(doc.embarque_id) || {}
+
+                return (
+                  <a
+                    key={doc.id || doc.url}
+                    href={doc.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-2xl border border-blue-900 bg-[#020817] p-4 hover:bg-blue-950/30"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <p className="text-xs font-black uppercase tracking-widest text-blue-300">
+                        AWB {embDoc.awb || '-'}
+                      </p>
+                      <span className="rounded-full bg-blue-600 px-3 py-1 text-[11px] font-black text-white">
+                        Abrir
+                      </span>
+                    </div>
+
+                    <p className="font-black text-white truncate">{doc.nome || 'Documento'}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {embDoc.transportadora || 'HC'} • {dataBR(doc.criado_em)}
+                    </p>
+                  </a>
+                )
+              })}
             </div>
           )}
         </section>
@@ -768,6 +901,20 @@ export default function ClientePage() {
                         <p className="text-slate-500 text-sm mt-2">
                           Atualizado: {dataBR(item.ultima_atualizacao)}
                         </p>
+
+                        <div data-progresso-ultimo-embarque="true" className="mt-4">
+                          <div className="mb-1 flex justify-between text-[11px] font-bold text-slate-500">
+                            <span>Progresso operacional</span>
+                            <span>{progresso(item.status_operacional)}%</span>
+                          </div>
+
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                            <div
+                              className="h-full rounded-full bg-blue-500"
+                              style={{ width: progresso(item.status_operacional) + '%' }}
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       <div className="flex flex-col items-start md:items-end gap-2">
