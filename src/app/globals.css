@@ -201,3 +201,63 @@ input[type="month"]::-webkit-calendar-picker-indicator {
   opacity: 0.95;
   cursor: pointer;
 }
+
+
+/* Admin mobile refinements */
+@media (max-width: 767px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  main {
+    max-width: 100vw;
+  }
+
+  .card {
+    border-radius: 18px !important;
+    padding: 16px !important;
+  }
+
+  .card h1 {
+    font-size: 1.75rem !important;
+    line-height: 2.1rem !important;
+  }
+
+  .card h2 {
+    font-size: 1.25rem !important;
+    line-height: 1.6rem !important;
+  }
+
+  .card h3 {
+    font-size: 1.05rem !important;
+    line-height: 1.45rem !important;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  th,
+  td {
+    white-space: nowrap;
+  }
+
+  .table,
+  .overflow-x-auto,
+  .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}

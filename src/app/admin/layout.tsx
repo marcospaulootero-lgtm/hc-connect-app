@@ -169,7 +169,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-[#020817] text-white">
       {/* Topo mobile/tablet */}
-      <header className="xl:hidden fixed top-0 left-0 right-0 z-40 h-20 bg-[#050d1f] border-b border-blue-950 px-4 flex items-center justify-between">
+      <header className="xl:hidden fixed top-0 left-0 right-0 z-40 h-16 bg-[#050d1f]/95 backdrop-blur border-b border-blue-950 px-3 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black leading-tight">HC Connect</h1>
           <p className="text-slate-500 text-xs">Painel Administrativo</p>
@@ -196,7 +196,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       {/* Menu mobile/tablet */}
       <aside
-        className={`xl:hidden fixed top-0 left-0 bottom-0 z-[60] w-[86%] max-w-[360px] bg-[#050d1f] border-r border-blue-950 p-5 flex flex-col transition-transform duration-300 ${
+        className={`xl:hidden fixed top-0 left-0 bottom-0 z-[60] w-[88%] max-w-[330px] bg-[#050d1f] border-r border-blue-950 p-4 flex flex-col transition-transform duration-300 shadow-2xl ${
           menuMobileAberto ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -232,7 +232,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <UserBox usuario={usuario} sair={sair} />
       </aside>
 
-      <main className="min-h-screen pt-24 xl:pt-8 px-4 sm:px-6 xl:px-8 xl:ml-72">
+      <main className="min-h-screen overflow-x-hidden pt-20 xl:pt-8 px-3 sm:px-5 xl:px-8 xl:ml-72">
         <OnlinePresence area="admin" />
         {children}
       <AdminFloatingNotes />
@@ -249,7 +249,7 @@ function MenuContent({
   notificacoes: { cotacoes: number }
 }) {
   return (
-    <nav className="space-y-6 overflow-y-auto pr-1 pb-6">
+    <nav className="space-y-5 overflow-y-auto pr-1 pb-8">
       <MenuGroup titulo="Visão geral">
         <MenuItem
           href="/admin"
