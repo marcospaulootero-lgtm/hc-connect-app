@@ -10,6 +10,8 @@ export default function ClientePage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [faturas, setFaturas] = useState<any[]>([])
+  const [arquivosFaturasCliente, setArquivosFaturasCliente] = useState<any[]>([])
+  const [timelineRecente, setTimelineRecente] = useState<any[]>([])
   const [repassesParceiro, setRepassesParceiro] = useState<any[]>([])
   const [chamadosSuporte, setChamadosSuporte] = useState<any[]>([])
   const [documentosPorEmbarque, setDocumentosPorEmbarque] = useState<any>({})
@@ -174,8 +176,23 @@ export default function ClientePage() {
       })
 
       setDocumentosPorEmbarque(agrupado)
+
+      const { data: timelineData, error: timelineError } = await supabase
+        .from('timeline_embarques')
+        .select('*')
+        .in('embarque_id', ids)
+        .order('criado_em', { ascending: false })
+        .limit(8)
+
+      if (timelineError) {
+        console.log('Erro ao carregar timeline do cliente:', timelineError)
+        setTimelineRecente([])
+      } else {
+        setTimelineRecente(timelineData || [])
+      }
     } else {
       setDocumentosPorEmbarque({})
+      setTimelineRecente([])
     }
   }
 
@@ -206,6 +223,7 @@ export default function ClientePage() {
 
     if (ids.length === 0) {
       setFaturas([])
+      setArquivosFaturasCliente([])
       return
     }
 
@@ -217,6 +235,46 @@ export default function ClientePage() {
       .order('criado_em', { ascending: false })
 
     setFaturas(data || [])
+
+    const idsFaturas = (data || []).map((fatura: any) => fatura.id).filter(Boolean)
+    const arquivosEncontrados: any[] = []
+
+    if (ids.length > 0) {
+      const { data: arquivosPorEmbarque } = await supabase
+        .from('fatura_arquivos')
+        .select('*')
+        .in('embarque_id', ids)
+        .order('criado_em', { ascending: false })
+        .limit(20)
+
+      arquivosEncontrados.push(...(arquivosPorEmbarque || []))
+    }
+
+    if (idsFaturas.length > 0) {
+      const { data: arquivosPorFatura } = await supabase
+        .from('fatura_arquivos')
+        .select('*')
+        .in('fatura_id', idsFaturas)
+        .order('criado_em', { ascending: false })
+        .limit(20)
+
+      arquivosEncontrados.push(...(arquivosPorFatura || []))
+    }
+
+    const mapaArquivos = new Map<string, any>()
+
+    for (const arquivo of arquivosEncontrados) {
+      if (!arquivo?.url) continue
+      mapaArquivos.set(arquivo.url, arquivo)
+    }
+
+    const arquivosUnicos = Array.from(mapaArquivos.values()).sort((a: any, b: any) => {
+      const dataA = new Date(a.criado_em || 0).getTime()
+      const dataB = new Date(b.criado_em || 0).getTime()
+      return dataB - dataA
+    })
+
+    setArquivosFaturasCliente(arquivosUnicos)
   }
 
   async function carregarRepassesParceiro() {
@@ -460,7 +518,56 @@ export default function ClientePage() {
     suporteAtivos +
     documentosTotal
 
-  const mapaEmbarquesPorId = new Map(embarques.map((item) => [item.id, item]))
+  function tipoDocumentoFaturamentoCliente(item: any) {
+    const texto = String(`${item?.tipo || ''} ${item?.nome || ''}`)
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+
+    if (texto.includes('BOLETO')) return 'Boleto'
+    if (texto.includes('RECIBO')) return 'Recibo'
+    if (texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')) return 'Fatura complementar'
+    if (texto.includes('COMPROVANTE')) return 'Comprovante'
+    if (texto.includes('FATURA')) return 'Fatura'
+
+    return 'Documento'
+  }
+
+  const faturamentoRecenteCliente = [
+    ...faturas
+      .filter((fatura) => fatura.arquivo_pdf)
+      .map((fatura) => ({
+        id: String(fatura.id || '') + '-fatura',
+        tipo: 'Fatura',
+        nome: 'Fatura disponível',
+        url: fatura.arquivo_pdf,
+        embarque_id: fatura.embarque_id,
+        criado_em: fatura.criado_em,
+      })),
+    ...faturas
+      .filter((fatura) => fatura.recibo_pdf)
+      .map((fatura) => ({
+        id: String(fatura.id || '') + '-recibo',
+        tipo: 'Recibo',
+        nome: 'Recibo disponível',
+        url: fatura.recibo_pdf,
+        embarque_id: fatura.embarque_id,
+        criado_em: fatura.criado_em,
+      })),
+    ...arquivosFaturasCliente.map((arquivo) => ({
+      id: arquivo.id || arquivo.url,
+      tipo: tipoDocumentoFaturamentoCliente(arquivo),
+      nome: arquivo.nome || tipoDocumentoFaturamentoCliente(arquivo),
+      url: arquivo.url,
+      embarque_id: arquivo.embarque_id,
+      criado_em: arquivo.criado_em,
+    })),
+  ]
+    .filter((item) => item.url)
+    .sort((a, b) => new Date(b.criado_em || 0).getTime() - new Date(a.criado_em || 0).getTime())
+    .slice(0, 6)
+
+    const mapaEmbarquesPorId = new Map(embarques.map((item) => [item.id, item]))
 
   const embarqueFiscalizacaoAcao = embarques.find((item) =>
     normalizarTexto(item.status_operacional).includes('fiscalizacao')
@@ -864,6 +971,114 @@ export default function ClientePage() {
               })}
             </div>
           )}
+        </section>
+
+        <section data-cliente-fase3="true" className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+          <div className="card">
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black">Faturamento recente</h2>
+                <p className="text-sm text-slate-400">
+                  Faturas, boletos, complementares e recibos liberados pela HC.
+                </p>
+              </div>
+
+              <a href="/cliente/faturas" className="text-blue-400 font-bold">
+                Ver faturas
+              </a>
+            </div>
+
+            {faturamentoRecenteCliente.length === 0 ? (
+              <p className="text-slate-400">Nenhum documento de faturamento recente.</p>
+            ) : (
+              <div className="space-y-3">
+                {faturamentoRecenteCliente.map((item: any) => {
+                  const emb: any = mapaEmbarquesPorId.get(item.embarque_id) || {}
+
+                  return (
+                    <a
+                      key={item.id || item.url}
+                      href={item.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block rounded-2xl border border-blue-900 bg-[#020817] p-4 hover:bg-blue-950/30"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-widest text-cyan-300">
+                            {item.tipo}
+                          </p>
+
+                          <p className="mt-1 font-black text-white">
+                            AWB {emb.awb || '-'}
+                          </p>
+
+                          <p className="mt-1 text-sm text-slate-400 truncate">
+                            {item.nome || 'Documento liberado'}
+                          </p>
+                        </div>
+
+                        <span className="rounded-xl bg-blue-600 px-4 py-2 text-center text-xs font-black text-white">
+                          Abrir
+                        </span>
+                      </div>
+                    </a>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black">Timeline recente</h2>
+                <p className="text-sm text-slate-400">
+                  Últimas movimentações dos seus embarques.
+                </p>
+              </div>
+
+              <a href="/cliente/embarques" className="text-blue-400 font-bold">
+                Ver embarques
+              </a>
+            </div>
+
+            {timelineRecente.length === 0 ? (
+              <p className="text-slate-400">Nenhuma atualização recente encontrada.</p>
+            ) : (
+              <div className="space-y-3">
+                {timelineRecente.map((item: any) => {
+                  const emb: any = mapaEmbarquesPorId.get(item.embarque_id) || {}
+
+                  return (
+                    <a
+                      key={item.id}
+                      href={item.embarque_id ? `/cliente/embarques/${item.embarque_id}` : '/cliente/embarques'}
+                      className="block rounded-2xl border border-blue-900 bg-[#020817] p-4 hover:bg-blue-950/30"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="mt-1 h-3 w-3 rounded-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.8)]" />
+
+                        <div>
+                          <p className="font-black text-white">
+                            AWB {emb.awb || '-'} · {item.status || 'Atualização'}
+                          </p>
+
+                          <p className="mt-1 text-sm text-slate-400">
+                            {item.descricao || 'Movimentação registrada pela HC.'}
+                          </p>
+
+                          <p className="mt-2 text-xs text-slate-500">
+                            {dataBR(item.criado_em)}
+                          </p>
+                        </div>
+                      </div>
+                    </a>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </section>
 
 <section className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
