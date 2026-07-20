@@ -882,6 +882,125 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     return unicosPorAwb(candidatos)
   }
 
+  function totalBrlFlexivelDhl(bloco: string) {
+    const textoBloco = String(bloco || '')
+
+    const direto = textoBloco.match(
+      /Total\s*\(\s*BRL\s*\)\s*:?\s*(?:[^0-9\n]{0,80})?([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/i
+    )?.[1]
+
+    const valorDireto = numeroBR(direto)
+    if (valorDireto > 0) return valorDireto
+
+    const posTotal = textoBloco.search(/Total\s*\(\s*BRL\s*\)/i)
+    if (posTotal < 0) return 0
+
+    const janela = textoBloco.slice(posTotal, posTotal + 180)
+    const valores = Array.from(
+      janela.matchAll(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/g)
+    ).map((match) => numeroBR(match[1])).filter((valor) => valor > 0)
+
+    return valores[0] || 0
+  }
+
+  function totaisBrlFlexiveisDhl(base: string) {
+    const textoBase = String(base || '')
+    const totais: number[] = []
+    const regex = /Total\s*\(\s*BRL\s*\)/gi
+    let match: RegExpExecArray | null
+
+    while ((match = regex.exec(textoBase)) !== null) {
+      const janela = textoBase.slice(match.index, match.index + 180)
+      const valores = Array.from(
+        janela.matchAll(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/g)
+      ).map((item) => numeroBR(item[1])).filter((valor) => valor > 0)
+
+      const valor = valores[0] || 0
+      if (!valor) continue
+
+      // Evita pegar o total geral da fatura quando há vários AWBs.
+      if (valorTotal > 0 && valor >= valorTotal) continue
+
+      totais.push(Number(valor.toFixed(2)))
+    }
+
+    return totais
+  }
+
+  function awbsLinhaSimplesDhl(base: string) {
+    const textoBase = String(base || '')
+    const linhas = textoBase.split('\n')
+    const candidatos: MarcadorAwbDhl[] = []
+    let posicao = 0
+
+    for (const linhaOriginal of linhas) {
+      const linha = String(linhaOriginal || '')
+      const inicioLinha = posicao
+      posicao += linha.length + 1
+
+      const match = linha.match(/^\s*(\d{10})\b/)
+      if (!match) continue
+
+      const awb = normalizarAwb(match[1])
+      if (!awb || awb.length !== 10) continue
+
+      const index = inicioLinha + linha.indexOf(match[1])
+      const trecho = textoBase.slice(index, index + 3000)
+
+      if (!/Total\s*\(\s*BRL\s*\)/i.test(trecho)) continue
+
+      const temContextoDhl =
+        /(EXPRESS|WORLDWIDE|NONDOC|DOC|FUEL\s+SURCHARGE|SEGURO|EXPORT\s+DECLARATION|OVERSIZE|NON-CONVEYABLE|TAXA\s+DE\s+C[ÂA]MBIO)/i
+          .test(trecho)
+
+      if (!temContextoDhl) continue
+
+      if (!candidatos.some((item) => item.awb === awb)) {
+        candidatos.push({ awb, index })
+      }
+    }
+
+    return candidatos.sort((a, b) => a.index - b.index)
+  }
+
+  function extrairItensDhlLayoutTabelaDhl(base: string) {
+    const textoBase = String(base || '')
+    const awbs = awbsLinhaSimplesDhl(textoBase)
+    const totais = totaisBrlFlexiveisDhl(textoBase)
+    const itensExtraidos: ItemPdf[] = []
+
+    if (!awbs.length) return []
+
+    for (let i = 0; i < awbs.length; i++) {
+      const atual = awbs[i]
+      const proximo = awbs[i + 1]
+      const fim = proximo?.index || textoBase.length
+      const bloco = textoBase.slice(atual.index, fim)
+
+      let valorCompra =
+        totalBrlFlexivelDhl(bloco) ||
+        (totais.length >= awbs.length ? totais[i] : 0)
+
+      if (!valorCompra && awbs.length === 1 && valorTotal > 0) {
+        valorCompra = valorTotal
+      }
+
+      if (!valorCompra || valorCompra <= 0) continue
+      if (valorTotal > 0 && awbs.length > 1 && valorCompra >= valorTotal) continue
+
+      const { referencia, dataEnvio } = referenciaEDataDoBloco(atual.awb, bloco)
+
+      itensExtraidos.push({
+        awb: atual.awb,
+        referencia,
+        data_envio: dataEnvio,
+        valor_compra: Number(valorCompra.toFixed(2)),
+      })
+    }
+
+    return unicosPorAwb(itensExtraidos)
+  }
+
   const detalhadoOriginal = areaDetalhadaDhl()
   const detalhadoLimpo = limparTexto(detalhadoOriginal)
 
@@ -917,6 +1036,18 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   if (itens.length === 0) {
     itens = extrairItensDhlPorAwbETotalDireto(texto)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlLayoutTabelaDhl(detalhadoOriginal)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlLayoutTabelaDhl(detalhadoLimpo)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlLayoutTabelaDhl(texto)
   }
 
   if (itens.length === 0) {
