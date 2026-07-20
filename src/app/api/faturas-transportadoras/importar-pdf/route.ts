@@ -1001,6 +1001,92 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     return unicosPorAwb(itensExtraidos)
   }
 
+  function extrairPrimeiroTotalBrlDhl(bloco: string) {
+    const textoBloco = String(bloco || '')
+
+    const posTotal = textoBloco.search(/Total\s*\(\s*BRL\s*\)/i)
+    if (posTotal < 0) return 0
+
+    const janela = textoBloco.slice(posTotal, posTotal + 260)
+
+    const valores = Array.from(
+      janela.matchAll(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/g)
+    )
+      .map((match) => numeroBR(match[1]))
+      .filter((valor) => valor > 0)
+
+    return valores[0] || 0
+  }
+
+  function extrairItensDhlBuscaAmpla(base: string) {
+    const textoBase = String(base || '')
+    const candidatos: MarcadorAwbDhl[] = []
+    const regexAwb = /\b(\d{10})\b/g
+
+    let match: RegExpExecArray | null
+
+    while ((match = regexAwb.exec(textoBase)) !== null) {
+      const awb = normalizarAwb(match[1])
+      const index = Number(match.index || 0)
+
+      if (!awb || awb.length !== 10) continue
+
+      const antesCurto = textoBase.slice(Math.max(0, index - 80), index).toUpperCase()
+      const depois = textoBase.slice(index, index + 4500)
+      const contexto = textoBase.slice(Math.max(0, index - 250), index + 4500)
+
+      // Evita números do cabeçalho.
+      if (/FATURA\s*:?\s*$/i.test(antesCurto)) continue
+      if (/CONTA\s*:?\s*$/i.test(antesCurto)) continue
+      if (/CNPJ\s*:?\s*$/i.test(antesCurto)) continue
+      if (/TELEFONE\s*:?\s*$/i.test(antesCurto)) continue
+
+      const temTotalBrl = /Total\s*\(\s*BRL\s*\)/i.test(depois)
+      if (!temTotalBrl) continue
+
+      const temContextoDhl =
+        /(EXPRESS|WORLDWIDE|NONDOC|DOC|FUEL\s+SURCHARGE|SEGURO|EXPORT\s+DECLARATION|OVERSIZE|NON-CONVEYABLE|TAXA\s+DE\s+C[ÂA]MBIO|REMETENTE|DESTINAT[ÁA]RIO|REFER[ÊE]NCIA)/i
+          .test(contexto)
+
+      if (!temContextoDhl) continue
+
+      if (!candidatos.some((item) => item.awb === awb)) {
+        candidatos.push({ awb, index })
+      }
+    }
+
+    candidatos.sort((a, b) => a.index - b.index)
+
+    const itensExtraidos: ItemPdf[] = []
+
+    for (let i = 0; i < candidatos.length; i++) {
+      const atual = candidatos[i]
+      const proximo = candidatos[i + 1]
+      const fim = proximo?.index || Math.min(textoBase.length, atual.index + 9000)
+      const bloco = textoBase.slice(atual.index, fim)
+
+      let valorCompra =
+        extrairPrimeiroTotalBrlDhl(bloco) ||
+        valorCompraDoBloco(bloco)
+
+      if (!valorCompra || valorCompra <= 0) continue
+
+      // Em PDF com vários AWBs, não lança o total geral da fatura como se fosse de um AWB.
+      if (valorTotal > 0 && candidatos.length > 1 && valorCompra >= valorTotal) continue
+
+      const { referencia, dataEnvio } = referenciaEDataDoBloco(atual.awb, bloco)
+
+      itensExtraidos.push({
+        awb: atual.awb,
+        referencia,
+        data_envio: dataEnvio,
+        valor_compra: Number(valorCompra.toFixed(2)),
+      })
+    }
+
+    return unicosPorAwb(itensExtraidos)
+  }
+
   const detalhadoOriginal = areaDetalhadaDhl()
   const detalhadoLimpo = limparTexto(detalhadoOriginal)
 
@@ -1048,6 +1134,18 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   if (itens.length === 0) {
     itens = extrairItensDhlLayoutTabelaDhl(texto)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlBuscaAmpla(detalhadoOriginal)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlBuscaAmpla(detalhadoLimpo)
+  }
+
+  if (itens.length === 0) {
+    itens = extrairItensDhlBuscaAmpla(texto)
   }
 
   if (itens.length === 0) {
