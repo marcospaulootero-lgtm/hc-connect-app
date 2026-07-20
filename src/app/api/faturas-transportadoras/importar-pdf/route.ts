@@ -526,6 +526,22 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     texto.match(/\b(BHZIR[0-9A-Z]+)\b/i)?.[1]?.trim().toUpperCase() ||
     ''
 
+  const DEBUG_DHL_NUMEROS_10_DIGITOS = Array.from(
+    String(bruto || '').matchAll(/\b\d{10}\b/g)
+  ).map((match) => ({
+    numero: match[0],
+    index: match.index || 0,
+    trecho: String(bruto || '').slice(Math.max(0, (match.index || 0) - 120), (match.index || 0) + 500),
+  }))
+
+  console.log('DEBUG_DHL_IMPORTADOR', {
+    numeroFatura,
+    tamanhoBruto: String(bruto || '').length,
+    tamanhoLimpo: String(texto || '').length,
+    numeros10: DEBUG_DHL_NUMEROS_10_DIGITOS.slice(0, 30),
+    inicioTexto: String(bruto || '').slice(0, 2500),
+  })
+
   const conta =
     texto.match(/Conta:\s*([0-9]+)/i)?.[1]?.trim() ||
     texto.match(/Número\s+da\s+Conta:\s*([0-9*]+)/i)?.[1]?.trim() ||
