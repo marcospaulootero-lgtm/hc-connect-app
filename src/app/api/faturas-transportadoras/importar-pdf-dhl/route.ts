@@ -143,7 +143,7 @@ function extrairDhl(textoOriginal: string) {
     acha AWB de 10 dígitos no texto extraído e, dentro do bloco até o próximo AWB,
     pega somente o valor após "Total (BRL):".
   */
-  const regexAwb = /(^|[^A-Za-z0-9])(\\d{10})(?!\\d)/g
+  const regexAwb = /(^|[^A-Za-z0-9])(\d{10})(?!\d)/g
   let matchAwb: RegExpExecArray | null
 
   while ((matchAwb = regexAwb.exec(bruto)) !== null) {
@@ -183,11 +183,11 @@ function extrairDhl(textoOriginal: string) {
     const bloco = bruto.slice(atual.index, proximo?.index || bruto.length)
 
     const totalBrlDepois = bloco.match(
-      /Total\\s*\\(\\s*BRL\\s*\\)\\s*:?\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,\\d{2}|[0-9]+,\\d{2})(?!\\d)/i
+      /Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})(?!\d)/i
     )
 
     const totalBrlAntes = bloco.match(
-      /([0-9]{1,3}(?:\\.[0-9]{3})*,\\d{2}|[0-9]+,\\d{2})(?!\\d)\\s*Total\\s*\\(\\s*BRL\\s*\\)\\s*:?/i
+      /([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})(?!\d)\s*Total\s*\(\s*BRL\s*\)\s*:?/i
     )
 
     const valorCompra = numeroBR(totalBrlDepois?.[1] || totalBrlAntes?.[1])
