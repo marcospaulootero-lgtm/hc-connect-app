@@ -182,11 +182,15 @@ function extrairDhl(textoOriginal: string) {
     const proximo = marcadores[i + 1]
     const bloco = bruto.slice(atual.index, proximo?.index || bruto.length)
 
-    const totalBrl = bloco.match(
-      /Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})(?!\d)/i
+    const totalBrlDepois = bloco.match(
+      /Total\\s*\\(\\s*BRL\\s*\\)\\s*:?\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,\\d{2}|[0-9]+,\\d{2})(?!\\d)/i
     )
 
-    const valorCompra = numeroBR(totalBrl?.[1])
+    const totalBrlAntes = bloco.match(
+      /([0-9]{1,3}(?:\\.[0-9]{3})*,\\d{2}|[0-9]+,\\d{2})(?!\\d)\\s*Total\\s*\\(\\s*BRL\\s*\\)\\s*:?/i
+    )
+
+    const valorCompra = numeroBR(totalBrlDepois?.[1] || totalBrlAntes?.[1])
 
     if (!valorCompra || valorCompra <= 0) continue
     if (valorTotal > 0 && marcadores.length > 1 && valorCompra >= valorTotal) continue
