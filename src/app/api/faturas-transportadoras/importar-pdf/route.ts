@@ -1170,6 +1170,86 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     return unicosPorAwb(itensExtraidos)
   }
 
+  function extrairItensDhlPorAwbTotalBrlFinal(base: string) {
+    const textoBase = String(base || '')
+    const awbs: Array<{
+      awb: string
+      index: number
+      referencia: string | null
+      dataEnvio: string | null
+    }> = []
+
+    /*
+      Linha DHL esperada no texto extraído:
+      4610363273 SO45184062 06/07/2026 ...
+      7515762030 PO 212814 06/07/2026 ...
+
+      Importante:
+      - Não usa qualquer número de 10 dígitos solto.
+      - Exige data depois da referência.
+      - Evita falso AWB vindo de referência + data.
+    */
+    const regexAwbComData = /(^|[^A-Za-z0-9])(\d{10})\s+([A-Z0-9][^\n\r]{0,90}?)\s+(\d{1,2}\/\d{1,2}\/\d{4})/gi
+    let matchAwb: RegExpExecArray | null
+
+    while ((matchAwb = regexAwbComData.exec(textoBase)) !== null) {
+      const awb = normalizarAwb(matchAwb[2])
+      const index = Number(matchAwb.index || 0) + String(matchAwb[1] || '').length
+      const referencia = String(matchAwb[3] || '').replace(/\s+/g, ' ').trim() || null
+      const dataEnvio = dataBRParaISO(matchAwb[4]) || null
+
+      if (!awb || awb.length !== 10) continue
+
+      const contextoDepois = textoBase.slice(index, index + 2500)
+
+      if (!/Total\s*\(\s*BRL\s*\)/i.test(contextoDepois)) continue
+      if (!/(EXPRESS|WORLDWIDE|NONDOC|DOC|FUEL\s+SURCHARGE|SEGURO|BROKER\s+NOTIFICATION|EXPORT\s+DECLARATION)/i.test(contextoDepois)) continue
+
+      if (!awbs.some((item) => item.awb === awb)) {
+        awbs.push({ awb, index, referencia, dataEnvio })
+      }
+    }
+
+    awbs.sort((a, b) => a.index - b.index)
+
+    if (!awbs.length) return []
+
+    const itensExtraidos: ItemPdf[] = []
+
+    for (let i = 0; i < awbs.length; i++) {
+      const atual = awbs[i]
+      const proximo = awbs[i + 1]
+      const fim = proximo?.index || textoBase.length
+      const bloco = textoBase.slice(atual.index, fim)
+
+      /*
+        Valor correto:
+        Total (BRL): 3.707,94
+
+        Regex com (?!\d) para NÃO aceitar 5,17 dentro de 5,1766.
+      */
+      const matchTotal = bloco.match(
+        /Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})(?!\d)/i
+      )
+
+      const valorCompra = numeroBR(matchTotal?.[1])
+
+      if (!valorCompra || valorCompra <= 0) continue
+
+      // Evita total geral da fatura virar valor de um AWB.
+      if (valorTotal > 0 && awbs.length > 1 && valorCompra >= valorTotal) continue
+
+      itensExtraidos.push({
+        awb: atual.awb,
+        referencia: atual.referencia,
+        data_envio: atual.dataEnvio,
+        valor_compra: Number(valorCompra.toFixed(2)),
+      })
+    }
+
+    return unicosPorAwb(itensExtraidos)
+  }
+
   const detalhadoOriginal = areaDetalhadaDhl()
   const detalhadoLimpo = limparTexto(detalhadoOriginal)
 
@@ -1271,6 +1351,49 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     )
   ) {
     itens = melhorItensPorColuna
+  }
+
+  const candidatosTotalBrlFinal = [
+    extrairItensDhlPorAwbTotalBrlFinal(bruto),
+    extrairItensDhlPorAwbTotalBrlFinal(detalhadoOriginal),
+    extrairItensDhlPorAwbTotalBrlFinal(detalhadoLimpo),
+    extrairItensDhlPorAwbTotalBrlFinal(texto),
+  ].filter((lista) => lista.length > 0)
+
+  const itensDhlTotalBrlFinal = candidatosTotalBrlFinal
+    .sort((a, b) => {
+      const somaA = a.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+      const somaB = b.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+
+      const distanciaA = valorTotal > 0 ? Math.abs(somaA - valorTotal) : 0
+      const distanciaB = valorTotal > 0 ? Math.abs(somaB - valorTotal) : 0
+
+      if (a.length !== b.length) return b.length - a.length
+      return distanciaA - distanciaB
+    })[0] || []
+
+  const somaAtualDhl = itens.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+  const somaFinalDhl = itensDhlTotalBrlFinal.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+
+  const leituraAtualPegouCambioDhl =
+    itens.length > 0 &&
+    itens.every((item) => Number(item.valor_compra || 0) > 0 && Number(item.valor_compra || 0) < 20)
+
+  const leituraFinalBateTotalDhl =
+    valorTotal > 0 &&
+    Math.abs(Number(somaFinalDhl.toFixed(2)) - Number(valorTotal.toFixed(2))) <= 0.5
+
+  if (
+    itensDhlTotalBrlFinal.length > 0 &&
+    (
+      itens.length === 0 ||
+      itensDhlTotalBrlFinal.length > itens.length ||
+      leituraAtualPegouCambioDhl ||
+      leituraFinalBateTotalDhl ||
+      somaFinalDhl > somaAtualDhl
+    )
+  ) {
+    itens = itensDhlTotalBrlFinal
   }
 
   return {
