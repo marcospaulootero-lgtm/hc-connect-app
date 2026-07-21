@@ -143,7 +143,7 @@ function extrairDhl(textoOriginal: string) {
     acha AWB de 10 dígitos no texto extraído e, dentro do bloco até o próximo AWB,
     pega somente o valor após "Total (BRL):".
   */
-  const regexAwb = /(^|[^A-Za-z0-9])(\d{10})(?=\s)/g
+  const regexAwb = /(^|[^A-Za-z0-9])(\\d{10})(?!\\d)/g
   let matchAwb: RegExpExecArray | null
 
   while ((matchAwb = regexAwb.exec(bruto)) !== null) {
@@ -152,7 +152,7 @@ function extrairDhl(textoOriginal: string) {
 
     if (!awb || awb.length !== 10) continue
 
-    const trechoInicio = bruto.slice(index, index + 300)
+    const trechoInicio = bruto.slice(index, index + 500)
     const matchData = trechoInicio.match(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/)
     const data_envio = dataBRParaISO(matchData?.[1]) || null
 
@@ -164,7 +164,7 @@ function extrairDhl(textoOriginal: string) {
           .trim() || null
       : null
 
-    const depois = bruto.slice(index, index + 5000)
+    const depois = bruto.slice(index, index + 9000)
 
     if (!/Total\s*\(\s*BRL\s*\)\s*:?/i.test(depois)) continue
 
