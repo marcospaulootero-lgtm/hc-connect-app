@@ -578,7 +578,7 @@ export default function FaturasTransportadorasPage() {
       const formData = new FormData()
       formData.append('arquivo', arquivo)
 
-      const resposta = await fetch('/api/faturas-transportadoras/importar-pdf', {
+      const resposta = await fetch(String(form.transportadora || '').toUpperCase().includes('DHL') ? '/api/faturas-transportadoras/importar-pdf-dhl' : '/api/faturas-transportadoras/importar-pdf', {
         method: 'POST',
         body: formData,
       })
