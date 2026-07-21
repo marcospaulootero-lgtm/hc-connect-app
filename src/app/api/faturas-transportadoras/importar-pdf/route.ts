@@ -1108,12 +1108,28 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     const awbs: Array<{ awb: string; index: number }> = []
     const totais: number[] = []
 
+    function valoresMoedaDuasCasas(textoEntrada: string) {
+      const valores: number[] = []
+      const regexValor = /(^|[^0-9])([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2})(?![0-9])/g
+      let matchValor: RegExpExecArray | null
+
+      while ((matchValor = regexValor.exec(String(textoEntrada || ''))) !== null) {
+        const valor = numeroBR(matchValor[2])
+        if (valor > 0) valores.push(valor)
+      }
+
+      return valores
+    }
+
     /*
-      Alguns PDFs DHL são extraídos em colunas:
-      primeiro vêm todos os AWBs, depois referências/datas, depois totais.
-      Por isso não dá para depender de "AWB até próximo AWB".
+      Alguns PDFs DHL são extraídos em colunas.
+      A regra correta é:
+      - pegar AWBs reais de 10 dígitos
+      - ignorar números grudados em letras, ex: SO45184062 + 06/07
+      - pegar apenas Total (BRL) com moeda de 2 casas
+      - ignorar Taxa de Câmbio 5,1766 / 5,0569
     */
-    const regexAwb = /(^|[^0-9])(\d{10})(?![0-9])/g
+    const regexAwb = /(^|[^A-Za-z0-9])(\\d{10})(?![0-9/])/g
     let matchAwb: RegExpExecArray | null
 
     while ((matchAwb = regexAwb.exec(textoBase)) !== null) {
@@ -1124,9 +1140,8 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
       const contexto = textoBase.slice(Math.max(0, index - 500), index + 2500)
 
-      // Evita pegar números soltos de cabeçalho, caso algum PDF futuro traga 10 dígitos fora da tabela.
       const pareceTabelaDhl =
-        /AWB|Refer[êe]ncia|Data\s+do|Envio|EXPRESS|WORLDWIDE|NONDOC|Total\s*\(\s*BRL\s*\)|Taxa\s+de\s+C[âa]mbio|FUEL\s+SURCHARGE|SEGURO/i.test(contexto)
+        /AWB|Refer[êe]ncia|Data\\s+do|Envio|EXPRESS|WORLDWIDE|NONDOC|Total\\s*\\(\\s*BRL\\s*\\)|Taxa\\s+de\\s+C[âa]mbio|FUEL\\s+SURCHARGE|SEGURO|BROKER\\s+NOTIFICATION|EXPORT\\s+DECLARATION/i.test(contexto)
 
       if (!pareceTabelaDhl) continue
 
@@ -1135,22 +1150,18 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
       }
     }
 
-    const regexTotalBrl = /Total\s*\(\s*BRL\s*\)\s*:?/gi
+    const regexTotalBrl = /Total\\s*\\(\\s*BRL\\s*\\)\\s*:?/gi
     let matchTotal: RegExpExecArray | null
 
     while ((matchTotal = regexTotalBrl.exec(textoBase)) !== null) {
-      const antes = textoBase.slice(Math.max(0, Number(matchTotal.index || 0) - 30), Number(matchTotal.index || 0))
+      const pos = Number(matchTotal.index || 0)
+      const antes = textoBase.slice(Math.max(0, pos - 40), pos)
 
       // Ignora "Valor Total (BRL)" do resumo da primeira página.
-      if (/Valor\s*$/i.test(antes)) continue
+      if (/Valor\\s*$/i.test(antes)) continue
 
-      const janela = textoBase.slice(Number(matchTotal.index || 0), Number(matchTotal.index || 0) + 320)
-
-      const valores = Array.from(
-        janela.matchAll(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/g)
-      )
-        .map((valorMatch) => numeroBR(valorMatch[1]))
-        .filter((valor) => valor > 0)
+      const janela = textoBase.slice(pos, pos + 220)
+      const valores = valoresMoedaDuasCasas(janela)
 
       const valor = valores[0] || 0
       if (!valor) continue
