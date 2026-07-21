@@ -1105,68 +1105,49 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
 
   function extrairItensDhlPorColunasTextoExtraido(base: string) {
     const textoBase = String(base || '')
-    const awbs: Array<{ awb: string; index: number }> = []
+    const awbs: Array<{ awb: string; index: number; referencia: string | null; dataEnvio: string | null }> = []
     const totais: number[] = []
 
-    function valoresMoedaDuasCasas(textoEntrada: string) {
-      const valores: number[] = []
-      const regexValor = /(^|[^0-9])([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2})(?![0-9])/g
-      let matchValor: RegExpExecArray | null
-
-      while ((matchValor = regexValor.exec(String(textoEntrada || ''))) !== null) {
-        const valor = numeroBR(matchValor[2])
-        if (valor > 0) valores.push(valor)
-      }
-
-      return valores
-    }
-
     /*
-      Alguns PDFs DHL são extraídos em colunas.
-      A regra correta é:
-      - pegar AWBs reais de 10 dígitos
-      - ignorar números grudados em letras, ex: SO45184062 + 06/07
-      - pegar apenas Total (BRL) com moeda de 2 casas
-      - ignorar Taxa de Câmbio 5,1766 / 5,0569
+      DHL: o PDF vem em linhas assim:
+      4610363273 SO45184062 06/07/2026 ...
+      Total (BRL): 3.707,94
+
+      Regra:
+      - AWB precisa começar a linha.
+      - Valor precisa vir depois de "Total (BRL):".
+      - Não pode pegar Taxa de Câmbio 5,1766.
     */
-    const regexAwb = /(^|[^A-Za-z0-9])(\\d{10})(?![0-9/])/g
+    const regexLinhaAwb = /(?:^|\n)\s*(\d{10})\s+([^\n]*?)\s+(\d{1,2}\/\d{1,2}\/\d{4})/g
     let matchAwb: RegExpExecArray | null
 
-    while ((matchAwb = regexAwb.exec(textoBase)) !== null) {
-      const awb = normalizarAwb(matchAwb[2])
-      const index = Number(matchAwb.index || 0) + String(matchAwb[1] || '').length
+    while ((matchAwb = regexLinhaAwb.exec(textoBase)) !== null) {
+      const awb = normalizarAwb(matchAwb[1])
+      const referencia = String(matchAwb[2] || '').replace(/\s+/g, ' ').trim() || null
+      const dataEnvio = dataBRParaISO(matchAwb[3]) || null
+      const index = Number(matchAwb.index || 0)
 
       if (!awb || awb.length !== 10) continue
 
-      const contexto = textoBase.slice(Math.max(0, index - 500), index + 2500)
-
-      const pareceTabelaDhl =
-        /AWB|Refer[êe]ncia|Data\\s+do|Envio|EXPRESS|WORLDWIDE|NONDOC|Total\\s*\\(\\s*BRL\\s*\\)|Taxa\\s+de\\s+C[âa]mbio|FUEL\\s+SURCHARGE|SEGURO|BROKER\\s+NOTIFICATION|EXPORT\\s+DECLARATION/i.test(contexto)
-
-      if (!pareceTabelaDhl) continue
-
       if (!awbs.some((item) => item.awb === awb)) {
-        awbs.push({ awb, index })
+        awbs.push({ awb, index, referencia, dataEnvio })
       }
     }
 
-    const regexTotalBrl = /Total\\s*\\(\\s*BRL\\s*\\)\\s*:?/gi
+    const regexTotalBrl = /Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/gi
     let matchTotal: RegExpExecArray | null
 
     while ((matchTotal = regexTotalBrl.exec(textoBase)) !== null) {
       const pos = Number(matchTotal.index || 0)
-      const antes = textoBase.slice(Math.max(0, pos - 40), pos)
+      const antes = textoBase.slice(Math.max(0, pos - 20), pos)
 
       // Ignora "Valor Total (BRL)" do resumo da primeira página.
-      if (/Valor\\s*$/i.test(antes)) continue
+      if (/Valor\s*$/i.test(antes)) continue
 
-      const janela = textoBase.slice(pos, pos + 220)
-      const valores = valoresMoedaDuasCasas(janela)
+      const valor = numeroBR(matchTotal[1])
+      if (!valor || valor <= 0) continue
 
-      const valor = valores[0] || 0
-      if (!valor) continue
-
-      // Em fatura com vários AWBs, não pode usar o total geral da fatura como valor de um AWB.
+      // Evita total geral da fatura.
       if (valorTotal > 0 && awbs.length > 1 && valor >= valorTotal) continue
 
       totais.push(Number(valor.toFixed(2)))
@@ -1178,16 +1159,10 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
     const itensExtraidos: ItemPdf[] = []
 
     for (let i = 0; i < quantidade; i++) {
-      const atual = awbs[i]
-      const proximo = awbs[i + 1]
-      const bloco = textoBase.slice(atual.index, proximo?.index || Math.min(textoBase.length, atual.index + 3000))
-
-      const { referencia, dataEnvio } = referenciaEDataDoBloco(atual.awb, bloco)
-
       itensExtraidos.push({
-        awb: atual.awb,
-        referencia,
-        data_envio: dataEnvio,
+        awb: awbs[i].awb,
+        referencia: awbs[i].referencia,
+        data_envio: awbs[i].dataEnvio,
         valor_compra: Number(totais[i].toFixed(2)),
       })
     }
@@ -1275,7 +1250,26 @@ function extrairDhl(textoOriginal: string): PreviewPdf {
       ? itensPorColunasDhl
       : itensPorColunasDhlLimpo
 
-  if (melhorItensPorColuna.length > itens.length) {
+  const somaItensAtuaisDhl = itens.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+  const somaItensColunaDhl = melhorItensPorColuna.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
+  const leituraAtualPareceCambioDhl =
+    itens.length > 0 &&
+    itens.every((item) => Number(item.valor_compra || 0) > 0 && Number(item.valor_compra || 0) < 10)
+
+  const colunaBateTotalDhl =
+    valorTotal > 0 &&
+    Math.abs(Number(somaItensColunaDhl.toFixed(2)) - Number(valorTotal.toFixed(2))) <= 0.5
+
+  if (
+    melhorItensPorColuna.length > 0 &&
+    (
+      itens.length === 0 ||
+      melhorItensPorColuna.length > itens.length ||
+      leituraAtualPareceCambioDhl ||
+      colunaBateTotalDhl ||
+      somaItensColunaDhl > somaItensAtuaisDhl
+    )
+  ) {
     itens = melhorItensPorColuna
   }
 
