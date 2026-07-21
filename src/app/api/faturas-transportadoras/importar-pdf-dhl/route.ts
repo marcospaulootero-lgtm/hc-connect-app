@@ -1,6 +1,3 @@
-// ROTA EXCLUSIVA PARA IMPORTAÇÃO DE FATURA DHL
-// Não usar para FedEx. FedEx continua na rota /api/faturas-transportadoras/importar-pdf
-
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -11,25 +8,6 @@ type ItemPdf = {
   referencia: string | null
   data_envio: string | null
   valor_compra: number
-}
-
-type PreviewPdf = {
-  transportadora: string
-  conta: string | null
-  numero_fatura: string
-  emissao: string | null
-  vencimento: string | null
-  valor_total: number
-  tipo_lancamento: 'COMPRA' | 'IMPOSTOS'
-  itens: ItemPdf[]
-}
-
-function limparTexto(texto: string) {
-  return String(texto || '')
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{2,}/g, '\n')
-    .trim()
 }
 
 function numeroBR(valor: any) {
@@ -49,57 +27,21 @@ function numeroBR(valor: any) {
 function dataBRParaISO(valor: any) {
   const texto = String(valor || '').trim()
   const match = texto.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
-
   if (!match) return null
 
   const dia = match[1].padStart(2, '0')
   const mes = match[2].padStart(2, '0')
-  const ano = match[3].length === 2 ? `20${match[3]}` : match[3]
+  const ano = match[3].length === 2 ? '20' + match[3] : match[3]
 
-  return `${ano}-${mes}-${dia}`
+  return ano + '-' + mes + '-' + dia
 }
 
-function dataMesPtParaISO(valor: any) {
-  const texto = String(valor || '').trim().toLowerCase()
-
-  const meses: Record<string, string> = {
-    jan: '01',
-    janeiro: '01',
-    fev: '02',
-    fevereiro: '02',
-    mar: '03',
-    março: '03',
-    marco: '03',
-    abr: '04',
-    abril: '04',
-    mai: '05',
-    maio: '05',
-    jun: '06',
-    junho: '06',
-    jul: '07',
-    julho: '07',
-    ago: '08',
-    agosto: '08',
-    set: '09',
-    setembro: '09',
-    out: '10',
-    outubro: '10',
-    nov: '11',
-    novembro: '11',
-    dez: '12',
-    dezembro: '12',
-  }
-
-  const match = texto.match(/(\d{1,2})\s+([a-zçãé]+)\s+(\d{4})/i)
-  if (!match) return null
-
-  const dia = match[1].padStart(2, '0')
-  const mes = meses[match[2]] || meses[match[2].slice(0, 3)]
-  const ano = match[3]
-
-  if (!mes) return null
-
-  return `${ano}-${mes}-${dia}`
+function limparTexto(texto: any) {
+  return String(texto || '')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
 }
 
 function somenteDigitos(valor: any) {
@@ -110,40 +52,18 @@ function normalizarAwb(valor: any) {
   return somenteDigitos(valor)
 }
 
-function unicosPorAwb(itens: ItemPdf[]) {
-  const mapa = new Map<string, ItemPdf>()
-
-  itens.forEach((item) => {
-    const awb = normalizarAwb(item.awb)
-    if (!awb || item.valor_compra <= 0) return
-    if (!mapa.has(awb)) mapa.set(awb, { ...item, awb })
-  })
-
-  return Array.from(mapa.values())
-}
-
-
-
-
-function normalizarNumeroFaturaParaSistema(numeroFatura: any) {
-  const textoOriginal = String(numeroFatura || '').trim()
-  if (!textoOriginal) return ''
-
-  const somenteNumeros = textoOriginal.replace(/\D/g, '')
-  return somenteNumeros || textoOriginal.toUpperCase()
+function normalizarNumeroFaturaParaSistema(valor: any) {
+  const texto = String(valor || '').trim()
+  const numeros = texto.replace(/\D/g, '')
+  return numeros || texto.toUpperCase()
 }
 
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!url) {
-    throw new Error('NEXT_PUBLIC_SUPABASE_URL não configurada.')
-  }
-
-  if (!key) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada.')
-  }
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL não configurada.')
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada.')
 
   return createClient(url, key, {
     auth: {
@@ -153,82 +73,177 @@ function supabaseAdmin() {
   })
 }
 
-async function buscarFinanceiroPorAwb(supabase: any, awbOriginal: string) {
-  const awb = normalizarAwb(awbOriginal)
-  if (!awb) return null
+function unicosPorAwb(itens: ItemPdf[]) {
+  const mapa = new Map<string, ItemPdf>()
 
-  const { data, error } = await supabase
-    .from('financeiro_embarques')
-    .select('id, awb, valor_compra, doc_dta')
-    .eq('awb', awb)
-    .limit(10)
+  for (const item of itens) {
+    const awb = normalizarAwb(item.awb)
+    const valor = Number(item.valor_compra || 0)
 
-  if (error) {
-    throw new Error('Erro ao buscar AWB no financeiro: ' + error.message)
+    if (!awb || awb.length !== 10 || valor <= 0) continue
+    if (!mapa.has(awb)) {
+      mapa.set(awb, {
+        ...item,
+        awb,
+        valor_compra: Number(valor.toFixed(2)),
+      })
+    }
   }
 
-  const direto = (data || []).find((item: any) => normalizarAwb(item.awb) === awb)
-  if (direto) return direto
-
-  const { data: aproximados, error: erroAproximado } = await supabase
-    .from('financeiro_embarques')
-    .select('id, awb, valor_compra')
-    .ilike('awb', `%${awb}%`)
-    .limit(10)
-
-  if (erroAproximado) {
-    throw new Error('Erro ao buscar AWB aproximado no financeiro: ' + erroAproximado.message)
-  }
-
-  return (aproximados || []).find((item: any) => normalizarAwb(item.awb) === awb) || null
+  return Array.from(mapa.values())
 }
 
-async function salvarFaturaEItens(preview: PreviewPdf) {
+async function lerTextoPdf(arquivo: File) {
+  const arrayBuffer = await arquivo.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+
+  const mod: any = await import('pdf-parse')
+  const pdfParse = mod.default || mod
+
+  const resultado = await pdfParse(buffer)
+  return String(resultado?.text || '')
+}
+
+function extrairDhl(textoOriginal: string) {
+  const bruto = String(textoOriginal || '').replace(/\r/g, '\n')
+  const texto = limparTexto(bruto)
+
+  const numeroCompleto =
+    texto.match(/Fatura:\s*(BHZIR[0-9A-Z]+)/i)?.[1]?.trim().toUpperCase() ||
+    texto.match(/\b(BHZIR[0-9A-Z]+)\b/i)?.[1]?.trim().toUpperCase() ||
+    ''
+
+  const numeroFatura = normalizarNumeroFaturaParaSistema(numeroCompleto)
+
+  const conta =
+    texto.match(/Conta:\s*([0-9]+)/i)?.[1]?.trim() ||
+    null
+
+  const emissao =
+    dataBRParaISO(texto.match(/Emiss[ãa]o:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
+    null
+
+  const vencimento =
+    dataBRParaISO(texto.match(/Prazo\s+de\s+Pagamento:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
+    null
+
+  const valorTotal =
+    numeroBR(texto.match(/Valor\s+Total\s*\(\s*BRL\s*\)\s*([0-9.]+,\d{2})/i)?.[1]) ||
+    0
+
+  const marcadores: Array<{
+    awb: string
+    index: number
+    referencia: string | null
+    data_envio: string | null
+  }> = []
+
+  /*
+    Regra DHL:
+    acha AWB de 10 dígitos no texto extraído e, dentro do bloco até o próximo AWB,
+    pega somente o valor após "Total (BRL):".
+  */
+  const regexAwb = /(^|[^A-Za-z0-9])(\d{10})(?=\s)/g
+  let matchAwb: RegExpExecArray | null
+
+  while ((matchAwb = regexAwb.exec(bruto)) !== null) {
+    const awb = normalizarAwb(matchAwb[2])
+    const index = Number(matchAwb.index || 0) + String(matchAwb[1] || '').length
+
+    if (!awb || awb.length !== 10) continue
+
+    const trechoInicio = bruto.slice(index, index + 300)
+    const matchData = trechoInicio.match(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/)
+    const data_envio = dataBRParaISO(matchData?.[1]) || null
+
+    const referencia = matchData
+      ? trechoInicio
+          .replace(new RegExp('^' + awb + '\\s*'), '')
+          .slice(0, matchData.index || 0)
+          .replace(/\s+/g, ' ')
+          .trim() || null
+      : null
+
+    const depois = bruto.slice(index, index + 5000)
+
+    if (!/Total\s*\(\s*BRL\s*\)\s*:?/i.test(depois)) continue
+
+    if (!marcadores.some((item) => item.awb === awb)) {
+      marcadores.push({ awb, index, referencia, data_envio })
+    }
+  }
+
+  marcadores.sort((a, b) => a.index - b.index)
+
+  const itens: ItemPdf[] = []
+
+  for (let i = 0; i < marcadores.length; i++) {
+    const atual = marcadores[i]
+    const proximo = marcadores[i + 1]
+    const bloco = bruto.slice(atual.index, proximo?.index || bruto.length)
+
+    const totalBrl = bloco.match(
+      /Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})(?!\d)/i
+    )
+
+    const valorCompra = numeroBR(totalBrl?.[1])
+
+    if (!valorCompra || valorCompra <= 0) continue
+    if (valorTotal > 0 && marcadores.length > 1 && valorCompra >= valorTotal) continue
+
+    itens.push({
+      awb: atual.awb,
+      referencia: atual.referencia,
+      data_envio: atual.data_envio,
+      valor_compra: Number(valorCompra.toFixed(2)),
+    })
+  }
+
+  return {
+    transportadora: 'DHL',
+    conta,
+    numero_fatura: numeroFatura,
+    emissao,
+    vencimento,
+    valor_total: valorTotal,
+    itens: unicosPorAwb(itens),
+  }
+}
+
+async function salvarDhl(preview: ReturnType<typeof extrairDhl>) {
   const supabase = supabaseAdmin()
   const agora = new Date().toISOString()
   const numeroFatura = normalizarNumeroFaturaParaSistema(preview.numero_fatura)
 
+  if (!numeroFatura) {
+    throw new Error('Não consegui identificar o número da fatura DHL no PDF.')
+  }
+
   const itensValidos = unicosPorAwb(preview.itens)
-    .map((item) => ({
-      ...item,
-      awb: normalizarAwb(item.awb),
-      valor_compra: Number(item.valor_compra || 0),
-    }))
-    .filter((item) => item.awb && item.valor_compra > 0)
-
-  const semItensAutomaticos = itensValidos.length === 0
-
-  const totalItens = itensValidos.reduce((acc, item) => acc + Number(item.valor_compra || 0), 0)
-  const totalFatura = Number(preview.valor_total || totalItens || 0)
-  const tipoLancamento = preview.tipo_lancamento || 'COMPRA'
 
   const payloadFatura = {
-    transportadora: preview.transportadora,
+    transportadora: 'DHL',
     conta: preview.conta || null,
     numero_fatura: numeroFatura,
     emissao: preview.emissao || null,
     vencimento: preview.vencimento || null,
     situacao: 'EM ABERTO',
-    total: totalFatura,
-    saldo: totalFatura,
+    total: Number(preview.valor_total || 0),
+    saldo: Number(preview.valor_total || 0),
     moeda: 'BRL',
     observacoes:
-      semItensAutomaticos
-        ? 'Fatura importada por PDF, mas nenhum AWB/valor foi identificado automaticamente. Conferir itens manualmente.'
-        : tipoLancamento === 'IMPOSTOS'
-          ? 'Fatura FedEx de impostos/taxas importada por PDF e sincronizada pelo Supabase.'
-          : 'Fatura de transportadora importada por PDF e sincronizada pelo Supabase.',
+      itensValidos.length === 0
+        ? 'Fatura DHL importada, mas nenhum AWB/Total (BRL) foi identificado automaticamente.'
+        : 'Fatura DHL importada pela rota exclusiva AWB + Total (BRL).',
     atualizado_em: agora,
   }
 
-  const { data: faturasEncontradas, error: erroBuscaFaturas } = await supabase
+  const { data: faturasEncontradas, error: erroBusca } = await supabase
     .from('faturas_transportadoras')
-    .select('id, transportadora, numero_fatura')
-    .eq('transportadora', preview.transportadora)
+    .select('id, numero_fatura')
+    .eq('transportadora', 'DHL')
 
-  if (erroBuscaFaturas) {
-    throw new Error('Erro ao buscar fatura existente: ' + erroBuscaFaturas.message)
-  }
+  if (erroBusca) throw new Error('Erro ao buscar fatura DHL existente: ' + erroBusca.message)
 
   const faturaExistente = ((faturasEncontradas as any[]) || []).find((item) => {
     return normalizarNumeroFaturaParaSistema(item.numero_fatura) === numeroFatura
@@ -242,473 +257,137 @@ async function salvarFaturaEItens(preview: PreviewPdf) {
       .update(payloadFatura)
       .eq('id', faturaId)
 
-    if (error) {
-      throw new Error('Erro ao atualizar fatura da transportadora: ' + error.message)
-    }
+    if (error) throw new Error('Erro ao atualizar fatura DHL: ' + error.message)
   } else {
-    const { data: faturaCriada, error } = await supabase
+    const { data, error } = await supabase
       .from('faturas_transportadoras')
       .insert([payloadFatura])
       .select('id')
       .single()
 
-    if (error) {
-      throw new Error('Erro ao cadastrar fatura da transportadora: ' + error.message)
-    }
-
-    faturaId = faturaCriada.id
+    if (error) throw new Error('Erro ao cadastrar fatura DHL: ' + error.message)
+    faturaId = data.id
   }
 
-  if (semItensAutomaticos) {
-    return {
-      fatura_id: faturaId,
-      numero_fatura: numeroFatura,
-      itens_salvos: 0,
-      custos_lancados: 0,
-      aguardando_processo: 0,
-      ja_tinham_custo: 0,
-      pendente_conferencia: true,
-      mensagem: 'Fatura cadastrada, mas o PDF não permitiu leitura automática dos AWBs/valores. Conferir manualmente.',
-    }
-  }
-
-  const awbsDoPdf = Array.from(new Set(itensValidos.map((item) => item.awb).filter(Boolean)))
-
-  const { data: itensAntigos, error: erroItensAntigos } = await supabase
+  await supabase
     .from('faturas_transportadoras_itens')
-    .select('id, awb')
+    .delete()
     .eq('fatura_transportadora_id', faturaId)
 
-  if (erroItensAntigos) {
-    throw new Error('Erro ao conferir itens antigos da fatura: ' + erroItensAntigos.message)
-  }
-
-  const idsParaRemover = ((itensAntigos as any[]) || [])
-    .filter((item) => !awbsDoPdf.includes(normalizarAwb(item.awb)))
-    .map((item) => item.id)
-    .filter(Boolean)
-
-  if (idsParaRemover.length > 0) {
-    const { error: erroRemover } = await supabase
-      .from('faturas_transportadoras_itens')
-      .delete()
-      .in('id', idsParaRemover)
-
-    if (erroRemover) {
-      throw new Error('Erro ao remover AWBs antigos/errados da fatura: ' + erroRemover.message)
-    }
-  }
-
-  let itensSalvos = 0
-
-  for (const item of itensValidos) {
-    const awb = normalizarAwb(item.awb)
-
-    const payloadItem = {
+  if (itensValidos.length > 0) {
+    const payloadItens = itensValidos.map((item) => ({
       fatura_transportadora_id: faturaId,
-      transportadora: preview.transportadora,
+      transportadora: 'DHL',
       numero_fatura: numeroFatura,
-      awb,
+      awb: item.awb,
       referencia: item.referencia || null,
       data_envio: item.data_envio || null,
       valor_compra: Number(item.valor_compra || 0),
-      tipo_lancamento: tipoLancamento,
+      tipo_lancamento: 'COMPRA',
       financeiro_embarque_id: null,
       valor_compra_anterior: null,
       status_lancamento: 'AGUARDANDO_PROCESSO',
-      observacao: 'Item importado por PDF. Sincronização feita automaticamente pelo Supabase.',
+      observacao: 'Item DHL importado por AWB + Total (BRL).',
       lancado_em: null,
       atualizado_em: agora,
-    }
+    }))
 
-    const { data: itemExistente, error: erroBuscaItem } = await supabase
+    const { error } = await supabase
       .from('faturas_transportadoras_itens')
-      .select('id')
-      .eq('transportadora', preview.transportadora)
-      .eq('numero_fatura', numeroFatura)
-      .eq('awb', awb)
-      .maybeSingle()
+      .insert(payloadItens)
 
-    if (erroBuscaItem) {
-      throw new Error('Erro ao buscar item do AWB ' + awb + ': ' + erroBuscaItem.message)
-    }
-
-    if (itemExistente?.id) {
-      const { error } = await supabase
-        .from('faturas_transportadoras_itens')
-        .update(payloadItem)
-        .eq('id', itemExistente.id)
-
-      if (error) {
-        throw new Error('Erro ao atualizar item do AWB ' + awb + ': ' + error.message)
-      }
-    } else {
-      const { error } = await supabase
-        .from('faturas_transportadoras_itens')
-        .insert([payloadItem])
-
-      if (error) {
-        throw new Error('Erro ao salvar item do AWB ' + awb + ': ' + error.message)
-      }
-    }
-
-    itensSalvos++
+    if (error) throw new Error('Erro ao salvar itens DHL: ' + error.message)
   }
 
   const { error: erroSync } = await supabase.rpc('hc_sincronizar_itens_faturas_transportadoras')
+  if (erroSync) throw new Error('Itens DHL salvos, mas erro ao sincronizar: ' + erroSync.message)
 
-  if (erroSync) {
-    throw new Error('Itens salvos, mas erro ao sincronizar com processos faturados: ' + erroSync.message)
-  }
-
-  const { data: itensDepois, error: erroItensDepois } = await supabase
+  const { data: itensDepois, error: erroDepois } = await supabase
     .from('faturas_transportadoras_itens')
-    .select('status_lancamento, financeiro_embarque_id, valor_compra_anterior')
+    .select('awb, valor_compra, status_lancamento, financeiro_embarque_id, observacao')
     .eq('fatura_transportadora_id', faturaId)
-    .in('awb', awbsDoPdf)
+    .order('awb')
 
-  if (erroItensDepois) {
-    throw new Error('Fatura sincronizada, mas erro ao conferir resultado: ' + erroItensDepois.message)
-  }
+  if (erroDepois) throw new Error('Fatura DHL salva, mas erro ao conferir itens: ' + erroDepois.message)
 
-  let custosLancados = 0
-  let aguardandoProcesso = 0
-  let jaTinhamCusto = 0
-
-  ;((itensDepois as any[]) || []).forEach((item) => {
-    const status = String(item.status_lancamento || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase()
-
-    if (status.includes('LANCADO')) {
-      custosLancados++
-      return
-    }
-
-    if (status.includes('AGUARDANDO')) {
-      aguardandoProcesso++
-      return
-    }
-
-    if (
-      status.includes('JA_TINHA') ||
-      status.includes('CONFERIR') ||
-      status.includes('EXISTENTE') ||
-      Number(item.valor_compra_anterior || 0) > 0
-    ) {
-      jaTinhamCusto++
-    }
-  })
+  const itensResultado = ((itensDepois as any[]) || []).map((item) => ({
+    awb: item.awb,
+    valor_compra: Number(item.valor_compra || 0),
+    status_lancamento: item.status_lancamento,
+    financeiro_embarque_id: item.financeiro_embarque_id,
+    observacao: item.observacao,
+  }))
 
   return {
     fatura_id: faturaId,
     numero_fatura: numeroFatura,
-    itens_salvos: itensSalvos,
-    custos_lancados: custosLancados,
-    aguardando_processo: aguardandoProcesso,
-    ja_tinham_custo: jaTinhamCusto,
+    valor_total: Number(preview.valor_total || 0),
+    itens_salvos: itensValidos.length,
+    itens: itensResultado,
   }
 }
 
-function extrairFedEx(textoOriginal: string): PreviewPdf {
-  const texto = limparTexto(textoOriginal)
-
-  const numeroFatura =
-    texto.match(/N[úu]mero\s+da\s+Fatura:\s*([0-9.-]+)/i)?.[1]?.trim() ||
-    texto.match(/No\s+da\s+Fatura:\s*([0-9.-]+)/i)?.[1]?.trim() ||
-    ''
-
-  const emissao =
-    dataMesPtParaISO(texto.match(/Data\s+de\s+Emiss[ãa]o:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
-    dataBRParaISO(texto.match(/Data\s+do\s+Docto:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
-    null
-
-  const vencimento =
-    dataMesPtParaISO(texto.match(/Data\s+de\s*Vencimento:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
-    dataBRParaISO(texto.match(/Vencimento:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
-    null
-
-  const valorTotal =
-    numeroBR(texto.match(/Valor\s*Devido:\s*R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
-    numeroBR(texto.match(/ValorDevido:\s*R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
-    numeroBR(texto.match(/Valor\s+Total\s+USD\s+[0-9.,]+\s+R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
-    numeroBR(texto.match(/Valor\s+do\s+Documento:\s*([0-9.]+,\d{2})/i)?.[1])
-
-  const ehFaturaImpostosTaxas =
-    /TAXAS,\s*IMPOSTOS,\s*E\s*OUTROS\s*ENCARGOS/i.test(texto) ||
-    /Sumário\s+de\s+Taxas/i.test(texto) ||
-    /Tarifa\s+de\s+transferência\s+de\s+aeroporto/i.test(texto) ||
-    /Cobranças\s+de\s+Serviços\s+Adicionais/i.test(texto)
-
-  const itens: ItemPdf[] = []
-
-  let marcadores = Array.from(
-    texto.matchAll(/(?:N[°ºo.]?\s*de\s*)?Rastreio\s*[:\s]*([0-9][0-9\s.-]{8,20})/gi)
-  ).map((match) => ({
-    awb: normalizarAwb(match[1]),
-    index: match.index || 0,
-  })).filter((item) => item.awb.length >= 10 && item.awb.length <= 15)
-
-  if (marcadores.length === 0) {
-    marcadores = Array.from(texto.matchAll(/\b(\d{12})\b/g))
-      .map((match) => ({
-        awb: normalizarAwb(match[1]),
-        index: match.index || 0,
-      }))
-      .filter((item) => {
-        const trecho = texto.slice(Math.max(0, item.index - 250), item.index + 1200)
-        return /FedEx|Federal Express|Subtotal|Taxa\s+de\s+Transporte|Rastreio/i.test(trecho)
-      })
-  }
-
-  const vistos = new Set<string>()
-  marcadores = marcadores.filter((item) => {
-    if (!item.awb || vistos.has(item.awb)) return false
-    vistos.add(item.awb)
-    return true
-  })
-
-  marcadores.forEach((item, index) => {
-    const inicio = item.index
-    const fim = marcadores[index + 1]?.index || texto.length
-    const bloco = texto.slice(inicio, fim)
-    const blocoAntes = texto.slice(Math.max(0, inicio - 500), inicio)
-
-    const posSubtotal = bloco.search(/Subtotal/i)
-    if (posSubtotal < 0) return
-
-    const janelaSubtotal = bloco.slice(posSubtotal, posSubtotal + 300)
-
-    const valorComReal = janelaSubtotal.match(/R\$\s*([0-9.]+,\d{2})/i)?.[1]
-
-    const valores = Array.from(
-      janelaSubtotal.matchAll(/([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})/g)
-    ).map((match) => match[1])
-
-    const valorSubtotal = numeroBR(valorComReal || valores[valores.length - 1])
-
-    if (!valorSubtotal || valorSubtotal <= 0) return
-
-    const referenciaRaw =
-      blocoAntes.match(/Refer[êe]ncia:\s*([^\n]+)/i)?.[1]
-        ?.replace(/N[°ºo.]?\s*de\s*Rastreio.*/i, '')
-        ?.trim() || null
-
-    const dataEnvio =
-      dataMesPtParaISO(blocoAntes.match(/Data\s+de\s+Emiss[ãa]o:\s*(\d{1,2}\s+[a-zçãé]{3,12}\s+\d{4})/i)?.[1]) ||
-      null
-
-    itens.push({
-      awb: item.awb,
-      referencia: referenciaRaw,
-      data_envio: dataEnvio,
-      valor_compra: valorSubtotal,
-    })
-  })
-
-  return {
-    transportadora: 'DHL',
-    conta: texto.match(/N[úu]mero\s+da\s+Conta:\s*([*0-9]+)/i)?.[1]?.trim() || null,
-    numero_fatura: numeroFatura,
-    emissao,
-    vencimento,
-    valor_total: valorTotal,
-    tipo_lancamento: ehFaturaImpostosTaxas ? 'IMPOSTOS' : 'COMPRA',
-    itens: unicosPorAwb(itens),
-  }
-}
-
-
-function extrairDhl(textoOriginal: string): PreviewPdf {
-  const bruto = String(textoOriginal || '').replace(/\r/g, '\n')
-  const texto = limparTexto(bruto)
-
-  const numeroFaturaCompleto =
-    texto.match(/Fatura:\s*(BHZIR[0-9A-Z]+)/i)?.[1]?.trim().toUpperCase() ||
-    texto.match(/\b(BHZIR[0-9A-Z]+)\b/i)?.[1]?.trim().toUpperCase() ||
-    ''
-
-  const numeroFatura = normalizarNumeroFaturaParaSistema(numeroFaturaCompleto)
-
-  const conta =
-    texto.match(/Conta:\s*([0-9]+)/i)?.[1]?.trim() ||
-    texto.match(/Número\s+da\s+Conta:\s*([0-9*]+)/i)?.[1]?.trim() ||
-    null
-
-  const emissao =
-    dataBRParaISO(texto.match(/Emiss[ãa]o:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
-    null
-
-  const vencimento =
-    dataBRParaISO(texto.match(/Prazo\s+de\s+Pagamento:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
-    dataBRParaISO(texto.match(/Vencimento\s*[:\s]+(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1]) ||
-    null
-
-  const valorTotal =
-    numeroBR(texto.match(/Valor\s+Total\s*\(\s*BRL\s*\)\s*([0-9.]+,\d{2})/i)?.[1]) ||
-    0
-
-  const itens: ItemPdf[] = []
-
-  /*
-    REGRA EXCLUSIVA DHL
-
-    Exemplo real do PDF:
-    4610363273 SO45184062 06/07/2026 ...
-    Total (BRL): 3.707,94
-
-    O sistema deve:
-    1. achar AWB no início da linha
-    2. cortar até o próximo AWB
-    3. pegar o Total (BRL) dentro desse bloco
-  */
-  const regexAwbLinha = /(?:^|\n)\s*(\d{10})\s+([^\n]*?)\s+(\d{1,2}\/\d{1,2}\/\d{4})\b/g
-  const awbs: Array<{
-    awb: string
-    index: number
-    referencia: string | null
-    data_envio: string | null
-  }> = []
-
-  let matchAwb: RegExpExecArray | null
-
-  while ((matchAwb = regexAwbLinha.exec(bruto)) !== null) {
-    const awb = normalizarAwb(matchAwb[1])
-    const referencia = String(matchAwb[2] || '').replace(/\s+/g, ' ').trim() || null
-    const data_envio = dataBRParaISO(matchAwb[3]) || null
-    const index = Number(matchAwb.index || 0)
-
-    if (!awb || awb.length !== 10) continue
-
-    const trechoDepois = bruto.slice(index, index + 4000)
-
-    if (!/Total\s*\(\s*BRL\s*\)\s*:?/i.test(trechoDepois)) continue
-
-    if (!awbs.some((item) => item.awb === awb)) {
-      awbs.push({ awb, index, referencia, data_envio })
-    }
-  }
-
-  awbs.sort((a, b) => a.index - b.index)
-
-  for (let i = 0; i < awbs.length; i++) {
-    const atual = awbs[i]
-    const proximo = awbs[i + 1]
-    const bloco = bruto.slice(atual.index, proximo?.index || bruto.length)
-
-    const totalBrl = bloco.match(
-      /Total\s*\(\s*BRL\s*\)\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*,\d{2}|[0-9]+,\d{2})(?!\d)/i
-    )
-
-    const valor_compra = numeroBR(totalBrl?.[1])
-
-    if (!valor_compra || valor_compra <= 0) continue
-
-    if (valorTotal > 0 && awbs.length > 1 && valor_compra >= valorTotal) continue
-
-    itens.push({
-      awb: atual.awb,
-      referencia: atual.referencia,
-      data_envio: atual.data_envio,
-      valor_compra: Number(valor_compra.toFixed(2)),
-    })
-  }
-
-  console.log('IMPORTADOR_DHL_SEPARADO', {
-    numeroFaturaCompleto,
-    numeroFatura,
-    conta,
-    emissao,
-    vencimento,
-    valorTotal,
-    awbsEncontrados: awbs.map((item) => item.awb),
-    itens: itens.map((item) => ({
-      awb: item.awb,
-      valor_compra: item.valor_compra,
-      referencia: item.referencia,
-      data_envio: item.data_envio,
-    })),
-  })
-
-  return {
-    transportadora: 'DHL',
-    conta,
-    numero_fatura: numeroFatura,
-    emissao,
-    vencimento,
-    valor_total: valorTotal,
-    tipo_lancamento: 'COMPRA',
-    itens: unicosPorAwb(itens),
-  }
-}
-
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const formData = await req.formData()
-    const arquivo = formData.get('arquivo')
+    const formData = await request.formData()
 
-    if (!(arquivo instanceof File)) {
-      return NextResponse.json(
-        { error: 'Arquivo PDF não enviado.' },
-        { status: 400 }
-      )
+    const arquivo = Array.from(formData.values()).find((valor: any) => {
+      return valor && typeof valor === 'object' && typeof valor.arrayBuffer === 'function'
+    }) as File | undefined
+
+    if (!arquivo) {
+      return NextResponse.json({ error: 'Nenhum PDF DHL foi enviado.' }, { status: 400 })
     }
 
-    if (arquivo.type !== 'application/pdf') {
-      return NextResponse.json(
-        { error: 'Envie apenas arquivo PDF.' },
-        { status: 400 }
-      )
-    }
+    const texto = await lerTextoPdf(arquivo)
+    const preview = extrairDhl(texto)
+    const resultado = await salvarDhl(preview)
 
-    const buffer = Buffer.from(await arquivo.arrayBuffer())
-    const pdfParseModule = await import('pdf-parse/lib/pdf-parse.js')
-    const pdfParse = (pdfParseModule as any).default || pdfParseModule
-    const resultado = await pdfParse(buffer)
-    const texto = limparTexto(resultado.text || '')
+    const itens = resultado.itens || []
 
-    if (!texto) {
-      return NextResponse.json(
-        { error: 'Não foi possível ler texto deste PDF.' },
-        { status: 400 }
-      )
-    }
+    const custosLancados = itens.filter((item) => {
+      const status = String(item.status_lancamento || '').toUpperCase()
+      return status === 'LANCADO' || status === 'JA_LANCADO'
+    }).length
 
-    let preview: PreviewPdf | null = null
+    const aguardandoProcesso = itens.filter((item) => {
+      const status = String(item.status_lancamento || '').toUpperCase()
+      return status.includes('AGUARDANDO')
+    }).length
 
-    if (/FedEx|Federal Express/i.test(texto)) {
-      preview = extrairDhl(texto)
-    } else if (/DHL Express|Fatura de Serviço|BHZIR/i.test(texto)) {
-      preview = extrairDhl(texto)
-    }
+    const jaTinhamCusto = itens.filter((item) => {
+      const status = String(item.status_lancamento || '').toUpperCase()
+      return status.includes('CONFERIR') || status.includes('EXISTENTE')
+    }).length
 
-    if (!preview) {
-      return NextResponse.json(
-        { error: 'Não consegui identificar se o PDF é DHL ou FedEx.' },
-        { status: 400 }
-      )
-    }
-
-    if (!preview.numero_fatura) {
-      return NextResponse.json(
-        { error: 'Não consegui identificar o número da fatura no PDF.' },
-        { status: 400 }
-      )
-    }
-
-    if (!preview.itens.length) {
-      preview.itens = []
-    }
-
-    preview.numero_fatura = normalizarNumeroFaturaParaSistema(preview.numero_fatura)
-
-    const importacao = await salvarFaturaEItens(preview)
-
-    return NextResponse.json({ preview, importacao })
+    return NextResponse.json({
+      ok: true,
+      transportadora: 'DHL',
+      conta: preview.conta,
+      numero_fatura: resultado.numero_fatura,
+      fatura: resultado.numero_fatura,
+      emissao: preview.emissao,
+      vencimento: preview.vencimento,
+      valor_total: resultado.valor_total,
+      total_fatura: resultado.valor_total,
+      awbs_encontrados: preview.itens.length,
+      itens_salvos: resultado.itens_salvos,
+      custos_lancados: custosLancados,
+      aguardando_processo: aguardandoProcesso,
+      ja_tinham_custo: jaTinhamCusto,
+      pendente_conferencia: resultado.itens_salvos === 0,
+      mensagem:
+        resultado.itens_salvos === 0
+          ? 'Fatura DHL cadastrada, mas nenhum AWB/Total (BRL) foi identificado.'
+          : 'Fatura DHL importada e sincronizada automaticamente.',
+      itens,
+      preview,
+    })
   } catch (error: any) {
+    console.error('Erro ao importar PDF DHL:', error)
+
     return NextResponse.json(
-      { error: error?.message || 'Erro ao importar PDF.' },
+      { error: error?.message || 'Erro ao importar PDF DHL.' },
       { status: 500 }
     )
   }

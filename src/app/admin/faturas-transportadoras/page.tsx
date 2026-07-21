@@ -227,6 +227,94 @@ export default function FaturasTransportadorasPage() {
     return true
   }
 
+  function escolherArquivoPdfDhl() {
+    return new Promise<File | null>((resolve) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'application/pdf'
+
+      input.onchange = () => {
+        resolve(input.files?.[0] || null)
+      }
+
+      input.click()
+    })
+  }
+
+  function dinheiroPdfDhl(valor: any) {
+    const numeroValor = Number(valor || 0)
+    return numeroValor.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+  }
+
+  async function importarPdfDhlSeparado() {
+    const arquivo = await escolherArquivoPdfDhl()
+    if (!arquivo) return
+
+    try {
+      setImportandoPdf(true)
+
+      const formData = new FormData()
+      formData.append('arquivo', arquivo)
+      formData.append('file', arquivo)
+      formData.append('pdf', arquivo)
+
+      const resposta = await fetch('/api/faturas-transportadoras/importar-pdf-dhl', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const dados = await resposta.json().catch(() => ({}))
+
+      if (!resposta.ok) {
+        throw new Error(dados?.error || 'Erro ao importar PDF DHL.')
+      }
+
+      const itens = Array.isArray(dados?.itens)
+        ? dados.itens
+        : Array.isArray(dados?.resultado?.itens)
+          ? dados.resultado.itens
+          : Array.isArray(dados?.preview?.itens)
+            ? dados.preview.itens
+            : []
+
+      const linhasItens = itens.slice(0, 12).map((item: any) => {
+        return '• ' + (item.awb || '-') + ' - ' + dinheiroPdfDhl(item.valor_compra)
+      })
+
+      const linhasAlerta = [
+        'Transportadora: ' + (dados?.transportadora || 'DHL'),
+        'Fatura: ' + (dados?.numero_fatura || dados?.fatura || '-'),
+        'Total da fatura: ' + dinheiroPdfDhl(dados?.valor_total || dados?.total_fatura),
+        'AWBs encontrados no PDF: ' + (dados?.awbs_encontrados ?? itens.length),
+        '',
+        dados?.mensagem || 'PDF DHL importado.',
+        '',
+        'Itens salvos: ' + (dados?.itens_salvos ?? itens.length),
+        'Custos lançados nos processos: ' + (dados?.custos_lancados ?? 0),
+        'Aguardando criação do processo: ' + (dados?.aguardando_processo ?? 0),
+        'Processos que já tinham custo: ' + (dados?.ja_tinham_custo ?? 0),
+      ]
+
+      if (linhasItens.length > 0) {
+        linhasAlerta.push('')
+        linhasAlerta.push('AWBs lidos:')
+        linhasAlerta.push(...linhasItens)
+      }
+
+      alert(linhasAlerta.join('\n'))
+
+      setArquivoPdfImportacao(null)
+      setPreviewPdf(null)
+      await carregar()
+    } catch (error: any) {
+      alert('Erro ao importar PDF DHL: ' + (error?.message || 'Erro desconhecido.'))
+    } finally {
+      setImportandoPdf(false)
+    }
+  }
   async function carregar() {
     setLoading(true)
 
@@ -1481,7 +1569,7 @@ export default function FaturasTransportadorasPage() {
 
 
           <label className="bg-orange-600 hover:bg-orange-500 px-5 py-3 rounded-xl font-bold cursor-pointer">
-            {importandoPdf ? 'Lendo PDF...' : 'Importar PDF DHL/FedEx'}
+            {importandoPdf ? 'Lendo PDF...' : 'Importar PDF FedEx'}
             <input
               type="file"
               accept="application/pdf"
@@ -1497,6 +1585,15 @@ export default function FaturasTransportadorasPage() {
           >
             Atualizar
           </button>
+
+        <button
+          type="button"
+          onClick={importarPdfDhlSeparado}
+          disabled={importandoPdf}
+          className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-black text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {importandoPdf ? 'Lendo PDF...' : 'Importar PDF DHL'}
+        </button>
         </div>
       </div>
 
