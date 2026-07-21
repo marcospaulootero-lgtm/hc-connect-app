@@ -1904,6 +1904,9 @@ export default function FaturasPage() {
     const ehFaturaImpostos = emissorTipoFatura === 'IMPOSTOS'
     const valorAnteriorCobranca = numero(financeiroAtual?.valor_cobranca)
     const valorAnteriorDocDta = numero(financeiroAtual?.doc_dta)
+
+    const totalClienteEmissorBRL = numero(totaisEmissor.totalBRL)
+    const valorCompraFinanceiroFinal = numero(financeiroAtual?.valor_compra)
     const numeroFaturaFinanceiro = ehFaturaImpostos && financeiroAtual?.fatura
       ? [financeiroAtual.fatura, emissorNumeroFatura].filter(Boolean).join(' + ')
       : emissorNumeroFatura || null
@@ -2568,7 +2571,7 @@ export default function FaturasPage() {
   function chaveServicoFatura(nome: any) {
     const base = normalizarTexto(nome)
 
-    if (base.includes('PRESTACAO DE CONTAS') || base === 'CONTAS') return 'contas'
+    if (base.includes('PRESTACAO DE CONTAS') || base === 'VALOR DE COMPRA') return 'valor_compra'
     if (base.includes('AREA REMOTA')) return 'area_remota'
     if (base.includes('MANUSEIO FORMAL')) return 'manuseio_formal'
     if (base.includes('DELIVER FEE DOC') || base.includes('DELIVERY FEE DOC')) return 'delivery_fee_doc'
@@ -2986,6 +2989,27 @@ export default function FaturasPage() {
       ? `Fatura complementar de impostos/DOC/DTA lançada em ${dataBR(new Date().toISOString())}: ${moeda(totaisEmissor.totalBRL)}.`
       : 'Fatura principal de frete/serviços emitida pelo HC Connect.'
 
+    const itensValorCompraEmissor = itensSelecionados.filter((item) => {
+      return normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
+    })
+
+    const valorCompraManualEmissor = itensValorCompraEmissor.reduce((total, item) => {
+      const valorBrl = numero(item.valor_brl)
+      const valorUsd = numero(item.valor_usd)
+
+      if (valorBrl > 0) return total + valorBrl
+      if (valorUsd > 0 && ptaxBase > 0) return total + valorUsd * ptaxBase
+
+      return total
+    }, 0)
+
+    const totalClienteEmissorBRL = Math.max(0, numero(totaisEmissor.totalBRL) - valorCompraManualEmissor)
+
+    const valorCompraFinanceiroFinal =
+      valorCompraManualEmissor > 0
+        ? Number(valorCompraManualEmissor.toFixed(2))
+        : numero(financeiroAtual?.valor_compra)
+
     const payloadBase: any = {
       cliente: emissorClienteSelecionado.nome_empresa || emissorEmbarqueSelecionado.cliente_final || emissorEmbarqueSelecionado.importador || null,
       awb: emissorEmbarqueSelecionado.awb || null,
@@ -2993,10 +3017,10 @@ export default function FaturasPage() {
       despachante: emissorDespachante || financeiroAtual?.despachante || null,
       transportadora: emissorEmbarqueSelecionado.transportadora || null,
       servico: emissorEmbarqueSelecionado.servico || null,
-      valor_cobranca: ehFaturaImpostos ? valorAnteriorCobranca + totaisEmissor.totalBRL : totaisEmissor.totalBRL,
-      doc_dta: ehFaturaImpostos ? valorAnteriorDocDta + totaisEmissor.totalBRL : valorAnteriorDocDta,
+      valor_cobranca: ehFaturaImpostos ? valorAnteriorCobranca + totalClienteEmissorBRL : totalClienteEmissorBRL,
+      doc_dta: ehFaturaImpostos ? valorAnteriorDocDta + totalClienteEmissorBRL : valorAnteriorDocDta,
       debito_terceiro: debitoTerceiroAtualizado,
-      valor_compra: numero(financeiroAtual?.valor_compra),
+      valor_compra: valorCompraFinanceiroFinal,
       vencimento_cobranca: emissorVencimento || null,
       recebimento: financeiroAtual?.recebimento || null,
       mes: mesFinanceiroDaFatura(),
@@ -4973,7 +4997,7 @@ export default function FaturasPage() {
 
 function itensPadraoFatura(): ItemFaturaServico[] {
   return [
-    { id: 'contas', descricao: 'CONTAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
     { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
     { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
     { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
