@@ -4,67 +4,158 @@ import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
-type Props = {
-  area: 'admin' | 'cliente'
+function texto(valor: any) {
+  return String(valor || '').trim()
 }
 
-export default function OnlinePresence({ area }: Props) {
-  const pathname = usePathname()
+function areaPeloPath(pathname: string) {
+  if (pathname.startsWith('/admin')) return 'admin'
+  if (pathname.startsWith('/cliente')) return 'cliente'
+  return 'portal'
+}
+
+function tipoPeloPerfilOuArea(perfil: any, area: string) {
+  const tipo = texto(perfil?.tipo_acesso || perfil?.tipo_usuario || perfil?.tipo || area).toLowerCase()
+
+  if (tipo.includes('admin')) return 'admin'
+  if (tipo.includes('cliente')) return 'cliente'
+
+  if (area === 'admin') return 'admin'
+  if (area === 'cliente') return 'cliente'
+
+  return tipo || 'cliente'
+}
+
+function nomePerfil(perfil: any, user: any) {
+  return (
+    texto(perfil?.nome) ||
+    texto(perfil?.nome_empresa) ||
+    texto(perfil?.razao_social) ||
+    texto(perfil?.empresa) ||
+    texto(user?.user_metadata?.nome) ||
+    texto(user?.email) ||
+    'Usuário'
+  )
+}
+
+async function buscarPerfil(userId: string) {
+  try {
+    const { data } = await supabase
+      .from('perfis')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle()
+
+    if (data) return data
+  } catch (error) {
+    console.warn('Presença: não conseguiu buscar perfil por id:', error)
+  }
+
+  try {
+    const { data } = await supabase
+      .from('perfis')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (data) return data
+  } catch (error) {
+    console.warn('Presença: não conseguiu buscar perfil por user_id:', error)
+  }
+
+  return null
+}
+
+async function salvarOnline(payload: any) {
+  const { error: erroUpsert } = await supabase
+    .from('usuarios_online')
+    .upsert(payload, { onConflict: 'user_id' })
+
+  if (!erroUpsert) return
+
+  console.warn('Presença: upsert falhou, tentando atualizar/inserir:', erroUpsert.message)
+
+  const { data: existente } = await supabase
+    .from('usuarios_online')
+    .select('user_id')
+    .eq('user_id', payload.user_id)
+    .maybeSingle()
+
+  if (existente) {
+    const { error } = await supabase
+      .from('usuarios_online')
+      .update(payload)
+      .eq('user_id', payload.user_id)
+
+    if (error) console.error('Presença: erro ao atualizar online:', error.message)
+
+    return
+  }
+
+  const { error } = await supabase
+    .from('usuarios_online')
+    .insert(payload)
+
+  if (error) console.error('Presença: erro ao inserir online:', error.message)
+}
+
+async function salvarHistorico(payload: any) {
+  const { error } = await supabase.from('presenca_historico').insert(payload)
+
+  if (error) {
+    console.error('Presença: erro ao salvar histórico:', error.message)
+  }
+}
+
+export default function OnlinePresence({ area: areaForcada }: { area?: string } = {}) {
+  const pathname = usePathname() || ''
 
   useEffect(() => {
     let ativo = true
-    let historicoRegistrado = false
 
-    async function atualizarPresenca() {
+    async function atualizarPresenca(acao: 'ENTRADA' | 'ATIVIDADE' | 'TROCA_PAGINA' = 'ATIVIDADE') {
       try {
         const {
           data: { user },
         } = await supabase.auth.getUser()
 
-        if (!user || !ativo) return
+        if (!ativo || !user) return
 
-        const { data: perfil } = await supabase
-          .from('perfis')
-          .select('id, nome, email, tipo_acesso, tipo_usuario, ativo')
-          .eq('id', user.id)
-          .maybeSingle()
+        const perfil = await buscarPerfil(user.id)
+        const area = areaForcada || areaPeloPath(pathname || window.location.pathname || '')
+        const tipoAcesso = tipoPeloPerfilOuArea(perfil, area)
+        const agora = new Date().toISOString()
+        const paginaAtual = pathname || window.location.pathname || '/'
+        const email = texto(perfil?.email || user.email)
+        const nome = nomePerfil(perfil, user)
 
-        if (perfil?.ativo === false) return
+        const payloadOnline = {
+          user_id: user.id,
+          nome,
+          email,
+          tipo_acesso: tipoAcesso,
+          area,
+          pagina_atual: paginaAtual,
+          ultima_atividade: agora,
+        }
 
-        const nome = perfil?.nome || user.email || 'Usuário'
-        const email = perfil?.email || user.email || ''
-        const tipoAcesso = perfil?.tipo_acesso || perfil?.tipo_usuario || area
-        const paginaAtual = pathname || '/'
+        await salvarOnline(payloadOnline)
 
-        await supabase.from('usuarios_online').upsert(
-          {
-            user_id: user.id,
-            nome,
-            email,
-            tipo_acesso: tipoAcesso,
-            area,
-            pagina_atual: paginaAtual,
-            ultima_atividade: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' }
-        )
+        const chaveSessao = `hc_presenca_${user.id}_${area}_${paginaAtual}`
 
-        if (!historicoRegistrado) {
-          historicoRegistrado = true
+        if (!sessionStorage.getItem(chaveSessao)) {
+          sessionStorage.setItem(chaveSessao, agora)
 
-          await supabase.from('presenca_historico').insert({
+          await salvarHistorico({
             usuario_id: user.id,
             nome,
             email,
             tipo_acesso: tipoAcesso,
             area,
             pagina: paginaAtual,
-            acao: 'ENTROU',
-            status: 'ATIVO',
-            metadata: {
-              user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-              origem: 'OnlinePresence',
-            },
+            acao,
+            status: 'ONLINE',
+            criado_em: agora,
           })
         }
       } catch (error) {
@@ -72,26 +163,28 @@ export default function OnlinePresence({ area }: Props) {
       }
     }
 
-    atualizarPresenca()
+    atualizarPresenca('ENTRADA')
 
-    const intervalo = setInterval(() => {
-      atualizarPresenca()
-    }, 20000)
+    const intervalo = window.setInterval(() => {
+      atualizarPresenca('ATIVIDADE')
+    }, 30000)
 
-    const aoVoltarParaAba = () => {
-      if (document.visibilityState === 'visible') {
-        atualizarPresenca()
-      }
+    const aoFocar = () => atualizarPresenca('ATIVIDADE')
+
+    const aoVoltarParaTela = () => {
+      if (!document.hidden) atualizarPresenca('ATIVIDADE')
     }
 
-    document.addEventListener('visibilitychange', aoVoltarParaAba)
+    window.addEventListener('focus', aoFocar)
+    document.addEventListener('visibilitychange', aoVoltarParaTela)
 
     return () => {
       ativo = false
-      clearInterval(intervalo)
-      document.removeEventListener('visibilitychange', aoVoltarParaAba)
+      window.clearInterval(intervalo)
+      window.removeEventListener('focus', aoFocar)
+      document.removeEventListener('visibilitychange', aoVoltarParaTela)
     }
-  }, [pathname, area])
+  }, [pathname, areaForcada])
 
   return null
 }
