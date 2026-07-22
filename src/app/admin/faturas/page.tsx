@@ -1996,6 +1996,23 @@ export default function FaturasPage() {
     setEmitindoRecibo(true)
 
     try {
+      const itensClientePdf = itensSelecionadosFatura().filter((item) => {
+        return !normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
+      })
+
+      const totalClientePdfUSD = itensClientePdf.reduce((total, item) => {
+        return total + numero(item.valor_usd)
+      }, 0)
+
+      const totalClientePdfBRL = itensClientePdf.reduce((total, item) => {
+        return total + numero(item.valor_brl)
+      }, 0)
+
+      if (itensClientePdf.length === 0 || totalClientePdfBRL <= 0) {
+        alert('Selecione pelo menos um serviço cobrado do cliente. VALOR DE COMPRA é interno e não aparece na fatura.')
+        return
+      }
+
       const jsPDFModule = await import('jspdf')
       const jsPDF = (jsPDFModule as any).jsPDF || (jsPDFModule as any).default
 
@@ -3122,7 +3139,24 @@ export default function FaturasPage() {
       }
 
       const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
-      const qrPixBase64 = await gerarQrCodePixBase64(totaisEmissor.totalBRL, emissorNumeroFatura)
+      const itensClientePdf = itensSelecionadosFatura().filter((item) => {
+        return !normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
+      })
+
+      const totalClientePdfUSD = itensClientePdf.reduce((total, item) => {
+        return total + numero(item.valor_usd)
+      }, 0)
+
+      const totalClientePdfBRL = itensClientePdf.reduce((total, item) => {
+        return total + numero(item.valor_brl)
+      }, 0)
+
+      if (itensClientePdf.length === 0 || totalClientePdfBRL <= 0) {
+        alert('Selecione pelo menos um serviço cobrado do cliente. VALOR DE COMPRA é interno e não aparece na fatura.')
+        return
+      }
+
+      const qrPixBase64 = await gerarQrCodePixBase64(totalClientePdfBRL, emissorNumeroFatura)
 
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 32
@@ -3366,16 +3400,16 @@ export default function FaturasPage() {
         observacoes: emissorObservacoes || null,
         cliente_faturamento_id: emissorClienteSelecionado.id,
         dados_cliente_faturamento: dadosCliente,
-        itens_fatura: itensSelecionadosFatura(),
-        valor_total: totaisEmissor.totalBRL,
-        valor_usd: totaisEmissor.totalUSD,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
         taxa_conversao: taxaConversaoFinal(),
         spread: numero(emissorSpread),
         vencimento: emissorVencimento || null,
         tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
         fatura_complementar: ehFaturaImpostos,
         fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
-        valor_impostos: ehFaturaImpostos ? totaisEmissor.totalBRL : 0,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
       }
 
       if (ehFaturaImpostos && faturaPrincipal?.id) {
