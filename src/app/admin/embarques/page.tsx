@@ -66,6 +66,7 @@ export default function EmbarquesPage() {
   const [arquivandoLote, setArquivandoLote] = useState(false)
   const [abaTela, setAbaTela] = useState<'CADASTRO' | 'LISTAGEM'>('LISTAGEM')
   const [filtroDashboard, setFiltroDashboard] = useState('')
+  const [buscaClientesVinculadosCadastro, setBuscaClientesVinculadosCadastro] = useState('')
 
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
   const [usuariosVinculo, setUsuariosVinculo] = useState<string[]>([])
@@ -546,6 +547,67 @@ export default function EmbarquesPage() {
     return antigo?.nome || antigo?.email || 'Não vinculado'
   }
 
+  function textoBuscaUsuarioVinculo(usuario: any) {
+    return String(
+      [
+        usuario?.nome,
+        usuario?.email,
+        usuario?.nome_empresa,
+        usuario?.razao_social,
+        usuario?.empresa,
+        usuario?.cnpj,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    )
+      .toLowerCase()
+      .trim()
+  }
+
+  function nomeUsuarioVinculo(usuario: any) {
+    return String(
+      usuario?.nome ||
+        usuario?.nome_empresa ||
+        usuario?.razao_social ||
+        usuario?.empresa ||
+        usuario?.email ||
+        'Cliente sem nome'
+    ).trim()
+  }
+
+  function usuariosFiltradosCadastro() {
+    const termo = buscaClientesVinculadosCadastro.toLowerCase().trim()
+    const selecionados = new Set((form.usuarios_ids || []).map(String))
+
+    return usuarios
+      .filter((usuario: any) => !selecionados.has(String(usuario.id)))
+      .filter((usuario: any) => {
+        if (!termo) return true
+        return textoBuscaUsuarioVinculo(usuario).includes(termo)
+      })
+      .slice(0, 50)
+  }
+
+  function adicionarClienteVinculadoCadastro(clienteId: string) {
+    const id = String(clienteId || '').trim()
+    if (!id) return
+
+    setForm((atual: any) => ({
+      ...atual,
+      usuarios_ids: Array.from(new Set([...(atual.usuarios_ids || []), id])),
+    }))
+
+    setBuscaClientesVinculadosCadastro('')
+  }
+
+  function removerClienteVinculadoCadastro(clienteId: string) {
+    const id = String(clienteId || '').trim()
+
+    setForm((atual: any) => ({
+      ...atual,
+      usuarios_ids: (atual.usuarios_ids || []).filter((item: string) => String(item) !== id),
+    }))
+  }
   function alterarSelecaoCliente(id: string, marcado: boolean) {
     setForm((atual) => ({
       ...atual,
@@ -1356,17 +1418,55 @@ export default function EmbarquesPage() {
               Clientes vinculados
             </label>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[180px] overflow-auto">
-              {usuarios.map((usuario) => (
-                <label key={usuario.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.usuarios_ids.includes(usuario.id)}
-                    onChange={(e) => alterarSelecaoCliente(usuario.id, e.target.checked)}
-                  />
-                  {usuario.nome || usuario.email}
-                </label>
+            <input
+              value={buscaClientesVinculadosCadastro}
+              onChange={(e) => setBuscaClientesVinculadosCadastro(e.target.value)}
+              placeholder="Pesquisar cliente por nome, empresa ou e-mail"
+              className="mb-3 w-full rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold text-white placeholder:text-slate-500"
+            />
+
+            <select
+              value=""
+              onChange={(e) => adicionarClienteVinculadoCadastro(e.target.value)}
+              className="w-full rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold text-white"
+            >
+              <option value="">Selecione um cliente para vincular</option>
+              {usuariosFiltradosCadastro().map((usuario: any) => (
+                <option key={usuario.id} value={usuario.id}>
+                  {nomeUsuarioVinculo(usuario)}
+                  {usuario.email ? ' - ' + usuario.email : ''}
+                </option>
               ))}
+            </select>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(form.usuarios_ids || []).map((clienteId: string) => {
+                const usuario = usuarios.find((item: any) => String(item.id) === String(clienteId))
+
+                if (!usuario) return null
+
+                return (
+                  <span
+                    key={clienteId}
+                    className="inline-flex items-center gap-2 rounded-full border border-blue-500/50 bg-blue-600/20 px-3 py-1 text-xs font-black text-blue-100"
+                  >
+                    {nomeUsuarioVinculo(usuario)}
+                    <button
+                      type="button"
+                      onClick={() => removerClienteVinculadoCadastro(clienteId)}
+                      className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black text-white hover:bg-red-500"
+                    >
+                      remover
+                    </button>
+                  </span>
+                )
+              })}
+
+              {(form.usuarios_ids || []).length === 0 && (
+                <span className="text-xs font-bold text-slate-500">
+                  Nenhum cliente vinculado. O embarque pode ser salvo mesmo assim.
+                </span>
+              )}
             </div>
           </div>
 
