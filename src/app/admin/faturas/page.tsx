@@ -1996,23 +1996,6 @@ export default function FaturasPage() {
     setEmitindoRecibo(true)
 
     try {
-      const itensClientePdf = itensSelecionadosFatura().filter((item) => {
-        return !normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
-      })
-
-      const totalClientePdfUSD = itensClientePdf.reduce((total, item) => {
-        return total + numero(item.valor_usd)
-      }, 0)
-
-      const totalClientePdfBRL = itensClientePdf.reduce((total, item) => {
-        return total + numero(item.valor_brl)
-      }, 0)
-
-      if (itensClientePdf.length === 0 || totalClientePdfBRL <= 0) {
-        alert('Selecione pelo menos um serviço cobrado do cliente. VALOR DE COMPRA é interno e não aparece na fatura.')
-        return
-      }
-
       const jsPDFModule = await import('jspdf')
       const jsPDF = (jsPDFModule as any).jsPDF || (jsPDFModule as any).default
 
