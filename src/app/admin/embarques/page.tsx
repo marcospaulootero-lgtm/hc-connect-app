@@ -52,6 +52,11 @@ export default function EmbarquesPage() {
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [admins, setAdmins] = useState<any[]>([])
   const [vinculos, setVinculos] = useState<any[]>([])
+  const [clientesFaturamento, setClientesFaturamento] = useState<any[]>([])
+  const [clienteExportadorId, setClienteExportadorId] = useState('')
+  const [clienteImportadorId, setClienteImportadorId] = useState('')
+  const [editClienteExportadorId, setEditClienteExportadorId] = useState('')
+  const [editClienteImportadorId, setEditClienteImportadorId] = useState('')
 
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
@@ -105,8 +110,137 @@ export default function EmbarquesPage() {
     carregar()
     carregarUsuarios()
     carregarAdmins()
+    carregarClientesFaturamento()
   }, [])
 
+
+  async function carregarClientesFaturamento() {
+    const { data, error } = await supabase
+      .from('clientes_faturamento')
+      .select('*')
+
+    if (error) {
+      console.error('Erro ao carregar Clientes Faturamento:', error)
+      return
+    }
+
+    const lista = [...(data || [])].sort((a: any, b: any) => {
+      return textoClienteFaturamento(a).localeCompare(textoClienteFaturamento(b), 'pt-BR')
+    })
+
+    setClientesFaturamento(lista)
+  }
+
+  function textoClienteFaturamento(cliente: any) {
+    return String(
+      cliente?.nome_empresa ||
+        cliente?.razao_social ||
+        cliente?.nome_fantasia ||
+        cliente?.nome ||
+        cliente?.empresa ||
+        cliente?.email ||
+        cliente?.cnpj ||
+        ''
+    ).trim()
+  }
+
+  function documentoClienteFaturamento(cliente: any) {
+    return String(cliente?.cnpj || cliente?.cpf || cliente?.documento || '').trim()
+  }
+
+  function emailClienteFaturamento(cliente: any) {
+    return String(cliente?.email || cliente?.email_financeiro || cliente?.email_cobranca || '').trim()
+  }
+
+  function cidadeUfClienteFaturamento(cliente: any) {
+    const cidade = String(cliente?.cidade || cliente?.municipio || '').trim()
+    const estado = String(cliente?.estado || cliente?.uf || '').trim()
+    return [cidade, estado].filter(Boolean).join(' / ')
+  }
+
+  function enderecoClienteFaturamento(cliente: any) {
+    return [
+      cliente?.endereco,
+      cliente?.numero,
+      cliente?.complemento,
+      cliente?.bairro,
+      cidadeUfClienteFaturamento(cliente),
+      cliente?.cep,
+    ]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .join(' - ')
+  }
+
+  function observacaoClienteFaturamento(tipo: 'Exportador' | 'Importador', cliente: any) {
+    const linhas = [
+      tipo + ' selecionado da base Clientes Faturamento:',
+      textoClienteFaturamento(cliente) ? 'Nome/Razão: ' + textoClienteFaturamento(cliente) : '',
+      documentoClienteFaturamento(cliente) ? 'Documento: ' + documentoClienteFaturamento(cliente) : '',
+      emailClienteFaturamento(cliente) ? 'E-mail: ' + emailClienteFaturamento(cliente) : '',
+      enderecoClienteFaturamento(cliente) ? 'Endereço: ' + enderecoClienteFaturamento(cliente) : '',
+    ].filter(Boolean)
+
+    return linhas.join('\n')
+  }
+
+  function juntarObservacoesClienteFaturamento(observacoesAtuais: string, tipo: 'Exportador' | 'Importador', cliente: any) {
+    const atual = String(observacoesAtuais || '').trim()
+    const nova = observacaoClienteFaturamento(tipo, cliente)
+
+    if (!nova) return atual
+    if (atual.includes(nova)) return atual
+
+    return [atual, nova].filter(Boolean).join('\n\n')
+  }
+
+  function aplicarClienteFaturamentoNoFormulario(
+    destino: 'exportador' | 'importador',
+    clienteId: string,
+    modo: 'cadastro' | 'edicao'
+  ) {
+    const cliente = clientesFaturamento.find((item: any) => String(item.id) === String(clienteId))
+    const nome = textoClienteFaturamento(cliente)
+    const cidadeUf = cidadeUfClienteFaturamento(cliente)
+
+    if (modo === 'cadastro') {
+      if (destino === 'exportador') setClienteExportadorId(clienteId)
+      if (destino === 'importador') setClienteImportadorId(clienteId)
+
+      if (!cliente) return
+
+      setForm((atual: any) => ({
+        ...atual,
+        [destino]: nome || atual[destino],
+        ...(destino === 'exportador' && cidadeUf ? { origem: atual.origem || cidadeUf } : {}),
+        ...(destino === 'importador' && cidadeUf ? { destino: atual.destino || cidadeUf } : {}),
+        observacoes: juntarObservacoesClienteFaturamento(
+          atual.observacoes,
+          destino === 'exportador' ? 'Exportador' : 'Importador',
+          cliente
+        ),
+      }))
+
+      return
+    }
+
+    if (destino === 'exportador') setEditClienteExportadorId(clienteId)
+    if (destino === 'importador') setEditClienteImportadorId(clienteId)
+
+    if (!cliente) return
+
+    setEditForm((atual: any) => ({
+      ...atual,
+      [destino]: nome || atual[destino],
+      ...(destino === 'exportador' && cidadeUf ? { origem: atual.origem || cidadeUf } : {}),
+      ...(destino === 'importador' && cidadeUf ? { destino: atual.destino || cidadeUf } : {}),
+      observacoes: juntarObservacoesClienteFaturamento(
+        atual.observacoes,
+        destino === 'exportador' ? 'Exportador' : 'Importador',
+        cliente
+      ),
+    }))
+  }
 
   function aplicarFiltrosDaDashboard() {
     if (typeof window === 'undefined') return
@@ -594,6 +728,8 @@ export default function EmbarquesPage() {
       }
 
       setForm(formInicial)
+      setClienteExportadorId('')
+      setClienteImportadorId('')
       setConhecimentoEmbarque(null)
       setAbaTela('LISTAGEM')
       carregar()
@@ -604,6 +740,8 @@ export default function EmbarquesPage() {
 
   function abrirEdicao(item: any) {
     setEditandoId(item.id)
+    setEditClienteExportadorId('')
+    setEditClienteImportadorId('')
     setEditForm({
       responsavel_id: item.responsavel_id || '',
       exportador: item.exportador || '',
@@ -1249,11 +1387,43 @@ export default function EmbarquesPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
           <Campo label="Exportador">
-            <input value={form.exportador} onChange={(e) => setForm({ ...form, exportador: e.target.value })} />
+            <select
+              value={clienteExportadorId}
+              onChange={(e) => aplicarClienteFaturamentoNoFormulario('exportador', e.target.value, 'cadastro')}
+            >
+              <option value="">Digitar novo / não usar cliente salvo</option>
+              {clientesFaturamento.map((cliente: any) => (
+                <option key={cliente.id} value={cliente.id}>
+                  {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
+                  {documentoClienteFaturamento(cliente) ? ' - ' + documentoClienteFaturamento(cliente) : ''}
+                </option>
+              ))}
+            </select>
+            <input
+              value={form.exportador}
+              onChange={(e) => setForm({ ...form, exportador: e.target.value })}
+              placeholder="Digite o exportador ou selecione acima"
+            />
           </Campo>
 
           <Campo label="Importador">
-            <input value={form.importador} onChange={(e) => setForm({ ...form, importador: e.target.value })} />
+            <select
+              value={clienteImportadorId}
+              onChange={(e) => aplicarClienteFaturamentoNoFormulario('importador', e.target.value, 'cadastro')}
+            >
+              <option value="">Digitar novo / não usar cliente salvo</option>
+              {clientesFaturamento.map((cliente: any) => (
+                <option key={cliente.id} value={cliente.id}>
+                  {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
+                  {documentoClienteFaturamento(cliente) ? ' - ' + documentoClienteFaturamento(cliente) : ''}
+                </option>
+              ))}
+            </select>
+            <input
+              value={form.importador}
+              onChange={(e) => setForm({ ...form, importador: e.target.value })}
+              placeholder="Digite o importador ou selecione acima"
+            />
           </Campo>
 
           <Campo label="Referência cliente">
@@ -1729,11 +1899,43 @@ export default function EmbarquesPage() {
                     </Campo>
 
                     <Campo label="Exportador">
-                      <input value={editForm.exportador} onChange={(e) => setEditForm({ ...editForm, exportador: e.target.value })} />
+                      <select
+                        value={editClienteExportadorId}
+                        onChange={(e) => aplicarClienteFaturamentoNoFormulario('exportador', e.target.value, 'edicao')}
+                      >
+                        <option value="">Digitar novo / não usar cliente salvo</option>
+                        {clientesFaturamento.map((cliente: any) => (
+                          <option key={cliente.id} value={cliente.id}>
+                            {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
+                            {documentoClienteFaturamento(cliente) ? ' - ' + documentoClienteFaturamento(cliente) : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={editForm.exportador}
+                        onChange={(e) => setEditForm({ ...editForm, exportador: e.target.value })}
+                        placeholder="Digite o exportador ou selecione acima"
+                      />
                     </Campo>
 
                     <Campo label="Importador">
-                      <input value={editForm.importador} onChange={(e) => setEditForm({ ...editForm, importador: e.target.value })} />
+                      <select
+                        value={editClienteImportadorId}
+                        onChange={(e) => aplicarClienteFaturamentoNoFormulario('importador', e.target.value, 'edicao')}
+                      >
+                        <option value="">Digitar novo / não usar cliente salvo</option>
+                        {clientesFaturamento.map((cliente: any) => (
+                          <option key={cliente.id} value={cliente.id}>
+                            {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
+                            {documentoClienteFaturamento(cliente) ? ' - ' + documentoClienteFaturamento(cliente) : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={editForm.importador}
+                        onChange={(e) => setEditForm({ ...editForm, importador: e.target.value })}
+                        placeholder="Digite o importador ou selecione acima"
+                      />
                     </Campo>
 
                     <Campo label="Referência cliente">
