@@ -43,6 +43,24 @@ function modeloEmail(tipo: string) {
       descricao: 'Uma nova fatura foi disponibilizada para consulta no Portal HC Connect.',
       botao: 'Ver fatura',
     },
+    BOLETO_DISPONIVEL: {
+      assunto: 'Boleto disponível para pagamento - HC Connect',
+      titulo: 'Boleto disponível',
+      descricao: 'O boleto da sua fatura foi disponibilizado no Portal HC Connect.',
+      botao: 'Ver boleto',
+    },
+    RECIBO_DISPONIVEL: {
+      assunto: 'Recibo disponível no Portal HC Connect',
+      titulo: 'Recibo disponível',
+      descricao: 'O recibo do pagamento foi disponibilizado no Portal HC Connect.',
+      botao: 'Ver recibo',
+    },
+    FATURA_VENCIDA: {
+      assunto: 'Fatura vencida - HC Connect',
+      titulo: 'Fatura vencida',
+      descricao: 'Identificamos uma fatura vencida em aberto no Portal HC Connect.',
+      botao: 'Ver fatura',
+    },
     DOCUMENTO_DISPONIVEL: {
       assunto: 'Novo documento disponível no Portal HC Connect',
       titulo: 'Novo documento disponível',
