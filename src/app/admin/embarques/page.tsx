@@ -1409,10 +1409,23 @@ export default function EmbarquesPage() {
       </section>
 
       {abaTela === 'CADASTRO' && (
-      <section className="border border-blue-800 rounded-3xl p-7 bg-[#071225] mb-8">
+      <section className="form-embarque-cadastro border border-blue-800 rounded-3xl p-7 bg-[#071225] mb-8">
+        <style jsx>{`
+          .form-embarque-cadastro :global(input:not([type="checkbox"])),
+          .form-embarque-cadastro :global(select),
+          .form-embarque-cadastro :global(textarea) {
+            width: 100%;
+            min-width: 0;
+          }
+
+          .form-embarque-cadastro :global(textarea) {
+            min-height: 96px;
+          }
+        `}</style>
+
         <h2 className="text-2xl font-black mb-7">Cadastrar novo embarque</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,720px)_280px] gap-5 mb-6 items-start">
           <div className="border border-slate-700 rounded-2xl p-4">
             <label className="block text-slate-300 font-bold mb-3">
               Clientes vinculados
@@ -1485,13 +1498,13 @@ export default function EmbarquesPage() {
           </Campo>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 items-start">
           <Campo label="Exportador">
             <select
               value={clienteExportadorId}
               onChange={(e) => aplicarClienteFaturamentoNoFormulario('exportador', e.target.value, 'cadastro')}
             >
-              <option value="">Digitar novo / não usar cliente salvo</option>
+              <option value="">Digitar manualmente</option>
               {clientesFaturamento.map((cliente: any) => (
                 <option key={cliente.id} value={cliente.id}>
                   {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
@@ -1499,6 +1512,7 @@ export default function EmbarquesPage() {
                 </option>
               ))}
             </select>
+
             <input
               value={form.exportador}
               onChange={(e) => setForm({ ...form, exportador: e.target.value })}
@@ -1511,7 +1525,7 @@ export default function EmbarquesPage() {
               value={clienteImportadorId}
               onChange={(e) => aplicarClienteFaturamentoNoFormulario('importador', e.target.value, 'cadastro')}
             >
-              <option value="">Digitar novo / não usar cliente salvo</option>
+              <option value="">Digitar manualmente</option>
               {clientesFaturamento.map((cliente: any) => (
                 <option key={cliente.id} value={cliente.id}>
                   {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
@@ -1519,6 +1533,7 @@ export default function EmbarquesPage() {
                 </option>
               ))}
             </select>
+
             <input
               value={form.importador}
               onChange={(e) => setForm({ ...form, importador: e.target.value })}
@@ -2003,7 +2018,7 @@ export default function EmbarquesPage() {
                         value={editClienteExportadorId}
                         onChange={(e) => aplicarClienteFaturamentoNoFormulario('exportador', e.target.value, 'edicao')}
                       >
-                        <option value="">Digitar novo / não usar cliente salvo</option>
+                        <option value="">Digitar manualmente</option>
                         {clientesFaturamento.map((cliente: any) => (
                           <option key={cliente.id} value={cliente.id}>
                             {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
@@ -2011,6 +2026,7 @@ export default function EmbarquesPage() {
                           </option>
                         ))}
                       </select>
+
                       <input
                         value={editForm.exportador}
                         onChange={(e) => setEditForm({ ...editForm, exportador: e.target.value })}
@@ -2023,7 +2039,7 @@ export default function EmbarquesPage() {
                         value={editClienteImportadorId}
                         onChange={(e) => aplicarClienteFaturamentoNoFormulario('importador', e.target.value, 'edicao')}
                       >
-                        <option value="">Digitar novo / não usar cliente salvo</option>
+                        <option value="">Digitar manualmente</option>
                         {clientesFaturamento.map((cliente: any) => (
                           <option key={cliente.id} value={cliente.id}>
                             {textoClienteFaturamento(cliente) || 'Cliente sem nome'}
@@ -2031,6 +2047,7 @@ export default function EmbarquesPage() {
                           </option>
                         ))}
                       </select>
+
                       <input
                         value={editForm.importador}
                         onChange={(e) => setEditForm({ ...editForm, importador: e.target.value })}
