@@ -744,6 +744,126 @@ export default function FaturasPage() {
     )
   }
 
+  async function buscarPerfilClienteNotificacao(usuarioId?: string | null) {
+    const id = String(usuarioId || '').trim()
+    if (!id) return null
+
+    try {
+      const { data } = await supabase
+        .from('perfis')
+        .select('id, nome, email, nome_empresa, razao_social')
+        .eq('id', id)
+        .maybeSingle()
+
+      if (data?.email) return data
+    } catch (error) {
+      console.warn('Não foi possível buscar perfil por id:', error)
+    }
+
+    try {
+      const { data } = await supabase
+        .from('perfis')
+        .select('id, user_id, nome, email, nome_empresa, razao_social')
+        .eq('user_id', id)
+        .maybeSingle()
+
+      if (data?.email) return data
+    } catch (error) {
+      console.warn('Não foi possível buscar perfil por user_id:', error)
+    }
+
+    return null
+  }
+
+  async function enviarEmailClienteFatura(params: {
+    tipo: string
+    fatura: any
+    embarque?: any
+    mensagem?: string
+    dados?: Record<string, any>
+  }) {
+    try {
+      const faturaBase = params.fatura || {}
+      const tipoEmail = String(params.tipo || '').trim()
+
+      if (!tipoEmail) return
+
+      if (tipoEmail !== 'FATURA_VENCIDA' && faturaBase.visivel_cliente === false) {
+        console.warn('E-mail não enviado: fatura/documento não está visível para o cliente.')
+        return
+      }
+
+      const embarqueBase =
+        params.embarque ||
+        embarques.find((embarque: any) => {
+          return String(embarque.id) === String(faturaBase.embarque_id)
+        })
+
+      const perfil = await buscarPerfilClienteNotificacao(faturaBase.usuario_id || embarqueBase?.usuario_id)
+
+      const emailCliente = String(
+        faturaBase.email_cliente ||
+          faturaBase.cliente_email ||
+          faturaBase.email ||
+          perfil?.email ||
+          ''
+      )
+        .trim()
+        .toLowerCase()
+
+      if (!emailCliente) {
+        console.warn('E-mail não enviado: cliente sem e-mail vinculado.', {
+          fatura_id: faturaBase.id,
+          usuario_id: faturaBase.usuario_id,
+          embarque_id: faturaBase.embarque_id,
+        })
+        return
+      }
+
+      const nomeCliente =
+        perfil?.nome ||
+        perfil?.nome_empresa ||
+        perfil?.razao_social ||
+        faturaBase.cliente_nome ||
+        faturaBase.nome_cliente ||
+        emailCliente
+
+      const resposta = await fetch('/api/email-cliente-notificacao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo: tipoEmail,
+          email: emailCliente,
+          nome: nomeCliente,
+          awb: embarqueBase?.awb || faturaBase.awb || '',
+          referencia:
+            embarqueBase?.referencia_cliente ||
+            embarqueBase?.referencia_hc ||
+            faturaBase.numero_fatura ||
+            '',
+          referencia_tipo: 'faturas',
+          referencia_id: faturaBase.id || faturaBase.embarque_id || '',
+          link: `${window.location.origin}/cliente/faturas`,
+          mensagem: params.mensagem || '',
+          dados: {
+            Fatura: faturaBase.numero_fatura || '-',
+            AWB: embarqueBase?.awb || '-',
+            Vencimento: dataBR(normalizarData(faturaBase.vencimento) || normalizarData(faturaBase.vencimento_cobranca)),
+            Valor: numero(faturaBase.valor_total) > 0 ? moeda(faturaBase.valor_total) : '',
+            ...(params.dados || {}),
+          },
+        }),
+      })
+
+      if (!resposta.ok) {
+        const textoErro = await resposta.text()
+        console.warn('E-mail de fatura não enviado:', textoErro)
+      }
+    } catch (error) {
+      console.warn('Falha ao enviar e-mail de fatura ao cliente:', error)
+    }
+  }
+
   function vencimentoFinanceiro(item?: FinanceiroProcesso | null) {
     if (!item) return null
 
@@ -1176,6 +1296,16 @@ export default function FaturasPage() {
       if (error) {
         throw new Error(`${error.message}. Rode o SQL da tabela fatura_arquivos antes de anexar boleto ou complementar.`)
       }
+
+      await enviarEmailClienteFatura({
+        tipo: normalizarTexto(tipo).includes('BOLETO') ? 'BOLETO_DISPONIVEL' : 'DOCUMENTO_DISPONIVEL',
+        fatura,
+        mensagem: `${labelTipoArquivoFatura(tipo)} disponível no Portal HC Connect.`,
+        dados: {
+          Documento: labelTipoArquivoFatura(tipo),
+          Arquivo: arquivo.name,
+        },
+      })
 
       alert(`${labelTipoArquivoFatura(tipo)} anexado com sucesso.`)
       carregar()
@@ -2202,6 +2332,18 @@ export default function FaturasPage() {
       if (erroFatura) throw new Error(erroFatura.message)
 
       await salvarFinanceiroDoRecibo(reciboSelecionado, fatura, urlRecibo)
+
+      await enviarEmailClienteFatura({
+        tipo: 'RECIBO_DISPONIVEL',
+        fatura,
+        embarque: reciboSelecionado,
+        mensagem: 'Recibo emitido e disponível no Portal HC Connect.',
+        dados: {
+          Documento: 'Recibo',
+          Recebimento: dataBR(dataRecebimento),
+          Valor: moeda(valorPago),
+        },
+      })
 
       const desejaArquivar = confirm(
         `Recibo emitido com sucesso, PDF aberto em nova aba e pagamento registrado em Processos Faturados.\n\n` +
@@ -3421,6 +3563,17 @@ export default function FaturasPage() {
 
       await garantirLoginVinculadoAoEmbarque()
       await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
 
       const mensagemSucesso = ehFaturaImpostos
         ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
