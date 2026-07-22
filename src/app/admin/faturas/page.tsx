@@ -3147,10 +3147,7 @@ export default function FaturasPage() {
 
     const totalClienteEmissorBRL = Math.max(0, numero(totaisEmissor.totalBRL) - valorCompraManualEmissor)
 
-    const valorCompraFinanceiroFinal =
-      valorCompraManualEmissor > 0
-        ? Number(valorCompraManualEmissor.toFixed(2))
-        : numero(financeiroAtual?.valor_compra)
+    const valorCompraFinanceiroFinal = numero(financeiroAtual?.valor_compra)
 
     const payloadBase: any = {
       cliente: emissorClienteSelecionado.nome_empresa || emissorEmbarqueSelecionado.cliente_final || emissorEmbarqueSelecionado.importador || null,
