@@ -3,6 +3,10 @@
     {
       "path": "/api/rastreio-automatico",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/notificacoes/faturas-vencidas",
+      "schedule": "0 12 * * *"
     }
   ]
 }
