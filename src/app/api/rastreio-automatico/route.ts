@@ -38,6 +38,25 @@ const STATUS_PRIORIDADE: Record<string, number> = {
   Entregue: 5,
 }
 
+const MAX_DHL_POR_EXECUCAO = Number(process.env.DHL_RASTREIO_MAX_POR_EXECUCAO || 5)
+const DELAY_DHL_MS = Number(process.env.DHL_RASTREIO_DELAY_MS || 1800)
+
+function aguardar(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function ehRateLimitDHL(mensagem: any) {
+  const texto = String(mensagem || '').toLowerCase()
+
+  return (
+    texto.includes('429') ||
+    texto.includes('too many requests') ||
+    texto.includes('many requests') ||
+    texto.includes('rate limit') ||
+    texto.includes('defined time period')
+  )
+}
+
 export async function GET(req: Request) {
   try {
     const cronSecret = process.env.CRON_SECRET
@@ -65,6 +84,8 @@ export async function GET(req: Request) {
     }
 
     const resultados: any[] = []
+    let dhlBloqueadoNestaExecucao = false
+    let totalDhlConsultadoNestaExecucao = 0
 
     for (const embarque of embarques || []) {
       if (
@@ -100,6 +121,34 @@ export async function GET(req: Request) {
         }
 
         if (identificacao.transportadora === 'DHL') {
+          if (dhlBloqueadoNestaExecucao) {
+            resultados.push({
+              id: embarque.id,
+              awb: identificacao.awb || embarque.awb || '-',
+              transportadora: 'DHL',
+              sucesso: false,
+              erro: 'DHL pausado nesta execução por limite de requisições. O sistema tentará novamente na próxima rodada.',
+            })
+            continue
+          }
+
+          if (totalDhlConsultadoNestaExecucao >= MAX_DHL_POR_EXECUCAO) {
+            resultados.push({
+              id: embarque.id,
+              awb: identificacao.awb || embarque.awb || '-',
+              transportadora: 'DHL',
+              sucesso: false,
+              erro: `DHL limitado a ${MAX_DHL_POR_EXECUCAO} consulta(s) por execução para evitar bloqueio da API.`,
+            })
+            continue
+          }
+
+          if (totalDhlConsultadoNestaExecucao > 0 && DELAY_DHL_MS > 0) {
+            await aguardar(DELAY_DHL_MS)
+          }
+
+          totalDhlConsultadoNestaExecucao++
+
           const resultado = await rastrearDHL(embarque, identificacao.awb, identificacao.aviso)
           resultados.push(resultado)
           continue
@@ -122,8 +171,12 @@ export async function GET(req: Request) {
       } catch (erro: any) {
         const mensagemErro = erro?.message || String(erro)
 
-        if (mensagemErro.includes('429') || mensagemErro.includes('Too Many Requests')) {
+        if (ehRateLimitDHL(mensagemErro)) {
           const proximaTentativa = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString()
+
+          if (String(embarque.transportadora || '').toUpperCase().includes('DHL')) {
+            dhlBloqueadoNestaExecucao = true
+          }
 
           await supabase
             .from('embarques')
@@ -214,7 +267,15 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
     cache: 'no-store',
   })
 
-  const data = await response.json()
+  const textoResposta = await response.text()
+
+  let data: any = {}
+
+  try {
+    data = textoResposta ? JSON.parse(textoResposta) : {}
+  } catch {
+    data = { message: textoResposta }
+  }
 
   if (!response.ok) {
     throw new Error(`Erro DHL: ${extrairErroApi(data)}`)
