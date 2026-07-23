@@ -3118,7 +3118,10 @@ export default function FinanceiroPage() {
           entrada: Number(item.valor_cobranca || 0),
           saida: 0,
           profit,
-          terceiros: Number(item.debito_terceiro || 0),
+          terceiros:
+            String(item.pgta_terceiros || '').trim().toUpperCase() === 'PAGO'
+              ? 0
+              : Number(item.debito_terceiro || 0),
           custosProtegidos: Number(item.doc_dta || 0) + Number(item.valor_compra || 0),
           status: statusCobranca(item),
           forma_pagamento: '',
