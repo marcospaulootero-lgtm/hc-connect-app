@@ -2893,11 +2893,116 @@ export default function FaturasPage() {
     }
   }
 
+  function chaveClienteFaturamentoEmbarque(valor: any) {
+    return String(valor || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+  }
+
+  function localizarClienteFaturamentoDoEmbarque(embarque: any) {
+    if (!embarque) return null
+
+    const idsPossiveis = [
+      embarque.cliente_faturamento_id,
+      embarque.importador_cliente_faturamento_id,
+      embarque.exportador_cliente_faturamento_id,
+    ]
+      .map((valor: any) => String(valor || '').trim())
+      .filter(Boolean)
+
+    for (const id of idsPossiveis) {
+      const clientePorId = clientesFaturamento.find(
+        (cliente: any) => String(cliente.id) === id
+      )
+
+      if (clientePorId) return clientePorId
+    }
+
+    const nomesEmbarque = [
+      embarque.cliente_final,
+      embarque.importador,
+      embarque.exportador,
+    ]
+      .map(chaveClienteFaturamentoEmbarque)
+      .filter(Boolean)
+
+    if (nomesEmbarque.length === 0) return null
+
+    const candidatosExatos = clientesFaturamento.filter((cliente: any) => {
+      const nomesCliente = [
+        cliente.nome_empresa,
+        cliente.razao_social,
+        cliente.nome_fantasia,
+        cliente.nome,
+      ]
+        .map(chaveClienteFaturamentoEmbarque)
+        .filter(Boolean)
+
+      return nomesEmbarque.some((nomeEmbarque) =>
+        nomesCliente.includes(nomeEmbarque)
+      )
+    })
+
+    if (candidatosExatos.length === 1) {
+      return candidatosExatos[0]
+    }
+
+    const candidatosAproximados = clientesFaturamento.filter((cliente: any) => {
+      const nomesCliente = [
+        cliente.nome_empresa,
+        cliente.razao_social,
+        cliente.nome_fantasia,
+        cliente.nome,
+      ]
+        .map(chaveClienteFaturamentoEmbarque)
+        .filter(Boolean)
+
+      return nomesEmbarque.some((nomeEmbarque) =>
+        nomesCliente.some((nomeCliente) => {
+          if (nomeEmbarque.length < 8 || nomeCliente.length < 8) return false
+
+          return (
+            nomeCliente.includes(nomeEmbarque) ||
+            nomeEmbarque.includes(nomeCliente)
+          )
+        })
+      )
+    })
+
+    return candidatosAproximados.length === 1
+      ? candidatosAproximados[0]
+      : null
+  }
+
   function selecionarEmbarqueEmissor(embarqueId: string) {
     setEmissorEmbarqueId(embarqueId)
 
     const embarque = embarques.find((item) => item.id === embarqueId) || null
     if (!embarque) return
+
+    const nomeBuscaCliente = String(
+      embarque.cliente_final ||
+        embarque.importador ||
+        embarque.exportador ||
+        ''
+    ).trim()
+
+    const clienteFaturamentoAutomatico =
+      localizarClienteFaturamentoDoEmbarque(embarque)
+
+    if (clienteFaturamentoAutomatico?.id) {
+      setEmissorClienteId(String(clienteFaturamentoAutomatico.id))
+      setBuscaClienteEmissor('')
+    } else {
+      // Evita manter o cliente do embarque anteriormente selecionado.
+      setEmissorClienteId('')
+
+      // Filtra a lista para facilitar a escolha manual quando não houver
+      // uma correspondência única e segura.
+      setBuscaClienteEmissor(nomeBuscaCliente)
+    }
 
     const financeiro = financeiroDoEmbarque(embarque)
     const valor = valorFinanceiro(financeiro) || numero(embarque.valor_fechado) || numero(embarque.valor_cobrado_cliente) || numero(embarque.valor_venda)
