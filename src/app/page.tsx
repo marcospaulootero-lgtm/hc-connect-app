@@ -196,11 +196,11 @@ export default function HomePage() {
       <header className="relative z-20 border-b border-white/10 bg-[#020817]/90 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:px-8">
           <Link href="/" className="flex items-center gap-3">
-            <div className="rounded-xl bg-white p-2 shadow-lg">
+            <div className="flex min-h-[76px] min-w-[190px] items-center justify-center rounded-2xl bg-white px-4 py-3 shadow-lg sm:min-w-[230px]">
               <img
                 src="/HC-CONSULTORIA-TRANSPARENTE.png"
                 alt="HC Consultoria"
-                className="h-10 w-auto object-contain"
+                className="h-auto w-[170px] object-contain sm:w-[210px]"
               />
             </div>
 
