@@ -89,6 +89,12 @@ const servicos = [
   },
 ]
 
+const WHATSAPP_HC =
+  'https://wa.me/553136436175?text=' +
+  encodeURIComponent(
+    'Olá! Vim pelo HC Connect e gostaria de falar sobre uma operação de importação ou exportação.'
+  )
+
 const recursosPortal = [
   'Acompanhamento dos embarques',
   'Solicitação e aprovação de cotações',
@@ -526,12 +532,22 @@ export default function HomePage() {
                 apresentar a melhor forma de atendimento para sua empresa.
               </p>
 
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                <a
+                  href={WHATSAPP_HC}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-green-500 px-7 py-4 font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-green-400"
+                >
+                  <span aria-hidden="true">💬</span>
+                  Falar agora no WhatsApp
+                </a>
+
                 <a
                   href="mailto:marcos@hcbhz.com?subject=Quero%20conhecer%20a%20HC%20Consultoria"
                   className="inline-flex items-center justify-center rounded-2xl bg-white px-7 py-4 font-black text-blue-700 transition hover:bg-blue-50"
                 >
-                  Solicitar atendimento
+                  Solicitar por e-mail
                 </a>
 
                 <a
@@ -543,6 +559,10 @@ export default function HomePage() {
                   Conhecer o Instagram
                 </a>
               </div>
+
+              <p className="mt-4 text-sm font-bold text-blue-50">
+                Atendimento pelo WhatsApp: (31) 3643-6175
+              </p>
             </div>
           </div>
         </div>
