@@ -95,6 +95,25 @@ const WHATSAPP_HC =
     'Olá! Vim pelo HC Connect e gostaria de falar sobre uma operação de importação ou exportação.'
   )
 
+const clientesLogos = [
+  { nome: 'Pif Paf Alimentos', src: '/clientes/pifpaf.svg' },
+  { nome: 'ThreeBond', src: '/clientes/threebond.png' },
+  { nome: 'Tial', src: '/clientes/tial.png' },
+  { nome: 'ZAF', src: '/clientes/zaf.png' },
+  { nome: 'Record TV', src: '/clientes/recordtv.png' },
+  { nome: 'Suggar', src: '/clientes/suggar.png' },
+  { nome: 'Tacom', src: '/clientes/tacom.png' },
+  { nome: 'Hot Flowers', src: '/clientes/hotflowers.png' },
+  { nome: 'Fricasa', src: '/clientes/fricasa.png' },
+  { nome: 'Cimed', src: '/clientes/cimed.png' },
+  { nome: 'Cedro Têxtil', src: '/clientes/cedro.png' },
+  { nome: 'Brüner', src: '/clientes/bruner.png' },
+  { nome: '1000Medic', src: '/clientes/1000medic.webp' },
+  { nome: 'Fockink', src: '/clientes/fockink.png' },
+  { nome: 'Micromazza', src: '/clientes/micromazza.png' },
+  { nome: 'BrasilBev', src: '/clientes/brasilbev.png' },
+]
+
 const recursosPortal = [
   'Acompanhamento dos embarques',
   'Solicitação e aprovação de cotações',
@@ -223,6 +242,10 @@ export default function HomePage() {
 
             <a href="#portal" className="transition hover:text-white">
               HC Connect
+            </a>
+
+            <a href="#clientes" className="transition hover:text-white">
+              Clientes
             </a>
 
             <a href="#contato" className="transition hover:text-white">
@@ -512,6 +535,50 @@ export default function HomePage() {
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section
+        id="clientes"
+        className="relative z-10 border-y border-slate-200 bg-white text-slate-950"
+      >
+        <div className="mx-auto w-full max-w-7xl px-5 py-20 lg:px-8">
+          <div className="mx-auto max-w-4xl text-center">
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-600">
+              Experiência comprovada
+            </p>
+
+            <h2 className="mt-4 text-3xl font-black leading-tight text-slate-950 sm:text-5xl">
+              Empresas que confiam na nossa experiência
+            </h2>
+
+            <p className="mt-5 text-base font-medium leading-7 text-slate-600 sm:text-lg">
+              Mais de 100 empresas já contaram com a HC Consultoria em suas
+              operações. Atualmente, mais de 60 empresas contam com nosso
+              acompanhamento e experiência em comércio exterior.
+            </p>
+          </div>
+
+          <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+            {clientesLogos.map((cliente) => (
+              <div
+                key={cliente.nome}
+                className="flex min-h-[120px] items-center justify-center rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-md"
+                title={cliente.nome}
+              >
+                <img
+                  src={cliente.src}
+                  alt={`Logo ${cliente.nome}`}
+                  loading="lazy"
+                  className="max-h-16 max-w-full object-contain"
+                />
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-9 text-center text-sm font-black text-slate-500">
+            Entre muitas outras empresas atendidas pela HC.
+          </p>
         </div>
       </section>
 

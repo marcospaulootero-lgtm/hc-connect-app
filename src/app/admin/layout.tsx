@@ -117,7 +117,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
     if (!perfil || perfil.tipo_acesso !== 'admin') {
       await supabase.auth.signOut()
-      router.push('/login')
+      router.push('/')
       return
     }
 
@@ -155,7 +155,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   async function sair() {
     await supabase.auth.signOut()
-    router.push('/login')
+    router.push('/')
   }
 
   if (carregando) {

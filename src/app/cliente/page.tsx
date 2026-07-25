@@ -71,7 +71,7 @@ export default function ClientePage() {
 
     if (error || !perfil || perfil.ativo === false) {
       await supabase.auth.signOut()
-      window.location.href = '/login'
+      window.location.href = '/'
       return
     }
 
@@ -296,7 +296,7 @@ export default function ClientePage() {
 
   async function sair() {
     await supabase.auth.signOut()
-    window.location.href = '/login'
+    window.location.href = '/'
   }
 
   function normalizarTexto(texto: string) {
