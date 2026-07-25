@@ -34,44 +34,58 @@ const etapas = [
 
 const servicos = [
   {
-    icone: '✈',
+    icone: '✈️',
     titulo: 'Importação Courier',
-    texto: 'Operações internacionais rápidas com acompanhamento da HC.',
-  },
-  {
-    icone: '🌎',
-    titulo: 'Exportação Courier',
-    texto: 'Coleta, envio, acompanhamento e suporte para suas exportações.',
+    texto:
+      'Importações expressas com acompanhamento desde a coleta até a entrega.',
   },
   {
     icone: '📦',
     titulo: 'Importação Formal',
-    texto: 'Organização operacional e acompanhamento de processos formais.',
+    texto:
+      'Operações formais de importação com organização e acompanhamento operacional.',
+  },
+  {
+    icone: '🌎',
+    titulo: 'Exportação Courier',
+    texto:
+      'Exportações expressas com coleta, envio e acompanhamento internacional.',
+  },
+  {
+    icone: '📤',
+    titulo: 'Exportação Formal',
+    texto:
+      'Operações formais de exportação com acompanhamento de todas as etapas.',
+  },
+  {
+    icone: '🏢',
+    titulo: 'Embarque com Agente de Carga',
+    texto:
+      'Coordenação de embarques formais em conjunto com agentes de carga.',
   },
   {
     icone: '🚢',
-    titulo: 'Exportação Formal',
-    texto: 'Suporte para operações aéreas, marítimas e rodoviárias.',
+    titulo: 'Transporte Marítimo',
+    texto:
+      'Operações marítimas de importação e exportação para diferentes tipos de carga.',
   },
   {
-    icone: '📄',
-    titulo: 'DUE / Export Declaration',
-    texto: 'Emissão e acompanhamento da documentação necessária à exportação.',
+    icone: '🚚',
+    titulo: 'Transporte Nacional',
+    texto:
+      'Coletas, entregas e movimentações de cargas dentro do território nacional.',
   },
   {
-    icone: '🛰',
-    titulo: 'Acompanhamento',
-    texto: 'Visibilidade da operação desde a coleta até a entrega.',
+    icone: '🔄',
+    titulo: 'Remessa Temporária',
+    texto:
+      'Acompanhamento de operações com saídacompanhamento de operações com saída ou entrada temporária de mercadorias.',
   },
   {
-    icone: '🔎',
-    titulo: 'Conferência de cobranças',
-    texto: 'Análise de faturas, pesos, taxas e divergências das transportadoras.',
-  },
-  {
-    icone: '🎧',
-    titulo: 'Suporte operacional',
-    texto: 'Contato direto com a equipe HC durante toda a operação.',
+    icone: '⚠️',
+    titulo: 'Cargas DGR',
+    texto:
+      'Operações com cargas perigosas, respeitando exigências específicas de transporte.',
   },
 ]
 
@@ -402,10 +416,10 @@ export default function HomePage() {
           <CabecalhoSecao
             etiqueta="Soluções HC"
             titulo="Suporte para diferentes tipos de operação."
-            texto="Atendimento operacional e acompanhamento para empresas que importam e exportam."
+            texto="Soluções para operações courier, formais, marítimas, nacionais, temporárias e cargas DGR."
           />
 
-          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {servicos.map((servico) => (
               <article
                 key={servico.titulo}
