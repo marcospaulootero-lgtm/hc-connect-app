@@ -1318,23 +1318,124 @@ export default function FaturasPage() {
   }
 
   async function removerArquivoExtraFatura(arquivo: FaturaArquivo) {
-    const confirmar = confirm(`Deseja remover ${arquivo.nome || labelTipoArquivoFatura(arquivo.tipo)}?`)
+    const confirmar = confirm(
+      `Deseja remover ${arquivo.nome || labelTipoArquivoFatura(arquivo.tipo)}?`
+    )
+
     if (!confirmar) return
 
     setRemovendoArquivoExtra(arquivo.id)
 
     try {
-      if (arquivo.caminho) {
-        await supabase.storage.from('faturas').remove([arquivo.caminho])
+      const idArquivo = String(arquivo.id || '').trim()
+      const tipoArquivo = normalizarTexto(arquivo.tipo || '')
+
+      const regexUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+      const idEhUuid = regexUuid.test(idArquivo)
+
+      const ehReciboPrincipal =
+        tipoArquivo.includes('RECIBO') &&
+        (!idEhUuid || idArquivo.toLowerCase().endsWith('-recibo'))
+
+      const caminhoArquivo =
+        arquivo.caminho || extrairCaminhoStorage(arquivo.url)
+
+      /*
+        O recibo principal não é um registro de fatura_arquivos.
+
+        Ele fica salvo diretamente na tabela faturas, nos campos:
+        recibo_pdf, recibo_nome, recibo_emitido_em e recibo_observacoes.
+      */
+      if (ehReciboPrincipal) {
+        const faturaId = String(
+          arquivo.fatura_id ||
+            idArquivo.replace(/-recibo$/i, '')
+        ).trim()
+
+        if (!regexUuid.test(faturaId)) {
+          throw new Error(
+            'Não foi possível identificar a fatura vinculada ao recibo.'
+          )
+        }
+
+        if (caminhoArquivo) {
+          const { error: erroStorage } = await supabase.storage
+            .from('faturas')
+            .remove([caminhoArquivo])
+
+          if (erroStorage) {
+            console.log(
+              'Não foi possível remover o PDF antigo do Storage:',
+              erroStorage
+            )
+          }
+        }
+
+        const { error: erroFatura } = await supabase
+          .from('faturas')
+          .update({
+            recibo_pdf: null,
+            recibo_nome: null,
+            recibo_emitido_em: null,
+            recibo_observacoes: null,
+          })
+          .eq('id', faturaId)
+
+        if (erroFatura) {
+          throw new Error(erroFatura.message)
+        }
+
+        alert(
+          'Recibo removido com sucesso. O pagamento registrado no Financeiro foi mantido.'
+        )
+
+        await carregar()
+        return
       }
 
-      const { error } = await supabase.from('fatura_arquivos').delete().eq('id', arquivo.id)
-      if (error) throw new Error(error.message)
+      /*
+        Boleto, fatura complementar e outros arquivos realmente pertencem
+        à tabela fatura_arquivos e precisam possuir um UUID válido.
+      */
+      if (!idEhUuid) {
+        throw new Error(
+          'O documento não possui um identificador válido para exclusão.'
+        )
+      }
 
-      carregar()
+      if (caminhoArquivo) {
+        const { error: erroStorage } = await supabase.storage
+          .from('faturas')
+          .remove([caminhoArquivo])
+
+        if (erroStorage) {
+          console.log(
+            'Não foi possível remover o arquivo antigo do Storage:',
+            erroStorage
+          )
+        }
+      }
+
+      const { error } = await supabase
+        .from('fatura_arquivos')
+        .delete()
+        .eq('id', idArquivo)
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      alert('Documento removido com sucesso.')
+      await carregar()
     } catch (error: any) {
-      console.error(error)
-      alert(error?.message || 'Erro ao remover arquivo adicional.')
+      console.error('Erro ao remover documento da fatura:', error)
+
+      alert(
+        error?.message ||
+          'Erro ao remover o documento da fatura.'
+      )
     } finally {
       setRemovendoArquivoExtra(null)
     }
