@@ -2093,13 +2093,20 @@ export default function FaturasPage() {
 
   function documentoEhFaturaComplementar(documento: any) {
     const base = normalizarTexto(
-      String(documento?.tipo || '') + ' ' + String(documento?.nome || '')
+      String(documento?.tipo || '') +
+        ' ' +
+        String(documento?.nome || '') +
+        ' ' +
+        String(documento?.tipo_fatura || '')
     )
 
+    if (!documento?.url) return false
+    if (base.includes('RECIBO')) return false
+
     return (
-      !base.includes('RECIBO') &&
-      base.includes('FATURA') &&
-      (base.includes('COMPLEMENTAR') || base.includes('IMPOSTOS'))
+      base.includes('COMPLEMENTAR') ||
+      base.includes('IMPOSTOS') ||
+      base.includes('FATURA_EXTRA')
     )
   }
 
@@ -4421,8 +4428,7 @@ export default function FaturasPage() {
                     <InfoPacote label="Status financeiro" valor={pagamento.label} />
                   </div>
 
-                  {faturasComplementares.length > 0 && (
-                    <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
                       <div className="mb-3">
                         <p className="font-black text-yellow-300">
                           Faturas complementares
@@ -4432,8 +4438,21 @@ export default function FaturasPage() {
                         </p>
                       </div>
 
-                      <div className="space-y-3">
-                        {faturasComplementares.map((documento: any) => {
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
                           const reciboComplementar =
                             reciboComplementarDoDocumento(documento)
 
@@ -4494,10 +4513,10 @@ export default function FaturasPage() {
                               </div>
                             </div>
                           )
-                        })}
-                      </div>
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
                 </div>
               )
             })}
