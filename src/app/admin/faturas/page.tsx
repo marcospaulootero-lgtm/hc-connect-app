@@ -205,6 +205,8 @@ export default function FaturasPage() {
   const [buscaClienteRecibo, setBuscaClienteRecibo] = useState('')
   const [reciboClienteId, setReciboClienteId] = useState('')
   const [emitindoRecibo, setEmitindoRecibo] = useState(false)
+  const [reciboComplementarSelecionado, setReciboComplementarSelecionado] =
+    useState<any | null>(null)
 
   const [busca, setBusca] = useState('')
   const [filtroDocumento, setFiltroDocumento] = useState('TODOS')
@@ -1002,8 +1004,16 @@ export default function FaturasPage() {
       .replace(/[\u0300-\u036f]/g, '')
 
     if (texto.includes('BOLETO')) return 'Boleto'
-    if (texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')) return 'Fatura complementar / impostos'
+    if (
+      texto.includes('RECIBO') &&
+      (texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS'))
+    ) {
+      return 'Recibo complementar'
+    }
     if (texto.includes('RECIBO')) return 'Recibo'
+    if (texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')) {
+      return 'Fatura complementar / impostos'
+    }
     if (texto.includes('FRETE')) return 'Fatura principal / frete'
     if (texto.includes('FATURA')) return 'Fatura'
     return item?.nome || item?.tipo || 'Documento'
@@ -1241,9 +1251,15 @@ export default function FaturasPage() {
   function labelTipoArquivoFatura(tipo?: string | null) {
     const normalizado = normalizarTexto(tipo || 'OUTRO')
     if (normalizado.includes('BOLETO')) return 'Boleto'
+    if (
+      normalizado.includes('RECIBO') &&
+      (normalizado.includes('COMPLEMENTAR') || normalizado.includes('IMPOSTOS'))
+    ) {
+      return 'Recibo complementar'
+    }
+    if (normalizado.includes('RECIBO')) return 'Recibo'
     if (normalizado.includes('FATURA') && normalizado.includes('EXTRA')) return 'PDF faturamento'
     if (normalizado.includes('COMPLEMENTAR')) return 'Fatura complementar'
-    if (normalizado.includes('RECIBO')) return 'Recibo'
     if (normalizado.includes('FATURA')) return 'Fatura'
     return 'Outro arquivo'
   }
@@ -2075,6 +2091,98 @@ export default function FaturasPage() {
     )
   }
 
+  function documentoEhFaturaComplementar(documento: any) {
+    const base = normalizarTexto(
+      String(documento?.tipo || '') + ' ' + String(documento?.nome || '')
+    )
+
+    return (
+      !base.includes('RECIBO') &&
+      base.includes('FATURA') &&
+      (base.includes('COMPLEMENTAR') || base.includes('IMPOSTOS'))
+    )
+  }
+
+  function tipoReciboComplementarDocumento(documento: any) {
+    return 'RECIBO_COMPLEMENTAR__' + String(documento?.id || '').trim()
+  }
+
+  function reciboComplementarDoDocumento(documento: any) {
+    if (!documento?.id) return null
+
+    const tipoRecibo = tipoReciboComplementarDocumento(documento)
+
+    return (
+      arquivosFaturas.find(
+        (arquivo: any) => String(arquivo?.tipo || '') === tipoRecibo
+      ) || null
+    )
+  }
+
+  function abrirEmissaoReciboComplementar(
+    embarque: Embarque,
+    documento: any
+  ) {
+    const faturaPrincipal = faturaDoEmbarque(embarque.id)
+
+    if (!faturaPrincipal?.id) {
+      alert('Não encontrei a fatura principal vinculada a este AWB.')
+      return
+    }
+
+    if (!documentoEhFaturaComplementar(documento)) {
+      alert('O documento selecionado não é uma fatura complementar.')
+      return
+    }
+
+    if (!documento?.url) {
+      alert('A fatura complementar não possui um PDF disponível.')
+      return
+    }
+
+    const clienteFiscalRecibo = localizarClienteFaturamentoParaRecibo(
+      embarque,
+      faturaPrincipal
+    )
+
+    const valorDocumento = numero(documento?.valor_total)
+
+    setReciboSelecionado(embarque)
+    setReciboComplementarSelecionado(documento)
+    setReciboClienteId(clienteFiscalRecibo?.id || '')
+
+    setBuscaClienteRecibo(
+      clienteFiscalRecibo?.nome_empresa ||
+        clienteFiscalRecibo?.razao_social ||
+        ''
+    )
+
+    setDataRecebimentoRecibo(new Date().toISOString().slice(0, 10))
+
+    setValorRecebidoRecibo(
+      valorDocumento > 0
+        ? formatarNumeroInput(valorDocumento)
+        : ''
+    )
+
+    setFormaRecebimentoRecibo('PIX / Transferência bancária')
+
+    setObservacoesRecibo(
+      'Recebimento referente a ' +
+        String(
+          documento?.nome ||
+            documento?.tipo ||
+            'fatura complementar'
+        )
+    )
+
+    setTimeout(() => {
+      document
+        .getElementById('form_recibo')
+        ?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }
+
   function abrirEmissaoRecibo(embarque: Embarque) {
     const fatura = faturaDoEmbarque(embarque.id)
 
@@ -2091,6 +2199,7 @@ export default function FaturasPage() {
 
     const clienteFiscalRecibo = localizarClienteFaturamentoParaRecibo(embarque, fatura)
 
+    setReciboComplementarSelecionado(null)
     setReciboSelecionado(embarque)
     setReciboClienteId(clienteFiscalRecibo?.id || '')
 
@@ -2114,6 +2223,7 @@ export default function FaturasPage() {
 
   function limparRecibo() {
     setReciboSelecionado(null)
+    setReciboComplementarSelecionado(null)
     setDataRecebimentoRecibo('')
     setValorRecebidoRecibo('')
     setFormaRecebimentoRecibo('PIX / Transferência bancária')
@@ -2215,7 +2325,16 @@ export default function FaturasPage() {
     if (!dataRecebimentoRecibo) return alert('Informe a data do recebimento.')
 
     const fatura = faturaDoEmbarque(reciboSelecionado.id)
-    if (!fatura?.arquivo_pdf) return alert('Fatura não encontrada para este AWB.')
+    const documentoComplementar = reciboComplementarSelecionado
+    const ehReciboComplementar = !!documentoComplementar
+
+    if (!fatura?.arquivo_pdf) {
+      return alert('Fatura principal não encontrada para este AWB.')
+    }
+
+    if (ehReciboComplementar && !documentoComplementar?.url) {
+      return alert('Fatura complementar não encontrada ou sem PDF.')
+    }
 
     const valorPago = numero(valorRecebidoRecibo)
     if (valorPago <= 0) return alert('Informe o valor recebido.')
@@ -2240,6 +2359,14 @@ export default function FaturasPage() {
       const larguraPagina = pdf.internal.pageSize.getWidth()
       const dataRecebimento = normalizarData(dataRecebimentoRecibo) || dataRecebimentoRecibo
       const dadosCliente = dadosClienteFiscalRecibo(fatura, reciboSelecionado)
+
+      const referenciaFaturaRecibo = ehReciboComplementar
+        ? String(
+            documentoComplementar?.nome ||
+              documentoComplementar?.tipo ||
+              'Fatura complementar'
+          ).trim()
+        : String(fatura.numero_fatura || '-').trim()
 
       pdf.setDrawColor(25, 25, 25)
       pdf.setLineWidth(1)
@@ -2275,7 +2402,13 @@ export default function FaturasPage() {
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(18)
-      pdf.text('RECIBO DE PAGAMENTO', margem, 54)
+      pdf.text(
+        ehReciboComplementar
+          ? 'RECIBO COMPLEMENTAR DE PAGAMENTO'
+          : 'RECIBO DE PAGAMENTO',
+        margem,
+        54
+      )
 
       pdf.setFontSize(9)
       pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', margem, 82)
@@ -2325,7 +2458,7 @@ export default function FaturasPage() {
       )
 
       pdf.text(
-        pdf.splitTextToSize(fatura.numero_fatura || '-', larguraColunaEsquerda),
+        pdf.splitTextToSize(referenciaFaturaRecibo, larguraColunaEsquerda),
         colunaEsquerdaX,
         caixaDadosY + 83
       )
@@ -2389,7 +2522,29 @@ export default function FaturasPage() {
       pdf.text(`Recibo emitido pelo HC Connect em ${dataBR(new Date().toISOString())}`, margem, 780)
 
       const blob = pdf.output('blob') as Blob
-      const nomeArquivo = `recibos/${fatura.id}/${Date.now()}-recibo-${String(fatura.numero_fatura || reciboSelecionado.awb || 'hc').replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+      const pastaRecibo = ehReciboComplementar
+        ? 'recibos-complementares'
+        : 'recibos'
+
+      const identificadorRecibo = String(
+        referenciaFaturaRecibo ||
+          fatura.numero_fatura ||
+          reciboSelecionado.awb ||
+          'hc'
+      ).replace(/[^A-Z0-9_-]/gi, '-')
+
+      const nomeArquivo =
+        pastaRecibo +
+        '/' +
+        fatura.id +
+        '/' +
+        Date.now() +
+        '-' +
+        (ehReciboComplementar
+          ? 'recibo-complementar-'
+          : 'recibo-') +
+        identificadorRecibo +
+        '.pdf'
 
       const { error: erroUpload } = await supabase.storage
         .from('faturas')
@@ -2408,6 +2563,154 @@ export default function FaturasPage() {
 
       if (!abrirPdfReciboGerado) {
         alert('Recibo gerado, mas o navegador bloqueou a abertura automática. Use o botão Abrir/Recibo na tabela.')
+      }
+
+      if (ehReciboComplementar && documentoComplementar) {
+        const reciboExistente =
+          reciboComplementarDoDocumento(documentoComplementar)
+
+        const caminhoReciboAnterior =
+          reciboExistente?.caminho ||
+          extrairCaminhoStorage(reciboExistente?.url)
+
+        if (
+          caminhoReciboAnterior &&
+          caminhoReciboAnterior !== nomeArquivo
+        ) {
+          const { error: erroStorageAnterior } = await supabase.storage
+            .from('faturas')
+            .remove([caminhoReciboAnterior])
+
+          if (erroStorageAnterior) {
+            console.log(
+              'Não foi possível remover o recibo complementar anterior:',
+              erroStorageAnterior
+            )
+          }
+        }
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        const tipoReciboComplementar =
+          tipoReciboComplementarDocumento(documentoComplementar)
+
+        const nomeReciboComplementar =
+          'Recibo complementar - ' + referenciaFaturaRecibo
+
+        const payloadReciboComplementar: any = {
+          fatura_id: fatura.id,
+          embarque_id: reciboSelecionado.id,
+          usuario_id:
+            fatura.usuario_id ||
+            reciboSelecionado.usuario_id ||
+            null,
+          tipo: tipoReciboComplementar,
+          nome: nomeReciboComplementar,
+          url: urlRecibo,
+          caminho: nomeArquivo,
+          visivel_cliente: true,
+        }
+
+        if (reciboExistente?.id) {
+          const { error: erroAtualizacaoRecibo } = await supabase
+            .from('fatura_arquivos')
+            .update(payloadReciboComplementar)
+            .eq('id', reciboExistente.id)
+
+          if (erroAtualizacaoRecibo) {
+            throw new Error(
+              'Erro ao atualizar recibo complementar: ' +
+                erroAtualizacaoRecibo.message
+            )
+          }
+        } else {
+          const { error: erroInsercaoRecibo } = await supabase
+            .from('fatura_arquivos')
+            .insert([
+              {
+                ...payloadReciboComplementar,
+                criado_por: user?.id || null,
+              },
+            ])
+
+          if (erroInsercaoRecibo) {
+            throw new Error(
+              'Erro ao salvar recibo complementar: ' +
+                erroInsercaoRecibo.message
+            )
+          }
+        }
+
+        /*
+          O valor da fatura complementar já foi somado quando ela foi
+          emitida. Aqui registramos somente o histórico do recebimento,
+          sem aumentar novamente valor_cobranca, DOC/DTA ou Profit.
+        */
+        const financeiroAtual =
+          financeiroDoEmbarque(reciboSelecionado)
+
+        if (financeiroAtual?.id) {
+          const observacoesFinanceiro = [
+            financeiroAtual.observacoes || '',
+            'Recibo complementar emitido em ' +
+              dataBR(new Date().toISOString()) +
+              '.',
+            'Documento: ' + referenciaFaturaRecibo + '.',
+            'Recebimento em ' +
+              dataBR(dataRecebimento) +
+              '.',
+            'Valor recebido: ' + moeda(valorPago) + '.',
+            'Forma: ' +
+              (formaRecebimentoRecibo || '-') +
+              '.',
+            'Recibo complementar: ' + urlRecibo + '.',
+            observacoesRecibo
+              ? 'Obs recibo complementar: ' +
+                observacoesRecibo
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' | ')
+
+          const { error: erroHistoricoFinanceiro } = await supabase
+            .from('financeiro_embarques')
+            .update({
+              observacoes: observacoesFinanceiro,
+            })
+            .eq('id', financeiroAtual.id)
+
+          if (erroHistoricoFinanceiro) {
+            throw new Error(
+              'Recibo complementar salvo, mas houve erro ao registrar o histórico financeiro: ' +
+                erroHistoricoFinanceiro.message
+            )
+          }
+        }
+
+        await enviarEmailClienteFatura({
+          tipo: 'RECIBO_DISPONIVEL',
+          fatura,
+          embarque: reciboSelecionado,
+          mensagem:
+            'Recibo complementar disponível no Portal HC Connect.',
+          dados: {
+            Documento: 'Recibo complementar',
+            Referência: referenciaFaturaRecibo,
+            Recebimento: dataBR(dataRecebimento),
+            Valor: moeda(valorPago),
+          },
+        })
+
+        alert(
+          'Recibo complementar emitido com sucesso.\n\n' +
+            'O recibo principal não foi substituído e o valor não foi somado novamente no Financeiro.'
+        )
+
+        limparRecibo()
+        await carregar()
+        return
       }
 
       const caminhoAntigo = extrairCaminhoStorage(fatura.recibo_pdf)
@@ -3806,15 +4109,39 @@ export default function FaturasPage() {
     const clientesRecibo = clientesFaturamentoReciboFiltrados()
     const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
     const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
 
     return (
 <section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
   <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
     <div>
-      <p className="text-green-400 font-bold mb-2">Emitir recibo</p>
-      <h2 className="text-2xl font-black">Recibo do AWB {reciboSelecionado.awb}</h2>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
       <p className="text-slate-400 text-sm">
-        Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
       </p>
     </div>
 
@@ -3827,10 +4154,30 @@ export default function FaturasPage() {
   </div>
 
   <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-    <InfoPacote label="Fatura" valor={faturaReciboAtual?.numero_fatura || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
     <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
-    <InfoPacote label="Valor base" valor={moeda(valorPadraoRecibo(reciboSelecionado))} destaque />
-    <InfoPacote label="Status financeiro" valor={statusPagamentoFinanceiro(financeiroDoEmbarque(reciboSelecionado)).label} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
 
     <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
       <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
@@ -3932,7 +4279,9 @@ export default function FaturasPage() {
     />
 
     <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
-      Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro &gt; Processos Faturados.
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
     </div>
 
     <button
@@ -3940,7 +4289,11 @@ export default function FaturasPage() {
       disabled={emitindoRecibo}
       className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
     >
-      {emitindoRecibo ? 'Gerando recibo...' : 'Gerar recibo e registrar recebimento'}
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
     </button>
   </div>
 </section>
@@ -4019,6 +4372,11 @@ export default function FaturasPage() {
               const financeiro = financeiroDoEmbarque(embarque)
               const pagamento = statusPagamentoFinanceiro(financeiro)
 
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
               return (
                 <div
                   key={fatura.id}
@@ -4062,6 +4420,84 @@ export default function FaturasPage() {
                     <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
                     <InfoPacote label="Status financeiro" valor={pagamento.label} />
                   </div>
+
+                  {faturasComplementares.length > 0 && (
+                    <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      <div className="space-y-3">
+                        {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}

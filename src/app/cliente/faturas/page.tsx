@@ -441,7 +441,7 @@ export default function FaturasClientePage() {
               ? 'FATURA_COMPLEMENTAR_IMPOSTOS'
               : 'FATURA_EXTRA',
             nome: ehFaturaComplementarRegistro(fatura)
-              ? 'Fatura complementar / impostos'
+              ? 'Documentos complementares'
               : 'Fatura adicional',
             url: fatura.arquivo_pdf,
             criado_em: fatura.criado_em,
