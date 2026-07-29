@@ -185,6 +185,18 @@ type ItemFaturaServico = {
   observacao: string
 }
 
+type MoedaItemAgente = 'BRL' | 'USD' | 'EUR' | 'GBP' | 'CAD'
+
+type ItemFaturaAgente = {
+  id: string
+  descricao: string
+  moeda: MoedaItemAgente
+  valor_moeda: string
+  taxa_cambio: string
+  valor_brl: string
+  observacao: string
+}
+
 export default function FaturasPage() {
   const [embarques, setEmbarques] = useState<Embarque[]>([])
   const [faturas, setFaturas] = useState<Fatura[]>([])
@@ -235,7 +247,7 @@ export default function FaturasPage() {
   const [emissorClienteId, setEmissorClienteId] = useState('')
   const [emissorUsuarioId, setEmissorUsuarioId] = useState('')
   const [emissorDespachante, setEmissorDespachante] = useState('')
-  const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS'>('FRETE')
+  const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA'>('FRETE')
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
@@ -250,6 +262,10 @@ export default function FaturasPage() {
   const [emissorAvisoCambio, setEmissorAvisoCambio] = useState('')
   const [salvandoEmissao, setSalvandoEmissao] = useState(false)
   const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
+  const [itensFaturaAgente, setItensFaturaAgente] =
+    useState<ItemFaturaAgente[]>(itensPadraoFaturaAgente())
+  const [taxaPadraoUsdAgente, setTaxaPadraoUsdAgente] = useState('')
+  const [taxaPadraoEurAgente, setTaxaPadraoEurAgente] = useState('')
 
   useEffect(() => {
     carregar()
@@ -2261,7 +2277,9 @@ export default function FaturasPage() {
 
     const observacaoTipoFatura = ehFaturaImpostos
       ? `Fatura complementar de impostos/DOC/DTA lançada em ${dataBR(new Date().toISOString())}: ${moeda(totaisEmissor.totalBRL)}.`
-      : 'Fatura principal de frete/serviços emitida pelo HC Connect.'
+      : ehFaturaAgente
+        ? `Fatura multimoeda de agente de carga emitida em ${dataBR(new Date().toISOString())}: ${moeda(totaisEmissor.totalBRL)}. Câmbio informado individualmente por item.`
+        : 'Fatura principal de frete/serviços emitida pelo HC Connect.'
 
     const payloadBase: any = {
       cliente:
@@ -3072,17 +3090,71 @@ export default function FaturasPage() {
   }, [usuariosPortal, buscaUsuarioEmissor, emissorUsuarioId])
 
   const totaisEmissor = useMemo(() => {
-    return itensFatura.reduce(
+    if (emissorTipoFatura === 'AGENTE_CARGA') {
+      return itensFaturaAgente.reduce(
+        (acc, item) => {
+          const moedaItem = String(item.moeda || 'BRL').toUpperCase()
+          const valorOriginal = numero(item.valor_moeda)
+          const taxa =
+            moedaItem === 'BRL'
+              ? 1
+              : numero(item.taxa_cambio)
+
+          const valorBrl =
+            valorOriginal !== 0 && taxa > 0
+              ? valorOriginal * taxa
+              : 0
+
+          acc.totalBRL += valorBrl
+
+          if (moedaItem === 'USD') acc.totalUSD += valorOriginal
+          if (moedaItem === 'EUR') acc.totalEUR += valorOriginal
+          if (moedaItem === 'GBP') acc.totalGBP += valorOriginal
+          if (moedaItem === 'CAD') acc.totalCAD += valorOriginal
+
+          acc.totaisMoeda[moedaItem] =
+            Number(acc.totaisMoeda[moedaItem] || 0) +
+            valorOriginal
+
+          return acc
+        },
+        {
+          totalUSD: 0,
+          totalEUR: 0,
+          totalGBP: 0,
+          totalCAD: 0,
+          totalBRL: 0,
+          totaisMoeda: {} as Record<string, number>,
+        }
+      )
+    }
+
+    const totaisNormais = itensFatura.reduce(
       (acc, item) => {
         if (!item.selecionado) return acc
 
         acc.totalUSD += numero(item.valor_usd)
         acc.totalBRL += numero(item.valor_brl)
+
         return acc
       },
-      { totalUSD: 0, totalBRL: 0 }
+      {
+        totalUSD: 0,
+        totalBRL: 0,
+      }
     )
-  }, [itensFatura])
+
+    return {
+      ...totaisNormais,
+      totalEUR: 0,
+      totalGBP: 0,
+      totalCAD: 0,
+      totaisMoeda: {
+        USD: totaisNormais.totalUSD,
+        BRL: totaisNormais.totalBRL,
+      } as Record<string, number>,
+    }
+  }, [emissorTipoFatura, itensFatura, itensFaturaAgente])
 
   function taxaConversaoFinal(ptaxValor = emissorTaxaConversao, spreadValor = emissorSpread) {
     const ptax = numero(ptaxValor)
@@ -3393,6 +3465,9 @@ export default function FaturasPage() {
     const embarque = embarques.find((item) => item.id === embarqueId) || null
     if (!embarque) return
 
+    const faturaAtualEmissor =
+      faturaDoEmbarque(embarque.id)
+
     const nomeBuscaCliente = String(
       embarque.cliente_final ||
         embarque.importador ||
@@ -3419,7 +3494,7 @@ export default function FaturasPage() {
     const valor = valorFinanceiro(financeiro) || numero(embarque.valor_fechado) || numero(embarque.valor_cobrado_cliente) || numero(embarque.valor_venda)
     const vencimento = normalizarData(vencimentoFinanceiro(financeiro)) || ''
     const taxa = numero(embarque.taxa_conversao)
-    const numeroAtual = faturaDoEmbarque(embarque.id)?.numero_fatura || gerarNumeroFaturaSugerido(embarque)
+    const numeroAtual = faturaAtualEmissor?.numero_fatura || gerarNumeroFaturaSugerido(embarque)
     const transportadoraDhl = normalizarTexto(embarque.transportadora || '').includes('DHL')
     const ptaxDhlSugerido = sugestaoPtaxDhlMesAnterior()
     const taxaBaseEmbarque = taxa ? String(taxa).replace('.', ',') : ''
@@ -3434,6 +3509,33 @@ export default function FaturasPage() {
     setEmissorDolarVendaDia(!transportadoraDhl ? taxaBaseEmbarque : '')
     setEmissorUsuarioId(embarque.usuario_id || '')
     setEmissorDespachante(financeiro?.despachante || '')
+
+    const itensAgenteSalvos =
+      itensAgenteSalvosDaFatura(faturaAtualEmissor)
+
+    if (
+      normalizarTexto(faturaAtualEmissor?.tipo_fatura) ===
+        'AGENTE_CARGA' &&
+      itensAgenteSalvos.length > 0
+    ) {
+      setEmissorTipoFatura('AGENTE_CARGA')
+      setItensFaturaAgente(itensAgenteSalvos)
+
+      const itemUsd = itensAgenteSalvos.find(
+        (item) => item.moeda === 'USD'
+      )
+
+      const itemEur = itensAgenteSalvos.find(
+        (item) => item.moeda === 'EUR'
+      )
+
+      setTaxaPadraoUsdAgente(itemUsd?.taxa_cambio || '')
+      setTaxaPadraoEurAgente(itemEur?.taxa_cambio || '')
+    } else {
+      setItensFaturaAgente(itensPadraoFaturaAgente())
+      setTaxaPadraoUsdAgente('')
+      setTaxaPadraoEurAgente('')
+    }
 
     const taxaFinal = taxaConversaoFinal(taxaBaseInicial, emissorSpread)
 
@@ -3482,6 +3584,182 @@ export default function FaturasPage() {
       setEmissorTipoFatura('IMPOSTOS')
       document.getElementById('emissor_fatura')?.scrollIntoView({ behavior: 'smooth' })
     }, 100)
+  }
+
+  function taxaPadraoMoedaAgente(moedaItem: MoedaItemAgente) {
+    if (moedaItem === 'BRL') return '1,0000'
+    if (moedaItem === 'USD') return taxaPadraoUsdAgente
+    if (moedaItem === 'EUR') return taxaPadraoEurAgente
+    return ''
+  }
+
+  function calcularValorBrlItemAgente(item: ItemFaturaAgente) {
+    const valorOriginal = numero(item.valor_moeda)
+
+    const taxa =
+      item.moeda === 'BRL'
+        ? 1
+        : numero(item.taxa_cambio)
+
+    if (valorOriginal === 0 || taxa <= 0) return 0
+
+    return valorOriginal * taxa
+  }
+
+  function atualizarItemFaturaAgente(
+    id: string,
+    campo: keyof ItemFaturaAgente,
+    valor: string
+  ) {
+    setItensFaturaAgente((atuais) =>
+      atuais.map((item) => {
+        if (item.id !== id) return item
+
+        const atualizado: ItemFaturaAgente = {
+          ...item,
+          [campo]: valor,
+        } as ItemFaturaAgente
+
+        if (campo === 'moeda') {
+          const moedaNova = valor as MoedaItemAgente
+
+          atualizado.moeda = moedaNova
+          atualizado.taxa_cambio =
+            taxaPadraoMoedaAgente(moedaNova)
+        }
+
+        if (atualizado.moeda === 'BRL') {
+          atualizado.taxa_cambio = '1,0000'
+        }
+
+        const valorBrl = calcularValorBrlItemAgente(atualizado)
+
+        atualizado.valor_brl =
+          valorBrl !== 0
+            ? formatarNumeroInput(valorBrl)
+            : ''
+
+        return atualizado
+      })
+    )
+  }
+
+  function adicionarItemFaturaAgente() {
+    setItensFaturaAgente((atuais) => [
+      ...atuais,
+      {
+        id:
+          'agente-' +
+          Date.now() +
+          '-' +
+          Math.random().toString(36).slice(2, 8),
+        descricao: '',
+        moeda: 'USD',
+        valor_moeda: '',
+        taxa_cambio: taxaPadraoUsdAgente,
+        valor_brl: '',
+        observacao: '',
+      },
+    ])
+  }
+
+  function removerItemFaturaAgente(id: string) {
+    setItensFaturaAgente((atuais) => {
+      const restantes = atuais.filter((item) => item.id !== id)
+
+      return restantes.length > 0
+        ? restantes
+        : itensPadraoFaturaAgente().slice(0, 1)
+    })
+  }
+
+  function aplicarTaxaPadraoAgente(
+    moedaItem: 'USD' | 'EUR',
+    taxaInformada: string
+  ) {
+    const taxa = numero(taxaInformada)
+
+    if (taxa <= 0) {
+      alert('Informe uma taxa de câmbio válida para ' + moedaItem + '.')
+      return
+    }
+
+    setItensFaturaAgente((atuais) =>
+      atuais.map((item) => {
+        if (item.moeda !== moedaItem) return item
+
+        const atualizado = {
+          ...item,
+          taxa_cambio: taxaInformada,
+        }
+
+        const valorBrl =
+          calcularValorBrlItemAgente(atualizado)
+
+        return {
+          ...atualizado,
+          valor_brl:
+            valorBrl !== 0
+              ? formatarNumeroInput(valorBrl)
+              : '',
+        }
+      })
+    )
+  }
+
+  function itensAgenteSalvosDaFatura(
+    faturaAtual: any
+  ): ItemFaturaAgente[] {
+    const lista = Array.isArray(faturaAtual?.itens_fatura)
+      ? faturaAtual.itens_fatura
+      : []
+
+    return lista
+      .filter((item: any) => {
+        return (
+          item?.moeda &&
+          item?.valor_moeda !== undefined
+        )
+      })
+      .map((item: any, index: number) => {
+        const moedaItem = String(
+          item.moeda || 'BRL'
+        ).toUpperCase() as MoedaItemAgente
+
+        const valorOriginal = numero(item.valor_moeda)
+
+        const taxa =
+          moedaItem === 'BRL'
+            ? 1
+            : numero(item.taxa_cambio)
+
+        const valorBrl =
+          numero(item.valor_brl) ||
+          (valorOriginal !== 0 && taxa > 0
+            ? valorOriginal * taxa
+            : 0)
+
+        return {
+          id:
+            String(item.id || '') ||
+            'agente-salvo-' + index,
+          descricao: String(item.descricao || ''),
+          moeda: moedaItem,
+          valor_moeda:
+            valorOriginal !== 0
+              ? formatarNumeroInput(valorOriginal)
+              : '',
+          taxa_cambio:
+            taxa > 0
+              ? formatarTaxaCambioInput(taxa)
+              : '',
+          valor_brl:
+            valorBrl !== 0
+              ? formatarNumeroInput(valorBrl)
+              : '',
+          observacao: String(item.observacao || ''),
+        }
+      })
   }
 
   function atualizarItemFatura(id: string, campo: keyof ItemFaturaServico, valor: string | boolean) {
@@ -3567,15 +3845,68 @@ export default function FaturasPage() {
     setEmissorVisivelCliente(true)
     setEmissorAvisoCambio('')
     setItensFatura(itensPadraoFatura())
+    setItensFaturaAgente(itensPadraoFaturaAgente())
+    setTaxaPadraoUsdAgente('')
+    setTaxaPadraoEurAgente('')
   }
 
   function mesFinanceiroDaFatura() {
     return normalizarData(emissorVencimento)?.slice(0, 7) || new Date().toISOString().slice(0, 7)
   }
 
-  function itensSelecionadosFatura() {
+  function itensSelecionadosFatura(): any[] {
+    if (emissorTipoFatura === 'AGENTE_CARGA') {
+      return itensFaturaAgente
+        .map((item) => {
+          const moedaItem = String(
+            item.moeda || 'BRL'
+          ).toUpperCase()
+
+          const valorOriginal = numero(item.valor_moeda)
+
+          const taxa =
+            moedaItem === 'BRL'
+              ? 1
+              : numero(item.taxa_cambio)
+
+          const valorBrl =
+            valorOriginal !== 0 && taxa > 0
+              ? valorOriginal * taxa
+              : 0
+
+          return {
+            id: item.id,
+            descricao: item.descricao.trim(),
+            moeda: moedaItem,
+            valor_moeda: valorOriginal,
+            taxa_cambio: taxa,
+            valor_brl: valorBrl,
+            valor_usd:
+              moedaItem === 'USD'
+                ? valorOriginal
+                : 0,
+            observacao: item.observacao || null,
+          }
+        })
+        .filter((item) => {
+          return (
+            item.descricao &&
+            item.valor_moeda !== 0 &&
+            item.taxa_cambio > 0
+          )
+        })
+    }
+
     return itensFatura
-      .filter((item) => item.selecionado && (numero(item.valor_usd) > 0 || numero(item.valor_brl) > 0 || item.observacao.trim()))
+      .filter(
+        (item) =>
+          item.selecionado &&
+          (
+            numero(item.valor_usd) > 0 ||
+            numero(item.valor_brl) > 0 ||
+            item.observacao.trim()
+          )
+      )
       .map((item) => ({
         descricao: item.descricao,
         valor_usd: numero(item.valor_usd),
@@ -3589,9 +3920,27 @@ export default function FaturasPage() {
 
     const financeiroAtual = financeiroDoEmbarque(emissorEmbarqueSelecionado)
     const itensSelecionados = itensSelecionadosFatura()
+    const ehFaturaAgente =
+      emissorTipoFatura === 'AGENTE_CARGA'
 
     const itensResumo = itensSelecionados
-      .map((item) => `${item.descricao}: ${moeda(item.valor_brl)}`)
+      .map((item) => {
+        if (item.moeda) {
+          return (
+            item.descricao +
+            ': ' +
+            item.moeda +
+            ' ' +
+            formatarValorSimples(item.valor_moeda) +
+            ' x ' +
+            formatarTaxaCambioInput(item.taxa_cambio) +
+            ' = ' +
+            moeda(item.valor_brl)
+          )
+        }
+
+        return item.descricao + ': ' + moeda(item.valor_brl)
+      })
       .join(' | ')
 
     // Regra HC:
@@ -3602,9 +3951,11 @@ export default function FaturasPage() {
     const spreadPercentual = numero(emissorSpread)
     const fatorSpread = 1 + spreadPercentual / 100
 
-    const itensHandling = itensSelecionados.filter((item) =>
-      normalizarTexto(item.descricao).includes('HANDLING')
-    )
+    const itensHandling = ehFaturaAgente
+      ? []
+      : itensSelecionados.filter((item) =>
+          normalizarTexto(item.descricao).includes('HANDLING')
+        )
 
     const handlingComSpread = itensHandling.reduce((total, item) => total + numero(item.valor_brl), 0)
 
@@ -3757,8 +4108,53 @@ export default function FaturasPage() {
     if (!emissorClienteSelecionado) return alert('Selecione o cliente de faturamento.')
     if (!emissorNumeroFatura.trim()) return alert('Informe o número da fatura.')
     if (!emissorVencimento) return alert('Informe o vencimento da fatura.')
-    if (itensSelecionadosFatura().length === 0 || totaisEmissor.totalBRL <= 0) {
-      return alert('Selecione pelo menos um serviço com valor para emitir a fatura.')
+
+    const ehFaturaAgente =
+      emissorTipoFatura === 'AGENTE_CARGA'
+
+    if (ehFaturaAgente) {
+      const linhasPreenchidas = itensFaturaAgente.filter((item) => {
+        return (
+          item.descricao.trim() ||
+          numero(item.valor_moeda) !== 0 ||
+          item.observacao.trim()
+        )
+      })
+
+      const linhaSemDescricao = linhasPreenchidas.find(
+        (item) =>
+          numero(item.valor_moeda) !== 0 &&
+          !item.descricao.trim()
+      )
+
+      if (linhaSemDescricao) {
+        return alert(
+          'Informe a descrição de todas as cobranças preenchidas.'
+        )
+      }
+
+      const linhaSemTaxa = linhasPreenchidas.find(
+        (item) =>
+          item.moeda !== 'BRL' &&
+          numero(item.valor_moeda) !== 0 &&
+          numero(item.taxa_cambio) <= 0
+      )
+
+      if (linhaSemTaxa) {
+        return alert(
+          'Informe a taxa de câmbio do item: ' +
+            (linhaSemTaxa.descricao || linhaSemTaxa.moeda)
+        )
+      }
+    }
+
+    if (
+      itensSelecionadosFatura().length === 0 ||
+      totaisEmissor.totalBRL <= 0
+    ) {
+      return alert(
+        'Informe pelo menos uma cobrança com valor para emitir a fatura.'
+      )
     }
 
     const ehFaturaImpostos = emissorTipoFatura === 'IMPOSTOS'
@@ -3799,7 +4195,7 @@ export default function FaturasPage() {
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 32
       const larguraPagina = pdf.internal.pageSize.getWidth()
-      const itens = itensSelecionadosFatura()
+      const itens = itensClientePdf
       const dadosCliente = dadosClienteFiscal(emissorClienteSelecionado)
 
       const codigoClientePdf = String(emissorClienteSelecionado.codigo_hc || '-').trim() || '-'
@@ -3807,7 +4203,15 @@ export default function FaturasPage() {
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(11)
-      pdf.text(ehFaturaImpostos ? 'FATURA COMPLEMENTAR - IMPOSTOS' : 'FATURA DE SERVIÇO', margem, 34)
+      pdf.text(
+        ehFaturaImpostos
+          ? 'FATURA COMPLEMENTAR - IMPOSTOS'
+          : ehFaturaAgente
+            ? 'FATURA - AGENTE DE CARGA / MULTIMOEDA'
+            : 'FATURA DE SERVIÇO',
+        margem,
+        34
+      )
       pdf.text(`CÓDIGO CLIENTE: ${codigoClientePdf}`, 210, 34)
       pdf.text(`FATURA Nº: ${numeroFaturaPdf}`, larguraPagina - margem, 34, { align: 'right' })
 
@@ -3889,33 +4293,2520 @@ export default function FaturasPage() {
       pdf.text(`CEP: ${dadosCliente.cep || '-'}`, 150, 234)
 
       pdf.setFont('helvetica', 'bold')
-      pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 264)
+      pdf.text(
+        ehFaturaAgente
+          ? 'DISCRIMINAÇÃO DAS COBRANÇAS'
+          : 'DISCRIMINAÇÃO DOS SERVIÇOS',
+        margem,
+        264
+      )
       pdf.text(`HAWB/AWB: ${emissorEmbarqueSelecionado.awb || '-'}`, 245, 264)
 
-      const linhas = itens.map((item) => [
-        item.descricao,
-        item.observacao || '',
-        item.valor_usd > 0 ? formatarValorSimples(item.valor_usd) : '-',
-        item.valor_brl > 0 ? moeda(item.valor_brl) : '-',
-      ])
+      if (ehFaturaAgente) {
+        const linhasAgente = itens.map((item) => [
+          item.descricao,
+          item.moeda || 'BRL',
+          formatarValorSimples(item.valor_moeda),
+          formatarTaxaCambioInput(item.taxa_cambio),
+          moeda(item.valor_brl),
+          item.observacao || '',
+        ])
 
-      autoTable(pdf, {
-        startY: 272,
-        head: [['SERVIÇO', 'OBSERVAÇÃO', 'VALOR USD', 'VALOR R$']],
-        body: linhas,
-        theme: 'grid',
-        margin: { left: margem, right: margem },
-        styles: { fontSize: 8, cellPadding: 4, lineColor: [25, 25, 25], lineWidth: 0.4 },
-        headStyles: { fillColor: [230, 230, 230], textColor: [0, 0, 0], fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 190 },
-          1: { cellWidth: 170 },
-          2: { cellWidth: 80, halign: 'right' },
-          3: { cellWidth: 90, halign: 'right' },
+        autoTable(pdf, {
+          startY: 272,
+          head: [[
+            'COBRANÇA',
+            'MOEDA',
+            'VALOR ORIGINAL',
+            'CÂMBIO',
+            'TOTAL R
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text(
+        ehFaturaAgente ? 'TOTAL DA FATURA EM BRL' : 'TOTAL',
+        margem + 6,
+        yFinal + 12
+      )
+
+      if (!ehFaturaAgente) {
+        pdf.text('USD', 390, yFinal + 12)
+        pdf.text(
+          formatarValorSimples(totalClientePdfUSD),
+          435,
+          yFinal + 12,
+          { align: 'right' }
+        )
+        pdf.text('R
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totalClientePdfBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+
+      if (ehFaturaAgente) {
+        pdf.text(
+          'CÂMBIO: TAXA INFORMADA INDIVIDUALMENTE POR ITEM',
+          margem + 8,
+          yTaxa
+        )
+      } else {
+        pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+        pdf.text(
+          `SPREAD ${emissorSpread || '0'}%`,
+          240,
+          yTaxa
+        )
+        pdf.text(
+          `R$ ${taxaConversaoFinalFormatada()}`,
+          larguraPagina - margem - 6,
+          yTaxa,
+          { align: 'right' }
+        )
+      }
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: ehFaturaAgente
+          ? 0
+          : taxaConversaoFinal(),
+        spread: ehFaturaAgente
+          ? 0
+          : numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos
+          ? 'IMPOSTOS'
+          : ehFaturaAgente
+            ? 'AGENTE_CARGA'
+            : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos
+            ? 'Fatura de impostos/taxas'
+            : ehFaturaAgente
+              ? 'Fatura de agente de carga / multimoeda'
+              : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
         },
       })
 
-      const yFinal = (pdf as any).lastAutoTable.finalY + 14
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : ehFaturaAgente
+          ? 'Fatura multimoeda do agente de carga emitida, salva e lançada em Processos Faturados.'
+          : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+              <option value="AGENTE_CARGA">Agente de carga - Fatura multimoeda</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : emissorTipoFatura === 'AGENTE_CARGA'
+                ? 'Modelo principal com cobranças livres, moedas e taxas de câmbio individuais por item.'
+                : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                      <option value="AGENTE_CARGA">Agente de carga - Multimoeda</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : emissorTipoFatura === 'AGENTE_CARGA' ? (
+                    <p className="mt-2 rounded-xl border border-cyan-700 bg-cyan-950/20 px-3 py-2 text-xs font-bold text-cyan-200">
+                      Cada cobrança terá descrição, moeda, valor original, taxa de câmbio e total em reais próprios.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                {emissorTipoFatura === 'AGENTE_CARGA' && (
+                  <div className="rounded-2xl border border-cyan-800 bg-cyan-950/10 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-cyan-300">
+                      Taxas padrão do agente de carga
+                    </p>
+
+                    <p className="mt-2 text-xs leading-5 text-slate-400">
+                      Estes campos ajudam a preencher as linhas. A taxa de cada cobrança continua editável individualmente.
+                    </p>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3">
+                      <label className="text-sm font-bold text-slate-300">
+                        Taxa padrão USD
+                        <input
+                          value={taxaPadraoUsdAgente}
+                          onChange={(e) =>
+                            setTaxaPadraoUsdAgente(e.target.value)
+                          }
+                          placeholder="Ex.: 5,2500"
+                          className="mt-2 w-full"
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          aplicarTaxaPadraoAgente(
+                            'USD',
+                            taxaPadraoUsdAgente
+                          )
+                        }
+                        className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                      >
+                        Aplicar taxa USD aos itens em dólar
+                      </button>
+
+                      <label className="text-sm font-bold text-slate-300">
+                        Taxa padrão EUR
+                        <input
+                          value={taxaPadraoEurAgente}
+                          onChange={(e) =>
+                            setTaxaPadraoEurAgente(e.target.value)
+                          }
+                          placeholder="Ex.: 5,9800"
+                          className="mt-2 w-full"
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          aplicarTaxaPadraoAgente(
+                            'EUR',
+                            taxaPadraoEurAgente
+                          )
+                        }
+                        className="rounded-xl bg-purple-600 px-3 py-2 text-xs font-black hover:bg-purple-500"
+                      >
+                        Aplicar taxa EUR aos itens em euro
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  className={`${
+                    emissorTipoFatura === 'AGENTE_CARGA'
+                      ? 'hidden '
+                      : ''
+                  }rounded-2xl border border-blue-900 bg-[#071225] p-4`}
+                >
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label
+                  className={`${
+                    emissorTipoFatura === 'AGENTE_CARGA'
+                      ? 'hidden '
+                      : ''
+                  }text-sm font-bold text-slate-300`}
+                >
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div
+                  className={`${
+                    emissorTipoFatura === 'AGENTE_CARGA'
+                      ? 'hidden '
+                      : ''
+                  }rounded-2xl border border-green-900 bg-green-950/20 p-4`}
+                >
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {emissorTipoFatura === 'AGENTE_CARGA' && (
+          <div className="rounded-3xl border border-cyan-800 bg-[#071225] p-5 lg:p-7">
+            <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row">
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-cyan-300">
+                  Modelo multimoeda
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black">
+                  4. Cobranças do agente de carga
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  Cadastre cada item exatamente como recebido na fatura do agente. DUE e Export Declaration, quando cobradas, entram como cobranças e não como serviços.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                {totaisEmissor.totalUSD !== 0 && (
+                  <div className="rounded-2xl border border-blue-900 bg-[#020817] p-3 text-right">
+                    <p className="text-xs font-black text-slate-500">USD</p>
+                    <p className="font-black text-blue-300">
+                      {formatarValorSimples(totaisEmissor.totalUSD)}
+                    </p>
+                  </div>
+                )}
+
+                {totaisEmissor.totalEUR !== 0 && (
+                  <div className="rounded-2xl border border-purple-900 bg-[#020817] p-3 text-right">
+                    <p className="text-xs font-black text-slate-500">EUR</p>
+                    <p className="font-black text-purple-300">
+                      {formatarValorSimples(totaisEmissor.totalEUR)}
+                    </p>
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-3 text-right">
+                  <p className="text-xs font-black text-slate-500">
+                    TOTAL BRL
+                  </p>
+                  <p className="font-black text-green-300">
+                    {moeda(totaisEmissor.totalBRL)}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={adicionarItemFaturaAgente}
+                  className="rounded-xl bg-cyan-600 px-4 py-3 text-sm font-black hover:bg-cyan-500"
+                >
+                  + Adicionar cobrança
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full overflow-x-auto">
+              <table className="w-full min-w-[1280px] border-collapse text-sm [&_th]:border-b [&_th]:border-cyan-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-cyan-900/50 [&_td]:px-3 [&_td]:py-3">
+                <thead>
+                  <tr>
+                    <th className="min-w-[260px]">Descrição da cobrança</th>
+                    <th className="w-[120px]">Moeda</th>
+                    <th className="w-[170px]">Valor original</th>
+                    <th className="w-[160px]">Taxa de câmbio</th>
+                    <th className="w-[180px]">Total em R$</th>
+                    <th className="min-w-[240px]">Observação</th>
+                    <th className="w-[100px]">Ação</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {itensFaturaAgente.map((item) => (
+                    <tr key={item.id} className="bg-cyan-950/5">
+                      <td>
+                        <input
+                          value={item.descricao}
+                          onChange={(e) =>
+                            atualizarItemFaturaAgente(
+                              item.id,
+                              'descricao',
+                              e.target.value
+                            )
+                          }
+                          placeholder="Ex.: Ocean Freight, THC, Delivery Fee..."
+                          className="w-full"
+                        />
+                      </td>
+
+                      <td>
+                        <select
+                          value={item.moeda}
+                          onChange={(e) =>
+                            atualizarItemFaturaAgente(
+                              item.id,
+                              'moeda',
+                              e.target.value
+                            )
+                          }
+                          className="w-full"
+                        >
+                          <option value="BRL">BRL</option>
+                          <option value="USD">USD</option>
+                          <option value="EUR">EUR</option>
+                          <option value="GBP">GBP</option>
+                          <option value="CAD">CAD</option>
+                        </select>
+                      </td>
+
+                      <td>
+                        <input
+                          value={item.valor_moeda}
+                          onChange={(e) =>
+                            atualizarItemFaturaAgente(
+                              item.id,
+                              'valor_moeda',
+                              e.target.value
+                            )
+                          }
+                          placeholder="0,00"
+                          className="w-full"
+                        />
+                      </td>
+
+                      <td>
+                        <input
+                          value={
+                            item.moeda === 'BRL'
+                              ? '1,0000'
+                              : item.taxa_cambio
+                          }
+                          onChange={(e) =>
+                            atualizarItemFaturaAgente(
+                              item.id,
+                              'taxa_cambio',
+                              e.target.value
+                            )
+                          }
+                          disabled={item.moeda === 'BRL'}
+                          placeholder="0,0000"
+                          className="w-full disabled:cursor-not-allowed disabled:opacity-60"
+                        />
+                      </td>
+
+                      <td>
+                        <input
+                          value={item.valor_brl}
+                          readOnly
+                          placeholder="R$ 0,00"
+                          className="w-full bg-green-950/20 font-black text-green-300"
+                        />
+                      </td>
+
+                      <td>
+                        <input
+                          value={item.observacao}
+                          onChange={(e) =>
+                            atualizarItemFaturaAgente(
+                              item.id,
+                              'observacao',
+                              e.target.value
+                            )
+                          }
+                          placeholder="Opcional"
+                          className="w-full"
+                        />
+                      </td>
+
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removerItemFaturaAgente(item.id)
+                          }
+                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black hover:bg-red-500"
+                        >
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-cyan-800 bg-cyan-950/10 p-4 text-sm text-cyan-100">
+              O valor final em reais é calculado individualmente: valor original × taxa do item. Alterar uma taxa não modifica itens de outra moeda.
+            </div>
+          </div>
+        )}
+
+        <div
+          className={`${
+            emissorTipoFatura === 'AGENTE_CARGA'
+              ? 'hidden '
+              : ''
+          }rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7`}
+        >
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFaturaAgente(): ItemFaturaAgente[] {
+  return [
+    {
+      id: 'agente-inicial-usd',
+      descricao: '',
+      moeda: 'USD',
+      valor_moeda: '',
+      taxa_cambio: '',
+      valor_brl: '',
+      observacao: '',
+    },
+    {
+      id: 'agente-inicial-eur',
+      descricao: '',
+      moeda: 'EUR',
+      valor_moeda: '',
+      taxa_cambio: '',
+      valor_brl: '',
+      observacao: '',
+    },
+    {
+      id: 'agente-inicial-brl',
+      descricao: '',
+      moeda: 'BRL',
+      valor_moeda: '',
+      taxa_cambio: '1,0000',
+      valor_brl: '',
+      observacao: '',
+    },
+  ]
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+,
+            'OBSERVAÇÃO',
+          ]],
+          body: linhasAgente,
+          theme: 'grid',
+          margin: { left: margem, right: margem },
+          styles: {
+            fontSize: 7,
+            cellPadding: 3,
+            lineColor: [25, 25, 25],
+            lineWidth: 0.4,
+          },
+          headStyles: {
+            fillColor: [230, 230, 230],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+          },
+          columnStyles: {
+            0: { cellWidth: 135 },
+            1: { cellWidth: 42, halign: 'center' },
+            2: { cellWidth: 72, halign: 'right' },
+            3: { cellWidth: 62, halign: 'right' },
+            4: { cellWidth: 78, halign: 'right' },
+            5: { cellWidth: 142 },
+          },
+        })
+      } else {
+        const linhas = itens.map((item) => [
+          item.descricao,
+          item.observacao || '',
+          item.valor_usd > 0
+            ? formatarValorSimples(item.valor_usd)
+            : '-',
+          item.valor_brl > 0
+            ? moeda(item.valor_brl)
+            : '-',
+        ])
+
+        autoTable(pdf, {
+          startY: 272,
+          head: [[
+            'SERVIÇO',
+            'OBSERVAÇÃO',
+            'VALOR USD',
+            'VALOR R
       pdf.setFillColor(190, 190, 190)
       pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
       pdf.setFont('helvetica', 'bold')
@@ -4554,7 +7445,7 @@ export default function FaturasPage() {
             <label>Tipo da fatura</label>
             <select
               value={emissorTipoFatura}
-              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS')}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
             >
               <option value="FRETE">Fatura principal - Frete / serviços</option>
               <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
@@ -4757,7 +7648,14853 @@ export default function FaturasPage() {
                     Tipo da fatura
                     <select
                       value={emissorTipoFatura}
-                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS')}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+,
+          ]],
+          body: linhas,
+          theme: 'grid',
+          margin: { left: margem, right: margem },
+          styles: {
+            fontSize: 8,
+            cellPadding: 4,
+            lineColor: [25, 25, 25],
+            lineWidth: 0.4,
+          },
+          headStyles: {
+            fillColor: [230, 230, 230],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+          },
+          columnStyles: {
+            0: { cellWidth: 190 },
+            1: { cellWidth: 170 },
+            2: { cellWidth: 80, halign: 'right' },
+            3: { cellWidth: 90, halign: 'right' },
+          },
+        })
+      }
+
+      let yFinal = (pdf as any).lastAutoTable.finalY + 14
+
+      if (ehFaturaAgente) {
+        const resumoPorMoeda = itens.reduce(
+          (acc: Record<string, number>, item: any) => {
+            const sigla = String(item.moeda || 'BRL')
+
+            acc[sigla] =
+              Number(acc[sigla] || 0) +
+              numero(item.valor_moeda)
+
+            return acc
+          },
+          {}
+        )
+
+        const textoResumo = Object.entries(resumoPorMoeda)
+          .filter(([, valor]) => numero(valor) !== 0)
+          .map(
+            ([sigla, valor]) =>
+              sigla + ' ' + formatarValorSimples(valor)
+          )
+          .join(' | ')
+
+        if (textoResumo) {
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text(
+            'RESUMO POR MOEDA: ' + textoResumo,
+            margem,
+            yFinal
+          )
+
+          yFinal += 12
+        }
+      }
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text('TOTAL', margem + 6, yFinal + 12)
+      pdf.text('USD', 390, yFinal + 12)
+      pdf.text(formatarValorSimples(totaisEmissor.totalUSD), 435, yFinal + 12, { align: 'right' })
+      pdf.text('R$', 470, yFinal + 12)
+      pdf.text(moeda(totaisEmissor.totalBRL).replace('R$', '').trim(), larguraPagina - margem - 6, yFinal + 12, { align: 'right' })
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: taxaConversaoFinal(),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
+
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+, 470, yFinal + 12)
+      }
+
+      pdf.text(
+        moeda(totalClientePdfBRL).replace('R
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: taxaConversaoFinal(),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
+
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+,
+            'OBSERVAÇÃO',
+          ]],
+          body: linhasAgente,
+          theme: 'grid',
+          margin: { left: margem, right: margem },
+          styles: {
+            fontSize: 7,
+            cellPadding: 3,
+            lineColor: [25, 25, 25],
+            lineWidth: 0.4,
+          },
+          headStyles: {
+            fillColor: [230, 230, 230],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+          },
+          columnStyles: {
+            0: { cellWidth: 135 },
+            1: { cellWidth: 42, halign: 'center' },
+            2: { cellWidth: 72, halign: 'right' },
+            3: { cellWidth: 62, halign: 'right' },
+            4: { cellWidth: 78, halign: 'right' },
+            5: { cellWidth: 142 },
+          },
+        })
+      } else {
+        const linhas = itens.map((item) => [
+          item.descricao,
+          item.observacao || '',
+          item.valor_usd > 0
+            ? formatarValorSimples(item.valor_usd)
+            : '-',
+          item.valor_brl > 0
+            ? moeda(item.valor_brl)
+            : '-',
+        ])
+
+        autoTable(pdf, {
+          startY: 272,
+          head: [[
+            'SERVIÇO',
+            'OBSERVAÇÃO',
+            'VALOR USD',
+            'VALOR R
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text('TOTAL', margem + 6, yFinal + 12)
+      pdf.text('USD', 390, yFinal + 12)
+      pdf.text(formatarValorSimples(totaisEmissor.totalUSD), 435, yFinal + 12, { align: 'right' })
+      pdf.text('R$', 470, yFinal + 12)
+      pdf.text(moeda(totaisEmissor.totalBRL).replace('R$', '').trim(), larguraPagina - margem - 6, yFinal + 12, { align: 'right' })
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: taxaConversaoFinal(),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
+
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+,
+          ]],
+          body: linhas,
+          theme: 'grid',
+          margin: { left: margem, right: margem },
+          styles: {
+            fontSize: 8,
+            cellPadding: 4,
+            lineColor: [25, 25, 25],
+            lineWidth: 0.4,
+          },
+          headStyles: {
+            fillColor: [230, 230, 230],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+          },
+          columnStyles: {
+            0: { cellWidth: 190 },
+            1: { cellWidth: 170 },
+            2: { cellWidth: 80, halign: 'right' },
+            3: { cellWidth: 90, halign: 'right' },
+          },
+        })
+      }
+
+      let yFinal = (pdf as any).lastAutoTable.finalY + 14
+
+      if (ehFaturaAgente) {
+        const resumoPorMoeda = itens.reduce(
+          (acc: Record<string, number>, item: any) => {
+            const sigla = String(item.moeda || 'BRL')
+
+            acc[sigla] =
+              Number(acc[sigla] || 0) +
+              numero(item.valor_moeda)
+
+            return acc
+          },
+          {}
+        )
+
+        const textoResumo = Object.entries(resumoPorMoeda)
+          .filter(([, valor]) => numero(valor) !== 0)
+          .map(
+            ([sigla, valor]) =>
+              sigla + ' ' + formatarValorSimples(valor)
+          )
+          .join(' | ')
+
+        if (textoResumo) {
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text(
+            'RESUMO POR MOEDA: ' + textoResumo,
+            margem,
+            yFinal
+          )
+
+          yFinal += 12
+        }
+      }
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text('TOTAL', margem + 6, yFinal + 12)
+      pdf.text('USD', 390, yFinal + 12)
+      pdf.text(formatarValorSimples(totaisEmissor.totalUSD), 435, yFinal + 12, { align: 'right' })
+      pdf.text('R$', 470, yFinal + 12)
+      pdf.text(moeda(totaisEmissor.totalBRL).replace('R$', '').trim(), larguraPagina - margem - 6, yFinal + 12, { align: 'right' })
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: taxaConversaoFinal(),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
+
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+, '').trim(),
+        larguraPagina - margem - 6,
+        yFinal + 12,
+        { align: 'right' }
+      )
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: taxaConversaoFinal(),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
+
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+,
+            'OBSERVAÇÃO',
+          ]],
+          body: linhasAgente,
+          theme: 'grid',
+          margin: { left: margem, right: margem },
+          styles: {
+            fontSize: 7,
+            cellPadding: 3,
+            lineColor: [25, 25, 25],
+            lineWidth: 0.4,
+          },
+          headStyles: {
+            fillColor: [230, 230, 230],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+          },
+          columnStyles: {
+            0: { cellWidth: 135 },
+            1: { cellWidth: 42, halign: 'center' },
+            2: { cellWidth: 72, halign: 'right' },
+            3: { cellWidth: 62, halign: 'right' },
+            4: { cellWidth: 78, halign: 'right' },
+            5: { cellWidth: 142 },
+          },
+        })
+      } else {
+        const linhas = itens.map((item) => [
+          item.descricao,
+          item.observacao || '',
+          item.valor_usd > 0
+            ? formatarValorSimples(item.valor_usd)
+            : '-',
+          item.valor_brl > 0
+            ? moeda(item.valor_brl)
+            : '-',
+        ])
+
+        autoTable(pdf, {
+          startY: 272,
+          head: [[
+            'SERVIÇO',
+            'OBSERVAÇÃO',
+            'VALOR USD',
+            'VALOR R
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text('TOTAL', margem + 6, yFinal + 12)
+      pdf.text('USD', 390, yFinal + 12)
+      pdf.text(formatarValorSimples(totaisEmissor.totalUSD), 435, yFinal + 12, { align: 'right' })
+      pdf.text('R$', 470, yFinal + 12)
+      pdf.text(moeda(totaisEmissor.totalBRL).replace('R$', '').trim(), larguraPagina - margem - 6, yFinal + 12, { align: 'right' })
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: taxaConversaoFinal(),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
+
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+                      className="mt-2 w-full"
+                    >
+                      <option value="FRETE">Frete / serviços</option>
+                      <option value="IMPOSTOS">Impostos / DOC / DTA - complementar</option>
+                    </select>
+                  </label>
+
+                  {emissorTipoFatura === 'IMPOSTOS' ? (
+                    <p className="mt-2 rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2 text-xs font-bold text-yellow-200">
+                      Esta opção cria uma NOVA fatura complementar, não substitui a fatura de frete existente e soma o valor em Processos Faturados + DOC/DTA/Impostos.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Fatura principal de frete/serviços do processo.
+                    </p>
+                  )}
+                </div>
+
+                <input
+                  value={emissorNumeroFatura}
+                  onChange={(e) => setEmissorNumeroFatura(e.target.value)}
+                  placeholder="Número da fatura"
+                />
+
+                <label className="text-sm font-bold text-slate-300">
+                  Vencimento
+                  <input
+                    type="date"
+                    value={emissorVencimento}
+                    onChange={(e) => setEmissorVencimento(e.target.value)}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
+
+                  <select
+                    value={emissorTipoCambio}
+                    onChange={(e) => {
+                      const tipo = e.target.value
+                      const valor =
+                        tipo === 'PTAX_DHL_MES_ANTERIOR'
+                          ? emissorPtaxDhlMesAnterior
+                          : tipo === 'DOLAR_VENDA_DIA'
+                            ? emissorDolarVendaDia
+                            : emissorTaxaConversao
+
+                      setEmissorTipoCambio(tipo)
+                      if (valor) recalcularItensPorTaxa(valor)
+                    }}
+                    className="mt-3 w-full"
+                  >
+                    <option value="DOLAR_VENDA_DIA">Dólar fechamento venda do dia</option>
+                    <option value="PTAX_DHL_MES_ANTERIOR">DHL: último PTAX do mês anterior</option>
+                    <option value="MANUAL">Taxa manual</option>
+                  </select>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="text-sm font-bold text-slate-300">
+                      Dólar fechamento venda do dia
+                      <input
+                        value={emissorDolarVendaDia}
+                        onChange={(e) => {
+                          setEmissorDolarVendaDia(e.target.value)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,1743"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      PTAX DHL mês anterior
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
+                        <input
+                          type="date"
+                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
+                        />
+                        <input
+                          value={emissorPtaxDhlMesAnterior}
+                          onChange={(e) => {
+                            setEmissorPtaxDhlMesAnterior(e.target.value)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                          }}
+                          placeholder="Ex.: 5,0569"
+                        />
+                      </div>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base usada na fatura
+                      <input
+                        value={emissorTaxaConversao}
+                        onChange={(e) => {
+                          setEmissorTipoCambio('MANUAL')
+                          recalcularItensPorTaxa(e.target.value)
+                        }}
+                        placeholder="Ex.: 5,0569"
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
+                    >
+                      Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', emissorPtaxDhlMesAnterior)}
+                      className="rounded-xl bg-yellow-600 px-3 py-2 text-xs font-black hover:bg-yellow-500"
+                    >
+                      Usar PTAX DHL mês anterior
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      disabled={carregandoCambioEmissor}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {carregandoCambioEmissor ? 'Buscando câmbio...' : 'Atualizar câmbio BCB'}
+                    </button>
+                  </div>
+
+                  {emissorAvisoCambio && (
+                    <p className="mt-3 rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-bold text-blue-200">
+                      {emissorAvisoCambio}
+                    </p>
+                  )}
+
+                  <p className="mt-3 text-xs text-slate-400">
+                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                  </p>
+                </div>
+
+                <label className="text-sm font-bold text-slate-300">
+                  Spread %
+                  <input
+                    value={emissorSpread}
+                    onChange={(e) => recalcularItensPorSpread(e.target.value)}
+                    placeholder="3"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
+                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
+                        ? 'dólar fechamento venda do dia'
+                        : 'taxa manual'} + spread.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-2xl border border-blue-900 bg-[#071225] px-4 py-3 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={emissorVisivelCliente}
+                    onChange={(e) => setEmissorVisivelCliente(e.target.checked)}
+                  />
+                  Disponibilizar para o cliente
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="mb-5 flex flex-col lg:flex-row justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">4. Serviços da cobrança</h3>
+              <p className="text-slate-400 text-sm">
+                Marque os serviços que entram na fatura. Ao selecionar o AWB, os itens salvos no embarque são carregados automaticamente; o total vai para Processos Faturados.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-right">
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
+                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
+                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+              <thead>
+                <tr>
+                  <th className="w-[80px]">Usar</th>
+                  <th>Serviço</th>
+                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[180px]">Valor R$</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFatura.map((item) => (
+                  <tr key={item.id} className={item.selecionado ? 'bg-blue-600/10' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={item.selecionado}
+                        onChange={(e) => atualizarItemFatura(item.id, 'selecionado', e.target.checked)}
+                      />
+                    </td>
+                    <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <input
+                        value={item.valor_usd}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.valor_brl}
+                        onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
+                        placeholder="0,00"
+                        className="w-full"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={item.observacao}
+                        onChange={(e) => atualizarItemFatura(item.id, 'observacao', e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2">
+              <h3 className="text-2xl font-black mb-3">5. Observações e emissão</h3>
+              <textarea
+                value={emissorObservacoes}
+                onChange={(e) => setEmissorObservacoes(e.target.value)}
+                placeholder="Observações internas ou detalhes que devem constar no histórico da fatura"
+                className="min-h-[110px] w-full"
+              />
+
+              <div className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                Ao emitir, o sistema salva o PDF em Faturas clientes, vincula ao AWB e lança o total em Financeiro &gt; Processos Faturados. O login do cliente é opcional; se ainda não existir, vincule depois para a fatura aparecer no portal.
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
+              <p className="text-slate-400 text-sm font-black">Resumo final</p>
+              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
+              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+
+              <button
+                type="button"
+                onClick={gerarPdfFaturaHC}
+                disabled={salvandoEmissao}
+                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+              >
+                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <main className="w-full max-w-none p-6 lg:p-8 text-white">
+      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+        <div>
+          <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
+          <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          <p className="text-slate-400 text-lg">
+            Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 h-fit">
+          <button
+            onClick={() => setAbaAtiva('EMISSOR')}
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir nova fatura
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('RECIBO')}
+            className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Emitir recibo
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-8 flex flex-wrap gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-3">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('FATURAS')}
+          className={
+            abaAtiva === 'FATURAS'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧾 Faturas clientes
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('EMISSOR')}
+          className={
+            abaAtiva === 'EMISSOR'
+              ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-blue-600/20 hover:text-white'
+          }
+        >
+          🧮 Emitir nova fatura
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('RECIBO')}
+          className={
+            abaAtiva === 'RECIBO'
+              ? 'rounded-2xl bg-green-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(22,163,74,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-green-600/20 hover:text-white'
+          }
+        >
+          ✅ Emitir recibo
+        </button>
+      </div>
+
+      {abaAtiva === 'EMISSOR' ? (
+        renderAbaEmissor()
+      ) : abaAtiva === 'RECIBO' ? (
+        renderAbaRecibos()
+      ) : (
+        <>
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+        <Card
+          titulo="Com fatura"
+          valor={totalComFatura}
+          detalhe="PDF anexado"
+          icone="🧾"
+          ativo={filtroDocumento === 'COM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Sem fatura"
+          valor={totalSemFatura}
+          detalhe="Pendente de anexo"
+          icone="📄"
+          ativo={filtroDocumento === 'SEM_FATURA' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'SEM_FATURA', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Visíveis"
+          valor={totalVisiveis}
+          detalhe="Cliente pode acessar"
+          icone="👁️"
+          ativo={filtroDocumento === 'VISIVEL' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'VISIVEL', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Com recibo"
+          valor={totalRecibos}
+          detalhe="Recibo anexado"
+          icone="✅"
+          ativo={filtroDocumento === 'COM_RECIBO' && filtroArquivamento === 'ATIVAS'}
+          onClick={() => aplicarFiltroRapido({ documento: 'COM_RECIBO', arquivamento: 'ATIVAS' })}
+        />
+
+        <Card
+          titulo="Arquivadas"
+          valor={totalFaturasArquivadas}
+          detalhe="Ocultas do admin"
+          icone="🗄️"
+          ativo={filtroArquivamento === 'ARQUIVADAS'}
+          onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
+        />
+      </section>
+
+      {embarqueSelecionado && (
+        <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+            <div>
+              <p className="text-blue-400 font-bold mb-2">
+                {faturaDoEmbarque(embarqueSelecionado.id) ? 'Editar fatura' : 'Anexar fatura'}
+              </p>
+              <h2 className="text-2xl font-black">AWB {embarqueSelecionado.awb}</h2>
+              <p className="text-slate-400 text-sm">
+                {embarqueSelecionado.cliente_final || embarqueSelecionado.importador || 'Cliente não informado'} • {embarqueSelecionado.transportadora || '-'}
+              </p>
+            </div>
+
+            <button
+              onClick={limparFormulario}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <input
+              value={numeroFatura}
+              onChange={(e) => setNumeroFatura(e.target.value)}
+              placeholder="Número da fatura"
+            />
+
+            <input
+              id="pdf_fatura"
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setArquivoPdf(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+
+            <label className="flex items-center gap-2 bg-[#020817] border border-blue-900 rounded-2xl px-4">
+              <input
+                type="checkbox"
+                checked={visivelCliente}
+                onChange={(e) => setVisivelCliente(e.target.checked)}
+              />
+              Visível para cliente
+            </label>
+
+            <textarea
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+              placeholder="Observações internas"
+              className="md:col-span-3 min-h-[90px]"
+            />
+
+            <div className="md:col-span-3 border border-yellow-500/40 bg-yellow-500/10 rounded-2xl p-4 text-yellow-200 text-sm">
+              Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
+            </div>
+
+            <button
+              onClick={salvarFatura}
+              disabled={salvando}
+              className="md:col-span-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+            >
+              {salvando ? 'Salvando...' : 'Salvar fatura'}
+            </button>
+          </div>
+        </section>
+      )}
+
+
+      {renderFormularioRecibo()}
+
+      <section id="tabela_faturas" className="w-full border border-blue-900 rounded-3xl bg-[#071225] p-5 lg:p-7">
+        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+          <div>
+            <h2 className="text-2xl font-black">Faturas por embarque</h2>
+            <p className="text-slate-400 text-sm">
+              Esta tela mostra o pacote do embarque para faturamento e usa a mesma base de Financeiro &gt; Processos Faturados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 w-full lg:max-w-[1380px]">
+            <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)}>
+              <option value="TODOS">Documentos: todos</option>
+              <option value="COM_FATURA">Com fatura</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+              <option value="COM_RECIBO">Com recibo</option>
+              <option value="SEM_RECIBO">Com fatura sem recibo</option>
+              <option value="COM_COMPROVANTE">Com comprovante</option>
+              <option value="SEM_COMPROVANTE">Sem comprovante</option>
+              <option value="VISIVEL">Visível para cliente</option>
+              <option value="OCULTO">Oculto do cliente</option>
+            </select>
+
+            <select
+              value={filtroStatusEmbarque}
+              onChange={(e) => setFiltroStatusEmbarque(e.target.value)}
+            >
+              <option value="TODOS">Status embarque: todos</option>
+              {statusDisponiveis.map((status) => (
+                <option key={status} value={status || ''}>
+                  {status}
+                </option>
+              ))}
+            </select>
+
+            <select value={filtroPagamento} onChange={(e) => setFiltroPagamento(e.target.value)}>
+              <option value="TODOS">Pagamento: todos</option>
+              <option value="PAGO">Pago no financeiro</option>
+              <option value="ATRASADO">Vencido no financeiro</option>
+              <option value="EM_ABERTO">Em aberto no financeiro</option>
+              <option value="SEM_FINANCEIRO">Não lançado no financeiro</option>
+              <option value="SEM_FATURA">Sem fatura</option>
+            </select>
+
+            <select value={filtroArquivamento} onChange={(e) => setFiltroArquivamento(e.target.value)}>
+              <option value="ATIVAS">Arquivamento: ativas</option>
+              <option value="ARQUIVADAS">Arquivamento: arquivadas</option>
+              <option value="TODAS">Arquivamento: todas</option>
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por AWB, cliente, fatura..."
+              className="w-full xl:col-span-2"
+            />
+
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl font-bold"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <ResumoFiltro titulo="Filtrados" valor={embarquesFiltrados.length} detalhe="embarques na tela" />
+          <ResumoFiltro titulo="Pagos" valor={totalPagos} detalhe="recebimento no financeiro" />
+          <ResumoFiltro titulo="Vencidos" valor={totalAtrasados} detalhe="vencimento passou" />
+          <ResumoFiltro titulo="Em aberto" valor={totalEmAberto} detalhe="sem recebimento" />
+          <ResumoFiltro titulo="Sem financeiro" valor={totalSemFinanceiro} detalhe="AWB não lançado" />
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>Cliente</th>
+                <th>Serviço</th>
+                <th>Status</th>
+                <th>Valor fechado</th>
+                <th>Cotação / Docs</th>
+                <th>Nº Fatura</th>
+                <th>Vencimento</th>
+                <th>Visível</th>
+                <th>Fatura</th>
+                <th>Recibo</th>
+                <th>Comprovante</th>
+                <th>Pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {embarquesFiltrados.map((embarque) => {
+                const fatura = faturaDoEmbarque(embarque.id)
+                const financeiro = financeiroDoEmbarque(embarque)
+                const pagamento = statusPagamentoFinanceiro(financeiro)
+                const comprovante = statusComprovanteFatura(fatura)
+                const documentos = documentosDoEmbarque(embarque.id)
+                const cotacoes = cotacoesDoEmbarque(embarque.id)
+                const pacoteAberto = pacoteAbertoId === embarque.id
+
+                return (
+                  <Fragment key={embarque.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                      <td className="font-black text-blue-400 whitespace-nowrap">{embarque.awb || '-'}</td>
+                      <td>
+                        <strong>{embarque.cliente_final || embarque.importador || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">{embarque.transportadora || '-'}</p>
+                      </td>
+                      <td>
+                        <strong>{embarque.servico || '-'}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.origem || '-'} → {embarque.destino || '-'}
+                        </p>
+                      </td>
+                      <td>
+                        <StatusBadge status={embarque.status_operacional || '-'} />
+                      </td>
+                      <td>
+                        <strong className="text-green-400">{moedaFechada(embarque, financeiro)}</strong>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {embarque.moeda_cobranca || embarque.moeda || 'BRL'}
+                          {embarque.taxa_conversao ? ` • tx ${embarque.taxa_conversao}` : ''}
+                          {embarque.spread ? ` • spread ${embarque.spread}%` : ''}
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1">
+                          <span className={cotacoes.length > 0 ? 'text-green-400 font-black' : 'text-yellow-400 font-black'}>
+                            {cotacoes.length > 0 ? `${cotacoes.length} cotação(ões)` : 'Sem cotação'}
+                          </span>
+                          <span className="text-slate-400 text-xs">{documentos.length} documento(s)</span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        {fatura?.arquivado_admin && (
+                          <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
+                            🗄️ Arquivada
+                          </p>
+                        )}
+                      </td>
+                      <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
+                      <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+                      <td>
+                        {fatura?.arquivo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                              Abrir
+                            </Link>
+
+                            <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
+                              {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                disabled={!!enviandoArquivoExtra}
+                                onChange={(e) => anexarArquivoExtraFatura(fatura, 'FATURA_EXTRA', e.target.files?.[0] || null)}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {documentosPacoteAdmin(embarque, fatura).length > 0 ? (
+                              <span className="rounded-lg border border-purple-500/50 bg-purple-600/10 px-2 py-1 text-center text-[10px] font-black text-purple-200">
+                                + {documentosPacoteAdmin(embarque, fatura).length} documento(s)
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                              className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                            >
+                              Emitir fatura
+                            </button>
+
+                                {documentosComplementaresDoEmbarque(embarque, fatura).length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {documentosComplementaresDoEmbarque(embarque, fatura).map((doc: any) => (
+                                      <div
+                                        key={doc.id || doc.url}
+                                        className="rounded-2xl border border-yellow-700 bg-yellow-950/20 p-3"
+                                      >
+                                        <div className="mb-3">
+                                          <p className="text-xs font-black uppercase tracking-widest text-yellow-300">
+                                            {labelDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          <p className="mt-1 text-xs text-slate-300">
+                                            Origem: {origemDocumentoPacoteFatura(doc)} • Data: {dataDocumentoPacoteFatura(doc)} • Valor: {valorDocumentoPacoteFatura(doc)}
+                                          </p>
+                                          {doc.nome ? (
+                                            <p className="mt-1 text-xs text-slate-400">{doc.nome}</p>
+                                          ) : null}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          <a
+                                            href={doc.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-blue-500"
+                                          >
+                                            Abrir
+                                          </a>
+
+                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerAnexoPacoteFatura(doc)}
+                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
+                                            >
+                                              Remover
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
+                                              Lançada no financeiro
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                  <button
+                                    onClick={() => abrirEmissaoFaturaComplementar(embarque)}
+                                    className="rounded-xl bg-yellow-600 px-4 py-3 text-xs font-black text-white hover:bg-yellow-500"
+                                  >
+                                    Emitir complementar
+                                  </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="inline-flex rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Anexar PDF pronto
+                            </button>
+
+                            {(!fatura?.arquivo_pdf || fatura?.arquivado_admin) ? (
+                              <button
+                                type="button"
+                                data-acao="arquivar-sem-fatura"
+                                onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                                className={
+                                  fatura?.arquivado_admin
+                                    ? 'rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600'
+                                    : 'rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500'
+                                }
+                              >
+                                {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {fatura?.recibo_pdf ? (
+                          <div className="flex flex-col gap-2">
+                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                              Abrir
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Reemitir
+                            </button>
+                          </div>
+                        ) : fatura?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
+                            title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
+                          >
+                            Emitir fatura
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${comprovante.classe}`}>
+                            <span>{comprovante.label}</span>
+                            <span className="opacity-80 font-bold">{comprovante.detalhe}</span>
+                          </span>
+
+                          {fatura?.comprovante_pagamento && (
+                            <Link
+                              href={fatura.comprovante_pagamento}
+                              target="_blank"
+                              className="inline-block rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500"
+                            >
+                              Abrir comprovante
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex flex-col rounded-xl border px-2 py-1 text-[11px] font-black ${pagamento.classe}`}>
+                            <span>{pagamento.label}</span>
+                            {financeiro ? (
+                              <span className="opacity-80 font-bold">{pagamento.detalhe}</span>
+                            ) : null}
+                          </span>
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) ? (
+                            <span className="inline-flex rounded-xl border border-green-500 bg-green-600/20 px-2 py-1 text-[10px] font-black text-green-300">
+                              Faturamento finalizado
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setPacoteAbertoId(pacoteAberto ? null : embarque.id)}
+                            className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {pacoteAberto ? 'Fechar' : 'Pacote'}
+                          </button>
+
+                          <Link
+                            href={`/admin/embarques/${embarque.id}`}
+                            className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            Ver embarque
+                          </Link>
+
+                          <button
+                            onClick={() => (fatura ? abrirFormulario(embarque) : abrirEmissaoFaturaDireta(embarque))}
+                            className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-lg text-xs font-black"
+                          >
+                            {fatura ? 'Editar' : 'Emitir fatura'}
+                          </button>
+
+                          {!fatura && (
+                            <button
+                              type="button"
+                              onClick={() => abrirFormulario(embarque)}
+                              className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Anexar PDF pronto
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              type="button"
+                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              className="bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              {fatura?.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                            </button>
+                          )}
+
+                          {faturamentoEstaFinalizado(fatura, financeiro) && !fatura?.arquivado_admin && (
+                            <button
+                              type="button"
+                              onClick={() => finalizarFaturamentoDaTabela(embarque, fatura, financeiro)}
+                              className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-lg text-xs font-black"
+                            >
+                              Finalizar
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button onClick={() => alternarVisibilidade(fatura)} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black">
+                              {fatura.visivel_cliente ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                          )}
+
+                          {fatura && (
+                            <button
+                              onClick={() => alternarArquivamentoFaturamento(embarque, fatura)}
+                              className={
+                                fatura.arquivado_admin
+                                  ? 'bg-green-700 hover:bg-green-600 px-3 py-2 rounded-lg text-xs font-black'
+                                  : 'bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-black'
+                              }
+                            >
+                              {fatura?.arquivado_admin ? 'Restaurar' : 'Arquivar'}
+                            </button>
+                          )}
+
+                          {fatura?.arquivo_pdf && (
+                            <button
+                              onClick={() => removerFatura(embarque)}
+                              disabled={removendoFatura === embarque.id}
+                              className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-xs font-black disabled:opacity-60"
+                            >
+                              {removendoFatura === embarque.id ? 'Removendo...' : 'Remover'}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {pacoteAberto && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={14} className="p-5">
+                          <div className="grid grid-cols-1 xl:grid-cols-4 gap-5">
+                            <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                              <h3 className="text-xl font-black mb-4 text-blue-300">Dados para faturar</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Cliente" valor={embarque.cliente_final || embarque.importador || '-'} />
+                                <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                                <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                                <InfoPacote label="Referência cliente" valor={embarque.referencia_cliente || '-'} />
+                                <InfoPacote label="Referência HC" valor={embarque.referencia_hc || '-'} />
+                                <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                                <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                                <InfoPacote label="Peso taxado" valor={embarque.peso_taxado ? `${embarque.peso_taxado} kg` : '-'} />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-green-900 bg-green-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-green-300">Valor fechado / financeiro</h3>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <InfoPacote label="Valor fechado" valor={moedaFechada(embarque, financeiro)} destaque />
+                                <InfoPacote label="Moeda" valor={embarque.moeda_cobranca || embarque.moeda || 'BRL'} />
+                                <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
+                                <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
+                                <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
+                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Ligação financeira"
+                                  valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-yellow-300">Comprovante do cliente</h3>
+
+                              {fatura?.comprovante_pagamento ? (
+                                <div className="space-y-3 text-sm">
+                                  <InfoPacote label="Status" valor={fatura.status_pagamento || 'COMPROVANTE ENVIADO'} destaque />
+                                  <InfoPacote label="Enviado em" valor={dataBR(fatura.data_comprovante)} />
+                                  <InfoPacote label="Observação HC" valor={fatura.observacao_pagamento || '-'} />
+
+                                  <Link
+                                    href={fatura.comprovante_pagamento}
+                                    target="_blank"
+                                    className="block rounded-xl bg-purple-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-purple-500"
+                                  >
+                                    Abrir comprovante anexado
+                                  </Link>
+                                </div>
+                              ) : (
+                                <p className="text-slate-500">Nenhum comprovante enviado pelo cliente para esta fatura.</p>
+                              )}
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <h3 className="text-xl font-black mb-4 text-purple-300">Cotação e documentos</h3>
+
+                              {documentos.length === 0 ? (
+                                <p className="text-slate-500">Nenhum documento anexado neste embarque.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                                  {documentos.map((doc) => {
+                                    const url = urlDocumento(doc)
+                                    const ehCotacao = documentoEhCotacao(doc)
+
+                                    return url ? (
+                                      <Link
+                                        key={doc.id}
+                                        href={url}
+                                        target="_blank"
+                                        className={
+                                          ehCotacao
+                                            ? 'block rounded-xl border border-green-700 bg-green-950/20 p-3 hover:bg-green-950/40'
+                                            : 'block rounded-xl border border-blue-900 bg-[#020817] p-3 hover:bg-blue-950/30'
+                                        }
+                                      >
+                                        <p className={ehCotacao ? 'font-black text-green-300' : 'font-black text-blue-300'}>
+                                          {ehCotacao ? '💰 Cotação - ' : '📎 '}
+                                          {nomeDocumento(doc)}
+                                        </p>
+                                        <p className="text-slate-500 text-xs mt-1">{dataBR(doc.criado_em)}</p>
+                                      </Link>
+                                    ) : (
+                                      <div key={doc.id} className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+                                        <p className="font-black text-slate-300">📎 {nomeDocumento(doc)}</p>
+                                        <p className="text-slate-500 text-xs mt-1">Documento sem URL pública</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {fatura ? (
+                            <div className="mt-5 rounded-2xl border border-purple-900 bg-purple-950/10 p-5">
+                              <div className="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div>
+                                  <h3 className="text-xl font-black text-purple-300">Pacote de documentos do AWB</h3>
+                                  <p className="text-sm text-slate-400">
+                                    Mostra tudo que o cliente enxerga: fatura principal, fatura complementar, boleto, recibo, comprovante e demais anexos.
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  {['BOLETO', 'FATURA_EXTRA', 'FATURA_COMPLEMENTAR', 'OUTRO'].map((tipo) => (
+                                    <label key={tipo} className="cursor-pointer rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white hover:bg-purple-500">
+                                      {enviandoArquivoExtra === `${fatura.id}-${tipo}` ? 'Enviando...' : `Anexar ${labelTipoArquivoFatura(tipo)}`}
+                                      <input
+                                        type="file"
+                                        accept="application/pdf,image/png,image/jpeg"
+                                        disabled={!!enviandoArquivoExtra}
+                                        onChange={(e) => anexarArquivoExtraFatura(fatura, tipo, e.target.files?.[0] || null)}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {documentosPacoteAdmin(embarque, fatura).length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum arquivo adicional anexado.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  {documentosPacoteAdmin(embarque, fatura).map((arquivo) => (
+                                    <div key={arquivo.id} className="rounded-xl border border-purple-900 bg-[#020817] p-4">
+                                      <p className="text-xs font-black uppercase tracking-wide text-purple-300">{labelTipoArquivoFatura(arquivo.tipo)}</p>
+                                      <p className="mt-1 truncate text-sm font-bold text-slate-200">{arquivo.nome || 'Arquivo'}</p>
+                                      <p className="mt-1 text-xs text-slate-500">{dataBR(arquivo.criado_em)}</p>
+                                      <div className="mt-3 flex gap-2">
+                                        <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
+                                          Abrir
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => removerArquivoExtraFatura(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {embarquesFiltrados.length === 0 && (
+            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-6 text-center text-slate-400 mt-6">
+              Nenhum embarque encontrado.
+            </div>
+          )}
+        </div>
+      </section>
+        </>
+      )}
+    </main>
+  )
+}
+
+function itensPadraoFatura(): ItemFaturaServico[] {
+  return [
+    { id: 'valor_compra', descricao: 'VALOR DE COMPRA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'area_remota', descricao: 'ÁREA REMOTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'manuseio_formal', descricao: 'MANUSEIO FORMAL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'delivery_fee_doc', descricao: 'DELIVERY FEE DOC', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'desconto', descricao: 'DESCONTO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dgr', descricao: 'DGR', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'tarifa_carga_nao_empilhavel', descricao: 'TARIFA ADICIONAL P/ CARGA NÃO EMPILHÁVEL', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'dta', descricao: 'DTA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'outras_taxas', descricao: 'OUTRAS TAXAS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'due_dre', descricao: 'DUE / DRE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete', descricao: 'FRETE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'frete_fedex', descricao: 'FRETE FEDEX', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'handling', descricao: 'HANDLING', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos', descricao: 'IMPOSTOS', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'impostos_brl', descricao: 'IMPOSTOS R$', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'divergencia_peso', descricao: 'DIVERGÊNCIA DE PESO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'oversize_piece', descricao: 'OVERSIZE PIECE', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'seguro', descricao: 'SEGURO', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'taxa_alta_demanda', descricao: 'TAXA DE ALTA DEMANDA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'entrega_fora_area', descricao: 'ENTREGA FORA DA ÁREA', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+    { id: 'coberta_nivel_b', descricao: 'COBERTA NÍVEL B', selecionado: false, valor_usd: '', valor_brl: '', observacao: '' },
+  ]
+}
+
+function dadosClienteFiscal(cliente: ClienteFaturamento) {
+  return {
+    id: cliente.id,
+    codigo_hc: cliente.codigo_hc || null,
+    nome: cliente.nome_empresa || '',
+    contato: cliente.nome_contato || cliente.contato || null,
+    documento: cliente.cnpj || cliente.cpf || '',
+    endereco: cliente.endereco || '',
+    cidade: cliente.cidade || '',
+    estado: cliente.estado || '',
+    cep: cliente.cep || '',
+    email: cliente.email || null,
+    inscricao_estadual: cliente.inscricao_estadual || null,
+    inscricao_municipal: cliente.inscricao_municipal || null,
+  }
+}
+
+function formatarNumeroInput(valor: number) {
+  if (!Number.isFinite(valor)) return ''
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatarValorSimples(valor: number) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function valorPorExtensoBRL(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+
+  if (reais === 0) {
+    partes.push('zero real')
+  } else {
+    partes.push(`${numeroPorExtenso(reais)} ${reais === 1 ? 'real' : 'reais'}`)
+  }
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtenso(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`)
+  }
+
+  return partes.join(' e ')
+}
+
+function numeroPorExtenso(numero: number): string {
+  const unidades = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove']
+  const especiais = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove']
+  const dezenas = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa']
+  const centenas = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos']
+
+  function ate999(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+
+    const c = Math.floor(n / 100)
+    const d = Math.floor((n % 100) / 10)
+    const u = n % 10
+    const partes: string[] = []
+
+    if (c > 0) partes.push(centenas[c])
+
+    const resto = n % 100
+    if (resto >= 10 && resto <= 19) {
+      partes.push(especiais[resto - 10])
+    } else {
+      if (d > 1) partes.push(dezenas[d])
+      if (u > 0) partes.push(unidades[u])
+    }
+
+    return partes.filter(Boolean).join(' e ')
+  }
+
+  if (numero === 0) return 'zero'
+  if (numero < 1000) return ate999(numero)
+
+  const milhoes = Math.floor(numero / 1000000)
+  const milhares = Math.floor((numero % 1000000) / 1000)
+  const resto = numero % 1000
+  const partes: string[] = []
+
+  if (milhoes > 0) {
+    partes.push(`${numeroPorExtenso(milhoes)} ${milhoes === 1 ? 'milhão' : 'milhões'}`)
+  }
+
+  if (milhares > 0) {
+    if (milhares === 1) partes.push('mil')
+    else partes.push(`${ate999(milhares)} mil`)
+  }
+
+  if (resto > 0) {
+    partes.push(ate999(resto))
+  }
+
+  return partes.join(resto > 0 && (resto < 100 || numero < 100000) ? ' e ' : ', ')
+}
+
+function ResumoFiltro({ titulo, valor, detalhe }: any) {
+  return (
+    <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">{titulo}</p>
+      <p className="mt-2 text-2xl font-black text-white">{valor}</p>
+      <p className="mt-1 text-xs text-slate-500">{detalhe}</p>
+    </div>
+  )
+}
+
+function InfoPacote({ label, valor, destaque = false }: any) {
+  return (
+    <div className="rounded-xl border border-blue-900 bg-[#020817] p-3">
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={destaque ? 'font-black text-green-400 break-words' : 'font-bold text-slate-200 break-words'}>
+        {valor || '-'}
+      </p>
+    </div>
+  )
+}
+
+function Card({ titulo, valor, detalhe, icone, ativo = false, onClick }: any) {
+  const classe = ativo
+    ? 'border-blue-400 bg-blue-600/25 ring-2 ring-blue-500 shadow-[0_0_25px_rgba(37,99,235,0.25)]'
+    : 'border-blue-900 bg-[#071225] hover:border-blue-400 hover:bg-blue-600/10'
+
+  const conteudo = (
+    <div className="flex justify-between items-start gap-4">
+      <div>
+        <p className={ativo ? 'text-white font-black' : 'text-slate-300 font-bold'}>{titulo}</p>
+        <h2 className="text-5xl font-black mt-4 text-white">{valor}</h2>
+        <p className={ativo ? 'text-blue-100 mt-2' : 'text-slate-400 mt-2'}>{detalhe}</p>
+      </div>
+
+      <div className="text-4xl">{icone}</div>
+    </div>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`text-left w-full border rounded-3xl p-6 transition cursor-pointer ${classe}`}
+      >
+        {conteudo}
+      </button>
+    )
+  }
+
+  return <div className={`border rounded-3xl p-6 ${classe}`}>{conteudo}</div>
+}
+,
+          ]],
+          body: linhas,
+          theme: 'grid',
+          margin: { left: margem, right: margem },
+          styles: {
+            fontSize: 8,
+            cellPadding: 4,
+            lineColor: [25, 25, 25],
+            lineWidth: 0.4,
+          },
+          headStyles: {
+            fillColor: [230, 230, 230],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+          },
+          columnStyles: {
+            0: { cellWidth: 190 },
+            1: { cellWidth: 170 },
+            2: { cellWidth: 80, halign: 'right' },
+            3: { cellWidth: 90, halign: 'right' },
+          },
+        })
+      }
+
+      let yFinal = (pdf as any).lastAutoTable.finalY + 14
+
+      if (ehFaturaAgente) {
+        const resumoPorMoeda = itens.reduce(
+          (acc: Record<string, number>, item: any) => {
+            const sigla = String(item.moeda || 'BRL')
+
+            acc[sigla] =
+              Number(acc[sigla] || 0) +
+              numero(item.valor_moeda)
+
+            return acc
+          },
+          {}
+        )
+
+        const textoResumo = Object.entries(resumoPorMoeda)
+          .filter(([, valor]) => numero(valor) !== 0)
+          .map(
+            ([sigla, valor]) =>
+              sigla + ' ' + formatarValorSimples(valor)
+          )
+          .join(' | ')
+
+        if (textoResumo) {
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text(
+            'RESUMO POR MOEDA: ' + textoResumo,
+            margem,
+            yFinal
+          )
+
+          yFinal += 12
+        }
+      }
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text('TOTAL', margem + 6, yFinal + 12)
+      pdf.text('USD', 390, yFinal + 12)
+      pdf.text(formatarValorSimples(totaisEmissor.totalUSD), 435, yFinal + 12, { align: 'right' })
+      pdf.text('R$', 470, yFinal + 12)
+      pdf.text(moeda(totaisEmissor.totalBRL).replace('R$', '').trim(), larguraPagina - margem - 6, yFinal + 12, { align: 'right' })
+
+      const yExtenso = yFinal + 42
+      pdf.setDrawColor(0, 0, 0)
+      pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+
+      const yTaxa = yExtenso + 36
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
+      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 30
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 68
+      const xAssinaturaCentro = larguraPagina / 2 - 28
+      pdf.setDrawColor(70, 70, 70)
+      pdf.setLineWidth(0.4)
+      pdf.line(xAssinaturaCentro - 68, yAssinatura - 5, xAssinaturaCentro + 68, yAssinatura - 5)
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(10)
+      pdf.text('Marcos Paulo Otero', xAssinaturaCentro, yAssinatura - 10, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', xAssinaturaCentro, yAssinatura + 8, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', xAssinaturaCentro, yAssinatura + 19, { align: 'center' })
+
+      const xQr = larguraPagina - margem - 92
+      const yQr = yBanco + 48
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
+        } catch (error) {
+          console.log('QR Code PIX não pôde ser inserido no PDF:', error)
+          pdf.setDrawColor(0, 0, 0)
+          pdf.rect(xQr, yQr, 72, 72)
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(7)
+          pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(5.5)
+          pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+        }
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(6)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+      } else {
+        pdf.setDrawColor(0, 0, 0)
+        pdf.rect(xQr, yQr, 72, 72)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7)
+        pdf.text('PIX CNPJ', xQr + 36, yQr + 34, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text('41.456.630/0001-52', xQr + 36, yQr + 46, { align: 'center' })
+      }
+
+      if (emissorObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+          maxWidth: larguraPagina - margem * 2 - 105,
+        })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeArquivo = `${emissorEmbarqueSelecionado.id}/${Date.now()}-fatura-${emissorNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
+      const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
+      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+
+      if (caminhoAntigo) {
+        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      }
+
+      const payloadFatura: any = {
+        embarque_id: emissorEmbarqueSelecionado.id,
+        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+        numero_fatura: emissorNumeroFatura || null,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: emissorVisivelCliente,
+        observacoes: emissorObservacoes || null,
+        cliente_faturamento_id: emissorClienteSelecionado.id,
+        dados_cliente_faturamento: dadosCliente,
+        itens_fatura: itensClientePdf,
+        valor_total: totalClientePdfBRL,
+        valor_usd: totalClientePdfUSD,
+        taxa_conversao: taxaConversaoFinal(),
+        spread: numero(emissorSpread),
+        vencimento: emissorVencimento || null,
+        tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
+        fatura_complementar: ehFaturaImpostos,
+        fatura_principal_id: ehFaturaImpostos ? faturaPrincipal?.id || null : null,
+        valor_impostos: ehFaturaImpostos ? totalClientePdfBRL : 0,
+      }
+
+      if (ehFaturaImpostos && faturaPrincipal?.id) {
+        const { error } = await supabase.from('fatura_arquivos').insert([
+          {
+            fatura_id: faturaPrincipal.id,
+            embarque_id: emissorEmbarqueSelecionado.id,
+            usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
+            tipo: 'FATURA_COMPLEMENTAR_IMPOSTOS',
+            nome: `Fatura complementar impostos ${emissorNumeroFatura || emissorEmbarqueSelecionado.awb || ''}`.trim(),
+            url: urlPdf,
+            caminho: nomeArquivo,
+          },
+        ])
+
+        if (error) {
+          throw new Error('Fatura complementar gerada, mas houve erro ao salvar como anexo extra: ' + error.message)
+        }
+      } else if (faturaExistente) {
+        const { error } = await supabase.from('faturas').update(payloadFatura).eq('id', faturaExistente.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await supabase.from('faturas').insert([payloadFatura])
+        if (error) throw new Error(error.message)
+      }
+
+      await garantirLoginVinculadoAoEmbarque()
+      await salvarFinanceiroDaFatura(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: payloadFatura,
+        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        dados: {
+          Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
+          Vencimento: dataBR(emissorVencimento),
+          Valor: moeda(payloadFatura.valor_total),
+        },
+      })
+
+      const mensagemSucesso = ehFaturaImpostos
+        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+        : emissorUsuarioId
+          ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
+          : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
+
+      alert(mensagemSucesso)
+      limparEmissor()
+      setAbaAtiva('FATURAS')
+      carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(
+        `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
+      )
+    } finally {
+      setSalvandoEmissao(false)
+    }
+  }
+
+
+  function renderFormularioRecibo() {
+    if (!reciboSelecionado) return null
+
+    const faturaReciboAtual = faturaDoEmbarque(reciboSelecionado.id)
+    const clientesRecibo = clientesFaturamentoReciboFiltrados()
+    const clienteReciboSelecionado = clienteFaturamentoReciboSelecionado()
+    const dadosClienteRecibo = dadosClienteFiscalRecibo(faturaReciboAtual, reciboSelecionado)
+    const ehReciboComplementar = !!reciboComplementarSelecionado
+
+    const referenciaDocumentoRecibo = ehReciboComplementar
+      ? String(
+          reciboComplementarSelecionado?.nome ||
+            reciboComplementarSelecionado?.tipo ||
+            'Fatura complementar'
+        )
+      : faturaReciboAtual?.numero_fatura || '-'
+
+    const valorBaseRecibo = ehReciboComplementar
+      ? numero(reciboComplementarSelecionado?.valor_total)
+      : valorPadraoRecibo(reciboSelecionado)
+
+    return (
+<section id="form_recibo" className="border border-green-700 rounded-3xl bg-green-950/10 p-7 mb-8">
+  <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
+    <div>
+      <p className="text-green-400 font-bold mb-2">
+        {ehReciboComplementar
+          ? 'Emitir recibo complementar'
+          : 'Emitir recibo'}
+      </p>
+      <h2 className="text-2xl font-black">
+        {ehReciboComplementar
+          ? 'Recibo complementar do AWB '
+          : 'Recibo do AWB '}
+        {reciboSelecionado.awb}
+      </h2>
+      <p className="text-slate-400 text-sm">
+        {ehReciboComplementar
+          ? 'O PDF será vinculado à fatura complementar selecionada, sem substituir o recibo principal e sem duplicar valores no Financeiro.'
+          : 'Informe a data em que o pagamento entrou no banco. O sistema vai gerar o PDF, liberar para o cliente e atualizar Processos Faturados.'}
+      </p>
+    </div>
+
+    <button
+      onClick={limparRecibo}
+      className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+    >
+      Cancelar
+    </button>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+    <InfoPacote
+      label={ehReciboComplementar ? 'Fatura complementar' : 'Fatura'}
+      valor={referenciaDocumentoRecibo}
+    />
+    <InfoPacote label="Cliente do embarque" valor={reciboSelecionado.cliente_final || reciboSelecionado.importador || '-'} />
+    <InfoPacote
+      label={ehReciboComplementar ? 'Valor complementar' : 'Valor base'}
+      valor={
+        valorBaseRecibo > 0
+          ? moeda(valorBaseRecibo)
+          : 'Informe o valor recebido'
+      }
+      destaque
+    />
+    <InfoPacote
+      label="Status financeiro"
+      valor={
+        ehReciboComplementar
+          ? 'Histórico complementar'
+          : statusPagamentoFinanceiro(
+              financeiroDoEmbarque(reciboSelecionado)
+            ).label
+      }
+    />
+
+    <div className="md:col-span-4 rounded-2xl border border-blue-900 bg-[#071225] p-5">
+      <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-white">Cliente fiscal do recibo</h3>
+          <p className="text-slate-400 text-sm">
+            O recibo usará os dados da lista de Clientes Faturamento, igual ao emissor de faturas.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/clientes-faturamento"
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold h-fit text-center"
+        >
+          Clientes Faturamento
+        </Link>
+      </div>
+
+      <input
+        value={buscaClienteRecibo}
+        onChange={(e) => setBuscaClienteRecibo(e.target.value)}
+        placeholder="Buscar cliente fiscal por nome, CNPJ, CPF, e-mail ou código HC..."
+        className="mb-3 w-full"
+      />
+
+      <select
+        value={reciboClienteId}
+        onChange={(e) => setReciboClienteId(e.target.value)}
+        className="w-full"
+      >
+        <option value="">Selecione o cliente fiscal</option>
+        {clientesRecibo.map((cliente: any) => (
+          <option key={cliente.id} value={cliente.id}>
+            {(cliente.codigo_hc ? String(cliente.codigo_hc) + ' - ' : '')}
+            {cliente.nome_empresa || cliente.razao_social || 'Cliente sem nome'}
+            {' - '}
+            {cliente.cnpj || cliente.cpf || 'sem documento'}
+          </option>
+        ))}
+      </select>
+
+      {buscandoClientesEmissor && (
+        <p className="mt-2 text-xs text-blue-300">
+          Buscando clientes cadastrados...
+        </p>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <InfoPacote label="Razão social / Nome" valor={dadosClienteRecibo.nome || '-'} destaque />
+        <InfoPacote label="CNPJ / CPF" valor={dadosClienteRecibo.documento || '-'} destaque />
+        <InfoPacote label="E-mail" valor={dadosClienteRecibo.email || '-'} />
+        <InfoPacote label="Endereço" valor={dadosClienteRecibo.endereco || '-'} />
+        <InfoPacote
+          label="Cidade / UF / CEP"
+          valor={[dadosClienteRecibo.cidade, dadosClienteRecibo.estado, dadosClienteRecibo.cep].filter(Boolean).join(' / ') || '-'}
+        />
+        <InfoPacote label="Contato" valor={dadosClienteRecibo.contato || '-'} />
+      </div>
+
+      {!clienteReciboSelecionado && (
+        <p className="mt-3 text-xs text-yellow-300">
+          Selecione o cliente fiscal cadastrado para emitir o recibo com os dados corretos da base Clientes Faturamento.
+        </p>
+      )}
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Data do recebimento</label>
+      <input
+        type="date"
+        value={dataRecebimentoRecibo}
+        onChange={(e) => setDataRecebimentoRecibo(e.target.value)}
+      />
+    </div>
+
+    <div>
+      <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
+      <input
+        value={valorRecebidoRecibo}
+        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        placeholder="Ex: 1.359,29"
+      />
+    </div>
+
+    <div className="md:col-span-2">
+      <label className="block text-sm font-black text-slate-300 mb-2">Forma de recebimento</label>
+      <input
+        value={formaRecebimentoRecibo}
+        onChange={(e) => setFormaRecebimentoRecibo(e.target.value)}
+        placeholder="PIX, boleto, transferência..."
+      />
+    </div>
+
+    <textarea
+      value={observacoesRecibo}
+      onChange={(e) => setObservacoesRecibo(e.target.value)}
+      placeholder="Observações que devem constar no recibo ou histórico financeiro"
+      className="md:col-span-4 min-h-[90px]"
+    />
+
+    <div className="md:col-span-4 border border-green-500/40 bg-green-500/10 rounded-2xl p-4 text-green-200 text-sm">
+      {ehReciboComplementar
+        ? 'O recibo complementar será salvo como documento adicional, vinculado à complementar selecionada. O recibo principal e os totais financeiros serão mantidos.'
+        : 'Ao emitir, o recibo será salvo em Faturas clientes, ficará disponível para o cliente no portal e o AWB será marcado como recebido em Financeiro > Processos Faturados.'}
+    </div>
+
+    <button
+      onClick={gerarPdfReciboHC}
+      disabled={emitindoRecibo}
+      className="md:col-span-4 bg-green-600 hover:bg-green-500 rounded-2xl font-bold disabled:opacity-60 py-4"
+    >
+      {emitindoRecibo
+        ? 'Gerando recibo...'
+        : ehReciboComplementar
+          ? 'Gerar recibo complementar'
+          : 'Gerar recibo e registrar recebimento'}
+    </button>
+  </div>
+</section>
+    )
+  }
+
+
+  function renderAbaRecibos() {
+    const termo = normalizarTexto(buscaRecibo)
+
+    const faturasParaRecibo = faturas
+      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .map((fatura) => {
+        const embarque =
+          embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
+          null
+
+        return {
+          fatura,
+          embarque,
+        }
+      })
+      .filter(({ fatura, embarque }) => {
+        if (!embarque) return false
+        if (!termo) return true
+
+        const base = normalizarTexto(`
+          ${fatura.numero_fatura || ''}
+          ${embarque.awb || ''}
+          ${embarque.cliente_final || ''}
+          ${embarque.exportador || ''}
+          ${embarque.importador || ''}
+          ${embarque.transportadora || ''}
+          ${fatura.status_pagamento || ''}
+        `)
+
+        return base.includes(termo)
+      })
+      .slice(0, 150)
+
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-green-800 bg-green-950/10 p-6 lg:p-7">
+          <div className="flex flex-col lg:flex-row justify-between gap-5 mb-6">
+            <div>
+              <p className="text-green-400 font-bold mb-2">Emissor de recibos</p>
+              <h2 className="text-3xl font-black">Emitir recibo vinculado ao AWB</h2>
+              <p className="text-slate-400 text-sm mt-2">
+                Localize a fatura, informe a data real do recebimento e o sistema registra em Processos Faturados.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setBuscaRecibo('')
+                limparRecibo()
+              }}
+              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+            >
+              Limpar recibo
+            </button>
+          </div>
+
+          <input
+            value={buscaRecibo}
+            onChange={(e) => setBuscaRecibo(e.target.value)}
+            placeholder="Buscar por AWB, cliente, número da fatura ou transportadora..."
+            className="w-full mb-5"
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {faturasParaRecibo.map(({ fatura, embarque }) => {
+              if (!embarque) return null
+
+              const financeiro = financeiroDoEmbarque(embarque)
+              const pagamento = statusPagamentoFinanceiro(financeiro)
+
+              const faturasComplementares =
+                documentosPacoteAdmin(embarque, fatura).filter(
+                  documentoEhFaturaComplementar
+                )
+
+              return (
+                <div
+                  key={fatura.id}
+                  className="rounded-3xl border border-blue-900 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500 font-black">AWB / Fatura</p>
+                      <h3 className="mt-1 text-2xl font-black text-blue-300">{embarque.awb || '-'}</h3>
+                      <p className="text-slate-300 font-bold mt-1">Fatura: {fatura.numero_fatura || '-'}</p>
+                      <p className="text-slate-500 text-sm mt-1">
+                        {embarque.cliente_final || embarque.importador || '-'} • {embarque.transportadora || '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      {fatura.recibo_pdf ? (
+                        <a
+                          href={fatura.recibo_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-xl bg-green-600 px-4 py-3 text-center text-sm font-black text-white hover:bg-green-500"
+                        >
+                          Abrir recibo
+                        </a>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => abrirEmissaoRecibo(embarque)}
+                        className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white hover:bg-green-500"
+                      >
+                        {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5">
+                    <InfoPacote label="Valor fatura" valor={moeda(valorPadraoRecibo(embarque))} destaque />
+                    <InfoPacote label="Vencimento" valor={dataBR(normalizarData(fatura.vencimento) || normalizarData(vencimentoFinanceiro(financeiro)))} />
+                    <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)) || fatura.data_pagamento)} />
+                    <InfoPacote label="Status financeiro" valor={pagamento.label} />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-yellow-700 bg-yellow-950/10 p-4">
+                      <div className="mb-3">
+                        <p className="font-black text-yellow-300">
+                          Faturas complementares
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Emita o recibo específico de cada cobrança complementar.
+                        </p>
+                      </div>
+
+                      {faturasComplementares.length === 0 ? (
+                        <div className="rounded-xl border border-yellow-900 bg-[#071225] p-4">
+                          <p className="font-black text-yellow-200">
+                            Nenhuma fatura complementar vinculada a este AWB
+                          </p>
+
+                          <p className="mt-2 text-xs leading-5 text-slate-400">
+                            Emita uma fatura do tipo Complementar — Impostos /
+                            DOC / DTA ou anexe o PDF complementar no pacote de
+                            documentos deste processo.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {faturasComplementares.map((documento: any) => {
+                          const reciboComplementar =
+                            reciboComplementarDoDocumento(documento)
+
+                          return (
+                            <div
+                              key={
+                                String(documento.id || '') +
+                                '-complementar'
+                              }
+                              className="flex flex-col gap-3 rounded-xl border border-yellow-900 bg-[#071225] p-4 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-yellow-100">
+                                  {documento.nome ||
+                                    'Fatura complementar'}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {numero(documento.valor_total) > 0
+                                    ? moeda(documento.valor_total)
+                                    : 'Valor será informado na emissão do recibo'}
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  href={documento.url}
+                                  target="_blank"
+                                  className="rounded-lg bg-yellow-600 px-3 py-2 text-xs font-black text-white hover:bg-yellow-500"
+                                >
+                                  Abrir fatura
+                                </Link>
+
+                                {reciboComplementar?.url && (
+                                  <Link
+                                    href={reciboComplementar.url}
+                                    target="_blank"
+                                    className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                                  >
+                                    Abrir recibo
+                                  </Link>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirEmissaoReciboComplementar(
+                                      embarque,
+                                      documento
+                                    )
+                                  }
+                                  className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                                >
+                                  {reciboComplementar
+                                    ? 'Reemitir recibo complementar'
+                                    : 'Emitir recibo complementar'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {faturasParaRecibo.length === 0 && (
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-[#020817] p-6 text-center text-slate-400">
+              Nenhuma fatura emitida encontrada para gerar recibo.
+            </div>
+          )}
+        </div>
+
+        {renderFormularioRecibo()}
+      </section>
+    )
+  }
+
+  function renderAbaEmissor() {
+    const embarque = emissorEmbarqueSelecionado
+    const cliente = emissorClienteSelecionado
+    const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
+    const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
+    const usuarioPortal = emissorUsuarioSelecionado
+
+    return (
+      <section id="emissor_fatura" className="space-y-6">
+
+      <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
+          Tipo da emissão
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <label>Tipo da fatura</label>
+            <select
+              value={emissorTipoFatura}
+              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
+            >
+              <option value="FRETE">Fatura principal - Frete / serviços</option>
+              <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
+            </select>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-800 bg-[#020817] p-4 text-sm text-yellow-100">
+            {emissorTipoFatura === 'IMPOSTOS'
+              ? 'A fatura complementar será salva como ANEXO EXTRA. O PDF principal não será substituído.'
+              : 'A fatura principal atualiza o PDF principal do embarque.'}
+          </div>
+        </div>
+      </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <div className="mb-6 flex flex-col lg:flex-row justify-between gap-5">
+            <div>
+              <p className="text-blue-400 font-black mb-2">Emissor de faturas</p>
+              <h2 className="text-3xl font-black">Emitir fatura vinculada ao AWB</h2>
+              <p className="mt-2 text-slate-400">
+                Primeiro selecione o embarque e o cliente fiscal. O login do cliente é opcional: você pode emitir agora e vincular depois.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={limparEmissor}
+              className="h-fit rounded-2xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Limpar emissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">1. Puxar embarque</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <input
+                  value={buscaEmissorAwb}
+                  onChange={(e) => setBuscaEmissorAwb(e.target.value)}
+                  placeholder="Buscar por AWB, cliente, referência..."
+                  className="w-full"
+                />
+
+                <select
+                  value={filtroStatusEmissor}
+                  onChange={(e) => setFiltroStatusEmissor(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="TODOS">Status: todos</option>
+                  {statusDisponiveisEmissor.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <select
+                value={emissorEmbarqueId}
+                onChange={(e) => selecionarEmbarqueEmissor(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {embarquesDisponiveisEmissor.length === 0 ? 'Nenhum AWB encontrado' : 'Selecione o AWB'}
+                </option>
+                {embarquesDisponiveisEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb || 'Sem AWB'} - {item.status_operacional || 'Sem status'} - {item.cliente_final || item.importador || 'Cliente não informado'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Use o campo de busca e o filtro de status para localizar o embarque. Mostrando até 120 resultados.
+              </p>
+
+              {embarque ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
+                  <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
+                  <InfoPacote label="Importador" valor={embarque.importador || '-'} />
+                  <InfoPacote label="Serviço" valor={embarque.servico || '-'} />
+                  <InfoPacote label="Transportadora" valor={embarque.transportadora || '-'} />
+                  <InfoPacote label="Origem / destino" valor={`${embarque.origem || '-'} → ${embarque.destino || '-'}`} />
+                  <InfoPacote label="Valor base encontrado" valor={moedaFechada(embarque, financeiro)} destaque />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione um embarque para carregar os dados.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">2. Cliente para faturamento</h3>
+
+              <input
+                value={buscaClienteEmissor}
+                onChange={(e) => setBuscaClienteEmissor(e.target.value)}
+                placeholder="Buscar cliente fiscal por nome, CNPJ, CPF ou código..."
+                className="mb-3 w-full"
+              />
+
+              <select
+                value={emissorClienteId}
+                onChange={(e) => setEmissorClienteId(e.target.value)}
+                className="w-full"
+              >
+                <option value="">
+                  {clientesFaturamentoEmissor.length === 0 ? 'Nenhum cliente encontrado' : 'Selecione o cliente fiscal'}
+                </option>
+                {clientesFaturamentoEmissor.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo_hc ? `${item.codigo_hc} - ` : ''}{item.nome_empresa} - {item.cnpj || item.cpf || 'sem documento'}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {buscandoClientesEmissor
+                  ? 'Buscando no banco de dados...'
+                  : clientesFaturamentoEmissor.length === 0
+                    ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
+                    : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                <label className="text-sm font-black text-slate-300">
+                  Login do cliente no portal (opcional)
+                  <input
+                    value={buscaUsuarioEmissor}
+                    onChange={(e) => setBuscaUsuarioEmissor(e.target.value)}
+                    placeholder="Buscar login por nome ou e-mail..."
+                    className="mt-2 mb-3 w-full"
+                  />
+
+                  <select
+                    value={emissorUsuarioId}
+                    onChange={(e) => setEmissorUsuarioId(e.target.value)}
+                    className="w-full"
+                  >
+                    <option value="">Sem login vinculado no momento</option>
+                    {usuariosPortalEmissor.map((usuario) => (
+                      <option key={usuario.id} value={usuario.id}>
+                        {(usuario.nome || usuario.email || 'Cliente sem nome')} - {usuario.email || 'sem e-mail'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {usuarioPortal ? (
+                  <p className="mt-3 text-xs text-green-300">
+                    Esta fatura ficará vinculada ao login: <strong>{usuarioPortal.email || usuarioPortal.nome}</strong>
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-yellow-300">
+                    Login opcional. Se o cliente ainda não fez cadastro, emita a fatura normalmente. Depois, ao vincular o login ao AWB, esta fatura aparecerá no portal se estiver visível para o cliente.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/10 p-4">
+                <label className="text-sm font-black text-emerald-200">
+                  Parceiro / Despachante do repasse
+                  <input
+                    value={emissorDespachante}
+                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    placeholder="Ex.: SKYSEA"
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs text-emerald-300">
+                  Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
+                </p>
+              </div>
+
+              {dadosCliente ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+                  <InfoPacote label="Cobrança para" valor={dadosCliente.nome} destaque />
+                  <InfoPacote label="CNPJ / CPF" valor={dadosCliente.documento} />
+                  <InfoPacote label="Endereço" valor={dadosCliente.endereco} />
+                  <InfoPacote label="Cidade / Estado" valor={`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`} />
+                  <InfoPacote label="CEP" valor={dadosCliente.cep} />
+                  <InfoPacote label="Inscrição estadual" valor={dadosCliente.inscricao_estadual || 'ISENTO'} />
+                  <InfoPacote label="Inscrição municipal" valor={dadosCliente.inscricao_municipal || '-'} />
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Selecione o cadastro fiscal que sairá na fatura.</p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-5">
+              <h3 className="text-xl font-black mb-4">3. Dados da fatura</h3>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <label className="text-sm font-black text-slate-300">
+                    Tipo da fatura
+                    <select
+                      value={emissorTipoFatura}
+                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS' | 'AGENTE_CARGA')}
                       className="mt-2 w-full"
                     >
                       <option value="FRETE">Frete / serviços</option>
