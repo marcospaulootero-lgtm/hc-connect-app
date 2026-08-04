@@ -677,8 +677,73 @@ export default function FaturasTransportadorasPage() {
         throw new Error(retorno?.error || 'Erro ao importar PDF.')
       }
 
-      const preview = retorno?.preview || {}
-      const importacao = retorno?.importacao || {}
+      const previews = Array.isArray(retorno?.previews)
+        ? retorno.previews
+        : retorno?.preview
+          ? [retorno.preview]
+          : []
+
+      const importacoes = Array.isArray(retorno?.importacoes)
+        ? retorno.importacoes
+        : retorno?.importacao
+          ? [retorno.importacao]
+          : []
+
+      if (previews.length > 1) {
+        const linhasFaturas = previews.map((item: any, index: number) => {
+          const importacaoItem = importacoes[index] || {}
+          const itensItem = Array.isArray(item?.itens) ? item.itens : []
+
+          return (
+            `• ${item.numero_fatura || '-'} — ${moeda(item.valor_total || 0)}` +
+            ` — ${itensItem.length} AWB(s)` +
+            ` — ${importacaoItem.itens_salvos ?? 0} item(ns) salvo(s)`
+          )
+        })
+
+        const totalDocumento = previews.reduce(
+          (acc: number, item: any) => acc + Number(item?.valor_total || 0),
+          0
+        )
+
+        const totalAwbs = previews.reduce(
+          (acc: number, item: any) => acc + (Array.isArray(item?.itens) ? item.itens.length : 0),
+          0
+        )
+
+        const custosLancados = importacoes.reduce(
+          (acc: number, item: any) => acc + Number(item?.custos_lancados || 0),
+          0
+        )
+
+        const aguardandoProcesso = importacoes.reduce(
+          (acc: number, item: any) => acc + Number(item?.aguardando_processo || 0),
+          0
+        )
+
+        const jaTinhamCusto = importacoes.reduce(
+          (acc: number, item: any) => acc + Number(item?.ja_tinham_custo || 0),
+          0
+        )
+
+        alert(
+          'Importação do PDF consolidado concluída.\n\n' +
+            `Faturas encontradas: ${previews.length}\n` +
+            `Total do documento: ${moeda(totalDocumento)}\n` +
+            `AWBs encontrados: ${totalAwbs}\n\n` +
+            linhasFaturas.join('\n') +
+            '\n\nO mesmo PDF consolidado foi vinculado a todas as faturas.\n\n' +
+            `Custos lançados nos processos: ${custosLancados}\n` +
+            `Aguardando criação do processo: ${aguardandoProcesso}\n` +
+            `Processos que já tinham custo: ${jaTinhamCusto}`
+        )
+
+        await carregar()
+        return
+      }
+
+      const preview = previews[0] || retorno?.preview || {}
+      const importacao = importacoes[0] || retorno?.importacao || {}
       const itens = Array.isArray(preview.itens) ? preview.itens : []
 
       const awbsResumo = itens

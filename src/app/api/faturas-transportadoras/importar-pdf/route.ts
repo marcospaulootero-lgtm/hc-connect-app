@@ -150,6 +150,54 @@ function supabaseAdmin() {
   })
 }
 
+async function vincularPdfConsolidado(
+  buffer: Buffer,
+  nomeArquivoOriginal: string,
+  faturaIds: string[]
+) {
+  const ids = Array.from(new Set(faturaIds.filter(Boolean)))
+  if (ids.length === 0) return null
+
+  const supabase = supabaseAdmin()
+  const nomeLimpo = String(nomeArquivoOriginal || 'faturas-fedex.pdf')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'faturas-fedex.pdf'
+
+  const caminho = `transportadoras/FedEx/consolidados/${Date.now()}-${nomeLimpo}`
+
+  const { error: erroUpload } = await supabase.storage
+    .from('faturas')
+    .upload(caminho, buffer, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: 'application/pdf',
+    })
+
+  if (erroUpload) {
+    throw new Error('Faturas salvas, mas houve erro ao anexar o PDF consolidado: ' + erroUpload.message)
+  }
+
+  const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(caminho)
+  const arquivoPdf = urlData.publicUrl
+
+  const { error: erroVinculo } = await supabase
+    .from('faturas_transportadoras')
+    .update({
+      arquivo_pdf: arquivoPdf,
+      atualizado_em: new Date().toISOString(),
+    })
+    .in('id', ids)
+
+  if (erroVinculo) {
+    throw new Error('PDF enviado, mas houve erro ao vinculá-lo às faturas: ' + erroVinculo.message)
+  }
+
+  return arquivoPdf
+}
+
 async function buscarFinanceiroPorAwb(supabase: any, awbOriginal: string) {
   const awb = normalizarAwb(awbOriginal)
   if (!awb) return null
@@ -516,6 +564,36 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
   }
 }
 
+function extrairFedExMultiplas(textoOriginal: string): PreviewPdf[] {
+  const texto = limparTexto(textoOriginal)
+  const regexNumeroFatura = /(?:N[úu]mero|No)\s+da\s+Fat(?:ura)?\s*:?\s*([0-9][0-9.-]+)/gi
+  const grupos: Array<{ numero: string; index: number }> = []
+  const numerosVistos = new Set<string>()
+
+  for (const match of texto.matchAll(regexNumeroFatura)) {
+    const numero = normalizarNumeroFaturaParaSistema(match[1])
+    if (!numero || numerosVistos.has(numero)) continue
+
+    numerosVistos.add(numero)
+    grupos.push({
+      numero,
+      index: match.index || 0,
+    })
+  }
+
+  if (grupos.length <= 1) {
+    return [extrairFedEx(texto)]
+  }
+
+  return grupos
+    .map((grupo, index) => {
+      const inicio = grupo.index
+      const fim = grupos[index + 1]?.index || texto.length
+      return extrairFedEx(texto.slice(inicio, fim))
+    })
+    .filter((preview) => preview.numero_fatura)
+}
+
 
 function extrairDhl(textoOriginal: string): PreviewPdf {
   const bruto = String(textoOriginal || '').replace(/\r/g, '\n')
@@ -673,37 +751,60 @@ export async function POST(req: Request) {
       )
     }
 
-    let preview: PreviewPdf | null = null
+    let previews: PreviewPdf[] = []
 
     if (/FedEx|Federal Express/i.test(texto)) {
-      preview = extrairFedEx(texto)
+      previews = extrairFedExMultiplas(texto)
     } else if (/DHL Express|Fatura de Serviço|BHZIR/i.test(texto)) {
-      preview = extrairDhl(texto)
+      previews = [extrairDhl(texto)]
     }
 
-    if (!preview) {
+    if (!previews.length) {
       return NextResponse.json(
         { error: 'Não consegui identificar se o PDF é DHL ou FedEx.' },
         { status: 400 }
       )
     }
 
-    if (!preview.numero_fatura) {
+    const previewSemNumero = previews.find((preview) => !preview.numero_fatura)
+
+    if (previewSemNumero) {
       return NextResponse.json(
         { error: 'Não consegui identificar o número da fatura no PDF.' },
         { status: 400 }
       )
     }
 
-    if (!preview.itens.length) {
-      preview.itens = []
+    previews = previews.map((preview) => ({
+      ...preview,
+      numero_fatura: normalizarNumeroFaturaParaSistema(preview.numero_fatura),
+      itens: Array.isArray(preview.itens) ? preview.itens : [],
+    }))
+
+    const importacoes = []
+
+    for (const preview of previews) {
+      importacoes.push(await salvarFaturaEItens(preview))
     }
 
-    preview.numero_fatura = normalizarNumeroFaturaParaSistema(preview.numero_fatura)
+    let arquivoPdf: string | null = null
 
-    const importacao = await salvarFaturaEItens(preview)
+    if (previews.every((preview) => preview.transportadora === 'FedEx')) {
+      arquivoPdf = await vincularPdfConsolidado(
+        buffer,
+        arquivo.name,
+        importacoes.map((importacao) => importacao.fatura_id)
+      )
+    }
 
-    return NextResponse.json({ preview, importacao })
+    return NextResponse.json({
+      preview: previews[0],
+      importacao: importacoes[0],
+      previews,
+      importacoes,
+      total_faturas: previews.length,
+      arquivo_pdf: arquivoPdf,
+    })
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Erro ao importar PDF.' },
