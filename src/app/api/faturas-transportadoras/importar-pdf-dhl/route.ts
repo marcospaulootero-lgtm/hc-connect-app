@@ -143,7 +143,16 @@ function extrairDhl(textoOriginal: string) {
     acha AWB de 10 dígitos no texto extraído e, dentro do bloco até o próximo AWB,
     pega somente o valor após "Total (BRL):".
   */
-  const regexAwb = /(^|[^A-Za-z0-9])(\d{10})(?!\d)/g
+  /*
+    Em alguns PDFs da DHL, quando a coluna Referência está vazia, o texto
+    extraído cola a data diretamente no AWB. Exemplo:
+    431637130121/07/2026
+
+    Nesse caso, os 10 primeiros dígitos são o AWB e os números seguintes já
+    pertencem à data. O lookahead abaixo aceita tanto esse formato quanto o
+    formato normal, em que depois do AWB existe espaço, referência ou quebra.
+  */
+  const regexAwb = /(^|[^A-Za-z0-9])(\d{10})(?=(?:\d{1,2}\/\d{1,2}\/\d{4})|[^0-9]|$)/g
   let matchAwb: RegExpExecArray | null
 
   while ((matchAwb = regexAwb.exec(bruto)) !== null) {
@@ -153,12 +162,19 @@ function extrairDhl(textoOriginal: string) {
     if (!awb || awb.length !== 10) continue
 
     const trechoInicio = bruto.slice(index, index + 500)
-    const matchData = trechoInicio.match(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/)
+    const conteudoAposAwb = trechoInicio.replace(
+      new RegExp('^' + awb + '\\s*'),
+      ''
+    )
+    /*
+      O pdf-parse também pode colar a data ao texto seguinte, como
+      21/07/2026PVG. Por isso não usamos limite de palavra aqui.
+    */
+    const matchData = conteudoAposAwb.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)
     const data_envio = dataBRParaISO(matchData?.[1]) || null
 
     const referencia = matchData
-      ? trechoInicio
-          .replace(new RegExp('^' + awb + '\\s*'), '')
+      ? conteudoAposAwb
           .slice(0, matchData.index || 0)
           .replace(/\s+/g, ' ')
           .trim() || null
