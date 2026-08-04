@@ -233,9 +233,6 @@ function textoMesAnoProcessos(valor: string) {
 }
 
 export default function FinanceiroPage() {
-  const [modalProcessosAberto, setModalProcessosAberto] = useState(false)
-  const [buscaProcessoModal, setBuscaProcessoModal] = useState('')
-
   const [lancamentos, setLancamentos] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
 
@@ -1684,7 +1681,7 @@ export default function FinanceiroPage() {
 
   function gerarPDFFechamentoMensal() {
     if (!mesResultado) {
-      alert('Selecione o mês do resultado antes de gerar o PDF do fechamento.')
+      alert('Selecione o mês do resultado antes de gerar o relatório completo.')
       return
     }
 
@@ -1727,11 +1724,6 @@ export default function FinanceiroPage() {
 
     function mesMovimentoPdf(item: any) {
       return mesBaseMovimento(item)
-    }
-
-    function statusPagoPdf(item: any) {
-      const status = String(item.status || '').toUpperCase()
-      return status.includes('PAGO') || Boolean(item.data_pagamento)
     }
 
     function valorCobrancaPdf(item: any) {
@@ -1808,23 +1800,49 @@ export default function FinanceiroPage() {
     }
 
     const processosMes = lancamentos
-      .filter(
-        (item) =>
-          mesProcessoPdf(item) === mesResultado &&
-          statusCobranca(item) === 'PAGO'
-      )
-      .sort((a, b) => String(a.cliente || '').localeCompare(String(b.cliente || '')))
+      .filter((item) => mesProcessoPdf(item) === mesResultado)
+      .sort((a, b) => {
+        const clienteA = String(a.cliente || a.nome_cliente || '')
+        const clienteB = String(b.cliente || b.nome_cliente || '')
+        return clienteA.localeCompare(clienteB, 'pt-BR')
+      })
 
-    const movimentosMes = movimentacoes
-      .filter((item) => mesMovimentoPdf(item) === mesResultado && statusPagoPdf(item))
-      .sort((a, b) => String(a.data_pagamento || a.data_vencimento || '').localeCompare(String(b.data_pagamento || b.data_vencimento || '')))
-
-    const saidasMes = movimentosMes.filter((item) =>
-      ['DESPESA', 'PAGAMENTO_EMPRESTIMO', 'RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'FUNDO_CAIXA_SAIDA'].includes(item.tipo)
+    const processosPagosMes = processosMes.filter(
+      (item) => statusCobranca(item) === 'PAGO'
     )
 
-    const entradasMes = movimentosMes.filter((item) =>
-      ['APORTE_SOCIO', 'FUNDO_CAIXA_ENTRADA', 'AJUSTE_CAIXA'].includes(item.tipo)
+    const processosPendentesMes = processosMes.filter(
+      (item) => statusCobranca(item) !== 'PAGO'
+    )
+
+    const processosSemCustoMes = processosMes.filter(aguardandoCustoProcesso)
+
+    const movimentosMes = movimentacoes
+      .filter((item) => mesMovimentoPdf(item) === mesResultado)
+      .sort((a, b) =>
+        String(a.data_pagamento || a.data_vencimento || '').localeCompare(
+          String(b.data_pagamento || b.data_vencimento || '')
+        )
+      )
+
+    const despesasMes = movimentosMes.filter((item) =>
+      ['DESPESA', 'PAGAMENTO_EMPRESTIMO'].includes(item.tipo)
+    )
+
+    const retiradasMes = movimentosMes.filter((item) =>
+      ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo)
+    )
+
+    const entradasMes = movimentosMes.filter(
+      (item) =>
+        ['APORTE_SOCIO', 'FUNDO_CAIXA_ENTRADA'].includes(item.tipo) ||
+        (item.tipo === 'AJUSTE_CAIXA' && numeroPdf(item.valor) >= 0)
+    )
+
+    const saidasFundoMes = movimentosMes.filter(
+      (item) =>
+        item.tipo === 'FUNDO_CAIXA_SAIDA' ||
+        (item.tipo === 'AJUSTE_CAIXA' && numeroPdf(item.valor) < 0)
     )
 
     const saldoFundoPrevisto = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
@@ -1833,53 +1851,84 @@ export default function FinanceiroPage() {
     const saldoPendenteFundo = Number(Math.max(0, saldoFundoPrevisto - valorReservaReal).toFixed(2))
 
     const totalProcessos = processosMes.reduce((acc, item) => acc + valorCobrancaPdf(item), 0)
+    const totalRecebido = processosPagosMes.reduce((acc, item) => acc + valorCobrancaPdf(item), 0)
+    const totalPendenteReceber = processosPendentesMes.reduce((acc, item) => acc + valorCobrancaPdf(item), 0)
     const totalDocDta = processosMes.reduce((acc, item) => acc + docDtaPdf(item), 0)
     const totalTerceiros = processosMes.reduce((acc, item) => acc + debitoTerceiroPdf(item), 0)
     const totalCompra = processosMes.reduce((acc, item) => acc + valorCompraPdf(item), 0)
-    const totalProfit = processosMes.reduce((acc, item) => acc + profitPdf(item), 0)
+    const totalProfit = processosPagosMes.reduce((acc, item) => acc + profitPdf(item), 0)
 
-    const totalSaidas = saidasMes.reduce((acc, item) => acc + numeroPdf(item.valor), 0)
-    const totalEntradasExtras = entradasMes.reduce((acc, item) => acc + numeroPdf(item.valor), 0)
+    function valorMovimentoPdf(item: any) {
+      return Math.abs(numeroPdf(item.valor))
+    }
+
+    function totalMovimentosPagos(lista: any[]) {
+      return lista
+        .filter((item) => statusMovimento(item) === 'PAGO')
+        .reduce((acc, item) => acc + valorMovimentoPdf(item), 0)
+    }
+
+    function totalMovimentosPendentes(lista: any[]) {
+      return lista
+        .filter((item) => statusMovimento(item) !== 'PAGO')
+        .reduce((acc, item) => acc + valorMovimentoPdf(item), 0)
+    }
+
+    const totalDespesasPagas = totalMovimentosPagos(despesasMes)
+    const totalDespesasPendentes = totalMovimentosPendentes(despesasMes)
+    const totalRetiradasPagas = totalMovimentosPagos(retiradasMes)
+    const totalRetiradasPendentes = totalMovimentosPendentes(retiradasMes)
+    const totalEntradasRealizadas = totalMovimentosPagos(entradasMes)
+    const totalEntradasPendentes = totalMovimentosPendentes(entradasMes)
+    const totalSaidasFundoPagas = totalMovimentosPagos(saidasFundoMes)
+    const totalSaidasFundoPendentes = totalMovimentosPendentes(saidasFundoMes)
 
     const linhasProcessos = processosMes.map((item) => [
       String(item.cliente || item.nome_cliente || item.razao_social || '-'),
       String(item.awb || item.numero_awb || '-'),
+      String(item.fatura || item.numero_fatura || '-'),
       String(item.transportadora || '-'),
       String(item.servico || item.tipo_servico || '-'),
       moeda(valorCobrancaPdf(item)),
       moeda(docDtaPdf(item)),
       moeda(debitoTerceiroPdf(item)),
-      moeda(valorCompraPdf(item)),
-      moeda(profitPdf(item)),
+      valorCompraPdf(item) > 0 ? moeda(valorCompraPdf(item)) : 'Aguardando custo',
+      statusCobranca(item) === 'PAGO'
+        ? valorCompraPdf(item) > 0
+          ? moeda(profitPdf(item))
+          : 'Aguardando custo'
+        : 'Não realizado',
+      dataPdf(item.vencimento_cobranca || item.vencimento_cliente),
       dataPdf(dataRecebimentoProcesso(item) || item.vencimento_cobranca),
+      statusCobranca(item),
     ])
 
-    const linhasSaidas = saidasMes.map((item) => [
-      dataPdf(item.data_pagamento || item.data_vencimento),
-      tipoMovimentoLabel(item.tipo),
-      String(item.categoria || '-'),
-      String(item.descricao || '-'),
-      String(item.socio || '-'),
-      moeda(numeroPdf(item.valor)),
-      String(item.forma_pagamento || '-'),
-    ])
+    function linhaMovimento(item: any) {
+      return [
+        dataPdf(item.data_pagamento || item.data_vencimento),
+        tipoMovimentoLabel(item.tipo),
+        String(item.categoria || '-'),
+        String(item.descricao || '-'),
+        String(item.socio || '-'),
+        moeda(valorMovimentoPdf(item)),
+        statusMovimento(item),
+        String(item.forma_pagamento || '-'),
+        item.impacta_resultado !== false ? 'Sim' : 'Não',
+        item.impacta_caixa !== false ? 'Sim' : 'Não',
+      ]
+    }
 
-    const linhasEntradas = entradasMes.map((item) => [
-      dataPdf(item.data_pagamento || item.data_vencimento),
-      tipoMovimentoLabel(item.tipo),
-      String(item.categoria || '-'),
-      String(item.descricao || '-'),
-      String(item.socio || '-'),
-      moeda(numeroPdf(item.valor)),
-      String(item.forma_pagamento || '-'),
-    ])
+    const linhasDespesas = despesasMes.map(linhaMovimento)
+    const linhasRetiradas = retiradasMes.map(linhaMovimento)
+    const linhasEntradas = entradasMes.map(linhaMovimento)
+    const linhasSaidasFundo = saidasFundoMes.map(linhaMovimento)
 
     const html = `
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Fechamento HC - ${textoPdf(mesResultado)}</title>
+          <title>Relatório financeiro completo - ${textoPdf(mesResultado)}</title>
           <style>
             @page { size: A4 landscape; margin: 12mm; }
             body {
@@ -1962,6 +2011,8 @@ export default function FinanceiroPage() {
               font-size: 9px;
             }
             tbody tr:nth-child(even) { background: #f8fafc; }
+            tr { page-break-inside: avoid; }
+            h2 { page-break-after: avoid; }
             .valor { text-align: right; font-weight: 700; }
             .resumo td:first-child { font-weight: 700; color: #374151; }
             .resumo td:last-child { text-align: right; font-weight: 800; }
@@ -1998,78 +2049,19 @@ export default function FinanceiroPage() {
         <body>
           <div class="topo">
             <div>
-              <h1>Fechamento mensal HC Consultoria</h1>
+              <h1>Relatório financeiro mensal completo</h1>
               <p class="empresa">Couto e Otero Intermediação LTDA</p>
               <p class="empresa">Mês de referência: <strong>${textoPdf(mesResultado)}</strong></p>
             </div>
             <div class="data">
-              Gerado em: ${new Date().toLocaleString('pt-BR')}<br/>
+              Gerado em: ${new Date().toLocaleString('pt-BR', { timeZone: FUSO_FINANCEIRO })}<br/>
               Relatório financeiro interno
             </div>
           </div>
 
           <div class="cards">
             <div class="card"><strong>Valor recebido</strong><span>${moeda(resultadoGeral.valorRecebido)}</span></div>
-            <div class="card"><strong>Profit HC recebido</strong><span>${moeda(resultadoGeral.profitRecebido)}</span>
-              <button
-                type="button"
-                onClick={() => setModalProcessosAberto(true)}
-                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600/20 px-3 py-1.5 text-xs font-black text-emerald-300 hover:bg-emerald-600/40 transition"
-              >
-                🔍 Ver processos do fechamento
-              </button>
-
-              {/* MODAL INJETADO AQUI, GARANTIDO DENTRO DO FINANCEIROPAGE */}
-              {modalProcessosAberto && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-                  <div className="w-full max-w-4xl max-h-[85vh] flex flex-col rounded-3xl border border-blue-800 bg-[#071225] p-6 text-white shadow-2xl">
-                    <div className="flex items-center justify-between border-b border-blue-900 pb-4">
-                      <div>
-                        <span className="text-xs font-black uppercase tracking-wider text-cyan-400">
-                          Composição do Fechamento
-                        </span>
-                        <h2 className="text-xl font-black">
-                          Processos Incluídos no Fechamento
-                        </h2>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setModalProcessosAberto(false)}
-                        className="rounded-xl border border-slate-700 bg-[#020817] px-3 py-1.5 text-xs font-black text-slate-400 hover:text-white"
-                      >
-                        ✕ Fechar
-                      </button>
-                    </div>
-
-                    <div className="mt-4">
-                      <input
-                        type="text"
-                        placeholder="Filtrar por AWB ou Cliente no modal..."
-                        value={buscaProcessoModal}
-                        onChange={(e) => setBuscaProcessoModal(e.target.value)}
-                        className="w-full rounded-xl border border-slate-700 bg-[#020817] px-4 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="mt-4 flex-1 overflow-y-auto rounded-2xl border border-blue-900 bg-[#020817] p-2">
-                      <p className="p-3 text-center text-xs text-slate-400">
-                        Abertura detalhada dos AWBs que compõem os valores e profits apurados no período selecionado.
-                      </p>
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setModalProcessosAberto(false)}
-                        className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-black text-white hover:bg-blue-500"
-                      >
-                        Fechar
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-</div>
+            <div class="card"><strong>Profit HC recebido</strong><span>${moeda(resultadoGeral.profitRecebido)}</span></div>
             <div class="card"><strong>Lucro líquido</strong><span class="${resultadoGeral.resultadoOperacional >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.resultadoOperacional)}</span></div>
             <div class="card"><strong>Caixa após retiradas</strong><span class="${resultadoGeral.saldoCaixaRealMes >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.saldoCaixaRealMes)}</span></div>
           </div>
@@ -2077,10 +2069,21 @@ export default function FinanceiroPage() {
           <h2>1. Resumo do fechamento</h2>
           <table class="resumo">
             <tbody>
+              ${linhaResumo('Quantidade total de processos', processosMes.length)}
+              ${linhaResumo('Processos pagos', processosPagosMes.length)}
+              ${linhaResumo('Processos pendentes/atrasados', processosPendentesMes.length)}
+              ${linhaResumo('Processos aguardando custo', processosSemCustoMes.length)}
+              ${linhaResumo('Valor total faturado no período', moeda(totalProcessos))}
               ${linhaResumo('Valor recebido de clientes', moeda(resultadoGeral.valorRecebido))}
+              ${linhaResumo('Valor pendente de recebimento', moeda(totalPendenteReceber))}
               ${linhaResumo('Profit HC recebido', moeda(resultadoGeral.profitRecebido))}
               ${linhaResumo('Despesas pagas', moeda(resultadoGeral.despesasPagas))}
+              ${linhaResumo('Despesas/empréstimos pendentes', moeda(totalDespesasPendentes))}
               ${linhaResumo('Empréstimos pagos', moeda(resultadoGeral.emprestimosPagos))}
+              ${linhaResumo('Retiradas realizadas', moeda(totalRetiradasPagas))}
+              ${linhaResumo('Retiradas pendentes', moeda(totalRetiradasPendentes))}
+              ${linhaResumo('Entradas/aportes realizados', moeda(totalEntradasRealizadas))}
+              ${linhaResumo('Saídas do fundo realizadas', moeda(totalSaidasFundoPagas))}
               ${linhaResumo('Lucro líquido para distribuição', moeda(resultadoGeral.resultadoOperacional))}
               ${linhaResumo('Retiradas Marcos', moeda(resultadoGeral.retiradasMarcos))}
               ${linhaResumo('Retiradas Hérica', moeda(resultadoGeral.retiradasHerica))}
@@ -2102,31 +2105,59 @@ export default function FinanceiroPage() {
             : ''
           }
 
-          <h2>2. Processos recebidos no mês</h2>
-          <p><strong>Total processos:</strong> ${processosMes.length} | <strong>Total cobrado:</strong> ${moeda(totalProcessos)} | <strong>DOC/DTA/Impostos:</strong> ${moeda(totalDocDta)} | <strong>Terceiros:</strong> ${moeda(totalTerceiros)} | <strong>Valor compra:</strong> ${moeda(totalCompra)} | <strong>Profit:</strong> ${moeda(totalProfit)}</p>
+          <h2>2. Todos os processos do mês</h2>
+          <p>
+            <strong>Processos:</strong> ${processosMes.length} |
+            <strong>Pagos:</strong> ${processosPagosMes.length} |
+            <strong>Pendentes/atrasados:</strong> ${processosPendentesMes.length} |
+            <strong>Aguardando custo:</strong> ${processosSemCustoMes.length}<br/>
+            <strong>Total faturado:</strong> ${moeda(totalProcessos)} |
+            <strong>Total recebido:</strong> ${moeda(totalRecebido)} |
+            <strong>Pendente de recebimento:</strong> ${moeda(totalPendenteReceber)} |
+            <strong>DOC/DTA/Impostos:</strong> ${moeda(totalDocDta)} |
+            <strong>Terceiros:</strong> ${moeda(totalTerceiros)} |
+            <strong>Valor compra:</strong> ${moeda(totalCompra)} |
+            <strong>Profit realizado:</strong> ${moeda(totalProfit)}
+          </p>
           ${tabela(
-            ['Cliente', 'AWB', 'Transp.', 'Serviço', 'Valor cobrado', 'DOC/DTA', 'Terceiros', 'Compra', 'Profit HC', 'Recebimento'],
+            ['Cliente', 'AWB', 'Fatura', 'Transp.', 'Serviço', 'Valor', 'DOC/DTA', 'Terceiros', 'Compra', 'Profit HC', 'Vencimento', 'Recebimento', 'Status'],
             linhasProcessos,
-            'Nenhum processo recebido encontrado para este mês.'
+            'Nenhum processo encontrado para este mês.'
           )}
 
-          <h2>3. Saídas do mês</h2>
-          <p><strong>Total de saídas:</strong> ${moeda(totalSaidas)}</p>
+          <h2>3. Despesas e empréstimos</h2>
+          <p><strong>Pagos:</strong> ${moeda(totalDespesasPagas)} | <strong>Pendentes/vencidos:</strong> ${moeda(totalDespesasPendentes)}</p>
           ${tabela(
-            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Forma'],
-            linhasSaidas,
-            'Nenhuma saída paga encontrada para este mês.'
+            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Status', 'Forma', 'Resultado', 'Caixa'],
+            linhasDespesas,
+            'Nenhuma despesa ou empréstimo encontrado para este mês.'
           )}
 
-          <h2>4. Entradas extras, aportes e fundo</h2>
-          <p><strong>Total de entradas extras:</strong> ${moeda(totalEntradasExtras)}</p>
+          <h2>4. Retiradas e pagamentos dos sócios</h2>
+          <p><strong>Realizados:</strong> ${moeda(totalRetiradasPagas)} | <strong>Pendentes/vencidos:</strong> ${moeda(totalRetiradasPendentes)}</p>
           ${tabela(
-            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Forma'],
+            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Status', 'Forma', 'Resultado', 'Caixa'],
+            linhasRetiradas,
+            'Nenhuma retirada ou pagamento de sócio encontrado para este mês.'
+          )}
+
+          <h2>5. Entradas, aportes e reservas</h2>
+          <p><strong>Realizados:</strong> ${moeda(totalEntradasRealizadas)} | <strong>Pendentes/vencidos:</strong> ${moeda(totalEntradasPendentes)}</p>
+          ${tabela(
+            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Status', 'Forma', 'Resultado', 'Caixa'],
             linhasEntradas,
-            'Nenhuma entrada extra encontrada para este mês.'
+            'Nenhuma entrada, aporte ou reserva encontrada para este mês.'
           )}
 
-          <h2>5. Conclusão</h2>
+          <h2>6. Saídas e ajustes do fundo/caixa</h2>
+          <p><strong>Realizados:</strong> ${moeda(totalSaidasFundoPagas)} | <strong>Pendentes/vencidos:</strong> ${moeda(totalSaidasFundoPendentes)}</p>
+          ${tabela(
+            ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Status', 'Forma', 'Resultado', 'Caixa'],
+            linhasSaidasFundo,
+            'Nenhuma saída ou ajuste negativo do fundo encontrado para este mês.'
+          )}
+
+          <h2>7. Conclusão</h2>
           <table class="resumo">
             <tbody>
               ${linhaResumo('Resultado operacional do mês', moeda(resultadoGeral.resultadoOperacional))}
@@ -5279,6 +5310,15 @@ export default function FinanceiroPage() {
                 className="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
               >
                 {gerandoRetroativos ? 'Gerando retroativos...' : 'Gerar retroativos'}
+              </button>
+
+              <button
+                type="button"
+                onClick={gerarPDFFechamentoMensal}
+                disabled={loading || loadingMovimentos || !mesResultado}
+                className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
+              >
+                Gerar relatório completo PDF
               </button>
             </div>
           </div>
