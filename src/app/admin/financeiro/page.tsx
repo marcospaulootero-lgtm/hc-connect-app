@@ -212,6 +212,9 @@ function textoMesAnoProcessos(valor: string) {
 }
 
 export default function FinanceiroPage() {
+  const [modalProcessosAberto, setModalProcessosAberto] = useState(false)
+  const [buscaProcessoModal, setBuscaProcessoModal] = useState('')
+
   const [lancamentos, setLancamentos] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
 
@@ -1971,7 +1974,66 @@ export default function FinanceiroPage() {
 
           <div class="cards">
             <div class="card"><strong>Valor recebido</strong><span>${moeda(resultadoGeral.valorRecebido)}</span></div>
-            <div class="card"><strong>Profit HC recebido</strong><span>${moeda(resultadoGeral.profitRecebido)}</span></div>
+            <div class="card"><strong>Profit HC recebido</strong><span>${moeda(resultadoGeral.profitRecebido)}</span>
+              <button
+                type="button"
+                onClick={() => setModalProcessosAberto(true)}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600/20 px-3 py-1.5 text-xs font-black text-emerald-300 hover:bg-emerald-600/40 transition"
+              >
+                🔍 Ver processos do fechamento
+              </button>
+
+              {/* MODAL INJETADO AQUI, GARANTIDO DENTRO DO FINANCEIROPAGE */}
+              {modalProcessosAberto && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                  <div className="w-full max-w-4xl max-h-[85vh] flex flex-col rounded-3xl border border-blue-800 bg-[#071225] p-6 text-white shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-blue-900 pb-4">
+                      <div>
+                        <span className="text-xs font-black uppercase tracking-wider text-cyan-400">
+                          Composição do Fechamento
+                        </span>
+                        <h2 className="text-xl font-black">
+                          Processos Incluídos no Fechamento
+                        </h2>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setModalProcessosAberto(false)}
+                        className="rounded-xl border border-slate-700 bg-[#020817] px-3 py-1.5 text-xs font-black text-slate-400 hover:text-white"
+                      >
+                        ✕ Fechar
+                      </button>
+                    </div>
+
+                    <div className="mt-4">
+                      <input
+                        type="text"
+                        placeholder="Filtrar por AWB ou Cliente no modal..."
+                        value={buscaProcessoModal}
+                        onChange={(e) => setBuscaProcessoModal(e.target.value)}
+                        className="w-full rounded-xl border border-slate-700 bg-[#020817] px-4 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="mt-4 flex-1 overflow-y-auto rounded-2xl border border-blue-900 bg-[#020817] p-2">
+                      <p className="p-3 text-center text-xs text-slate-400">
+                        Abertura detalhada dos AWBs que compõem os valores e profits apurados no período selecionado.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setModalProcessosAberto(false)}
+                        className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-black text-white hover:bg-blue-500"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+</div>
             <div class="card"><strong>Lucro líquido</strong><span class="${resultadoGeral.resultadoOperacional >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.resultadoOperacional)}</span></div>
             <div class="card"><strong>Caixa após retiradas</strong><span class="${resultadoGeral.saldoCaixaRealMes >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.saldoCaixaRealMes)}</span></div>
           </div>
