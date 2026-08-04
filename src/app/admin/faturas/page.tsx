@@ -4698,7 +4698,7 @@ export default function FaturasPage() {
 
     const itensResumo = itensFaturaAgente
       .filter((item) => item.descricao.trim() && numero(item.valor_brl) > 0)
-      .map((item) => `${item.descricao}: ${item.moeda} ${formatarValorSimples(numero(item.valor_original))} = ${moeda(item.valor_brl)}`)
+      .map((item) => `${item.descricao}: ${item.moeda} ${formatarValorSimples(numero(item.valor_original))} = ${moeda(numero(item.valor_brl))}`)
       .join(' | ')
 
     const observacaoNova = [
@@ -4833,7 +4833,7 @@ export default function FaturasPage() {
         item.observacao || '',
         item.moeda,
         formatarValorSimples(numero(item.valor_original)),
-        moeda(item.valor_brl),
+        moeda(numero(item.valor_brl)),
       ])
 
       autoTable(pdf, {
@@ -5421,7 +5421,7 @@ export default function FaturasPage() {
                     </td>
                     <td><input value={item.valor_original} onChange={(e) => atualizarItemFaturaAgente(item.id, 'valor_original', e.target.value)} placeholder="0,00" className="w-full" /></td>
                     <td className="font-black text-green-300">{item.moeda === 'BRL' ? '1,0000' : taxaFinalFaturaAgenteFormatada(item.moeda)}</td>
-                    <td className="font-black text-green-300">{numero(item.valor_brl) > 0 ? moeda(item.valor_brl) : '-'}</td>
+                    <td className="font-black text-green-300">{numero(item.valor_brl) > 0 ? moeda(numero(item.valor_brl)) : '-'}</td>
                     <td><input value={item.observacao} onChange={(e) => atualizarItemFaturaAgente(item.id, 'observacao', e.target.value)} placeholder="Opcional" className="w-full" /></td>
                     <td><button type="button" onClick={() => removerItemFaturaAgente(item.id)} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black hover:bg-red-500">Excluir</button></td>
                   </tr>
