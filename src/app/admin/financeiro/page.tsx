@@ -47,6 +47,27 @@ type InputProps = {
   placeholder?: string
 }
 
+const FUSO_FINANCEIRO = 'America/Sao_Paulo'
+
+function dataHojeFinanceiro() {
+  const partes = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: FUSO_FINANCEIRO,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+
+  const ano = partes.find((parte) => parte.type === 'year')?.value || ''
+  const mes = partes.find((parte) => parte.type === 'month')?.value || ''
+  const dia = partes.find((parte) => parte.type === 'day')?.value || ''
+
+  return `${ano}-${mes}-${dia}`
+}
+
+function mesAtualFinanceiro() {
+  return dataHojeFinanceiro().slice(0, 7)
+}
+
 const formVazio: FormState = {
   cliente: '',
   despachante: '',
@@ -72,7 +93,7 @@ const movimentacaoVazia: MovimentacaoFormState = {
   valor: '',
   data_vencimento: '',
   data_pagamento: '',
-  mes_referencia: new Date().toISOString().slice(0, 7),
+  mes_referencia: mesAtualFinanceiro(),
   status: 'PENDENTE',
   socio: '',
   forma_pagamento: '',
@@ -85,7 +106,7 @@ const movimentacaoVazia: MovimentacaoFormState = {
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
 const ANO_BASE_FINANCEIRO = 2022
-const ANO_ATUAL_FINANCEIRO = new Date().getFullYear()
+const ANO_ATUAL_FINANCEIRO = Number(mesAtualFinanceiro().slice(0, 4))
 const ANOS_FINANCEIRO_PERMITIDOS = Array.from(
   { length: Math.max(1, ANO_ATUAL_FINANCEIRO - ANO_BASE_FINANCEIRO + 1) },
   (_, index) => ANO_BASE_FINANCEIRO + index
@@ -247,7 +268,7 @@ export default function FinanceiroPage() {
   const [filtroMesMovimento, setFiltroMesMovimento] = useState<string[]>([])
   const [filtroStatusMovimento, setFiltroStatusMovimento] = useState<string[]>([])
   const [filtroSocioMovimento, setFiltroSocioMovimento] = useState<string[]>([])
-  const [mesResultado, setMesResultado] = useState(new Date().toISOString().slice(0, 7))
+  const [mesResultado, setMesResultado] = useState(mesAtualFinanceiro())
 
   const [anoExtrato, setAnoExtrato] = useState(String(new Date().getFullYear()))
   const [buscaExtrato, setBuscaExtrato] = useState('')
@@ -438,10 +459,14 @@ export default function FinanceiroPage() {
     return String(valor).slice(0, 10)
   }
 
-  function mesDaData(valor: any) {
-    const data = normalizarData(valor)
-    if (!data) return ''
-    return data.slice(0, 7)
+  function dataRecebimentoProcesso(item: any) {
+    return (
+      normalizarData(item.recebimento) ||
+      normalizarData(item.recebimento_cliente) ||
+      normalizarData(item.data_recebimento) ||
+      normalizarData(item.data_pagamento) ||
+      null
+    )
   }
 
   function anoFinanceiroPermitido(ano: any) {
@@ -457,10 +482,25 @@ export default function FinanceiroPage() {
 
   function mesBaseLancamento(item: any) {
     return (
-      item.mes_profit ||
-      mesDaData(item.recebimento) ||
-      mesDaData(item.vencimento_cobranca) ||
-      item.mes ||
+      mesReferenciaFinanceira(dataRecebimentoProcesso(item)) ||
+      mesReferenciaFinanceira(item.mes_profit) ||
+      mesReferenciaFinanceira(item.mes) ||
+      mesReferenciaFinanceira(item.vencimento_cobranca) ||
+      mesReferenciaFinanceira(item.vencimento_cliente) ||
+      mesReferenciaFinanceira(item.venc_cliente) ||
+      mesReferenciaFinanceira(item.vencimento) ||
+      mesReferenciaFinanceira(item.data_vencimento) ||
+      ''
+    )
+  }
+
+  function mesBaseMovimento(item: any) {
+    return (
+      mesReferenciaFinanceira(item.mes_referencia) ||
+      mesReferenciaFinanceira(item.data_pagamento) ||
+      mesReferenciaFinanceira(item.data_vencimento) ||
+      mesReferenciaFinanceira(item.vencimento) ||
+      mesReferenciaFinanceira(item.pagamento) ||
       ''
     )
   }
@@ -470,11 +510,7 @@ export default function FinanceiroPage() {
   }
 
   function movimentoAnoPermitido(item: any) {
-    return mesFinanceiroPermitido(
-      item.mes_referencia ||
-        mesDaData(item.data_pagamento) ||
-        mesDaData(item.data_vencimento)
-    )
+    return mesFinanceiroPermitido(mesBaseMovimento(item))
   }
 
   function todosAnosFinanceiroAtivo() {
@@ -495,7 +531,7 @@ export default function FinanceiroPage() {
 
   function mesPadraoAnoFinanceiroAtivo() {
     if (todosAnosFinanceiroAtivo()) {
-      return new Date().toISOString().slice(0, 7)
+      return mesAtualFinanceiro()
     }
 
     const anoAtivo = anoFinanceiroAtivo()
@@ -554,29 +590,11 @@ export default function FinanceiroPage() {
   }
 
   function lancamentoAnoSelecionado(item: any) {
-    return pertenceAoAnoFinanceiroSelecionado([
-      item.mes_profit,
-      item.mes,
-      item.recebimento,
-      item.recebimento_cliente,
-      item.data_recebimento,
-      item.data_pagamento,
-      item.vencimento_cobranca,
-      item.vencimento_cliente,
-      item.venc_cliente,
-      item.vencimento,
-      item.data_vencimento,
-    ])
+    return mesDoAnoFinanceiroAtivo(mesBaseLancamento(item))
   }
 
   function movimentoAnoSelecionado(item: any) {
-    return pertenceAoAnoFinanceiroSelecionado([
-      item.mes_referencia,
-      item.data_pagamento,
-      item.data_vencimento,
-      item.vencimento,
-      item.pagamento,
-    ])
+    return mesDoAnoFinanceiroAtivo(mesBaseMovimento(item))
   }
 
   function textoAnosFinanceiroPermitidos() {
@@ -623,11 +641,17 @@ export default function FinanceiroPage() {
   }
 
   function statusCobranca(item: any) {
-    if (temDataValida(item.recebimento)) return 'PAGO'
+    if (dataRecebimentoProcesso(item)) return 'PAGO'
 
-    const vencimento = normalizarData(item.vencimento_cobranca)
+    const vencimento =
+      normalizarData(item.vencimento_cobranca) ||
+      normalizarData(item.vencimento_cliente) ||
+      normalizarData(item.venc_cliente) ||
+      normalizarData(item.vencimento) ||
+      normalizarData(item.data_vencimento)
+
     if (vencimento) {
-      const hoje = new Date().toISOString().slice(0, 10)
+      const hoje = dataHojeFinanceiro()
       if (vencimento < hoje) return 'ATRASADO'
     }
 
@@ -643,7 +667,7 @@ export default function FinanceiroPage() {
 
     const vencimento = normalizarData(item.data_vencimento)
     if (vencimento) {
-      const hoje = new Date().toISOString().slice(0, 10)
+      const hoje = dataHojeFinanceiro()
       if (vencimento < hoje) return 'VENCIDO'
     }
 
@@ -733,6 +757,17 @@ export default function FinanceiroPage() {
       categoria.includes('FECHAMENTO MENSAL') ||
       categoria.includes('RESERVA 50') ||
       descricao.includes('FECHAMENTO MENSAL') ||
+      descricao.includes('RESERVA 50')
+    )
+  }
+
+  function ehFechamentoDoMes(item: any, mesRef: string) {
+    const descricao = normalizarBusca(item.descricao || '')
+
+    return (
+      item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
+      item.mes_referencia === mesRef &&
+      descricao.includes('FECHAMENTO MENSAL') &&
       descricao.includes('RESERVA 50')
     )
   }
@@ -857,7 +892,10 @@ export default function FinanceiroPage() {
       vencimento_cobranca: form.vencimento_cobranca || null,
       recebimento: form.recebimento || null,
       mes: form.mes,
-      mes_profit: form.mes_profit,
+      mes_profit:
+        mesReferenciaFinanceira(form.recebimento) ||
+        mesReferenciaFinanceira(form.mes_profit) ||
+        mesReferenciaFinanceira(form.mes),
       observacoes: form.observacoes,
       atualizado_em: new Date().toISOString(),
     }
@@ -1003,7 +1041,7 @@ export default function FinanceiroPage() {
       valor: formatarValorParaForm(item.valor),
       data_vencimento: dataInput(item.data_vencimento),
       data_pagamento: dataInput(item.data_pagamento),
-      mes_referencia: item.mes_referencia || new Date().toISOString().slice(0, 7),
+      mes_referencia: item.mes_referencia || mesAtualFinanceiro(),
       status: item.status || 'PENDENTE',
       socio: item.socio || '',
       forma_pagamento: item.forma_pagamento || '',
@@ -1090,7 +1128,7 @@ export default function FinanceiroPage() {
     if (anoNumero && mesNumero) return `${anoNumero}-${mesNumero}`
     if (data) return data.slice(0, 7)
 
-    return new Date().toISOString().slice(0, 7)
+    return mesAtualFinanceiro()
   }
 
   function classificarMovimentoDespesaExcel(descricaoOriginal: any) {
@@ -1216,6 +1254,22 @@ export default function FinanceiroPage() {
       item.data_vencimento || '',
       item.mes_referencia || '',
       item.socio || '',
+    ].join('|')
+  }
+
+  function chaveProcessoImportado(item: any) {
+    const awb = normalizarBusca(item.awb || '')
+    const fatura = normalizarBusca(item.fatura || '')
+
+    if (awb) return `AWB|${awb}`
+    if (fatura) return `FATURA|${fatura}`
+
+    return [
+      'SEM_REFERENCIA',
+      normalizarBusca(item.cliente || ''),
+      Number(item.valor_cobranca || 0).toFixed(2),
+      normalizarData(item.vencimento_cobranca) || '',
+      normalizarData(item.recebimento) || '',
     ].join('|')
   }
 
@@ -1494,6 +1548,7 @@ export default function FinanceiroPage() {
           valor_compra: numero(linha['VALOR DA COMPRA']),
           vencimento_cobranca: normalizarData(linha['VENCIMENTO_CLIENTE']),
           recebimento: normalizarData(linha['RECEBIMENTO_CLIENTE']),
+          mes_profit: mesReferenciaFinanceira(linha['RECEBIMENTO_CLIENTE']),
           atualizado_em: new Date().toISOString(),
         }))
         .filter((item) => item.awb || item.cliente || item.valor_cobranca > 0)
@@ -1504,8 +1559,35 @@ export default function FinanceiroPage() {
         return
       }
 
-      for (let i = 0; i < registros.length; i += 500) {
-        const lote = registros.slice(i, i + 500)
+      const chaves = new Set(
+        lancamentos.map((item) => chaveProcessoImportado(item))
+      )
+      const registrosUnicos: any[] = []
+      let duplicados = 0
+
+      registros.forEach((item) => {
+        const chave = chaveProcessoImportado(item)
+
+        if (chaves.has(chave)) {
+          duplicados += 1
+          return
+        }
+
+        chaves.add(chave)
+        registrosUnicos.push(item)
+      })
+
+      if (registrosUnicos.length === 0) {
+        alert(
+          `Nenhum processo novo foi importado. ${duplicados} duplicados foram ignorados.`
+        )
+        setImportando(false)
+        event.target.value = ''
+        return
+      }
+
+      for (let i = 0; i < registrosUnicos.length; i += 500) {
+        const lote = registrosUnicos.slice(i, i + 500)
 
         const { error } = await supabase.from('financeiro_embarques').insert(lote)
 
@@ -1516,7 +1598,10 @@ export default function FinanceiroPage() {
         }
       }
 
-      alert(`Importação concluída: ${registros.length} lançamentos importados.`)
+      alert(
+        `Importação concluída: ${registrosUnicos.length} lançamentos importados.` +
+          (duplicados > 0 ? ` ${duplicados} duplicados foram ignorados.` : '')
+      )
       await carregarFinanceiro()
     } catch (error: any) {
       alert('Erro ao importar Excel: ' + error.message)
@@ -1624,43 +1709,6 @@ export default function FinanceiroPage() {
       return Number(limpo) || 0
     }
 
-    function mesDiretoPdf(valor: any) {
-      const bruto = String(valor || '').trim()
-      if (!bruto) return ''
-
-      if (/^\d{4}-\d{2}/.test(bruto)) return bruto.slice(0, 7)
-
-      if (/^\d{4}\/\d{2}/.test(bruto)) {
-        return bruto.replace('/', '-').slice(0, 7)
-      }
-
-      if (/^\d{1,2}\/\d{4}$/.test(bruto)) {
-        const [mes, ano] = bruto.split('/')
-        return ano + '-' + mes.padStart(2, '0')
-      }
-
-      if (/^\d{1,2}-\d{4}$/.test(bruto)) {
-        const [mes, ano] = bruto.split('-')
-        return ano + '-' + mes.padStart(2, '0')
-      }
-
-      return ''
-    }
-
-    function mesDaDataPdf(valor: any) {
-      const bruto = String(valor || '').trim()
-      if (!bruto) return ''
-
-      if (/^\d{4}-\d{2}/.test(bruto)) return bruto.slice(0, 7)
-
-      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(bruto)) {
-        const [dia, mes, ano] = bruto.split('/')
-        return ano + '-' + mes.padStart(2, '0')
-      }
-
-      return ''
-    }
-
     function dataPdf(valor: any) {
       const bruto = String(valor || '').trim()
       if (!bruto) return '-'
@@ -1674,26 +1722,11 @@ export default function FinanceiroPage() {
     }
 
     function mesProcessoPdf(item: any) {
-      return (
-        mesDiretoPdf(item.mes_profit) ||
-        mesDaDataPdf(item.recebimento) ||
-        mesDaDataPdf(item.recebimento_cliente) ||
-        mesDaDataPdf(item.data_recebimento) ||
-        mesDaDataPdf(item.data_pagamento) ||
-        mesDiretoPdf(item.mes) ||
-        mesDaDataPdf(item.vencimento_cobranca) ||
-        mesDaDataPdf(item.vencimento_cliente) ||
-        ''
-      )
+      return mesBaseLancamento(item)
     }
 
     function mesMovimentoPdf(item: any) {
-      return (
-        mesDiretoPdf(item.mes_referencia) ||
-        mesDaDataPdf(item.data_pagamento) ||
-        mesDaDataPdf(item.data_vencimento) ||
-        ''
-      )
+      return mesBaseMovimento(item)
     }
 
     function statusPagoPdf(item: any) {
@@ -1718,8 +1751,7 @@ export default function FinanceiroPage() {
     }
 
     function profitPdf(item: any) {
-      const salvo = numeroPdf(item.profit_hc || item.profit)
-      if (salvo !== 0) return salvo
+      if (valorCompraPdf(item) <= 0) return 0
       return valorCobrancaPdf(item) - docDtaPdf(item) - debitoTerceiroPdf(item) - valorCompraPdf(item)
     }
 
@@ -1776,7 +1808,11 @@ export default function FinanceiroPage() {
     }
 
     const processosMes = lancamentos
-      .filter((item) => mesProcessoPdf(item) === mesResultado)
+      .filter(
+        (item) =>
+          mesProcessoPdf(item) === mesResultado &&
+          statusCobranca(item) === 'PAGO'
+      )
       .sort((a, b) => String(a.cliente || '').localeCompare(String(b.cliente || '')))
 
     const movimentosMes = movimentacoes
@@ -1815,7 +1851,7 @@ export default function FinanceiroPage() {
       moeda(debitoTerceiroPdf(item)),
       moeda(valorCompraPdf(item)),
       moeda(profitPdf(item)),
-      dataPdf(item.recebimento || item.data_pagamento || item.vencimento_cobranca),
+      dataPdf(dataRecebimentoProcesso(item) || item.vencimento_cobranca),
     ])
 
     const linhasSaidas = saidasMes.map((item) => [
@@ -2146,25 +2182,24 @@ export default function FinanceiroPage() {
       return
     }
 
-    const descricaoFechamento = `Fechamento mensal - reserva 50% ${mesResultado}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'}`
-    const fechamentoJaLancado = movimentacoes.find((item) => {
-      const descricao = normalizarBusca(item.descricao || '')
+    const fechamentoJaLancado = movimentacoes.find((item) =>
+      ehFechamentoDoMes(item, mesResultado)
+    )
 
-      return (
-        item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
-        item.mes_referencia === mesResultado &&
-        descricao.includes('FECHAMENTO MENSAL') &&
-        descricao.includes('RESERVA 50')
+    if (fechamentoJaLancado && valorReserva <= 0) {
+      alert(
+        'O mês já possui fechamento e não existe valor disponível para complementar agora. ' +
+          `O saldo ainda pendente do fundo é ${moeda(saldoPendenteFundo)}.`
       )
-    })
-
-    if (fechamentoJaLancado) {
-      alert('Já existe um fechamento mensal lançado para este mês. Se precisar corrigir, exclua ou edite o lançamento no Fundo de Caixa.')
       return
     }
 
+    const descricaoFechamento = fechamentoJaLancado
+      ? `Complemento do fechamento mensal - reserva 50% ${mesResultado}`
+      : `Fechamento mensal - reserva 50% ${mesResultado}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'}`
+
     const mensagem =
-      `Gerar fechamento de ${mesResultado}?\n\n` +
+      `${fechamentoJaLancado ? 'Complementar' : 'Gerar'} fechamento de ${mesResultado}?\n\n` +
       `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
       `Retiradas dos sócios: ${moeda(resultadoGeral.retiradasTotal)}\n` +
       `Caixa após retiradas: ${moeda(resultadoGeral.saldoCaixaRealMes)}\n\n` +
@@ -2184,7 +2219,7 @@ export default function FinanceiroPage() {
 
     setGerandoFechamento(true)
 
-    const hoje = new Date().toISOString().slice(0, 10)
+    const hoje = dataHojeFinanceiro()
 
     const { error } = await supabase.from('financeiro_movimentacoes').insert({
       tipo: 'FUNDO_CAIXA_ENTRADA',
@@ -2196,11 +2231,13 @@ export default function FinanceiroPage() {
       mes_referencia: mesResultado,
       status: 'PAGO',
       socio: null,
-      forma_pagamento: 'Fechamento automático',
+      forma_pagamento: fechamentoJaLancado
+        ? 'Complemento automático'
+        : 'Fechamento automático',
       impacta_resultado: false,
       impacta_caixa: true,
       observacoes:
-        `Fechamento gerado pelo Resultado Mensal. ` +
+        `${fechamentoJaLancado ? 'Complemento do fechamento' : 'Fechamento'} gerado pelo Resultado Mensal. ` +
         `Profit HC recebido: ${moeda(resultadoGeral.profitRecebido)}. ` +
         `Despesas pagas: ${moeda(resultadoGeral.despesasPagas)}. ` +
         `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}. ` +
@@ -2222,34 +2259,24 @@ export default function FinanceiroPage() {
     setFiltroMesMovimento([mesResultado])
     setGerandoFechamento(false)
 
-    alert('Fechamento mensal gerado com sucesso. A reserva de 50% foi lançada no Fundo de Caixa.')
+    alert(
+      fechamentoJaLancado
+        ? 'Complemento do fechamento gerado com sucesso. Somente a diferença disponível foi lançada no Fundo de Caixa.'
+        : 'Fechamento mensal gerado com sucesso. A reserva disponível foi lançada no Fundo de Caixa.'
+    )
   }
 
 
   function ultimoDiaDoMes(mesRef: string) {
     const [ano, mes] = mesRef.split('-').map(Number)
-    const data = new Date(ano, mes, 0)
-    return data.toISOString().slice(0, 10)
+    const ultimoDia = new Date(ano, mes, 0).getDate()
+    return `${mesRef}-${String(ultimoDia).padStart(2, '0')}`
   }
 
   function calcularResultadoDoMes(mesRef: string) {
-    const embarquesMes = lancamentos.filter((item) => {
-      const mesesPossiveis = [
-        mesReferenciaFinanceira(item.mes_profit),
-        mesReferenciaFinanceira(item.recebimento),
-        mesReferenciaFinanceira(item.recebimento_cliente),
-        mesReferenciaFinanceira(item.data_recebimento),
-        mesReferenciaFinanceira(item.data_pagamento),
-        mesReferenciaFinanceira(item.mes),
-        mesReferenciaFinanceira(item.vencimento_cobranca),
-        mesReferenciaFinanceira(item.vencimento_cliente),
-        mesReferenciaFinanceira(item.venc_cliente),
-        mesReferenciaFinanceira(item.vencimento),
-        mesReferenciaFinanceira(item.data_vencimento),
-      ].filter(Boolean)
-
-      return mesesPossiveis.includes(mesRef)
-    })
+    const embarquesMes = lancamentos.filter(
+      (item) => mesBaseLancamento(item) === mesRef
+    )
 
     const processosPagosMes = embarquesMes.filter(
       (item) => statusCobranca(item) === 'PAGO'
@@ -2270,14 +2297,15 @@ export default function FinanceiroPage() {
     ).length
 
     const movimentosMes = movimentacoes.filter(
-      (item) => item.mes_referencia === mesRef
+      (item) => mesBaseMovimento(item) === mesRef
     )
 
     const despesasPagas = movimentosMes
       .filter(
         (item) =>
           item.tipo === 'DESPESA' &&
-          statusMovimento(item) === 'PAGO'
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_resultado !== false
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
@@ -2285,7 +2313,26 @@ export default function FinanceiroPage() {
       .filter(
         (item) =>
           item.tipo === 'PAGAMENTO_EMPRESTIMO' &&
-          statusMovimento(item) === 'PAGO'
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_resultado !== false
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const despesasCaixa = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'DESPESA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const emprestimosCaixa = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'PAGAMENTO_EMPRESTIMO' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
@@ -2300,24 +2347,36 @@ export default function FinanceiroPage() {
     const retiradasMes = movimentosMes
       .filter((item) =>
         ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) &&
-        statusMovimento(item) === 'PAGO'
+        statusMovimento(item) === 'PAGO' &&
+        item.impacta_caixa !== false
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const aportesMes = movimentosMes
-      .filter((item) => item.tipo === 'APORTE_SOCIO' && statusMovimento(item) === 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'APORTE_SOCIO' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const entradasNaoOperacionaisMes = movimentosMes
       .filter((item) =>
         item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
         statusMovimento(item) === 'PAGO' &&
+        item.impacta_caixa !== false &&
         !ehReservaOperacionalFundo(item)
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const saidasFundoMes = movimentosMes
-      .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA' && statusMovimento(item) === 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'FUNDO_CAIXA_SAIDA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const resultadoOperacional =
@@ -2328,7 +2387,9 @@ export default function FinanceiroPage() {
     const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
 
     const saldoCaixaRealMes =
-      resultadoOperacional +
+      profitRecebido -
+      despesasCaixa -
+      emprestimosCaixa +
       entradasNaoOperacionaisMes +
       aportesMes -
       retiradasMes -
@@ -2358,29 +2419,26 @@ export default function FinanceiroPage() {
   }
 
   function deveRegistrarFechamentoRetroativo(item: any) {
-    // Registra também meses em que havia fundo previsto, mas não sobrou caixa para reservar.
-    // Assim o histórico fica fechado sem inflar o fundo real.
+    const temSaldoPendente = Number(item.saldoFundoMes || 0) > 0.009
+    const podeReservarAgora = Number(item.valorReservaPossivelMes || 0) > 0.009
+
     return (
-      Number(item.saldoFundoMes || 0) > 0.009 ||
-      Number(item.resultadoOperacional || 0) <= 0 ||
-      Number(item.saldoCaixaRealMes || 0) <= 0
+      Number(item.resultadoOperacional || 0) > 0 &&
+      temSaldoPendente &&
+      (podeReservarAgora || !item.fechamentoExistente)
     )
   }
 
   async function gerarFechamentosRetroativos() {
-    const mesAtual = new Date().toISOString().slice(0, 7)
+    const mesAtual = mesAtualFinanceiro()
 
     const meses = Array.from(
       new Set([
         ...lancamentos
-          .map((item) =>
-            item.mes_profit ||
-            mesDaData(item.recebimento) ||
-            mesDaData(item.vencimento_cobranca)
-          )
+          .map((item) => mesBaseLancamento(item))
           .filter(Boolean),
         ...movimentacoes
-          .map((item) => item.mes_referencia)
+          .map((item) => mesBaseMovimento(item))
           .filter(Boolean),
       ])
     )
@@ -2407,13 +2465,18 @@ export default function FinanceiroPage() {
       )
     })
 
-    const resultados = meses.map((mes) => calcularResultadoDoMes(String(mes)))
+    const resultados = meses.map((mes) => {
+      const mesRef = String(mes)
 
-    const candidatos = resultados.filter(
-      (item) =>
-        item.resultadoOperacional > 0 &&
-        deveRegistrarFechamentoRetroativo(item)
-    )
+      return {
+        ...calcularResultadoDoMes(mesRef),
+        fechamentoExistente: movimentacoes.some((item) =>
+          ehFechamentoDoMes(item, mesRef)
+        ),
+      }
+    })
+
+    const candidatos = resultados.filter(deveRegistrarFechamentoRetroativo)
 
     if (candidatos.length === 0) {
       alert(
@@ -2431,7 +2494,7 @@ export default function FinanceiroPage() {
     const listaMeses = candidatos
       .map(
         (item) =>
-          `${formatarMesVisual(item.mesRef)}: ${moeda(item.valorReservaPossivelMes || 0)}`
+          `${formatarMesVisual(item.mesRef)}${item.fechamentoExistente ? ' (complemento)' : ''}: ${moeda(item.valorReservaPossivelMes || 0)}`
       )
       .join('\n')
 
@@ -2469,18 +2532,22 @@ export default function FinanceiroPage() {
       return {
         tipo: 'FUNDO_CAIXA_ENTRADA',
         categoria: 'Fechamento mensal',
-        descricao: `Fechamento mensal - reserva 50% ${item.mesRef}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'} | pendente ${moeda(saldoPendenteFundo)}`,
+        descricao: item.fechamentoExistente
+          ? `Complemento do fechamento mensal - reserva 50% ${item.mesRef} | pendente ${moeda(saldoPendenteFundo)}`
+          : `Fechamento mensal - reserva 50% ${item.mesRef}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'} | pendente ${moeda(saldoPendenteFundo)}`,
         valor: valorReserva,
         data_vencimento: dataFechamento,
         data_pagamento: dataFechamento,
         mes_referencia: item.mesRef,
         status: 'PAGO',
         socio: null,
-        forma_pagamento: 'Fechamento retroativo',
+        forma_pagamento: item.fechamentoExistente
+          ? 'Complemento retroativo'
+          : 'Fechamento retroativo',
         impacta_resultado: false,
         impacta_caixa: true,
         observacoes:
-          `Fechamento retroativo gerado pelo Resultado Mensal. ` +
+          `${item.fechamentoExistente ? 'Complemento retroativo' : 'Fechamento retroativo'} gerado pelo Resultado Mensal. ` +
           `Valor recebido: ${moeda(item.valorRecebido)}. ` +
           `Profit HC recebido: ${moeda(item.profitRecebido)}. ` +
           `Despesas pagas: ${moeda(item.despesasPagas)}. ` +
@@ -2589,19 +2656,7 @@ export default function FinanceiroPage() {
       const passaDespachante = filtraMultipla(filtroDespachante, item.despachante)
       const passaServico = filtraServicoMultipla(filtroServico, item.servico)
 
-      const mesesProcessoFiltro = [
-        item.mes_referencia,
-        mesReferenciaFinanceira(item.mes_profit),
-        mesReferenciaFinanceira(item.recebimento),
-        mesReferenciaFinanceira(item.recebimento_cliente),
-        mesReferenciaFinanceira(item.data_recebimento),
-        mesReferenciaFinanceira(item.data_pagamento),
-        mesReferenciaFinanceira(item.vencimento_cobranca),
-        mesReferenciaFinanceira(item.vencimento_cliente),
-        mesReferenciaFinanceira(item.vencimento),
-      ]
-        .map((mes) => String(mes || '').slice(0, 7))
-        .filter(Boolean)
+      const mesesProcessoFiltro = [mesBaseLancamento(item)].filter(Boolean)
 
       const anosProcessoFiltro = mesesProcessoFiltro
         .map((mes) => String(mes || '').slice(0, 4))
@@ -2755,7 +2810,7 @@ export default function FinanceiroPage() {
       `.toLowerCase()
 
       const passaBusca = !termo || texto.includes(termo)
-      const passaMes = filtraMultipla(filtroMesMovimento, item.mes_referencia)
+      const passaMes = filtraMultipla(filtroMesMovimento, mesBaseMovimento(item))
       const statusAtual = statusMovimento(item)
       const passaStatus = filtraMultipla(filtroStatusMovimento, statusAtual)
       const passaSocio = filtraMultipla(filtroSocioMovimento, item.socio)
@@ -2790,10 +2845,9 @@ export default function FinanceiroPage() {
   }, [movimentacoesFiltradas])
 
   const resultadoGeral = useMemo(() => {
-    const embarquesMes = lancamentos.filter((item) => {
-      const mesBase = item.mes_profit || mesDaData(item.recebimento) || mesDaData(item.vencimento_cobranca)
-      return mesBase === mesResultado
-    })
+    const embarquesMes = lancamentos.filter(
+      (item) => mesBaseLancamento(item) === mesResultado
+    )
 
     const processosPagosMes = embarquesMes.filter((item) => statusCobranca(item) === 'PAGO')
 
@@ -2809,29 +2863,70 @@ export default function FinanceiroPage() {
 
     const semCusto = processosPagosMes.filter((item) => aguardandoCustoProcesso(item)).length
 
-    const movimentosMes = movimentacoes.filter((item) => item.mes_referencia === mesResultado)
+    const movimentosMes = movimentacoes.filter(
+      (item) => mesBaseMovimento(item) === mesResultado
+    )
 
     const despesasPagas = movimentosMes
-      .filter((item) => item.tipo === 'DESPESA' && statusMovimento(item) === 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'DESPESA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_resultado !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const emprestimosPagos = movimentosMes
-      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO' && statusMovimento(item) === 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'PAGAMENTO_EMPRESTIMO' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_resultado !== false
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const despesasCaixa = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'DESPESA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const emprestimosCaixa = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'PAGAMENTO_EMPRESTIMO' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const despesasPendentes = movimentosMes
-      .filter((item) => item.tipo === 'DESPESA' && statusMovimento(item) !== 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'DESPESA' &&
+          statusMovimento(item) !== 'PAGO' &&
+          item.impacta_resultado !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const emprestimosPendentes = movimentosMes
-      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO' && statusMovimento(item) !== 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'PAGAMENTO_EMPRESTIMO' &&
+          statusMovimento(item) !== 'PAGO' &&
+          item.impacta_resultado !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const retiradasMarcos = movimentosMes
       .filter((item) =>
         ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) &&
         item.socio === 'MARCOS' &&
-        statusMovimento(item) === 'PAGO'
+        statusMovimento(item) === 'PAGO' &&
+        item.impacta_caixa !== false
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
@@ -2839,12 +2934,18 @@ export default function FinanceiroPage() {
       .filter((item) =>
         ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) &&
         item.socio === 'HERICA' &&
-        statusMovimento(item) === 'PAGO'
+        statusMovimento(item) === 'PAGO' &&
+        item.impacta_caixa !== false
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const aportes = movimentosMes
-      .filter((item) => item.tipo === 'APORTE_SOCIO' && statusMovimento(item) === 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'APORTE_SOCIO' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const entradasFundoMes = movimentosMes
@@ -2859,12 +2960,18 @@ export default function FinanceiroPage() {
       .filter((item) =>
         item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
         statusMovimento(item) === 'PAGO' &&
+        item.impacta_caixa !== false &&
         !ehReservaOperacionalFundo(item)
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const saidasFundoMes = movimentosMes
-      .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA' && statusMovimento(item) === 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'FUNDO_CAIXA_SAIDA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const fundoAtual = calcularFundoAtualPermitido()
@@ -2886,7 +2993,9 @@ export default function FinanceiroPage() {
     // Caixa real do mês considera lucro operacional, entradas não operacionais,
     // aportes, retiradas dos sócios e saídas reais do fundo/caixa.
     const saldoCaixaRealMes =
-      resultadoOperacional +
+      profitRecebido -
+      despesasCaixa -
+      emprestimosCaixa +
       entradasNaoOperacionaisMes +
       aportes -
       retiradasTotal -
@@ -2929,7 +3038,7 @@ export default function FinanceiroPage() {
     const movimentosFundo = movimentacoes.filter((item) => {
       const tipoFundo = ['FUNDO_CAIXA_ENTRADA', 'FUNDO_CAIXA_SAIDA', 'AJUSTE_CAIXA'].includes(item.tipo)
       const passaAno = movimentoAnoSelecionado(item)
-      const passaMes = filtraMultipla(filtroMesMovimento, item.mes_referencia)
+      const passaMes = filtraMultipla(filtroMesMovimento, mesBaseMovimento(item))
       return tipoFundo && passaAno && passaMes && statusMovimento(item) === 'PAGO'
     })
 
@@ -2955,29 +3064,11 @@ export default function FinanceiroPage() {
 
   const resumoCaixaRealProfit = useMemo(() => {
     function mesesDoLancamento(item: any) {
-      return [
-        mesReferenciaFinanceira(item.mes_profit),
-        mesReferenciaFinanceira(item.recebimento),
-        mesReferenciaFinanceira(item.recebimento_cliente),
-        mesReferenciaFinanceira(item.data_recebimento),
-        mesReferenciaFinanceira(item.data_pagamento),
-        mesReferenciaFinanceira(item.mes),
-        mesReferenciaFinanceira(item.vencimento_cobranca),
-        mesReferenciaFinanceira(item.vencimento_cliente),
-        mesReferenciaFinanceira(item.venc_cliente),
-        mesReferenciaFinanceira(item.vencimento),
-        mesReferenciaFinanceira(item.data_vencimento),
-      ].filter(Boolean)
+      return [mesBaseLancamento(item)].filter(Boolean)
     }
 
     function mesesDoMovimento(item: any) {
-      return [
-        mesReferenciaFinanceira(item.mes_referencia),
-        mesReferenciaFinanceira(item.data_pagamento),
-        mesReferenciaFinanceira(item.data_vencimento),
-        mesReferenciaFinanceira(item.vencimento),
-        mesReferenciaFinanceira(item.pagamento),
-      ].filter(Boolean)
+      return [mesBaseMovimento(item)].filter(Boolean)
     }
 
     function passaMesSelecionado(meses: string[]) {
@@ -3009,11 +3100,25 @@ export default function FinanceiroPage() {
       .filter((item) => statusMovimento(item) === 'PAGO')
       .filter((item) => item.impacta_caixa !== false)
 
+    const movimentosResultado = movimentacoes
+      .filter(movimentoAnoSelecionado)
+      .filter((item) => passaMesSelecionado(mesesDoMovimento(item)))
+      .filter((item) => statusMovimento(item) === 'PAGO')
+      .filter((item) => item.impacta_resultado !== false)
+
     const despesasPagas = movimentosPagos
       .filter((item) => item.tipo === 'DESPESA')
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
     const emprestimosPagos = movimentosPagos
+      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO')
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const despesasResultado = movimentosResultado
+      .filter((item) => item.tipo === 'DESPESA')
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const emprestimosResultado = movimentosResultado
       .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO')
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
@@ -3066,8 +3171,8 @@ export default function FinanceiroPage() {
 
     const resultadoAntesRetiradas =
       profitRecebido -
-      despesasPagas -
-      emprestimosPagos
+      despesasResultado -
+      emprestimosResultado
 
     const fundoPrevisto = Math.max(0, resultadoAntesRetiradas) * 0.5
 
@@ -3097,6 +3202,8 @@ export default function FinanceiroPage() {
       profitRecebido,
       despesasPagas,
       emprestimosPagos,
+      despesasResultado,
+      emprestimosResultado,
       retiradasSocios,
       saidasFundoCaixa,
       saidasOperacionais,
@@ -3159,11 +3266,14 @@ export default function FinanceiroPage() {
     const linhasProcessos = lancamentos
       .filter((item) => {
         if (statusCobranca(item) !== 'PAGO') return false
-        const mesBase = item.mes_profit || mesDaData(item.recebimento) || mesDaData(item.vencimento_cobranca)
+        const mesBase = mesBaseLancamento(item)
         return String(mesBase || '').startsWith(ano)
       })
       .map((item) => {
-        const data = normalizarData(item.recebimento) || normalizarData(item.vencimento_cobranca) || `${item.mes_profit || ano + '-01'}-01`
+        const data =
+          dataRecebimentoProcesso(item) ||
+          normalizarData(item.vencimento_cobranca) ||
+          `${mesBaseLancamento(item) || ano + '-01'}-01`
         const possuiCusto = Number(item.valor_compra || 0) > 0
         const profit = possuiCusto ? calcularProfit(item) : 0
 
@@ -3171,7 +3281,7 @@ export default function FinanceiroPage() {
           id: `processo-${item.id}`,
           origem: 'PROCESSO',
           data,
-          mes: (item.mes_profit || mesDaData(item.recebimento) || mesDaData(item.vencimento_cobranca) || '').slice(0, 7),
+          mes: mesBaseLancamento(item),
           tipo: 'RECEBIMENTO_PROCESSO',
           tipoLabel: 'Recebimento de processo',
           categoria: normalizarServicoFinanceiro(item.servico) || 'Processo faturado',
@@ -3185,6 +3295,7 @@ export default function FinanceiroPage() {
               ? 0
               : Number(item.debito_terceiro || 0),
           custosProtegidos: Number(item.doc_dta || 0) + Number(item.valor_compra || 0),
+          valorCompra: Number(item.valor_compra || 0),
           status: statusCobranca(item),
           forma_pagamento: '',
           impacta_resultado: true,
@@ -3194,7 +3305,7 @@ export default function FinanceiroPage() {
       })
 
     const linhasMovimentos = movimentacoes
-      .filter((item) => String(item.mes_referencia || '').startsWith(ano))
+      .filter((item) => mesBaseMovimento(item).startsWith(ano))
       .map((item) => {
         const valor = Number(item.valor || 0)
         const status = statusMovimento(item)
@@ -3212,7 +3323,7 @@ export default function FinanceiroPage() {
           id: `mov-${item.id}`,
           origem: 'MOVIMENTACAO',
           data: normalizarData(item.data_pagamento) || normalizarData(item.data_vencimento) || `${item.mes_referencia || ano + '-01'}-01`,
-          mes: item.mes_referencia || '',
+          mes: mesBaseMovimento(item),
           tipo: item.tipo,
           tipoLabel: labelTipo(item.tipo),
           categoria: item.categoria || '-',
@@ -3225,7 +3336,7 @@ export default function FinanceiroPage() {
           custosProtegidos: 0,
           status,
           forma_pagamento: item.forma_pagamento || '',
-          impacta_resultado: item.impacta_resultado ?? false,
+          impacta_resultado: item.impacta_resultado ?? true,
           impacta_caixa: item.impacta_caixa ?? true,
           naoOperacional: item.tipo === 'FUNDO_CAIXA_ENTRADA' && !ehReservaOperacionalFundo(item),
         }
@@ -3270,10 +3381,18 @@ export default function FinanceiroPage() {
       .filter((item) => item.tipo === 'RECEBIMENTO_PROCESSO')
       .reduce((acc, item) => acc + Number(item.profit || 0), 0)
     const despesas = pagos
-      .filter((item) => item.tipo === 'DESPESA')
+      .filter(
+        (item) =>
+          item.tipo === 'DESPESA' &&
+          item.impacta_resultado !== false
+      )
       .reduce((acc, item) => acc + Number(item.saida || 0), 0)
     const emprestimosPagos = pagos
-      .filter((item) => item.tipo === 'PAGAMENTO_EMPRESTIMO')
+      .filter(
+        (item) =>
+          item.tipo === 'PAGAMENTO_EMPRESTIMO' &&
+          item.impacta_resultado !== false
+      )
       .reduce((acc, item) => acc + Number(item.saida || 0), 0)
     const retiradasMarcos = pagos
       .filter((item) => ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo) && item.socio === 'MARCOS')
@@ -3785,7 +3904,7 @@ export default function FinanceiroPage() {
             possuiCusto ? moeda(item.valor_compra) : 'Aguardando custo',
             profit === null ? 'Aguardando custo' : moeda(profit),
             normalizarData(item.vencimento_cobranca) || '-',
-            normalizarData(item.recebimento) || '-',
+            dataRecebimentoProcesso(item) || '-',
             statusCobranca(item),
           ]
         }),
@@ -4739,7 +4858,7 @@ export default function FinanceiroPage() {
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-5">
               <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1) }} placeholder="Buscar por cliente, AWB, fatura, serviço..." className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
 
-              
+
               <div className="rounded-2xl border border-blue-900 bg-[#020817] p-3">
                 <label className="block text-[11px] font-black uppercase tracking-widest text-slate-400">
                   Ano do relatório
@@ -4984,7 +5103,7 @@ export default function FinanceiroPage() {
                           <Td>{possuiCusto ? moeda(item.valor_compra) : <span className="inline-flex rounded-lg bg-yellow-100 px-2 py-1 text-xs font-black text-yellow-700 border border-yellow-300">⚠ AGUARDANDO CUSTO</span>}</Td>
                           <Td>{profit === null ? <span className="text-gray-400 font-black">AGUARDANDO CUSTO</span> : <span className={profit >= 0 ? 'text-green-600 font-black' : 'text-red-600 font-black'}>{moeda(profit)}</span>}</Td>
                           <Td>{normalizarData(item.vencimento_cobranca) || '-'}</Td>
-                          <Td>{normalizarData(item.recebimento) || '-'}</Td>
+                          <Td>{dataRecebimentoProcesso(item) || '-'}</Td>
                           <Td><Badge texto={cobranca} classe={badgeStatus(cobranca)} /></Td>
                           <Td>
                             <div className="flex gap-2">
@@ -5150,7 +5269,7 @@ export default function FinanceiroPage() {
                 disabled={gerandoFechamento || resultadoGeral.saldoFundoMes <= 0 || resultadoGeral.resultadoOperacional <= 0}
                 className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
               >
-                {gerandoFechamento ? 'Gerando...' : 'Gerar fechamento do mês'}
+                {gerandoFechamento ? 'Gerando...' : 'Gerar ou complementar fechamento'}
               </button>
 
               <button
