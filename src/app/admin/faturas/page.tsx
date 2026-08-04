@@ -64,6 +64,7 @@ type Fatura = {
   arquivado_admin?: boolean | null
   arquivado_admin_em?: string | null
   arquivado_admin_por?: string | null
+  tipo_fatura?: string | null
   embarques?: any
 }
 
@@ -137,7 +138,7 @@ type StatusPagamentoFinanceiro = {
   classe: string
 }
 
-type AbaFaturasAdmin = 'FATURAS' | 'EMISSOR' | 'RECIBO'
+type AbaFaturasAdmin = 'FATURAS' | 'EMISSOR' | 'AGENTE_CARGA' | 'RECIBO'
 
 type ServicoFinanceiroEmbarque = {
   nome?: string | null
@@ -181,6 +182,17 @@ type ItemFaturaServico = {
   descricao: string
   selecionado: boolean
   valor_usd: string
+  valor_brl: string
+  observacao: string
+}
+
+type MoedaFaturaAgente = 'BRL' | 'USD' | 'EUR'
+
+type ItemFaturaAgente = {
+  id: string
+  descricao: string
+  moeda: MoedaFaturaAgente
+  valor_original: string
   valor_brl: string
   observacao: string
 }
@@ -250,6 +262,22 @@ export default function FaturasPage() {
   const [emissorAvisoCambio, setEmissorAvisoCambio] = useState('')
   const [salvandoEmissao, setSalvandoEmissao] = useState(false)
   const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
+
+  const [agenteProcesso, setAgenteProcesso] = useState('')
+  const [agenteClienteId, setAgenteClienteId] = useState('')
+  const [agenteUsuarioId, setAgenteUsuarioId] = useState('')
+  const [agenteNumeroFatura, setAgenteNumeroFatura] = useState('')
+  const [agenteDataFatura, setAgenteDataFatura] = useState(() => new Date().toISOString().slice(0, 10))
+  const [agenteVencimento, setAgenteVencimento] = useState('')
+  const [agenteSpread, setAgenteSpread] = useState('3')
+  const [agenteTaxaBaseUsd, setAgenteTaxaBaseUsd] = useState('')
+  const [agenteTaxaBaseEur, setAgenteTaxaBaseEur] = useState('')
+  const [agenteObservacoes, setAgenteObservacoes] = useState('')
+  const [agenteVisivelCliente, setAgenteVisivelCliente] = useState(true)
+  const [salvandoFaturaAgente, setSalvandoFaturaAgente] = useState(false)
+  const [itensFaturaAgente, setItensFaturaAgente] = useState<ItemFaturaAgente[]>([
+    novoItemFaturaAgente(),
+  ])
 
   useEffect(() => {
     carregar()
@@ -689,7 +717,8 @@ export default function FaturasPage() {
     return (
       faturasDoEmbarque.find((f) => {
         const item: any = f
-        return item.fatura_complementar !== true && String((item as any).tipo_fatura || 'FRETE').toUpperCase() !== 'IMPOSTOS'
+        const tipo = String((item as any).tipo_fatura || 'FRETE').toUpperCase()
+        return item.fatura_complementar !== true && !['IMPOSTOS', 'AGENTE_CARGA'].includes(tipo)
       }) ||
       faturasDoEmbarque[0] ||
       null
@@ -3084,6 +3113,30 @@ export default function FaturasPage() {
     )
   }, [itensFatura])
 
+  const agenteClienteSelecionado = useMemo(() => {
+    return clientesFaturamento.find((item) => item.id === agenteClienteId) || null
+  }, [clientesFaturamento, agenteClienteId])
+
+  const faturasAgenteCarga = useMemo(() => {
+    return faturas.filter((item) => String(item.tipo_fatura || '').toUpperCase() === 'AGENTE_CARGA')
+  }, [faturas])
+
+  const totaisFaturaAgente = useMemo(() => {
+    return itensFaturaAgente.reduce(
+      (acc, item) => {
+        const valorOriginal = numero(item.valor_original)
+        const valorBrl = numero(item.valor_brl)
+
+        if (item.moeda === 'USD') acc.usd += valorOriginal
+        if (item.moeda === 'EUR') acc.eur += valorOriginal
+        if (item.moeda === 'BRL') acc.brlOriginal += valorOriginal
+        acc.totalBrl += valorBrl
+        return acc
+      },
+      { usd: 0, eur: 0, brlOriginal: 0, totalBrl: 0 }
+    )
+  }, [itensFaturaAgente])
+
   function taxaConversaoFinal(ptaxValor = emissorTaxaConversao, spreadValor = emissorSpread) {
     const ptax = numero(ptaxValor)
     const spread = numero(spreadValor)
@@ -4534,6 +4587,636 @@ export default function FaturasPage() {
     )
   }
 
+  function taxaFinalFaturaAgente(
+    moedaItem: MoedaFaturaAgente,
+    baseUsd = agenteTaxaBaseUsd,
+    baseEur = agenteTaxaBaseEur,
+    spread = agenteSpread
+  ) {
+    if (moedaItem === 'BRL') return 1
+
+    const base = moedaItem === 'USD' ? numero(baseUsd) : numero(baseEur)
+    if (base <= 0) return 0
+
+    return base * (1 + numero(spread) / 100)
+  }
+
+  function taxaFinalFaturaAgenteFormatada(moedaItem: MoedaFaturaAgente) {
+    const taxa = taxaFinalFaturaAgente(moedaItem)
+    if (taxa <= 0) return '-'
+    return taxa.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+  }
+
+  function recalcularItensFaturaAgente(
+    baseUsd = agenteTaxaBaseUsd,
+    baseEur = agenteTaxaBaseEur,
+    spread = agenteSpread
+  ) {
+    setItensFaturaAgente((atuais) =>
+      atuais.map((item) => {
+        const valorOriginal = numero(item.valor_original)
+        const taxa = taxaFinalFaturaAgente(item.moeda, baseUsd, baseEur, spread)
+
+        return {
+          ...item,
+          valor_brl: valorOriginal > 0 && taxa > 0 ? formatarNumeroInput(valorOriginal * taxa) : '',
+        }
+      })
+    )
+  }
+
+  function atualizarItemFaturaAgente(
+    id: string,
+    campo: keyof ItemFaturaAgente,
+    valor: string
+  ) {
+    setItensFaturaAgente((atuais) =>
+      atuais.map((item) => {
+        if (item.id !== id) return item
+
+        const atualizado = { ...item, [campo]: valor } as ItemFaturaAgente
+
+        if (campo === 'valor_original' || campo === 'moeda') {
+          const taxa = taxaFinalFaturaAgente(atualizado.moeda)
+          const valorOriginal = numero(atualizado.valor_original)
+          atualizado.valor_brl = valorOriginal > 0 && taxa > 0
+            ? formatarNumeroInput(valorOriginal * taxa)
+            : ''
+        }
+
+        return atualizado
+      })
+    )
+  }
+
+  function adicionarItemFaturaAgente() {
+    setItensFaturaAgente((atuais) => [...atuais, novoItemFaturaAgente()])
+  }
+
+  function removerItemFaturaAgente(id: string) {
+    setItensFaturaAgente((atuais) => {
+      if (atuais.length === 1) return [novoItemFaturaAgente()]
+      return atuais.filter((item) => item.id !== id)
+    })
+  }
+
+  function sugerirNumeroFaturaAgente() {
+    const data = agenteDataFatura || new Date().toISOString().slice(0, 10)
+    const [ano, mes, dia] = data.split('-')
+    const processo = String(agenteProcesso || '').replace(/\D/g, '').slice(-6).padStart(6, '0')
+    return `HC${ano}${mes}${dia}${processo}-26`
+  }
+
+  function limparFaturaAgente() {
+    setAgenteProcesso('')
+    setAgenteClienteId('')
+    setAgenteUsuarioId('')
+    setAgenteNumeroFatura('')
+    setAgenteDataFatura(new Date().toISOString().slice(0, 10))
+    setAgenteVencimento('')
+    setAgenteSpread('3')
+    setAgenteTaxaBaseUsd('')
+    setAgenteTaxaBaseEur('')
+    setAgenteObservacoes('')
+    setAgenteVisivelCliente(true)
+    setItensFaturaAgente([novoItemFaturaAgente()])
+  }
+
+  async function salvarFinanceiroFaturaAgente(arquivoPdfUrl: string) {
+    if (!agenteClienteSelecionado) return
+
+    const processoNormalizado = normalizarAwb(agenteProcesso)
+    const financeiroAtual = financeiros.find((item) =>
+      awbsFinanceiro(item).includes(processoNormalizado)
+    ) || null
+
+    const itensResumo = itensFaturaAgente
+      .filter((item) => item.descricao.trim() && numero(item.valor_brl) > 0)
+      .map((item) => `${item.descricao}: ${item.moeda} ${formatarValorSimples(numero(item.valor_original))} = ${moeda(item.valor_brl)}`)
+      .join(' | ')
+
+    const observacaoNova = [
+      financeiroAtual?.observacoes || '',
+      `Fatura de agente de carga ${agenteNumeroFatura}, processo ${agenteProcesso}. PDF: ${arquivoPdfUrl}. Itens: ${itensResumo}`,
+      agenteObservacoes || '',
+    ].filter(Boolean).join(' | ')
+
+    const payload: any = {
+      cliente: agenteClienteSelecionado.nome_empresa || null,
+      awb: agenteProcesso || null,
+      fatura: agenteNumeroFatura || null,
+      servico: 'AGENTE DE CARGA',
+      valor_cobranca: totaisFaturaAgente.totalBrl,
+      doc_dta: numero(financeiroAtual?.doc_dta),
+      debito_terceiro: numero(financeiroAtual?.debito_terceiro),
+      valor_compra: numero(financeiroAtual?.valor_compra),
+      vencimento_cobranca: agenteVencimento || null,
+      recebimento: financeiroAtual?.recebimento || null,
+      mes: normalizarData(agenteVencimento)?.slice(0, 7) || agenteDataFatura.slice(0, 7),
+      mes_profit: financeiroAtual?.mes_profit || '',
+      observacoes: observacaoNova,
+    }
+
+    if (financeiroAtual?.id) {
+      const { error } = await supabase
+        .from('financeiro_embarques')
+        .update(payload)
+        .eq('id', financeiroAtual.id)
+
+      if (error) throw new Error(`Fatura salva, mas houve erro ao atualizar Processos Faturados: ${error.message}`)
+      return
+    }
+
+    const { error } = await supabase.from('financeiro_embarques').insert([payload])
+    if (error) throw new Error(`Fatura salva, mas houve erro ao lançar em Processos Faturados: ${error.message}`)
+  }
+
+  async function gerarPdfFaturaAgenteCarga() {
+    if (!agenteProcesso.trim()) return alert('Informe o número do processo.')
+    if (!agenteClienteSelecionado) return alert('Selecione o cliente de faturamento.')
+    if (!agenteNumeroFatura.trim()) return alert('Informe o número da fatura.')
+    if (!agenteDataFatura) return alert('Informe a data da fatura.')
+    if (!agenteVencimento) return alert('Informe o vencimento.')
+
+    const itensValidos = itensFaturaAgente.filter(
+      (item) => item.descricao.trim() && numero(item.valor_original) > 0 && numero(item.valor_brl) > 0
+    )
+
+    if (itensValidos.length === 0 || totaisFaturaAgente.totalBrl <= 0) {
+      return alert('Adicione pelo menos um serviço com descrição, moeda e valor.')
+    }
+
+    if (itensValidos.some((item) => item.moeda === 'USD') && taxaFinalFaturaAgente('USD') <= 0) {
+      return alert('Informe a taxa base do USD.')
+    }
+
+    if (itensValidos.some((item) => item.moeda === 'EUR') && taxaFinalFaturaAgente('EUR') <= 0) {
+      return alert('Informe a taxa base do EUR.')
+    }
+
+    setSalvandoFaturaAgente(true)
+
+    try {
+      const jsPDFModule = await import('jspdf')
+      const autoTableModule = await import('jspdf-autotable')
+      const jsPDF = (jsPDFModule as any).jsPDF || (jsPDFModule as any).default
+      const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable
+
+      if (!jsPDF || !autoTable) {
+        throw new Error('Bibliotecas de PDF não carregadas corretamente.')
+      }
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' }) as any
+      const margem = 34
+      const larguraPagina = pdf.internal.pageSize.getWidth()
+      const alturaPagina = pdf.internal.pageSize.getHeight()
+      const dadosCliente = dadosClienteFiscal(agenteClienteSelecionado)
+      const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const qrPixBase64 = await gerarQrCodePixBase64(totaisFaturaAgente.totalBrl, agenteNumeroFatura)
+
+      pdf.setDrawColor(0, 0, 0)
+      pdf.setLineWidth(0.7)
+      pdf.rect(28, 28, larguraPagina - 56, alturaPagina - 56)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(10)
+      pdf.text('FATURA DE SERVIÇO', margem + 8, 48)
+      pdf.text(`CÓDIGO CLIENTE: ${agenteClienteSelecionado.codigo_hc || '-'}`, 225, 48)
+      pdf.text(`FATURA Nº: ${agenteNumeroFatura}`, larguraPagina - margem - 8, 48, { align: 'right' })
+      pdf.text(`DATA DA FATURA: ${dataBR(agenteDataFatura)}`, larguraPagina - margem - 8, 70, { align: 'right' })
+      pdf.text(`DATA DE VENC.: ${dataBR(agenteVencimento)}`, larguraPagina - margem - 8, 91, { align: 'right' })
+
+      pdf.setFontSize(9)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', margem + 8, 70)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text('RUA DOS COMANCHES Nº 131', margem + 8, 92)
+      pdf.text('BELO HORIZONTE, MG - 31530250', margem + 8, 108)
+      pdf.text('CNPJ 41.456.630/0001-52', margem + 8, 124)
+      pdf.text('TELEFONE: 55 (31) 3643-6175', 218, 92)
+      pdf.text('E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 218, 108)
+      pdf.text('INSCRIÇÃO ESTADUAL: ISENTO', 218, 124)
+
+      if (logoBase64) {
+        try {
+          const formatoLogo = logoBase64.includes('image/jpeg') ? 'JPEG' : 'PNG'
+          pdf.addImage(logoBase64, formatoLogo, larguraPagina - 126, 95, 78, 48)
+        } catch (error) {
+          console.log('Logo não pôde ser inserida na fatura de agente:', error)
+        }
+      }
+
+      pdf.setFillColor(221, 229, 244)
+      pdf.rect(margem, 148, larguraPagina - margem * 2, 104, 'FD')
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Cobrança para:', margem + 8, 168)
+      pdf.text('CNPJ / CPF:', 395, 168)
+      pdf.text('Endereço:', margem + 8, 196)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(pdf.splitTextToSize(dadosCliente.nome || '-', 230), 150, 168)
+      pdf.text(dadosCliente.documento || '-', 466, 168)
+      pdf.text(pdf.splitTextToSize(dadosCliente.endereco || '-', 315), 150, 196)
+      pdf.text(`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`, 150, 224)
+      pdf.text(`CEP: ${dadosCliente.cep || '-'}`, 395, 224)
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 270)
+      pdf.text('PRESTAÇÃO DE CONTAS', margem, 286)
+      pdf.text(`PROCESSO: ${agenteProcesso}`, 260, 286)
+
+      const linhasPdf = itensValidos.map((item) => [
+        item.descricao,
+        item.observacao || '',
+        item.moeda,
+        formatarValorSimples(numero(item.valor_original)),
+        moeda(item.valor_brl),
+      ])
+
+      autoTable(pdf, {
+        startY: 294,
+        head: [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
+        body: linhasPdf,
+        theme: 'grid',
+        margin: { left: margem, right: margem },
+        styles: { fontSize: 7.5, cellPadding: 3, lineColor: [45, 95, 210], lineWidth: 0.35 },
+        headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 175 },
+          1: { cellWidth: 135 },
+          2: { cellWidth: 50, halign: 'center' },
+          3: { cellWidth: 80, halign: 'right' },
+          4: { cellWidth: 90, halign: 'right' },
+        },
+      })
+
+      let yFinal = (pdf as any).lastAutoTable.finalY + 14
+      if (yFinal > 560) {
+        pdf.addPage('letter', 'portrait')
+        yFinal = 56
+      }
+
+      pdf.setFillColor(190, 190, 190)
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 22, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(8)
+      pdf.text('TOTAL', margem + 8, yFinal + 15)
+
+      const totaisMoedas = [
+        totaisFaturaAgente.eur > 0 ? `EUR ${formatarValorSimples(totaisFaturaAgente.eur)}` : '',
+        totaisFaturaAgente.usd > 0 ? `USD ${formatarValorSimples(totaisFaturaAgente.usd)}` : '',
+        totaisFaturaAgente.brlOriginal > 0 ? `BRL ${formatarValorSimples(totaisFaturaAgente.brlOriginal)}` : '',
+      ].filter(Boolean).join('   ')
+
+      pdf.text(totaisMoedas || 'BRL 0,00', 270, yFinal + 15)
+      pdf.text(moeda(totaisFaturaAgente.totalBrl), larguraPagina - margem - 8, yFinal + 15, { align: 'right' })
+
+      const yExtenso = yFinal + 48
+      pdf.rect(margem, yExtenso - 18, larguraPagina - margem * 2, 34)
+      pdf.text('VALOR POR EXTENSO:', margem + 8, yExtenso)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(pdf.splitTextToSize(valorPorExtensoBRL(totaisFaturaAgente.totalBrl), 365), 175, yExtenso)
+
+      const yTaxa = yExtenso + 42
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 28)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`SPREAD ${agenteSpread || '0'}%`, 235, yTaxa)
+      if (totaisFaturaAgente.eur > 0) pdf.text(`EUR ${taxaFinalFaturaAgenteFormatada('EUR')}`, 345, yTaxa)
+      if (totaisFaturaAgente.usd > 0) pdf.text(`USD ${taxaFinalFaturaAgenteFormatada('USD')}`, larguraPagina - margem - 8, yTaxa, { align: 'right' })
+
+      const yBanco = yTaxa + 34
+      pdf.setFillColor(45, 119, 183)
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(8)
+      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+
+      const yAssinatura = yBanco + 78
+      pdf.setFont('times', 'italic')
+      pdf.setFontSize(11)
+      pdf.text('Marcos Paulo Otero', larguraPagina / 2 - 24, yAssinatura, { align: 'center' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', larguraPagina / 2 - 24, yAssinatura + 14, { align: 'center' })
+      pdf.text('CNPJ: 41.456.630/0001-52', larguraPagina / 2 - 24, yAssinatura + 27, { align: 'center' })
+
+      if (qrPixBase64) {
+        try {
+          pdf.addImage(qrPixBase64, larguraPagina - margem - 88, yBanco + 45, 70, 70)
+        } catch (error) {
+          console.log('QR Code não pôde ser inserido na fatura de agente:', error)
+        }
+      }
+
+      if (agenteObservacoes) {
+        pdf.setFontSize(7)
+        pdf.text(`Observações: ${agenteObservacoes}`, margem, yAssinatura + 48, { maxWidth: 390 })
+      }
+
+      const blob = pdf.output('blob') as Blob
+      const nomeSeguro = agenteNumeroFatura.replace(/[^A-Z0-9_-]/gi, '-')
+      const nomeArquivo = `agente-carga/${Date.now()}-fatura-${nomeSeguro}.pdf`
+
+      const { error: erroUpload } = await supabase.storage
+        .from('faturas')
+        .upload(nomeArquivo, blob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'application/pdf',
+        })
+
+      if (erroUpload) throw new Error(erroUpload.message)
+
+      const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
+      const urlPdf = urlData.publicUrl
+      const dadosClienteSalvos = {
+        ...dadosClienteFiscal(agenteClienteSelecionado),
+        processo: agenteProcesso,
+        taxa_base_usd: numero(agenteTaxaBaseUsd),
+        taxa_base_eur: numero(agenteTaxaBaseEur),
+        taxa_final_usd: taxaFinalFaturaAgente('USD'),
+        taxa_final_eur: taxaFinalFaturaAgente('EUR'),
+      }
+
+      const payloadFatura: any = {
+        embarque_id: null,
+        usuario_id: agenteUsuarioId || null,
+        numero_fatura: agenteNumeroFatura,
+        arquivo_pdf: urlPdf,
+        visivel_cliente: agenteVisivelCliente,
+        observacoes: [
+          `Fatura de agente de carga - processo ${agenteProcesso}.`,
+          agenteObservacoes || '',
+        ].filter(Boolean).join(' '),
+        cliente_faturamento_id: agenteClienteSelecionado.id,
+        dados_cliente_faturamento: dadosClienteSalvos,
+        itens_fatura: itensValidos.map((item) => ({
+          ...item,
+          valor_original: numero(item.valor_original),
+          valor_brl: numero(item.valor_brl),
+          taxa_conversao: taxaFinalFaturaAgente(item.moeda),
+        })),
+        valor_total: totaisFaturaAgente.totalBrl,
+        valor_usd: totaisFaturaAgente.usd,
+        taxa_conversao: taxaFinalFaturaAgente('USD'),
+        spread: numero(agenteSpread),
+        vencimento: agenteVencimento,
+        tipo_fatura: 'AGENTE_CARGA',
+        fatura_complementar: false,
+      }
+
+      const { data: faturaSalva, error: erroFatura } = await supabase
+        .from('faturas')
+        .insert([payloadFatura])
+        .select('id')
+        .single()
+
+      if (erroFatura) throw new Error(erroFatura.message)
+
+      await salvarFinanceiroFaturaAgente(urlPdf)
+
+      await enviarEmailClienteFatura({
+        tipo: 'FATURA_DISPONIVEL',
+        fatura: { ...payloadFatura, id: faturaSalva?.id },
+        mensagem: `Nova fatura de agente de carga do processo ${agenteProcesso} disponível no Portal HC Connect.`,
+        dados: {
+          Documento: 'Fatura de agente de carga',
+          Processo: agenteProcesso,
+          Vencimento: dataBR(agenteVencimento),
+          Valor: moeda(totaisFaturaAgente.totalBrl),
+        },
+      })
+
+      window.open(urlPdf, '_blank')
+      alert('Fatura de agente de carga emitida, salva e lançada em Processos Faturados.')
+      limparFaturaAgente()
+      await carregar()
+    } catch (error: any) {
+      console.error(error)
+      alert(`Erro ao emitir fatura de agente de carga: ${error?.message || error}`)
+    } finally {
+      setSalvandoFaturaAgente(false)
+    }
+  }
+
+  function renderAbaAgenteCarga() {
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-cyan-800 bg-[#071225] p-6 lg:p-7">
+          <p className="text-cyan-400 text-sm font-black uppercase tracking-wide">Emissão multimoeda</p>
+          <h2 className="mt-2 text-3xl font-black">Fatura Agente de Carga</h2>
+          <p className="mt-2 text-slate-400">Uma fatura por processo, com itens em BRL, USD ou EUR e conversão automática.</p>
+
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <label className="text-sm font-bold text-slate-300">
+              Processo
+              <input
+                value={agenteProcesso}
+                onChange={(e) => setAgenteProcesso(e.target.value)}
+                placeholder="Ex.: 080201/26"
+                className="mt-2 w-full"
+              />
+            </label>
+
+            <label className="text-sm font-bold text-slate-300">
+              Número da fatura
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={agenteNumeroFatura}
+                  onChange={(e) => setAgenteNumeroFatura(e.target.value)}
+                  placeholder="HC2026080201-26"
+                  className="w-full"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAgenteNumeroFatura(sugerirNumeroFaturaAgente())}
+                  className="rounded-xl bg-slate-700 px-3 text-xs font-black hover:bg-slate-600"
+                >
+                  Sugerir
+                </button>
+              </div>
+            </label>
+
+            <label className="text-sm font-bold text-slate-300">
+              Data da fatura
+              <input type="date" value={agenteDataFatura} onChange={(e) => setAgenteDataFatura(e.target.value)} className="mt-2 w-full" />
+            </label>
+
+            <label className="text-sm font-bold text-slate-300">
+              Vencimento
+              <input type="date" value={agenteVencimento} onChange={(e) => setAgenteVencimento(e.target.value)} className="mt-2 w-full" />
+            </label>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <label className="text-sm font-bold text-slate-300">
+              Cliente de faturamento
+              <select value={agenteClienteId} onChange={(e) => setAgenteClienteId(e.target.value)} className="mt-2 w-full">
+                <option value="">Selecione o cliente fiscal</option>
+                {clientesFaturamento.map((cliente) => (
+                  <option key={cliente.id} value={cliente.id}>
+                    {cliente.codigo_hc ? `${cliente.codigo_hc} - ` : ''}{cliente.nome_empresa}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-sm font-bold text-slate-300">
+              Login do portal do cliente (opcional)
+              <select value={agenteUsuarioId} onChange={(e) => setAgenteUsuarioId(e.target.value)} className="mt-2 w-full">
+                <option value="">Não vincular agora</option>
+                {usuariosPortal.map((usuario) => (
+                  <option key={usuario.id} value={usuario.id}>{usuario.nome || usuario.email} - {usuario.email}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
+          <h3 className="text-2xl font-black">Câmbio da fatura</h3>
+          <p className="mt-1 text-sm text-slate-400">Informe as taxas base. O portal aplicará o spread e usará a taxa final em cada item.</p>
+
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <label className="text-sm font-bold text-slate-300">
+              Taxa base USD
+              <input
+                value={agenteTaxaBaseUsd}
+                onChange={(e) => {
+                  setAgenteTaxaBaseUsd(e.target.value)
+                  recalcularItensFaturaAgente(e.target.value, agenteTaxaBaseEur, agenteSpread)
+                }}
+                placeholder="Ex.: 5,1005"
+                className="mt-2 w-full"
+              />
+              <span className="mt-1 block text-xs text-green-300">Final: R$ {taxaFinalFaturaAgenteFormatada('USD')}</span>
+            </label>
+
+            <label className="text-sm font-bold text-slate-300">
+              Taxa base EUR
+              <input
+                value={agenteTaxaBaseEur}
+                onChange={(e) => {
+                  setAgenteTaxaBaseEur(e.target.value)
+                  recalcularItensFaturaAgente(agenteTaxaBaseUsd, e.target.value, agenteSpread)
+                }}
+                placeholder="Ex.: 5,8023"
+                className="mt-2 w-full"
+              />
+              <span className="mt-1 block text-xs text-green-300">Final: R$ {taxaFinalFaturaAgenteFormatada('EUR')}</span>
+            </label>
+
+            <label className="text-sm font-bold text-slate-300">
+              Spread %
+              <input
+                value={agenteSpread}
+                onChange={(e) => {
+                  setAgenteSpread(e.target.value)
+                  recalcularItensFaturaAgente(agenteTaxaBaseUsd, agenteTaxaBaseEur, e.target.value)
+                }}
+                placeholder="3"
+                className="mt-2 w-full"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-2xl font-black">Serviços da prestação de contas</h3>
+              <p className="mt-1 text-sm text-slate-400">Adicione livremente cada cobrança da fatura.</p>
+            </div>
+            <button type="button" onClick={adicionarItemFaturaAgente} className="rounded-xl bg-cyan-600 px-4 py-3 font-black hover:bg-cyan-500">+ Adicionar serviço</button>
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[1050px] text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:p-3 [&_th]:text-left [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:p-3">
+              <thead>
+                <tr>
+                  <th>Descrição</th>
+                  <th className="w-[110px]">Moeda</th>
+                  <th className="w-[150px]">Valor original</th>
+                  <th className="w-[120px]">Taxa final</th>
+                  <th className="w-[160px]">Valor R$</th>
+                  <th>Observação</th>
+                  <th className="w-[80px]">Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensFaturaAgente.map((item) => (
+                  <tr key={item.id}>
+                    <td><input value={item.descricao} onChange={(e) => atualizarItemFaturaAgente(item.id, 'descricao', e.target.value)} placeholder="Ex.: Frete Internacional" className="w-full" /></td>
+                    <td>
+                      <select value={item.moeda} onChange={(e) => atualizarItemFaturaAgente(item.id, 'moeda', e.target.value)} className="w-full">
+                        <option value="BRL">BRL</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                      </select>
+                    </td>
+                    <td><input value={item.valor_original} onChange={(e) => atualizarItemFaturaAgente(item.id, 'valor_original', e.target.value)} placeholder="0,00" className="w-full" /></td>
+                    <td className="font-black text-green-300">{item.moeda === 'BRL' ? '1,0000' : taxaFinalFaturaAgenteFormatada(item.moeda)}</td>
+                    <td className="font-black text-green-300">{numero(item.valor_brl) > 0 ? moeda(item.valor_brl) : '-'}</td>
+                    <td><input value={item.observacao} onChange={(e) => atualizarItemFaturaAgente(item.id, 'observacao', e.target.value)} placeholder="Opcional" className="w-full" /></td>
+                    <td><button type="button" onClick={() => removerItemFaturaAgente(item.id)} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black hover:bg-red-500">Excluir</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <ResumoFiltro titulo="Total EUR" valor={`EUR ${formatarValorSimples(totaisFaturaAgente.eur)}`} detalhe="Moeda original" />
+            <ResumoFiltro titulo="Total USD" valor={`USD ${formatarValorSimples(totaisFaturaAgente.usd)}`} detalhe="Moeda original" />
+            <ResumoFiltro titulo="Itens BRL" valor={moeda(totaisFaturaAgente.brlOriginal)} detalhe="Sem conversão" />
+            <ResumoFiltro titulo="Total da fatura" valor={moeda(totaisFaturaAgente.totalBrl)} detalhe="Cobrança final" />
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-green-900 bg-green-950/20 p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
+            <div>
+              <label className="text-sm font-bold text-slate-300">
+                Observações
+                <textarea value={agenteObservacoes} onChange={(e) => setAgenteObservacoes(e.target.value)} className="mt-2 min-h-[100px] w-full" placeholder="Opcional" />
+              </label>
+              <label className="mt-4 flex items-center gap-2 text-sm font-bold">
+                <input type="checkbox" checked={agenteVisivelCliente} onChange={(e) => setAgenteVisivelCliente(e.target.checked)} />
+                Disponibilizar no portal do cliente
+              </label>
+            </div>
+
+            <div className="rounded-2xl border border-green-700 bg-[#071225] p-5">
+              <p className="text-sm font-black text-slate-400">TOTAL A FATURAR</p>
+              <p className="mt-2 text-3xl font-black text-green-300">{moeda(totaisFaturaAgente.totalBrl)}</p>
+              <button type="button" onClick={gerarPdfFaturaAgenteCarga} disabled={salvandoFaturaAgente} className="mt-5 w-full rounded-xl bg-green-600 px-4 py-4 font-black hover:bg-green-500 disabled:opacity-60">
+                {salvandoFaturaAgente ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6">
+          <h3 className="text-2xl font-black">Histórico de faturas de agente</h3>
+          <div className="mt-4 space-y-3">
+            {faturasAgenteCarga.length === 0 ? (
+              <p className="text-slate-400">Nenhuma fatura de agente de carga emitida.</p>
+            ) : faturasAgenteCarga.map((fatura) => (
+              <div key={fatura.id} className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <div>
+                  <p className="font-black">{fatura.numero_fatura || 'Sem número'} - Processo {fatura.dados_cliente_faturamento?.processo || '-'}</p>
+                  <p className="text-sm text-slate-400">{fatura.dados_cliente_faturamento?.nome || '-'} • {moeda(fatura.valor_total)} • Venc. {dataBR(fatura.vencimento)}</p>
+                </div>
+                {fatura.arquivo_pdf && <Link href={fatura.arquivo_pdf} target="_blank" className="rounded-xl bg-blue-600 px-4 py-2 text-center text-sm font-black hover:bg-blue-500">Abrir PDF</Link>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   function renderAbaEmissor() {
     const embarque = emissorEmbarqueSelecionado
     const cliente = emissorClienteSelecionado
@@ -5066,6 +5749,13 @@ export default function FaturasPage() {
           </button>
 
           <button
+            onClick={() => setAbaAtiva('AGENTE_CARGA')}
+            className="bg-cyan-600 hover:bg-cyan-500 px-6 py-4 rounded-2xl font-bold"
+          >
+            Fatura agente de carga
+          </button>
+
+          <button
             onClick={() => setAbaAtiva('RECIBO')}
             className="bg-green-600 hover:bg-green-500 px-6 py-4 rounded-2xl font-bold"
           >
@@ -5101,6 +5791,18 @@ export default function FaturasPage() {
 
         <button
           type="button"
+          onClick={() => setAbaAtiva('AGENTE_CARGA')}
+          className={
+            abaAtiva === 'AGENTE_CARGA'
+              ? 'rounded-2xl bg-cyan-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(8,145,178,0.25)]'
+              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-cyan-600/20 hover:text-white'
+          }
+        >
+          ✈️ Fatura agente de carga
+        </button>
+
+        <button
+          type="button"
           onClick={() => setAbaAtiva('RECIBO')}
           className={
             abaAtiva === 'RECIBO'
@@ -5114,6 +5816,8 @@ export default function FaturasPage() {
 
       {abaAtiva === 'EMISSOR' ? (
         renderAbaEmissor()
+      ) : abaAtiva === 'AGENTE_CARGA' ? (
+        renderAbaAgenteCarga()
       ) : abaAtiva === 'RECIBO' ? (
         renderAbaRecibos()
       ) : (
@@ -5821,6 +6525,17 @@ export default function FaturasPage() {
       )}
     </main>
   )
+}
+
+function novoItemFaturaAgente(): ItemFaturaAgente {
+  return {
+    id: `agente-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    descricao: '',
+    moeda: 'USD',
+    valor_original: '',
+    valor_brl: '',
+    observacao: '',
+  }
 }
 
 function itensPadraoFatura(): ItemFaturaServico[] {
