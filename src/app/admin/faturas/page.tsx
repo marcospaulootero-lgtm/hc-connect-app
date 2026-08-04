@@ -39,6 +39,7 @@ type Fatura = {
   id: string
   embarque_id: string | null
   usuario_id: string | null
+  cliente_faturamento_id?: string | null
   numero_fatura: string | null
   arquivo_pdf: string | null
   recibo_pdf: string | null
@@ -278,6 +279,7 @@ export default function FaturasPage() {
   const [itensFaturaAgente, setItensFaturaAgente] = useState<ItemFaturaAgente[]>([
     novoItemFaturaAgente(),
   ])
+  const [faturaAgenteEditando, setFaturaAgenteEditando] = useState<Fatura | null>(null)
   const [reciboAgenteSelecionado, setReciboAgenteSelecionado] = useState<Fatura | null>(null)
   const [reciboAgenteData, setReciboAgenteData] = useState('')
   const [reciboAgenteValor, setReciboAgenteValor] = useState('')
@@ -373,6 +375,7 @@ export default function FaturasPage() {
         id,
         embarque_id,
         usuario_id,
+        cliente_faturamento_id,
         numero_fatura,
         arquivo_pdf,
         recibo_pdf,
@@ -4674,6 +4677,7 @@ export default function FaturasPage() {
   }
 
   function limparFaturaAgente() {
+    setFaturaAgenteEditando(null)
     setAgenteProcesso('')
     setAgenteClienteId('')
     setAgenteUsuarioId('')
@@ -4688,13 +4692,122 @@ export default function FaturasPage() {
     setItensFaturaAgente([novoItemFaturaAgente()])
   }
 
+  function editarFaturaAgente(fatura: Fatura) {
+    if (fatura.recibo_pdf) {
+      const continuar = confirm(
+        'Esta fatura já possui recibo emitido.\n\n' +
+          'A edição atualizará a fatura e o lançamento financeiro, mas não modificará o recibo existente. ' +
+          'Depois de salvar, reemita o recibo se os valores tiverem sido alterados.\n\n' +
+          'Deseja continuar?'
+      )
+
+      if (!continuar) return
+    }
+
+    const dados = fatura.dados_cliente_faturamento || {}
+    const processo = String(dados.processo || '').trim()
+    const documentoCliente = normalizarAwb(dados.documento || dados.cnpj || dados.cpf)
+    const codigoCliente = normalizarTexto(dados.codigo_hc)
+    const nomeCliente = normalizarTexto(dados.nome)
+
+    const clienteCorrespondente = clientesFaturamento.find((cliente) => {
+      if (fatura.cliente_faturamento_id && String(cliente.id) === String(fatura.cliente_faturamento_id)) {
+        return true
+      }
+
+      const documentoCandidato = normalizarAwb(cliente.documento || cliente.cnpj || cliente.cpf)
+      if (documentoCliente && documentoCandidato === documentoCliente) return true
+
+      if (codigoCliente && normalizarTexto(cliente.codigo_hc) === codigoCliente) return true
+
+      return nomeCliente && normalizarTexto(cliente.nome_empresa) === nomeCliente
+    }) || null
+
+    let itensSalvos: any[] = []
+
+    if (Array.isArray(fatura.itens_fatura)) {
+      itensSalvos = fatura.itens_fatura
+    } else if (typeof fatura.itens_fatura === 'string') {
+      try {
+        const itensConvertidos = JSON.parse(fatura.itens_fatura)
+        itensSalvos = Array.isArray(itensConvertidos) ? itensConvertidos : []
+      } catch (error) {
+        console.log('Não foi possível converter os itens da fatura de agente:', error)
+      }
+    }
+
+    const itensCarregados: ItemFaturaAgente[] = itensSalvos.map((item: any) => {
+      const moedaItem = String(item?.moeda || 'USD').toUpperCase()
+      const moedaValida: MoedaFaturaAgente = ['BRL', 'USD', 'EUR'].includes(moedaItem)
+        ? moedaItem as MoedaFaturaAgente
+        : 'USD'
+
+      return {
+        id: `agente-edicao-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        descricao: String(item?.descricao || ''),
+        moeda: moedaValida,
+        valor_original: formatarNumeroInput(numero(item?.valor_original)),
+        valor_brl: formatarNumeroInput(numero(item?.valor_brl)),
+        observacao: String(item?.observacao || ''),
+      }
+    })
+
+    const observacoesSalvas = String(
+      dados.observacoes_agente ?? fatura.observacoes ?? ''
+    )
+      .replace(`Fatura de agente de carga - processo ${processo}.`, '')
+      .trim()
+
+    const formatarTaxaInput = (valor: any) => {
+      const taxa = numero(valor)
+      if (taxa <= 0) return ''
+      return String(taxa).replace('.', ',')
+    }
+
+    setFaturaAgenteEditando(fatura)
+    setAgenteProcesso(processo)
+    setAgenteClienteId(clienteCorrespondente?.id || String(fatura.cliente_faturamento_id || ''))
+    setAgenteUsuarioId(String(fatura.usuario_id || ''))
+    setAgenteNumeroFatura(String(fatura.numero_fatura || ''))
+    setAgenteDataFatura(
+      normalizarData(dados.data_fatura) ||
+        normalizarData(String(fatura.criado_em || '').slice(0, 10)) ||
+        new Date().toISOString().slice(0, 10)
+    )
+    setAgenteVencimento(normalizarData(fatura.vencimento) || '')
+    setAgenteSpread(formatarTaxaInput(fatura.spread) || '0')
+    setAgenteTaxaBaseUsd(formatarTaxaInput(dados.taxa_base_usd))
+    setAgenteTaxaBaseEur(formatarTaxaInput(dados.taxa_base_eur))
+    setAgenteObservacoes(observacoesSalvas)
+    setAgenteVisivelCliente(fatura.visivel_cliente !== false)
+    setItensFaturaAgente(itensCarregados.length > 0 ? itensCarregados : [novoItemFaturaAgente()])
+    setReciboAgenteSelecionado(null)
+
+    setTimeout(() => {
+      document.getElementById('form_fatura_agente')?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }
+
   async function salvarFinanceiroFaturaAgente(arquivoPdfUrl: string) {
     if (!agenteClienteSelecionado) return
 
     const processoNormalizado = normalizarAwb(agenteProcesso)
-    const financeiroAtual = financeiros.find((item) =>
-      awbsFinanceiro(item).includes(processoNormalizado)
-    ) || null
+    const processoAnterior = normalizarAwb(
+      faturaAgenteEditando?.dados_cliente_faturamento?.processo
+    )
+    const numeroFaturaAnterior = normalizarTexto(faturaAgenteEditando?.numero_fatura)
+
+    const financeiroAtual = financeiros.find((item) => {
+      const awbs = awbsFinanceiro(item)
+
+      if (faturaAgenteEditando) {
+        if (processoAnterior && awbs.includes(processoAnterior)) return true
+
+        return numeroFaturaAnterior && normalizarTexto(item.fatura || item.numero_fatura) === numeroFaturaAnterior
+      }
+
+      return processoNormalizado && awbs.includes(processoNormalizado)
+    }) || null
 
     const itensResumo = itensFaturaAgente
       .filter((item) => item.descricao.trim() && numero(item.valor_brl) > 0)
@@ -4939,6 +5052,8 @@ export default function FaturasPage() {
       const dadosClienteSalvos = {
         ...dadosClienteFiscal(agenteClienteSelecionado),
         processo: agenteProcesso,
+        data_fatura: agenteDataFatura,
+        observacoes_agente: agenteObservacoes || '',
         taxa_base_usd: numero(agenteTaxaBaseUsd),
         taxa_base_eur: numero(agenteTaxaBaseEur),
         taxa_final_usd: taxaFinalFaturaAgente('USD'),
@@ -4972,30 +5087,54 @@ export default function FaturasPage() {
         fatura_complementar: false,
       }
 
-      const { data: faturaSalva, error: erroFatura } = await supabase
-        .from('faturas')
-        .insert([payloadFatura])
-        .select('id')
-        .single()
+      let faturaSalva: { id: string } | null = null
+      let erroFatura: any = null
+
+      if (faturaAgenteEditando?.id) {
+        const resultado = await supabase
+          .from('faturas')
+          .update(payloadFatura)
+          .eq('id', faturaAgenteEditando.id)
+          .select('id')
+          .single()
+
+        faturaSalva = resultado.data
+        erroFatura = resultado.error
+      } else {
+        const resultado = await supabase
+          .from('faturas')
+          .insert([payloadFatura])
+          .select('id')
+          .single()
+
+        faturaSalva = resultado.data
+        erroFatura = resultado.error
+      }
 
       if (erroFatura) throw new Error(erroFatura.message)
 
       await salvarFinanceiroFaturaAgente(urlPdf)
 
-      await enviarEmailClienteFatura({
-        tipo: 'FATURA_DISPONIVEL',
-        fatura: { ...payloadFatura, id: faturaSalva?.id },
-        mensagem: `Nova fatura de agente de carga do processo ${agenteProcesso} disponível no Portal HC Connect.`,
-        dados: {
-          Documento: 'Fatura de agente de carga',
-          Processo: agenteProcesso,
-          Vencimento: dataBR(agenteVencimento),
-          Valor: moeda(totaisFaturaAgente.totalBrl),
-        },
-      })
+      if (!faturaAgenteEditando) {
+        await enviarEmailClienteFatura({
+          tipo: 'FATURA_DISPONIVEL',
+          fatura: { ...payloadFatura, id: faturaSalva?.id },
+          mensagem: `Nova fatura de agente de carga do processo ${agenteProcesso} disponível no Portal HC Connect.`,
+          dados: {
+            Documento: 'Fatura de agente de carga',
+            Processo: agenteProcesso,
+            Vencimento: dataBR(agenteVencimento),
+            Valor: moeda(totaisFaturaAgente.totalBrl),
+          },
+        })
+      }
 
       window.open(urlPdf, '_blank')
-      alert('Fatura de agente de carga emitida, salva e lançada em Processos Faturados.')
+      alert(
+        faturaAgenteEditando
+          ? 'Fatura de agente atualizada, PDF regenerado e Processos Faturados corrigido no mesmo registro.'
+          : 'Fatura de agente de carga emitida, salva e lançada em Processos Faturados.'
+      )
       limparFaturaAgente()
       await carregar()
     } catch (error: any) {
@@ -5267,7 +5406,23 @@ export default function FaturasPage() {
   function renderAbaAgenteCarga() {
     return (
       <section className="space-y-6">
-        <div className="rounded-3xl border border-cyan-800 bg-[#071225] p-6 lg:p-7">
+        <div id="form_fatura_agente" className="rounded-3xl border border-cyan-800 bg-[#071225] p-6 lg:p-7">
+          {faturaAgenteEditando && (
+            <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-yellow-500/60 bg-yellow-500/10 p-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-wide text-yellow-300">Editando fatura existente</p>
+                <p className="mt-1 font-bold text-white">
+                  {faturaAgenteEditando.numero_fatura || 'Sem número'} — Processo {faturaAgenteEditando.dados_cliente_faturamento?.processo || '-'}
+                </p>
+                {faturaAgenteEditando.recibo_pdf && (
+                  <p className="mt-1 text-sm text-yellow-200">Esta fatura possui recibo. Reemita-o depois se alterar os valores.</p>
+                )}
+              </div>
+              <button type="button" onClick={limparFaturaAgente} className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-black hover:bg-slate-600">
+                Cancelar edição
+              </button>
+            </div>
+          )}
           <p className="text-cyan-400 text-sm font-black uppercase tracking-wide">Emissão multimoeda</p>
           <h2 className="mt-2 text-3xl font-black">Fatura Agente de Carga</h2>
           <p className="mt-2 text-slate-400">Uma fatura por processo, com itens em BRL, USD ou EUR e conversão automática.</p>
@@ -5455,7 +5610,13 @@ export default function FaturasPage() {
               <p className="text-sm font-black text-slate-400">TOTAL A FATURAR</p>
               <p className="mt-2 text-3xl font-black text-green-300">{moeda(totaisFaturaAgente.totalBrl)}</p>
               <button type="button" onClick={gerarPdfFaturaAgenteCarga} disabled={salvandoFaturaAgente} className="mt-5 w-full rounded-xl bg-green-600 px-4 py-4 font-black hover:bg-green-500 disabled:opacity-60">
-                {salvandoFaturaAgente ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+                {salvandoFaturaAgente
+                  ? faturaAgenteEditando
+                    ? 'Salvando alterações...'
+                    : 'Gerando e salvando...'
+                  : faturaAgenteEditando
+                    ? 'Salvar alterações e gerar novo PDF'
+                    : 'Gerar PDF e lançar fatura'}
               </button>
             </div>
           </div>
@@ -5516,6 +5677,9 @@ export default function FaturasPage() {
                   <p className="text-sm text-slate-400">{fatura.dados_cliente_faturamento?.nome || '-'} • {moeda(fatura.valor_total)} • Venc. {dataBR(fatura.vencimento)}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => editarFaturaAgente(fatura)} className="rounded-xl bg-yellow-600 px-4 py-2 text-sm font-black hover:bg-yellow-500">
+                    Editar
+                  </button>
                   {fatura.arquivo_pdf && <Link href={fatura.arquivo_pdf} target="_blank" className="rounded-xl bg-blue-600 px-4 py-2 text-center text-sm font-black hover:bg-blue-500">Abrir fatura</Link>}
                   {fatura.recibo_pdf && <Link href={fatura.recibo_pdf} target="_blank" className="rounded-xl bg-green-700 px-4 py-2 text-center text-sm font-black hover:bg-green-600">Abrir recibo</Link>}
                   <button type="button" onClick={() => abrirReciboFaturaAgente(fatura)} className="rounded-xl bg-green-600 px-4 py-2 text-sm font-black hover:bg-green-500">
