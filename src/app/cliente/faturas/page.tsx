@@ -50,11 +50,10 @@ export default function FaturasClientePage() {
     const idsVinculados = (vinculos || []).map((v) => v.embarque_id)
     const ids = Array.from(new Set([...idsDiretos, ...idsVinculados]))
 
-    if (ids.length === 0) {
-      setFaturas([])
-      setLoading(false)
-      return
-    }
+    const filtroFaturas = [
+      ids.length > 0 ? `embarque_id.in.(${ids.join(',')})` : '',
+      `and(usuario_id.eq.${usuarioId},embarque_id.is.null)`,
+    ].filter(Boolean).join(',')
 
     const { data: arquivadasData, error: erroArquivadas } = await supabase
       .from('faturas_arquivadas_clientes')
@@ -96,7 +95,7 @@ export default function FaturasClientePage() {
           status_operacional
         )
       `)
-      .in('embarque_id', ids)
+      .or(filtroFaturas)
       .eq('visivel_cliente', true)
       .order('criado_em', { ascending: false })
 
