@@ -266,7 +266,7 @@ export default function FaturasPage() {
 
   const [agenteProcesso, setAgenteProcesso] = useState('')
   const [agenteClienteId, setAgenteClienteId] = useState('')
-  const [agenteUsuarioId, setAgenteUsuarioId] = useState('')
+  const [agenteUsuarioIds, setAgenteUsuarioIds] = useState<string[]>([])
   const [agenteNumeroFatura, setAgenteNumeroFatura] = useState('')
   const [agenteDataFatura, setAgenteDataFatura] = useState(() => new Date().toISOString().slice(0, 10))
   const [agenteVencimento, setAgenteVencimento] = useState('')
@@ -286,6 +286,7 @@ export default function FaturasPage() {
   const [reciboAgenteForma, setReciboAgenteForma] = useState('PIX / Transferência bancária')
   const [reciboAgenteObservacoes, setReciboAgenteObservacoes] = useState('')
   const [emitindoReciboAgente, setEmitindoReciboAgente] = useState(false)
+  const [excluindoFaturaAgenteId, setExcluindoFaturaAgenteId] = useState<string | null>(null)
 
   useEffect(() => {
     carregar()
@@ -4680,7 +4681,7 @@ export default function FaturasPage() {
     setFaturaAgenteEditando(null)
     setAgenteProcesso('')
     setAgenteClienteId('')
-    setAgenteUsuarioId('')
+    setAgenteUsuarioIds([])
     setAgenteNumeroFatura('')
     setAgenteDataFatura(new Date().toISOString().slice(0, 10))
     setAgenteVencimento('')
@@ -4692,7 +4693,7 @@ export default function FaturasPage() {
     setItensFaturaAgente([novoItemFaturaAgente()])
   }
 
-  function editarFaturaAgente(fatura: Fatura) {
+  async function editarFaturaAgente(fatura: Fatura) {
     if (fatura.recibo_pdf) {
       const continuar = confirm(
         'Esta fatura já possui recibo emitido.\n\n' +
@@ -4764,10 +4765,28 @@ export default function FaturasPage() {
       return String(taxa).replace('.', ',')
     }
 
+    const { data: vinculosClientes, error: erroVinculosClientes } = await supabase
+      .from('fatura_clientes')
+      .select('cliente_id')
+      .eq('fatura_id', fatura.id)
+
+    if (erroVinculosClientes) {
+      console.log('Não foi possível carregar os clientes vinculados à fatura:', erroVinculosClientes)
+    }
+
+    const clientesVinculados = Array.from(
+      new Set(
+        [
+          ...((vinculosClientes || []).map((item: any) => String(item.cliente_id || ''))),
+          String(fatura.usuario_id || ''),
+        ].filter(Boolean)
+      )
+    )
+
     setFaturaAgenteEditando(fatura)
     setAgenteProcesso(processo)
     setAgenteClienteId(clienteCorrespondente?.id || String(fatura.cliente_faturamento_id || ''))
-    setAgenteUsuarioId(String(fatura.usuario_id || ''))
+    setAgenteUsuarioIds(clientesVinculados)
     setAgenteNumeroFatura(String(fatura.numero_fatura || ''))
     setAgenteDataFatura(
       normalizarData(dados.data_fatura) ||
@@ -4850,12 +4869,43 @@ export default function FaturasPage() {
     if (error) throw new Error(`Fatura salva, mas houve erro ao lançar em Processos Faturados: ${error.message}`)
   }
 
+  async function salvarClientesVinculadosFaturaAgente(faturaId: string) {
+    const clientesUnicos = Array.from(new Set(agenteUsuarioIds.filter(Boolean)))
+
+    const { error: erroExclusao } = await supabase
+      .from('fatura_clientes')
+      .delete()
+      .eq('fatura_id', faturaId)
+
+    if (erroExclusao) {
+      throw new Error(`Erro ao atualizar os clientes da fatura: ${erroExclusao.message}`)
+    }
+
+    if (clientesUnicos.length === 0) return
+
+    const { error: erroInclusao } = await supabase
+      .from('fatura_clientes')
+      .insert(
+        clientesUnicos.map((clienteId) => ({
+          fatura_id: faturaId,
+          cliente_id: clienteId,
+        }))
+      )
+
+    if (erroInclusao) {
+      throw new Error(`Erro ao vincular os clientes à fatura: ${erroInclusao.message}`)
+    }
+  }
+
   async function gerarPdfFaturaAgenteCarga() {
     if (!agenteProcesso.trim()) return alert('Informe o número do processo.')
     if (!agenteClienteSelecionado) return alert('Selecione o cliente de faturamento.')
     if (!agenteNumeroFatura.trim()) return alert('Informe o número da fatura.')
     if (!agenteDataFatura) return alert('Informe a data da fatura.')
     if (!agenteVencimento) return alert('Informe o vencimento.')
+    if (agenteVisivelCliente && agenteUsuarioIds.length === 0) {
+      return alert('Selecione pelo menos um login do portal ou desmarque a opção de disponibilizar para o cliente.')
+    }
 
     const itensValidos = itensFaturaAgente.filter(
       (item) => item.descricao.trim() && numero(item.valor_original) > 0 && numero(item.valor_brl) > 0
@@ -5062,7 +5112,7 @@ export default function FaturasPage() {
 
       const payloadFatura: any = {
         embarque_id: null,
-        usuario_id: agenteUsuarioId || null,
+        usuario_id: agenteUsuarioIds[0] || null,
         numero_fatura: agenteNumeroFatura,
         arquivo_pdf: urlPdf,
         visivel_cliente: agenteVisivelCliente,
@@ -5113,20 +5163,26 @@ export default function FaturasPage() {
 
       if (erroFatura) throw new Error(erroFatura.message)
 
+      if (!faturaSalva?.id) throw new Error('A fatura foi salva sem retornar o identificador.')
+
+      await salvarClientesVinculadosFaturaAgente(faturaSalva.id)
+
       await salvarFinanceiroFaturaAgente(urlPdf)
 
       if (!faturaAgenteEditando) {
-        await enviarEmailClienteFatura({
-          tipo: 'FATURA_DISPONIVEL',
-          fatura: { ...payloadFatura, id: faturaSalva?.id },
-          mensagem: `Nova fatura de agente de carga do processo ${agenteProcesso} disponível no Portal HC Connect.`,
-          dados: {
-            Documento: 'Fatura de agente de carga',
-            Processo: agenteProcesso,
-            Vencimento: dataBR(agenteVencimento),
-            Valor: moeda(totaisFaturaAgente.totalBrl),
-          },
-        })
+        for (const clienteId of agenteUsuarioIds) {
+          await enviarEmailClienteFatura({
+            tipo: 'FATURA_DISPONIVEL',
+            fatura: { ...payloadFatura, id: faturaSalva.id, usuario_id: clienteId },
+            mensagem: `Nova fatura de agente de carga do processo ${agenteProcesso} disponível no Portal HC Connect.`,
+            dados: {
+              Documento: 'Fatura de agente de carga',
+              Processo: agenteProcesso,
+              Vencimento: dataBR(agenteVencimento),
+              Valor: moeda(totaisFaturaAgente.totalBrl),
+            },
+          })
+        }
       }
 
       window.open(urlPdf, '_blank')
@@ -5222,6 +5278,26 @@ export default function FaturasPage() {
 
     const { error } = await supabase.from('financeiro_embarques').insert([payload])
     if (error) throw new Error(`Recibo salvo, mas houve erro ao lançar em Processos Faturados: ${error.message}`)
+  }
+
+  async function idsClientesVinculadosFatura(fatura: Fatura) {
+    const { data, error } = await supabase
+      .from('fatura_clientes')
+      .select('cliente_id')
+      .eq('fatura_id', fatura.id)
+
+    if (error) {
+      console.log('Não foi possível carregar os clientes vinculados:', error)
+    }
+
+    return Array.from(
+      new Set(
+        [
+          ...((data || []).map((item: any) => String(item.cliente_id || ''))),
+          String(fatura.usuario_id || ''),
+        ].filter(Boolean)
+      )
+    )
   }
 
   async function gerarReciboFaturaAgente() {
@@ -5379,17 +5455,21 @@ export default function FaturasPage() {
 
       await salvarFinanceiroReciboAgente(fatura, processo, urlRecibo)
 
-      await enviarEmailClienteFatura({
-        tipo: 'RECIBO_DISPONIVEL',
-        fatura: { ...fatura, recibo_pdf: urlRecibo },
-        mensagem: `Recibo da fatura de agente de carga do processo ${processo} disponível no Portal HC Connect.`,
-        dados: {
-          Documento: 'Recibo de agente de carga',
-          Processo: processo,
-          Recebimento: dataBR(dataRecebimento),
-          Valor: moeda(valorPago),
-        },
-      })
+      const clientesDoRecibo = await idsClientesVinculadosFatura(fatura)
+
+      for (const clienteId of clientesDoRecibo) {
+        await enviarEmailClienteFatura({
+          tipo: 'RECIBO_DISPONIVEL',
+          fatura: { ...fatura, recibo_pdf: urlRecibo, usuario_id: clienteId },
+          mensagem: `Recibo da fatura de agente de carga do processo ${processo} disponível no Portal HC Connect.`,
+          dados: {
+            Documento: 'Recibo de agente de carga',
+            Processo: processo,
+            Recebimento: dataBR(dataRecebimento),
+            Valor: moeda(valorPago),
+          },
+        })
+      }
 
       window.open(urlRecibo, '_blank')
       alert('Recibo da fatura de agente emitido e recebimento registrado no Financeiro.')
@@ -5400,6 +5480,92 @@ export default function FaturasPage() {
       alert(`Erro ao emitir recibo da fatura de agente: ${error?.message || error}`)
     } finally {
       setEmitindoReciboAgente(false)
+    }
+  }
+
+  async function excluirFaturaAgente(fatura: Fatura) {
+    const numeroFatura = String(fatura.numero_fatura || 'Sem número')
+    const processo = String(fatura.dados_cliente_faturamento?.processo || '').trim()
+    const possuiRecibo = !!fatura.recibo_pdf
+
+    const confirmar = confirm(
+      `Excluir definitivamente a fatura ${numeroFatura}${processo ? ` do processo ${processo}` : ''}?\n\n` +
+        'Esta ação removerá a fatura do portal, os clientes vinculados, o PDF e o lançamento correspondente em Processos Faturados.' +
+        (possuiRecibo ? '\nO recibo e o registro de recebimento também serão removidos.' : '') +
+        '\n\nEsta ação não pode ser desfeita.'
+    )
+
+    if (!confirmar) return
+
+    setExcluindoFaturaAgenteId(fatura.id)
+
+    try {
+      const numeroNormalizado = normalizarTexto(fatura.numero_fatura)
+      const processoNormalizado = normalizarAwb(processo)
+
+      const idsFinanceiros = financeiros
+        .filter((item) => {
+          const servico = normalizarTexto(item.servico)
+          const pertenceAgente = servico.includes('AGENTE DE CARGA')
+          const mesmaFatura =
+            !!numeroNormalizado &&
+            normalizarTexto(item.fatura || item.numero_fatura) === numeroNormalizado
+          const mesmoProcesso =
+            !!processoNormalizado && awbsFinanceiro(item).includes(processoNormalizado)
+
+          return pertenceAgente && (mesmaFatura || (!numeroNormalizado && mesmoProcesso))
+        })
+        .map((item) => item.id)
+        .filter(Boolean) as string[]
+
+      if (idsFinanceiros.length > 0) {
+        const { error: erroFinanceiro } = await supabase
+          .from('financeiro_embarques')
+          .delete()
+          .in('id', idsFinanceiros)
+
+        if (erroFinanceiro) {
+          throw new Error(`Erro ao excluir o lançamento financeiro: ${erroFinanceiro.message}`)
+        }
+      }
+
+      const { error: erroVinculos } = await supabase
+        .from('fatura_clientes')
+        .delete()
+        .eq('fatura_id', fatura.id)
+
+      if (erroVinculos) {
+        throw new Error(`Erro ao excluir os vínculos da fatura: ${erroVinculos.message}`)
+      }
+
+      const { error: erroFatura } = await supabase
+        .from('faturas')
+        .delete()
+        .eq('id', fatura.id)
+
+      if (erroFatura) throw new Error(`Erro ao excluir a fatura: ${erroFatura.message}`)
+
+      const caminhos = [
+        extrairCaminhoStorage(fatura.arquivo_pdf),
+        extrairCaminhoStorage(fatura.recibo_pdf),
+      ].filter(Boolean) as string[]
+
+      if (caminhos.length > 0) {
+        const { error: erroArquivos } = await supabase.storage.from('faturas').remove(caminhos)
+        if (erroArquivos) console.log('Fatura excluída, mas houve erro ao limpar PDFs:', erroArquivos)
+      }
+
+      if (faturaAgenteEditando?.id === fatura.id) limparFaturaAgente()
+      if (reciboAgenteSelecionado?.id === fatura.id) limparReciboFaturaAgente()
+
+      await carregar()
+      alert('Fatura de agente, recibo, vínculos e lançamento financeiro excluídos com sucesso.')
+    } catch (error: any) {
+      console.error(error)
+      alert(error?.message || 'Erro ao excluir a fatura de agente.')
+      await carregar()
+    } finally {
+      setExcluindoFaturaAgenteId(null)
     }
   }
 
@@ -5481,15 +5647,42 @@ export default function FaturasPage() {
               </select>
             </label>
 
-            <label className="text-sm font-bold text-slate-300">
-              Login do portal do cliente (opcional)
-              <select value={agenteUsuarioId} onChange={(e) => setAgenteUsuarioId(e.target.value)} className="mt-2 w-full">
-                <option value="">Não vincular agora</option>
-                {usuariosPortal.map((usuario) => (
-                  <option key={usuario.id} value={usuario.id}>{usuario.nome || usuario.email} - {usuario.email}</option>
-                ))}
-              </select>
-            </label>
+            <div className="text-sm font-bold text-slate-300">
+              <p>Logins do portal que receberão a fatura (opcional)</p>
+              <div className="mt-2 max-h-52 space-y-2 overflow-y-auto rounded-xl border border-blue-900 bg-[#020817] p-3">
+                {usuariosPortal.length === 0 ? (
+                  <p className="text-sm text-slate-500">Nenhum login de cliente disponível.</p>
+                ) : usuariosPortal.map((usuario) => {
+                  const selecionado = agenteUsuarioIds.includes(usuario.id)
+
+                  return (
+                    <label key={usuario.id} className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-blue-950/60">
+                      <input
+                        type="checkbox"
+                        checked={selecionado}
+                        onChange={(e) => {
+                          setAgenteUsuarioIds((atuais) =>
+                            e.target.checked
+                              ? Array.from(new Set([...atuais, usuario.id]))
+                              : atuais.filter((id) => id !== usuario.id)
+                          )
+                        }}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="block text-white">{usuario.nome || usuario.email}</span>
+                        <span className="block text-xs font-semibold text-slate-500">{usuario.email || 'Sem e-mail'}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-xs font-bold text-blue-300">
+                {agenteUsuarioIds.length === 0
+                  ? 'Nenhum portal vinculado'
+                  : `${agenteUsuarioIds.length} cliente${agenteUsuarioIds.length > 1 ? 's' : ''} vinculado${agenteUsuarioIds.length > 1 ? 's' : ''}`}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -5684,6 +5877,14 @@ export default function FaturasPage() {
                   {fatura.recibo_pdf && <Link href={fatura.recibo_pdf} target="_blank" className="rounded-xl bg-green-700 px-4 py-2 text-center text-sm font-black hover:bg-green-600">Abrir recibo</Link>}
                   <button type="button" onClick={() => abrirReciboFaturaAgente(fatura)} className="rounded-xl bg-green-600 px-4 py-2 text-sm font-black hover:bg-green-500">
                     {fatura.recibo_pdf ? 'Reemitir recibo' : 'Emitir recibo'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => excluirFaturaAgente(fatura)}
+                    disabled={excluindoFaturaAgenteId === fatura.id}
+                    className="rounded-xl bg-red-700 px-4 py-2 text-sm font-black hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {excluindoFaturaAgenteId === fatura.id ? 'Excluindo...' : 'Excluir'}
                   </button>
                 </div>
               </div>

@@ -50,9 +50,23 @@ export default function FaturasClientePage() {
     const idsVinculados = (vinculos || []).map((v) => v.embarque_id)
     const ids = Array.from(new Set([...idsDiretos, ...idsVinculados]))
 
+    const { data: vinculosFaturas, error: erroVinculosFaturas } = await supabase
+      .from('fatura_clientes')
+      .select('fatura_id')
+      .eq('cliente_id', usuarioId)
+
+    if (erroVinculosFaturas) {
+      console.log('ERRO VÍNCULOS DE FATURAS:', erroVinculosFaturas)
+    }
+
+    const idsFaturasVinculadas = Array.from(
+      new Set((vinculosFaturas || []).map((item: any) => item.fatura_id).filter(Boolean))
+    )
+
     const filtroFaturas = [
       ids.length > 0 ? `embarque_id.in.(${ids.join(',')})` : '',
       `and(usuario_id.eq.${usuarioId},embarque_id.is.null)`,
+      idsFaturasVinculadas.length > 0 ? `id.in.(${idsFaturasVinculadas.join(',')})` : '',
     ].filter(Boolean).join(',')
 
     const { data: arquivadasData, error: erroArquivadas } = await supabase
