@@ -77,6 +77,7 @@ export default function EmbarquesPage() {
   const [editForm, setEditForm] = useState<any>(null)
   const [conhecimentoEmbarque, setConhecimentoEmbarque] = useState<File | null>(null)
   const [salvandoEmbarque, setSalvandoEmbarque] = useState(false)
+  const [copiandoId, setCopiandoId] = useState<string | null>(null)
 
   const formInicial = {
     usuarios_ids: [] as string[],
@@ -642,6 +643,196 @@ export default function EmbarquesPage() {
     }
 
     return ''
+  }
+
+  function normalizarNumeroProcesso(valor: any) {
+    return String(valor || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+  }
+
+  async function copiarEmbarque(item: any) {
+    if (copiandoId) return
+
+    const processoOriginal = String(item.awb || '').trim()
+    const novoProcessoInformado = prompt(
+      `Copiar o processo ${processoOriginal || '-'}\n\nInforme o número do novo processo:`
+    )
+
+    if (novoProcessoInformado === null) return
+
+    const novoProcesso = novoProcessoInformado.trim()
+    const novoProcessoNormalizado = normalizarNumeroProcesso(novoProcesso)
+    const processoOriginalNormalizado = normalizarNumeroProcesso(processoOriginal)
+
+    if (!novoProcessoNormalizado) {
+      alert('Informe o número do novo processo.')
+      return
+    }
+
+    if (novoProcessoNormalizado === processoOriginalNormalizado) {
+      alert('O novo processo precisa ter um número diferente do original.')
+      return
+    }
+
+    const processoJaExiste = embarques.some((embarque) => {
+      return normalizarNumeroProcesso(embarque.awb) === novoProcessoNormalizado
+    })
+
+    if (processoJaExiste) {
+      alert(`Já existe um embarque com o processo ${novoProcesso}.`)
+      return
+    }
+
+    const confirmar = confirm(
+      `Copiar o processo ${processoOriginal || '-'} para ${novoProcesso}?\n\n` +
+        'Serão copiados os dados operacionais, clientes vinculados, status, datas e valores financeiros.\n' +
+        'Documentos, faturas, recibos e histórico de rastreamento não serão copiados.'
+    )
+
+    if (!confirmar) return
+
+    setCopiandoId(item.id)
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        throw new Error('Usuário administrador não identificado. Faça login novamente.')
+      }
+
+      const { data: perfilAdmin } = await supabase
+        .from('perfis')
+        .select('nome, email')
+        .eq('id', user.id)
+        .single()
+
+      const clientesVinculados = Array.from(
+        new Set(
+          vinculos
+            .filter((vinculo) => String(vinculo.embarque_id) === String(item.id))
+            .map((vinculo) => String(vinculo.cliente_id))
+            .filter(Boolean)
+        )
+      )
+
+      if (clientesVinculados.length === 0 && item.usuario_id) {
+        clientesVinculados.push(String(item.usuario_id))
+      }
+
+      const primeiroClienteId = clientesVinculados[0] || null
+      const primeiroCliente = usuarios.find(
+        (usuario) => String(usuario.id) === String(primeiroClienteId)
+      )
+      const servicosFinanceiros = servicosFinanceirosLista(item.servicos_financeiros)
+      const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
+      const agora = new Date().toISOString()
+
+      const payloadNovoEmbarque: any = {
+        usuario_id: primeiroClienteId,
+        empresa_id: primeiroCliente?.empresa_id || item.empresa_id || null,
+
+        criado_por_admin_id: user.id,
+        criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
+        criado_por_admin_email: perfilAdmin?.email || user.email || null,
+
+        responsavel_id: item.responsavel_id || null,
+        responsavel_nome: item.responsavel_nome || null,
+        responsavel_email: item.responsavel_email || null,
+
+        exportador: item.exportador || null,
+        importador: item.importador || null,
+        referencia_cliente: item.referencia_cliente || null,
+        referencia_hc: novoProcesso,
+
+        awb: novoProcesso,
+        master: item.master || null,
+        data_master: item.master ? item.data_master || agora : null,
+        transportadora: item.transportadora || null,
+        servico: item.servico || null,
+        origem: item.origem || null,
+        destino: item.destino || null,
+
+        peso_real: numero(item.peso_real),
+        peso_taxado: numero(item.peso_taxado),
+
+        valor_cobrado_cliente: totalFinanceiro || numero(item.valor_cobrado_cliente),
+        moeda_cobranca: item.moeda_cobranca || 'USD',
+        taxa_conversao: item.taxa_conversao || null,
+        spread_percentual: item.spread_percentual || null,
+        servicos_financeiros: servicosFinanceiros,
+
+        peso_inicial_taxado: numero(item.peso_inicial_taxado),
+        peso_final_taxado: numero(item.peso_final_taxado),
+        divergencia_peso: numero(item.divergencia_peso),
+        valor_adicional_peso: numero(item.valor_adicional_peso),
+        mostrar_divergencia_cliente: item.mostrar_divergencia_cliente || false,
+        observacao_divergencia_peso: item.observacao_divergencia_peso || null,
+
+        status_operacional: item.status_operacional || 'Aguardando coleta',
+        data_envio: item.data_envio || null,
+        data_prevista: item.data_prevista || null,
+        data_entrega: item.data_entrega || null,
+        ultima_atualizacao: agora,
+        observacoes: item.observacoes || null,
+
+        arquivado_admin: false,
+        arquivado_admin_em: null,
+        arquivado_admin_por: null,
+      }
+
+      const { data: novoEmbarque, error: erroEmbarque } = await supabase
+        .from('embarques')
+        .insert([payloadNovoEmbarque])
+        .select('id, awb')
+        .single()
+
+      if (erroEmbarque) {
+        throw new Error('Erro ao criar a cópia do embarque: ' + erroEmbarque.message)
+      }
+
+      if (clientesVinculados.length > 0) {
+        const novosVinculos = clientesVinculados.map((clienteId) => ({
+          embarque_id: novoEmbarque.id,
+          cliente_id: clienteId,
+        }))
+
+        const { error: erroVinculos } = await supabase
+          .from('embarque_clientes')
+          .upsert(novosVinculos, { onConflict: 'embarque_id,cliente_id' })
+
+        if (erroVinculos) {
+          throw new Error(
+            'Embarque copiado, mas houve erro ao copiar os clientes vinculados: ' +
+              erroVinculos.message
+          )
+        }
+      }
+
+      const { error: erroTimeline } = await supabase.from('timeline_embarques').insert({
+        embarque_id: novoEmbarque.id,
+        status: 'PROCESSO COPIADO',
+        descricao: `Processo criado como cópia de ${processoOriginal || item.id}.`,
+      })
+
+      if (erroTimeline) {
+        console.error('Processo copiado, mas não foi possível registrar a timeline:', erroTimeline)
+      }
+
+      alert(
+        `Processo ${novoProcesso} criado com sucesso.\n\n` +
+          'Dados, clientes e valores foram copiados do processo original.'
+      )
+
+      await carregar()
+    } catch (error: any) {
+      console.error('Erro ao copiar embarque:', error)
+      alert(error?.message || 'Erro desconhecido ao copiar embarque.')
+    } finally {
+      setCopiandoId(null)
+    }
   }
 
   async function salvar() {
@@ -2318,6 +2509,15 @@ export default function EmbarquesPage() {
                   className="bg-purple-600 hover:bg-purple-500 px-4 py-3 rounded-xl font-bold"
                 >
                   Editar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => copiarEmbarque(item)}
+                  disabled={!!copiandoId}
+                  className="bg-cyan-700 hover:bg-cyan-600 px-4 py-3 rounded-xl font-bold disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {copiandoId === item.id ? 'Copiando...' : 'Copiar'}
                 </button>
 
                 {linkRastreio(item) && (
