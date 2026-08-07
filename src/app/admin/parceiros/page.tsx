@@ -297,6 +297,7 @@ export default function ParceirosPage() {
     }
 
     const permitidos = [
+      'agente de carga',
       'import',
       'export',
       'formal',
