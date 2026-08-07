@@ -697,6 +697,7 @@ export default function DetalheEmbarquePage() {
           <h2 className="text-2xl font-black mb-6">Dados logísticos</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <CampoResumo titulo="Despachante / Parceiro" valor={embarque.despachante || '-'} />
             <CampoResumo titulo="Origem" valor={embarque.origem} />
             <CampoResumo titulo="Destino" valor={embarque.destino} />
             <CampoResumo titulo="Master" valor={embarque.master || 'Aguardando geração'} />

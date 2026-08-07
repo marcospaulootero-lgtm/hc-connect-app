@@ -82,6 +82,7 @@ export default function EmbarquesPage() {
   const formInicial = {
     usuarios_ids: [] as string[],
     responsavel_id: '',
+    despachante: '',
     exportador: '',
     importador: '',
     referencia_cliente: '',
@@ -741,6 +742,7 @@ export default function EmbarquesPage() {
         responsavel_id: item.responsavel_id || null,
         responsavel_nome: item.responsavel_nome || null,
         responsavel_email: item.responsavel_email || null,
+        despachante: item.despachante || null,
 
         exportador: item.exportador || null,
         importador: item.importador || null,
@@ -890,6 +892,7 @@ export default function EmbarquesPage() {
             responsavel_id: responsavelId,
             responsavel_nome: responsavel?.nome || user.email || null,
             responsavel_email: responsavel?.email || user.email || null,
+            despachante: form.despachante.trim() || null,
 
             exportador: form.exportador || null,
             importador: form.importador || null,
@@ -997,6 +1000,7 @@ export default function EmbarquesPage() {
     setEditClienteImportadorId('')
     setEditForm({
       responsavel_id: item.responsavel_id || '',
+      despachante: item.despachante || '',
       exportador: item.exportador || '',
       importador: item.importador || '',
       referencia_cliente: item.referencia_cliente || '',
@@ -1054,6 +1058,7 @@ export default function EmbarquesPage() {
       responsavel_id: responsavel?.id || null,
       responsavel_nome: responsavel?.nome || null,
       responsavel_email: responsavel?.email || null,
+      despachante: editForm.despachante.trim() || null,
 
       exportador: editForm.exportador || null,
       importador: editForm.importador || null,
@@ -1411,6 +1416,7 @@ export default function EmbarquesPage() {
         ${item.referencia_cliente}
         ${item.referencia_hc}
         ${item.transportadora}
+        ${item.despachante}
         ${item.origem}
         ${item.destino}
         ${item.status_operacional}
@@ -1616,7 +1622,7 @@ export default function EmbarquesPage() {
 
         <h2 className="text-2xl font-black mb-7">Cadastrar novo embarque</h2>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,720px)_280px] gap-5 mb-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,720px)_280px_280px] gap-5 mb-6 items-start">
           <div className="border border-slate-700 rounded-2xl p-4">
             <label className="block text-slate-300 font-bold mb-3">
               Clientes vinculados
@@ -1686,6 +1692,14 @@ export default function EmbarquesPage() {
                 </option>
               ))}
             </select>
+          </Campo>
+
+          <Campo label="Despachante / Parceiro">
+            <input
+              value={form.despachante}
+              onChange={(e) => setForm({ ...form, despachante: e.target.value })}
+              placeholder="Digite o nome do despachante"
+            />
           </Campo>
         </div>
 
@@ -2128,6 +2142,11 @@ export default function EmbarquesPage() {
                       item.criado_por_admin_nome ||
                       '-'}
                   </p>
+                  {item.despachante && (
+                    <p className="mt-2 text-sm font-bold text-blue-300">
+                      Despachante: {item.despachante}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -2150,6 +2169,14 @@ export default function EmbarquesPage() {
                           </option>
                         ))}
                       </select>
+                    </Campo>
+
+                    <Campo label="Despachante / Parceiro">
+                      <input
+                        value={editForm.despachante}
+                        onChange={(e) => setEditForm({ ...editForm, despachante: e.target.value })}
+                        placeholder="Digite o nome do despachante"
+                      />
                     </Campo>
 
                     <Campo label="AWB">
