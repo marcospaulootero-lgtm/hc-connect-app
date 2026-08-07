@@ -482,9 +482,7 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
 
   const ehFaturaImpostosTaxas =
     /TAXAS,\s*IMPOSTOS,\s*E\s*OUTROS\s*ENCARGOS/i.test(texto) ||
-    /Sumário\s+de\s+Taxas/i.test(texto) ||
-    /Tarifa\s+de\s+transferência\s+de\s+aeroporto/i.test(texto) ||
-    /Cobranças\s+de\s+Serviços\s+Adicionais/i.test(texto)
+    /Sumário\s+de\s+Taxas/i.test(texto)
 
   const itens: ItemPdf[] = []
 

@@ -243,6 +243,7 @@ export default function FinanceiroPage() {
   const [importando, setImportando] = useState(false)
   const [gerandoFechamento, setGerandoFechamento] = useState(false)
   const [gerandoRetroativos, setGerandoRetroativos] = useState(false)
+  const [revisandoCustos, setRevisandoCustos] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [editandoMovimentoId, setEditandoMovimentoId] = useState<string | null>(null)
 
@@ -3635,6 +3636,222 @@ export default function FinanceiroPage() {
     setPagina(1)
   }
 
+  async function revisarCustosFaturasTransportadoras() {
+    if (revisandoCustos) return
+
+    const normalizarAwbRevisao = (valor: any) => String(valor || '').replace(/\D/g, '')
+    const normalizarTransportadoraRevisao = (valor: any) =>
+      String(valor || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+
+    const processosSemCusto = filtrados.filter((item) => {
+      const transportadora = normalizarTransportadoraRevisao(item.transportadora)
+      return (
+        aguardandoCustoProcesso(item) &&
+        !!normalizarAwbRevisao(item.awb) &&
+        (transportadora.includes('DHL') || transportadora.includes('FEDEX'))
+      )
+    })
+
+    if (processosSemCusto.length === 0) {
+      alert('Nenhum processo DHL/FedEx aguardando custo foi encontrado no filtro atual.')
+      return
+    }
+
+    setRevisandoCustos(true)
+
+    try {
+      const awbs = Array.from(
+        new Set(processosSemCusto.map((item) => normalizarAwbRevisao(item.awb)).filter(Boolean))
+      )
+
+      const itensFaturas: any[] = []
+
+      for (let inicio = 0; inicio < awbs.length; inicio += 200) {
+        const lote = awbs.slice(inicio, inicio + 200)
+        const { data, error } = await supabase
+          .from('faturas_transportadoras_itens')
+          .select('id, fatura_transportadora_id, transportadora, numero_fatura, awb, valor_compra, tipo_lancamento, status_lancamento, financeiro_embarque_id, observacao, atualizado_em')
+          .in('awb', lote)
+          .gt('valor_compra', 0)
+
+        if (error) throw new Error('Erro ao consultar itens das faturas: ' + error.message)
+        itensFaturas.push(...(data || []))
+      }
+
+      const itensPorAwb = new Map<string, any[]>()
+
+      itensFaturas.forEach((item) => {
+        const awb = normalizarAwbRevisao(item.awb)
+        if (!awb) return
+        const atuais = itensPorAwb.get(awb) || []
+        atuais.push(item)
+        itensPorAwb.set(awb, atuais)
+      })
+
+      const corrigiveis: any[] = []
+      let semFatura = 0
+      let ambiguos = 0
+      let impostosNaoConfirmados = 0
+
+      processosSemCusto.forEach((processo) => {
+        const awb = normalizarAwbRevisao(processo.awb)
+        const transportadoraProcesso = normalizarTransportadoraRevisao(processo.transportadora)
+        const candidatos = (itensPorAwb.get(awb) || []).filter((item) => {
+          const transportadoraItem = normalizarTransportadoraRevisao(item.transportadora)
+          if (transportadoraProcesso.includes('DHL')) return transportadoraItem.includes('DHL')
+          if (transportadoraProcesso.includes('FEDEX')) return transportadoraItem.includes('FEDEX')
+          return false
+        })
+
+        if (candidatos.length === 0) {
+          semFatura += 1
+          return
+        }
+
+        const candidatosCompra = candidatos.filter(
+          (item) => String(item.tipo_lancamento || 'COMPRA').toUpperCase() !== 'IMPOSTOS'
+        )
+        const base = candidatosCompra.length > 0 ? candidatosCompra : candidatos
+        const valoresDistintos = Array.from(
+          new Set(base.map((item) => Number(item.valor_compra || 0).toFixed(2)))
+        )
+
+        if (valoresDistintos.length !== 1) {
+          ambiguos += 1
+          return
+        }
+
+        const itemFatura = [...base].sort((a, b) =>
+          String(b.atualizado_em || '').localeCompare(String(a.atualizado_em || ''))
+        )[0]
+        const valorEncontrado = Number(itemFatura.valor_compra || 0)
+        const tipoLancamento = String(itemFatura.tipo_lancamento || 'COMPRA').toUpperCase()
+        const valorImpostosAtual = Number(processo.doc_dta || 0)
+        const moverDeImpostos =
+          tipoLancamento === 'IMPOSTOS' &&
+          valorImpostosAtual > 0 &&
+          Math.abs(valorImpostosAtual - valorEncontrado) < 0.01
+
+        if (tipoLancamento === 'IMPOSTOS' && !moverDeImpostos) {
+          impostosNaoConfirmados += 1
+          return
+        }
+
+        corrigiveis.push({
+          processo,
+          itemFatura,
+          valorEncontrado,
+          moverDeImpostos,
+        })
+      })
+
+      if (corrigiveis.length === 0) {
+        alert(
+          'Nenhum custo pôde ser corrigido automaticamente.\n\n' +
+            `Sem AWB nas faturas: ${semFatura}\n` +
+            `Mais de um valor encontrado: ${ambiguos}\n` +
+            `Itens de impostos sem correspondência exata: ${impostosNaoConfirmados}`
+        )
+        return
+      }
+
+      const linhas = corrigiveis.slice(0, 20).map(({ processo, itemFatura, valorEncontrado, moverDeImpostos }) =>
+        `• ${normalizarAwbRevisao(processo.awb)} | ${itemFatura.transportadora || processo.transportadora} | ` +
+        `Fatura ${itemFatura.numero_fatura || '-'} | ${moeda(valorEncontrado)}` +
+        (moverDeImpostos ? ' | MOVER DE IMPOSTOS' : '')
+      )
+      const restantes = corrigiveis.length > 20 ? `\n... +${corrigiveis.length - 20} processo(s)` : ''
+
+      const confirmar = confirm(
+        'Revisão de custos DHL/FedEx\n\n' +
+          `Processos analisados: ${processosSemCusto.length}\n` +
+          `Prontos para corrigir: ${corrigiveis.length}\n` +
+          `Sem AWB nas faturas: ${semFatura}\n` +
+          `Com valores divergentes: ${ambiguos}\n` +
+          `Impostos sem correspondência exata: ${impostosNaoConfirmados}\n\n` +
+          linhas.join('\n') +
+          restantes +
+          '\n\nConfirmar atualização do Valor Compra?'
+      )
+
+      if (!confirmar) return
+
+      let atualizados = 0
+      const falhas: string[] = []
+      const avisosItens: string[] = []
+      const agora = new Date().toISOString()
+
+      for (const correcao of corrigiveis) {
+        const { processo, itemFatura, valorEncontrado, moverDeImpostos } = correcao
+        const payloadProcesso: any = {
+          valor_compra: valorEncontrado,
+          atualizado_em: agora,
+        }
+
+        if (moverDeImpostos) payloadProcesso.doc_dta = 0
+
+        const { data: processoAtualizado, error: erroProcesso } = await supabase
+          .from('financeiro_embarques')
+          .update(payloadProcesso)
+          .eq('id', processo.id)
+          .or('valor_compra.is.null,valor_compra.lte.0')
+          .select('id')
+          .maybeSingle()
+
+        if (erroProcesso) {
+          falhas.push(`${normalizarAwbRevisao(processo.awb)}: ${erroProcesso.message}`)
+          continue
+        }
+
+        if (!processoAtualizado?.id) {
+          falhas.push(`${normalizarAwbRevisao(processo.awb)}: o custo já foi atualizado por outra ação`)
+          continue
+        }
+
+        const observacaoAnterior = String(itemFatura.observacao || '').trim()
+        const observacaoRevisao = moverDeImpostos
+          ? 'Revisado no Painel Financeiro: custo transferido de impostos para valor de compra.'
+          : 'Revisado no Painel Financeiro: valor de compra confirmado por AWB.'
+
+        const { error: erroItem } = await supabase
+          .from('faturas_transportadoras_itens')
+          .update({
+            tipo_lancamento: 'COMPRA',
+            financeiro_embarque_id: processo.id,
+            valor_compra_anterior: Number(processo.valor_compra || 0),
+            status_lancamento: 'LANCADO',
+            observacao: [observacaoAnterior, observacaoRevisao].filter(Boolean).join(' | '),
+            lancado_em: agora,
+            atualizado_em: agora,
+          })
+          .eq('id', itemFatura.id)
+
+        if (erroItem) {
+          avisosItens.push(`${normalizarAwbRevisao(processo.awb)}: ${erroItem.message}`)
+        }
+
+        atualizados += 1
+      }
+
+      await carregarFinanceiro()
+
+      alert(
+        `Revisão concluída.\n\nProcessos atualizados: ${atualizados}` +
+          (falhas.length > 0 ? `\nFalhas: ${falhas.length}\n${falhas.slice(0, 5).join('\n')}` : '') +
+          (avisosItens.length > 0
+            ? `\nAvisos ao atualizar os itens das faturas: ${avisosItens.length}`
+            : '')
+      )
+    } catch (error: any) {
+      alert('Erro ao revisar custos DHL/FedEx: ' + error.message)
+    } finally {
+      setRevisandoCustos(false)
+    }
+  }
+
   function mudarAbaPrincipal(novaAba: string) {
     setAbaPrincipal(novaAba)
     setPaginaMovimentos(1)
@@ -4998,6 +5215,17 @@ export default function FinanceiroPage() {
                     Somatório calculado somente com os registros exibidos no filtro atual.
                   </p>
                 </div>
+
+                {resumoFiltrado.aguardandoCusto > 0 && (
+                  <button
+                    type="button"
+                    onClick={revisarCustosFaturasTransportadoras}
+                    disabled={revisandoCustos || loading}
+                    className="inline-flex w-fit rounded-xl bg-orange-500 px-4 py-3 text-sm font-black text-white hover:bg-orange-600 disabled:opacity-50"
+                  >
+                    {revisandoCustos ? 'Revisando custos...' : '↻ Revisar custos DHL/FedEx'}
+                  </button>
+                )}
 
                 <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-black text-blue-700 border border-blue-100">
                   {resumoFiltrado.qtd} lançamentos filtrados
