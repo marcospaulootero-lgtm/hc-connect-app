@@ -340,9 +340,13 @@ export default function FaturasClientePage() {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
 
-    if (texto.includes('BOLETO')) return 'Boleto'
+    const ehBoleto = texto.includes('BOLETO')
+    const ehComplementar = texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')
+
+    if (ehBoleto && ehComplementar) return 'Boleto complementar'
+    if (ehComplementar) return 'Fatura complementar'
+    if (ehBoleto) return 'Boleto'
     if (texto.includes('RECIBO')) return 'Recibo'
-    if (texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')) return 'Fatura complementar'
     if (texto.includes('COMPROVANTE')) return 'Comprovante'
     if (texto.includes('FATURA')) return 'Fatura'
 
@@ -613,15 +617,21 @@ export default function FaturasClientePage() {
               {faturasFiltradas.map((fatura) => {
                 const embarque = dadosEmbarque(fatura)
                 const jaEnviado = !!fatura.comprovante_pagamento
-                const pagamentoConfirmado = Boolean(
-      fatura.recibo_pdf ||
-      fatura.data_pagamento ||
-      Number(fatura.valor_pago || 0) > 0
-    )
-
-    const statusPagamento = pagamentoConfirmado
-      ? 'PAGAMENTO CONFIRMADO'
-      : fatura.status_pagamento || 'AGUARDANDO PAGAMENTO'
+                const statusPagamentoOriginal = String(fatura.status_pagamento || '')
+                  .trim()
+                  .toUpperCase()
+                const pagamentoConfirmado =
+                  statusPagamentoOriginal.includes('PAGO') ||
+                  statusPagamentoOriginal.includes('CONFIRMADO')
+                const comprovanteEnviado =
+                  statusPagamentoOriginal.includes('COMPROVANTE') &&
+                  statusPagamentoOriginal.includes('ENVIADO')
+                const statusPagamento = pagamentoConfirmado
+                  ? 'PAGAMENTO CONFIRMADO'
+                  : comprovanteEnviado
+                    ? 'COMPROVANTE ENVIADO'
+                    : statusPagamentoOriginal || 'AGUARDANDO PAGAMENTO'
+                const pagamentoEmAberto = !pagamentoConfirmado
                 const arquivada = !!fatura.arquivada_cliente
 
                 return (
@@ -636,7 +646,10 @@ export default function FaturasClientePage() {
                             AWB {embarque?.awb || '-'}
                           </h3>
 
-                          <StatusDocumento temRecibo={!!fatura.recibo_pdf} />
+                          <StatusDocumento
+                            temRecibo={!!fatura.recibo_pdf}
+                            pagamentoConfirmado={pagamentoConfirmado}
+                          />
                           <StatusPagamento status={statusPagamento} />
 
                           {arquivada && (
@@ -645,6 +658,31 @@ export default function FaturasClientePage() {
                             </span>
                           )}
                         </div>
+
+                        {pagamentoEmAberto && (
+                          <div
+                            className={`mb-5 rounded-2xl border p-4 ${
+                              comprovanteEnviado
+                                ? 'border-yellow-500 bg-yellow-500/10'
+                                : 'border-red-500 bg-red-500/10'
+                            }`}
+                          >
+                            <p
+                              className={`text-base font-black ${
+                                comprovanteEnviado ? 'text-yellow-300' : 'text-red-300'
+                              }`}
+                            >
+                              {comprovanteEnviado
+                                ? '⏳ COMPROVANTE ENVIADO — AGUARDANDO CONFIRMAÇÃO'
+                                : '⚠️ PAGAMENTO EM ABERTO'}
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-slate-200">
+                              {comprovanteEnviado
+                                ? 'O comprovante foi recebido e o pagamento ainda aguarda confirmação da HC.'
+                                : 'Esta fatura ainda não consta como paga. Confira os documentos abaixo e envie o comprovante após o pagamento.'}
+                            </p>
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <Info label="Transportadora" valor={embarque?.transportadora || '-'} />
@@ -848,9 +886,21 @@ function Info({ label, valor }: any) {
   )
 }
 
-function StatusDocumento({ temRecibo }: { temRecibo: boolean }) {
+function StatusDocumento({
+  temRecibo,
+  pagamentoConfirmado,
+}: {
+  temRecibo: boolean
+  pagamentoConfirmado: boolean
+}) {
   return temRecibo ? (
-    <span className="bg-green-600/20 text-green-300 border border-green-500 px-3 py-1 rounded-full text-xs font-black">
+    <span
+      className={`px-3 py-1 rounded-full text-xs font-black border ${
+        pagamentoConfirmado
+          ? 'bg-green-600/20 text-green-300 border-green-500'
+          : 'bg-blue-600/20 text-blue-300 border-blue-500'
+      }`}
+    >
       🧾 Recibo disponível
     </span>
   ) : (
