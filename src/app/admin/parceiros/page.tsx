@@ -29,6 +29,9 @@ export default function ParceirosPage() {
   const [selecionadosPdf, setSelecionadosPdf] = useState<string[]>([])
   const [valorAlvoPdf, setValorAlvoPdf] = useState('')
   const [quantidadePdf, setQuantidadePdf] = useState('10')
+  const [awbsLoteTexto, setAwbsLoteTexto] = useState('')
+  const [awbsFiltroLote, setAwbsFiltroLote] = useState<string[]>([])
+  const [awbsNaoEncontrados, setAwbsNaoEncontrados] = useState<string[]>([])
   const [emailDestinatariosPdf, setEmailDestinatariosPdf] = useState('')
   const [emailAssuntoPdf, setEmailAssuntoPdf] = useState('')
   const [emailCorpoPdf, setEmailCorpoPdf] = useState('')
@@ -227,7 +230,16 @@ export default function ParceirosPage() {
       return
     }
 
-    const selecionados = registros.filter((item) => selecionadosPdf.includes(item.id))
+    const selecionados = registros
+      .filter((item) => selecionadosPdf.includes(String(item.id || '')))
+      .filter((item) => status(item) !== 'PAGO')
+
+    if (selecionados.length === 0) {
+      alert('Todos os processos selecionados já estão pagos.')
+      return
+    }
+
+    const idsSelecionados = selecionados.map((item) => String(item.id))
     const totalSelecionado = selecionados.reduce((total, item) => total + Number(item.debito_terceiro || 0), 0)
 
     const confirmar = confirm(
@@ -239,17 +251,34 @@ export default function ParceirosPage() {
     setMarcandoSelecionadosPago(true)
 
     try {
-      const mesAtual = new Date().toISOString().slice(0, 7)
+      const agora = new Date().toISOString()
 
       const { error } = await supabase
         .from('financeiro_embarques')
         .update({
           pgta_terceiros: 'PAGO',
-          mes_pgto: mesAtual,
+          mes_pgto: mesAtual(),
+          atualizado_em: agora,
         })
-        .in('id', selecionadosPdf)
+        .in('id', idsSelecionados)
 
       if (error) throw error
+
+      const lotesIds = dividirEmLotes(idsSelecionados, 250)
+
+      for (const lote of lotesIds) {
+        const { error: erroSolicitacoes } = await supabase
+          .from('financeiro_parceiro_solicitacoes')
+          .update({
+            status: 'PAGO',
+            respondido_em: agora,
+            atualizado_em: agora,
+          })
+          .in('financeiro_embarque_id', lote)
+          .in('status', ['SOLICITADO', 'EM_ANALISE', 'APROVADO'])
+
+        if (erroSolicitacoes) throw erroSolicitacoes
+      }
 
       alert(`${selecionados.length} processo(s) marcado(s) como PAGO.`)
 
@@ -268,6 +297,77 @@ export default function ParceirosPage() {
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
+  }
+
+  function normalizarAwbChave(valor: any) {
+    return normalizarTexto(valor)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+  }
+
+  function extrairAwbsDoTexto(texto: string) {
+    const encontrados = texto.match(/\b(?:\d{6,14}|\d{4,8}\/\d{2,4})\b/g) || []
+
+    return Array.from(
+      new Set(
+        encontrados
+          .map((awb) => normalizarAwbChave(awb))
+          .filter(Boolean)
+      )
+    )
+  }
+
+  function filtrarESelecionarAwbsLote() {
+    const awbs = extrairAwbsDoTexto(awbsLoteTexto)
+
+    if (awbs.length === 0) {
+      alert('Cole pelo menos um AWB/processo válido para filtrar.')
+      return
+    }
+
+    const mapaRegistros = new Map<string, any[]>()
+
+    for (const item of dadosParceiroPeriodo) {
+      const chave = normalizarAwbChave(item.awb)
+      if (!chave) continue
+
+      const atuais = mapaRegistros.get(chave) || []
+      atuais.push(item)
+      mapaRegistros.set(chave, atuais)
+    }
+
+    const idsPendentes: string[] = []
+    const naoEncontrados: string[] = []
+
+    for (const awb of awbs) {
+      const itens = mapaRegistros.get(awb) || []
+
+      if (itens.length === 0) {
+        naoEncontrados.push(awb)
+        continue
+      }
+
+      for (const item of itens) {
+        if (status(item) !== 'PAGO' && item?.id) {
+          idsPendentes.push(String(item.id))
+        }
+      }
+    }
+
+    setBusca('')
+    setAba('TODOS')
+    setAwbsFiltroLote(awbs)
+    setAwbsNaoEncontrados(naoEncontrados)
+    setSelecionadosPdf(Array.from(new Set(idsPendentes)))
+    setPagina(1)
+  }
+
+  function limparFiltroAwbsLote() {
+    setAwbsLoteTexto('')
+    setAwbsFiltroLote([])
+    setAwbsNaoEncontrados([])
+    setSelecionadosPdf([])
+    setPagina(1)
   }
 
   function ehServicoOperacionalParceiro(item: any) {
@@ -1430,6 +1530,9 @@ export default function ParceirosPage() {
       `)
 
       const passaBusca = !termo || texto.includes(termo)
+      const passaAwbLote =
+        awbsFiltroLote.length === 0 ||
+        awbsFiltroLote.includes(normalizarAwbChave(item.awb))
 
       let passaAba = true
 
@@ -1441,9 +1544,9 @@ export default function ParceirosPage() {
         passaAba = status(item) !== 'PAGO'
       }
 
-      return passaBusca && passaAba
+      return passaBusca && passaAba && passaAwbLote
     })
-  }, [dadosParceiroPeriodo, busca, aba])
+  }, [dadosParceiroPeriodo, busca, aba, awbsFiltroLote])
 
   const resumoFiltrado = useMemo(() => {
     const pagos = filtrados.filter((item) => status(item) === 'PAGO')
@@ -1928,6 +2031,60 @@ export default function ParceirosPage() {
               </div>
             </div>
 
+            <div className="mb-4 rounded-2xl border border-emerald-200 bg-white p-4">
+              <div className="mb-3">
+                <h5 className="text-sm font-black text-slate-950">Filtrar vários AWBs e pagar em lote</h5>
+                <p className="text-xs font-bold text-slate-500">
+                  Cole os AWBs/processos, um por linha ou copie uma tabela. Os encontrados ficam filtrados e os pendentes são selecionados automaticamente.
+                </p>
+              </div>
+
+              <textarea
+                value={awbsLoteTexto}
+                onChange={(e) => setAwbsLoteTexto(e.target.value)}
+                placeholder={"870250076264\n888909309340\n089091/25"}
+                rows={5}
+                className="w-full rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-slate-500"
+              />
+
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={filtrarESelecionarAwbsLote}
+                  className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-500"
+                >
+                  Filtrar AWBs e selecionar pendentes
+                </button>
+
+                {awbsFiltroLote.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={limparFiltroAwbsLote}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                  >
+                    Limpar filtro de AWBs
+                  </button>
+                )}
+
+                {awbsFiltroLote.length > 0 && (
+                  <span className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700">
+                    {awbsFiltroLote.length} informado(s) · {filtrados.length} registro(s) encontrado(s) · {selecionadosPdf.length} pendente(s) selecionado(s)
+                  </span>
+                )}
+              </div>
+
+              {awbsNaoEncontrados.length > 0 && (
+                <div className="mt-3 rounded-xl border border-orange-200 bg-orange-50 p-3">
+                  <p className="text-sm font-black text-orange-700">
+                    Não encontrados no parceiro/período atual: {awbsNaoEncontrados.length}
+                  </p>
+                  <p className="mt-1 break-words text-xs font-bold text-orange-600">
+                    {awbsNaoEncontrados.join(', ')}
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_auto_auto_auto]">
               <input
                 value={valorAlvoPdf}
@@ -1968,7 +2125,11 @@ export default function ParceirosPage() {
                     disabled={selecionadosPdf.length === 0 || marcandoSelecionadosPago}
                     className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {marcandoSelecionadosPago ? 'Marcando...' : '✓ Marcar selecionados como pago'}
+                    {marcandoSelecionadosPago
+                      ? 'Marcando...'
+                      : awbsFiltroLote.length > 0
+                        ? '✓ Marcar AWBs filtrados como pago'
+                        : '✓ Marcar selecionados como pago'}
                   </button>
 
 <button
