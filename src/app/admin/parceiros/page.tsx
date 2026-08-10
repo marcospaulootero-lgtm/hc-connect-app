@@ -428,14 +428,31 @@ export default function ParceirosPage() {
     if (valor === null || valor === undefined || valor === '') return 0
     if (typeof valor === 'number') return valor
 
-    const texto = String(valor)
+    let texto = String(valor)
+      .trim()
       .replace(/\s/g, '')
-      .replace('R$', '')
-      .replace(/\./g, '')
-      .replace(',', '.')
+      .replace(/R\$/gi, '')
+
+    if (!texto) return 0
+
+    const temVirgula = texto.includes(',')
+    const temPonto = texto.includes('.')
+
+    if (temVirgula && temPonto) {
+      const ultimaVirgula = texto.lastIndexOf(',')
+      const ultimoPonto = texto.lastIndexOf('.')
+
+      if (ultimaVirgula > ultimoPonto) {
+        texto = texto.replace(/\./g, '').replace(',', '.')
+      } else {
+        texto = texto.replace(/,/g, '')
+      }
+    } else if (temVirgula) {
+      texto = texto.replace(/\./g, '').replace(',', '.')
+    }
 
     const numero = Number(texto)
-    return isNaN(numero) ? 0 : numero
+    return Number.isFinite(numero) ? numero : 0
   }
 
   function mesAtual() {
