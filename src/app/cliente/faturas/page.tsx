@@ -94,6 +94,8 @@ export default function FaturasClientePage() {
         comprovante_pagamento,
         data_comprovante,
         status_pagamento,
+        data_pagamento,
+        valor_pago,
         observacao_pagamento,
         criado_em,
         visivel_cliente,
@@ -419,6 +421,35 @@ export default function FaturasClientePage() {
     )
   }
 
+  function textoNormalizadoDocumento(documento: any) {
+    return String(
+      String(documento?.tipo || '') + ' ' + String(documento?.nome || '') + ' ' + String(documento?.label || '')
+    )
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  }
+
+  function ehCobrancaComplementarDocumento(documento: any) {
+    const texto = textoNormalizadoDocumento(documento)
+    const ehComplementar = texto.includes('COMPLEMENTAR') || texto.includes('IMPOSTOS')
+    const ehCobranca = texto.includes('BOLETO') || texto.includes('FATURA')
+    const ehRecibo = texto.includes('RECIBO')
+    const ehComprovante = texto.includes('COMPROVANTE')
+
+    return ehComplementar && ehCobranca && !ehRecibo && !ehComprovante
+  }
+
+  function ehReciboDocumento(documento: any) {
+    return textoNormalizadoDocumento(documento).includes('RECIBO')
+  }
+
+  function timestampValido(data?: string | null) {
+    if (!data) return 0
+    const valor = new Date(data).getTime()
+    return Number.isFinite(valor) ? valor : 0
+  }
+
   function agruparFaturasClientePorEmbarque(lista: any[]) {
     const grupos = new Map<string, any[]>()
 
@@ -468,20 +499,16 @@ export default function FaturasClientePage() {
 
       const faturaComRecibo = grupo.find((fatura) => fatura.recibo_pdf)
       const faturaComComprovante = grupo.find((fatura) => fatura.comprovante_pagamento)
-      const faturaPago = grupo.find((fatura) =>
-        String(fatura.status_pagamento || '').toUpperCase().includes('PAGO') ||
-        String(fatura.status_pagamento || '').toUpperCase().includes('CONFIRMADO')
-      )
+      const faturasPagas = grupo.filter((fatura) => {
+        const status = String(fatura.status_pagamento || '').toUpperCase()
+        return status.includes('PAGO') || status.includes('CONFIRMADO')
+      })
 
       base.recibo_pdf = faturaComRecibo?.recibo_pdf || base.recibo_pdf
       base.recibo_nome = faturaComRecibo?.recibo_nome || base.recibo_nome
       base.data_pagamento = faturaComRecibo?.data_pagamento || base.data_pagamento
       base.comprovante_pagamento = faturaComComprovante?.comprovante_pagamento || base.comprovante_pagamento
       base.data_comprovante = faturaComComprovante?.data_comprovante || base.data_comprovante
-
-      if (faturaPago?.status_pagamento && !String(base.status_pagamento || '').toUpperCase().includes('AGUARDANDO')) {
-        base.status_pagamento = faturaPago.status_pagamento
-      }
 
       const mapaArquivos = new Map<string, any>()
 
@@ -490,7 +517,49 @@ export default function FaturasClientePage() {
         mapaArquivos.set(arquivo.url, arquivo)
       }
 
-      base.arquivos_complementares = Array.from(mapaArquivos.values())
+      const arquivosUnicos = Array.from(mapaArquivos.values())
+      const cobrancasComplementares = arquivosUnicos
+        .filter((arquivo) => ehCobrancaComplementarDocumento(arquivo))
+        .sort((a, b) => timestampValido(b?.criado_em) - timestampValido(a?.criado_em))
+
+      const recibosAnexados = arquivosUnicos
+        .filter((arquivo) => ehReciboDocumento(arquivo))
+        .sort((a, b) => timestampValido(b?.criado_em) - timestampValido(a?.criado_em))
+
+      const ultimoPagamentoEm = Math.max(
+        ...grupo.map((fatura) => timestampValido(fatura?.data_pagamento)),
+        ...recibosAnexados.map((arquivo) => timestampValido(arquivo?.criado_em)),
+        0
+      )
+
+      const ultimaCobrancaComplementar = cobrancasComplementares[0] || null
+      const ultimaCobrancaComplementarEm = timestampValido(ultimaCobrancaComplementar?.criado_em)
+      const pagamentoReabertoPorComplementar =
+        !!ultimaCobrancaComplementar &&
+        ultimaCobrancaComplementarEm > 0 &&
+        ultimaCobrancaComplementarEm > ultimoPagamentoEm
+
+      if (pagamentoReabertoPorComplementar) {
+        base.status_pagamento = 'AGUARDANDO PAGAMENTO'
+        base.pagamento_reaberto_por_complementar = true
+        base.documento_pendente_label = nomeDocumentoFaturaCliente(ultimaCobrancaComplementar)
+        base.documento_pendente_criado_em = ultimaCobrancaComplementar.criado_em || null
+      } else if (faturasPagas.length === grupo.length && grupo.length > 0) {
+        base.status_pagamento = 'PAGAMENTO CONFIRMADO'
+        base.pagamento_reaberto_por_complementar = false
+      } else {
+        const faturaPendente = grupo.find((fatura) => {
+          const status = String(fatura.status_pagamento || '').toUpperCase()
+          return !status.includes('PAGO') && !status.includes('CONFIRMADO')
+        })
+
+        base.status_pagamento =
+          faturaPendente?.status_pagamento ||
+          (faturasPagas.length > 0 ? 'AGUARDANDO PAGAMENTO' : base.status_pagamento)
+        base.pagamento_reaberto_por_complementar = false
+      }
+
+      base.arquivos_complementares = arquivosUnicos
       base.faturas_agrupadas = grupo
 
       resultado.push(base)
@@ -620,9 +689,12 @@ export default function FaturasClientePage() {
                 const statusPagamentoOriginal = String(fatura.status_pagamento || '')
                   .trim()
                   .toUpperCase()
+                const pagamentoReabertoPorComplementar =
+                  fatura.pagamento_reaberto_por_complementar === true
                 const pagamentoConfirmado =
-                  statusPagamentoOriginal.includes('PAGO') ||
-                  statusPagamentoOriginal.includes('CONFIRMADO')
+                  !pagamentoReabertoPorComplementar &&
+                  (statusPagamentoOriginal.includes('PAGO') ||
+                    statusPagamentoOriginal.includes('CONFIRMADO'))
                 const comprovanteEnviado =
                   statusPagamentoOriginal.includes('COMPROVANTE') &&
                   statusPagamentoOriginal.includes('ENVIADO')
@@ -677,9 +749,11 @@ export default function FaturasClientePage() {
                                 : '⚠️ PAGAMENTO EM ABERTO'}
                             </p>
                             <p className="mt-1 text-sm font-semibold text-slate-200">
-                              {comprovanteEnviado
-                                ? 'O comprovante foi recebido e o pagamento ainda aguarda confirmação da HC.'
-                                : 'Esta fatura ainda não consta como paga. Confira os documentos abaixo e envie o comprovante após o pagamento.'}
+                              {pagamentoReabertoPorComplementar
+                                ? `Existe uma nova cobrança complementar ainda sem quitação. Documento pendente: ${fatura.documento_pendente_label || 'Documento complementar'}${fatura.documento_pendente_criado_em ? `, anexado em ${dataHoraBR(fatura.documento_pendente_criado_em)}` : ''}. O recibo disponível refere-se à cobrança anterior.`
+                                : comprovanteEnviado
+                                  ? 'O comprovante foi recebido e o pagamento ainda aguarda confirmação da HC.'
+                                  : 'Esta fatura ainda não consta como paga. Confira os documentos abaixo e envie o comprovante após o pagamento.'}
                             </p>
                           </div>
                         )}
