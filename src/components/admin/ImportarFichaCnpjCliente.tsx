@@ -63,6 +63,35 @@ function preencher(label: string, valor?: string) {
   }
 }
 
+async function proximoCodigoHc() {
+  const { data, error } = await supabase
+    .from('clientes_faturamento')
+    .select('codigo_hc')
+    .not('codigo_hc', 'is', null)
+
+  if (error) {
+    throw new Error('Não foi possível calcular o próximo ID HC: ' + error.message)
+  }
+
+  let maiorNumero = 0
+  let largura = 4
+
+  for (const item of data || []) {
+    const codigo = String(item?.codigo_hc || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '')
+
+    const match = codigo.match(/^HC(\d+)$/)
+    if (!match) continue
+
+    maiorNumero = Math.max(maiorNumero, Number(match[1]) || 0)
+    largura = Math.max(largura, match[1].length)
+  }
+
+  return `HC${String(maiorNumero + 1).padStart(largura, '0')}`
+}
+
 export default function ImportarFichaCnpjCliente() {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [importando, setImportando] = useState(false)
@@ -99,7 +128,7 @@ export default function ImportarFichaCnpjCliente() {
       }
 
       setDados(json.dados)
-      aplicarDados(json.dados)
+      await aplicarDados(json.dados)
 
       alert('Ficha importada. Confira os campos e clique em Cadastrar cliente.')
     } catch (error: any) {
@@ -111,7 +140,13 @@ export default function ImportarFichaCnpjCliente() {
     }
   }
 
-  function aplicarDados(dadosFicha: DadosFicha) {
+  async function aplicarDados(dadosFicha: DadosFicha) {
+    const campoCodigo = encontrarCampoPorLabel('ID HC')
+
+    if (!String(campoCodigo?.value || '').trim()) {
+      preencher('ID HC', await proximoCodigoHc())
+    }
+
     preencher('Nome da empresa', dadosFicha.nome_empresa)
     preencher('CNPJ', dadosFicha.cnpj)
     preencher('Endereço', dadosFicha.endereco)

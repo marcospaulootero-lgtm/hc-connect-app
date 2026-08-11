@@ -650,7 +650,7 @@ export default function ClientesFaturamentoPage() {
               <input
                 value={form.endereco}
                 onChange={(e) => setForm({ ...form, endereco: e.target.value })}
-                placeholder="Rua, número, sala, bairro"
+                placeholder="Somente logradouro. Ex: ROD BR 163 KM 328"
               />
             </Campo>
           </div>

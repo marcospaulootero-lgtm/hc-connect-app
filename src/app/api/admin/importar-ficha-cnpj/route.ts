@@ -21,10 +21,6 @@ function pegar(texto: string, regex: RegExp) {
   return limpar(match?.[1])
 }
 
-function montarEndereco(logradouro: string, numero: string, complemento: string, bairro: string) {
-  return [logradouro, numero, complemento, bairro].filter(Boolean).join(', ')
-}
-
 function extrairDados(textoOriginal: string) {
   const texto = textoOriginal
     .replace(/\r/g, '\n')
@@ -53,10 +49,7 @@ function extrairDados(textoOriginal: string) {
   )
 
   const logradouro = pegar(textoLinha, /LOGRADOURO\s*(.*?)\s*N[ÚU]MERO/i)
-  const numero = pegar(textoLinha, /N[ÚU]MERO\s*(.*?)\s*COMPLEMENTO/i)
-  const complemento = pegar(textoLinha, /COMPLEMENTO\s*(.*?)\s*CEP/i)
   const cep = pegar(textoLinha, /CEP\s*([0-9]{2}\.[0-9]{3}-[0-9]{3}|[0-9]{5}-[0-9]{3})/i)
-  const bairro = pegar(textoLinha, /BAIRRO\/DISTRITO\s*(.*?)\s*MUNIC[ÍI]PIO/i)
   const cidade = pegar(textoLinha, /MUNIC[ÍI]PIO\s*(.*?)\s*UF/i)
   const estado = pegar(textoLinha, /UF\s*([A-Z]{2})/i)
 
@@ -84,7 +77,7 @@ function extrairDados(textoOriginal: string) {
   return {
     cnpj,
     nome_empresa: nome,
-    endereco: montarEndereco(logradouro, numero, complemento, bairro),
+    endereco: logradouro,
     cidade,
     estado,
     cep,
