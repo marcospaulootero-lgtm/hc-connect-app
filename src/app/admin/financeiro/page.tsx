@@ -4766,239 +4766,306 @@ export default function FinanceiroPage() {
 
   function renderExtratoGeral() {
     const resumoDono = resumoExtratoGeralAno
+    const retiradaLiberada = Number(resumoDono.podeRetirarAgora || 0) > 0
+    const caixaSaudavel = Number(resumoDono.caixaLivreHC || 0) > 0
+    const coberturaCaixa = Math.max(0, Math.min(100, Number(resumoDono.percentualCaixa || 0)))
 
     const statusClasse =
       resumoDono.statusDono === 'CRÍTICO'
-        ? 'bg-red-50 text-red-700 border-red-200'
+        ? 'border-red-300 bg-red-50 text-red-700'
         : resumoDono.statusDono === 'ATENÇÃO'
-          ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+          ? 'border-amber-300 bg-amber-50 text-amber-700'
           : resumoDono.statusDono === 'SAUDÁVEL'
-            ? 'bg-green-50 text-green-700 border-green-200'
-            : 'bg-blue-50 text-blue-700 border-blue-200'
+            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+            : 'border-blue-300 bg-blue-50 text-blue-700'
 
     const barraCaixaClasse =
-      resumoDono.faltaReporCaixa > 0
-        ? 'bg-yellow-400'
-        : resumoDono.caixaLivreHC <= 0
-          ? 'bg-red-500'
-          : 'bg-green-500'
+      coberturaCaixa >= 100
+        ? 'bg-emerald-500'
+        : coberturaCaixa >= 60
+          ? 'bg-blue-500'
+          : coberturaCaixa >= 30
+            ? 'bg-amber-500'
+            : 'bg-red-500'
 
     return (
       <section className="space-y-5">
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <div className="mb-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-black text-gray-950">Painel do Dono</h2>
-              <p className="text-sm font-semibold text-gray-500">
-                Somente os números que importam para decidir retirada, gasto e recomposição do caixa.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select
-                value={anoExtrato}
-                onChange={(e) => { setAnoFinanceiro(e.target.value); setAnoExtrato(e.target.value); setPaginaExtrato(1) }}
-                className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="TODOS">Todos</option>
-                {ANOS_FINANCEIRO_PERMITIDOS.map((ano) => (
-                  <option key={ano} value={String(ano)}>
-                    {ano}
-                  </option>
-                ))}
-              </select>
-
-              <div className={`rounded-xl border px-4 py-3 text-sm font-black ${statusClasse}`}>
-                Status: {resumoDono.statusDono}
-              </div>
-            </div>
-          </div>
-
-          <section className="rounded-3xl border border-slate-800 bg-slate-950 p-5 text-white shadow-sm">
-            <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-5">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-200">Decisão direta</p>
-                <h3 className="mt-2 text-2xl font-black">A HC tem dinheiro livre para usar?</h3>
-                <p className="mt-2 text-sm font-semibold text-slate-300">
-                  A regra agora é simples: primeiro protege terceiros, paga obrigações e empréstimos, recompõe caixa mínimo e só depois libera retirada.
+        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white lg:p-7">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-200">
+                  Visão executiva
+                </p>
+                <h2 className="mt-2 text-3xl font-black tracking-tight">Saúde financeira da HC</h2>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+                  Uma leitura direta para decidir caixa, obrigações e retiradas sem repetir os mesmos números em vários blocos.
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-800 max-w-xl">
-                {resumoDono.mensagemDono}
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <select
+                  value={anoExtrato}
+                  onChange={(e) => {
+                    setAnoFinanceiro(e.target.value)
+                    setAnoExtrato(e.target.value)
+                    setPaginaExtrato(1)
+                  }}
+                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-black text-white outline-none backdrop-blur focus:ring-2 focus:ring-blue-400"
+                >
+                  <option value="TODOS" className="text-slate-900">Todos</option>
+                  {ANOS_FINANCEIRO_PERMITIDOS.map((ano) => (
+                    <option key={ano} value={String(ano)} className="text-slate-900">
+                      {ano}
+                    </option>
+                  ))}
+                </select>
+
+                <div className={`rounded-xl border px-4 py-3 text-sm font-black ${statusClasse}`}>
+                  {resumoDono.statusDono}
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              <DonoResumoCard
-                titulo="Caixa livre real da HC"
-                valor={moeda(resumoDono.caixaLivreHC)}
-                detalhe="Dinheiro realmente liberado depois de reservas, empréstimos e regra dos sócios."
-                classe={resumoDono.caixaLivreHC > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
-                destaque
-              />
+            <div className="mt-7 grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_1fr]">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.07] p-6 backdrop-blur">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+                      Caixa livre disponível
+                    </p>
+                    <p className={`mt-3 text-4xl font-black tracking-tight ${caixaSaudavel ? 'text-emerald-300' : 'text-red-300'}`}>
+                      {moeda(resumoDono.caixaLivreHC)}
+                    </p>
+                    <p className="mt-2 max-w-xl text-sm font-semibold text-slate-300">
+                      Valor realmente livre depois das proteções, obrigações e da regra dos sócios.
+                    </p>
+                  </div>
 
-              <DonoResumoCard
-                titulo="Caixa negativo real para regularizar"
-                valor={moeda(resumoDono.caixaNegativoRealRegularizar)}
-                detalhe={`Inclui ${moeda(resumoDono.faltaReporCaixa)} para recompor + ${moeda(resumoDono.terceirosProtegidos)} de terceiros.`}
-                classe={resumoDono.caixaNegativoRealRegularizar > 0 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}
-                destaque
-              />
+                  <div className={`rounded-2xl border px-4 py-3 text-center ${retiradaLiberada ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-red-400/30 bg-red-400/10'}`}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-300">Retirada hoje</p>
+                    <p className={`mt-1 text-xl font-black ${retiradaLiberada ? 'text-emerald-300' : 'text-red-300'}`}>
+                      {retiradaLiberada ? 'LIBERADA' : 'BLOQUEADA'}
+                    </p>
+                  </div>
+                </div>
 
-              <DonoResumoCard
-                titulo="Posso retirar agora"
-                valor={moeda(resumoDono.podeRetirarAgora)}
-                detalhe={resumoDono.podeRetirarAgora > 0 ? 'Limite seguro de retirada pela regra.' : 'Retirada bloqueada até recompor o caixa.'}
-                classe={resumoDono.podeRetirarAgora > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
-                destaque
-              />
+                <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+                    <p className="text-xs font-bold text-slate-400">Falta regularizar</p>
+                    <p className="mt-1 text-2xl font-black text-amber-300">
+                      {moeda(resumoDono.caixaNegativoRealRegularizar)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+                    <p className="text-xs font-bold text-slate-400">Limite seguro de retirada</p>
+                    <p className={`mt-1 text-2xl font-black ${retiradaLiberada ? 'text-emerald-300' : 'text-slate-300'}`}>
+                      {moeda(resumoDono.podeRetirarAgora)}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-              <DonoResumoCard
-                titulo="Terceiros a proteger"
-                valor={moeda(resumoDono.terceirosProtegidos)}
-                detalhe="Valor que não pertence à HC. Não entra em retirada nem gasto livre."
-                classe="bg-orange-50 text-orange-700 border-orange-200"
-              />
+              <div className="rounded-3xl border border-white/10 bg-white/[0.07] p-6 backdrop-blur">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Cobertura financeira</p>
+                    <p className="mt-2 text-3xl font-black">{coberturaCaixa.toFixed(0)}%</p>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-black text-slate-200">
+                    Meta 100%
+                  </div>
+                </div>
 
-              <DonoResumoCard
-                titulo="Empréstimos da HC"
-                valor={moeda(resumoDono.emprestimosMensaisHC)}
-                detalhe={`Parcela mensal fixa. Dívida atual: ${moeda(resumoDono.saldoDevedorEmprestimosHC)}`}
-                classe="bg-purple-50 text-purple-700 border-purple-200"
-              />
+                <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
+                  <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${coberturaCaixa}%` }} />
+                </div>
 
-              <DonoResumoCard
-                titulo="Posso gastar livre"
-                valor={moeda(resumoDono.gastoLivrePermitido)}
-                detalhe={resumoDono.gastoLivrePermitido > 0 ? 'Sobra segura para gasto não obrigatório.' : 'Sem gasto livre. Apenas obrigações essenciais.'}
-                classe={resumoDono.gastoLivrePermitido > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}
-              />
+                <div className="mt-5 space-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                    <span className="font-semibold text-slate-400">Caixa mínimo recomendado</span>
+                    <span className="font-black">{moeda(resumoDono.caixaMinimoRecomendado)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                    <span className="font-semibold text-slate-400">Empréstimos mensais</span>
+                    <span className="font-black">{moeda(resumoDono.emprestimosMensaisHC)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-slate-400">Terceiros protegidos</span>
+                    <span className="font-black">{moeda(resumoDono.terceirosProtegidos)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <p className="text-sm font-black text-slate-200">Cobertura mínima para voltar a respirar</p>
-                <p className="text-sm font-black text-white">{resumoDono.percentualCaixa.toFixed(0)}%</p>
-              </div>
-              <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
-                <div className={`h-full rounded-full ${barraCaixaClasse}`} style={{ width: `${resumoDono.percentualCaixa}%` }} />
-              </div>
-              <p className="mt-2 text-xs font-bold text-slate-400">
-                Caixa mínimo: {moeda(resumoDono.caixaMinimoRecomendado)} | Empréstimos do mês: {moeda(resumoDono.emprestimosMensaisHC)} | Regularização real: {moeda(resumoDono.caixaNegativoRealRegularizar)}
+          <div className="grid grid-cols-1 divide-y divide-slate-100 md:grid-cols-2 md:divide-y-0 xl:grid-cols-4 xl:divide-x">
+            <div className="p-5">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-400">Profit HC</p>
+              <p className="mt-2 text-2xl font-black text-emerald-700">{moeda(resumoDono.profitHC)}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">Entrada operacional apurada</p>
+            </div>
+            <div className="p-5">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-400">Resultado operacional</p>
+              <p className={`mt-2 text-2xl font-black ${resumoDono.resultadoOperacional >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                {moeda(resumoDono.resultadoOperacional)}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">Profit menos obrigações de resultado</p>
+            </div>
+            <div className="p-5">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-400">Dívida dos empréstimos</p>
+              <p className="mt-2 text-2xl font-black text-violet-700">{moeda(resumoDono.saldoDevedorEmprestimosHC)}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{resumoDono.qtdEmprestimosHC} contratos ativos</p>
+            </div>
+            <div className="p-5">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-400">Processos sem custo</p>
+              <p className={`mt-2 text-2xl font-black ${resumoDono.qtdProcessosSemCompra > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                {resumoDono.qtdProcessosSemCompra}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                {moeda(resumoDono.valorRecebidoSemCompra)} recebidos aguardando compra
               </p>
             </div>
-          </section>
+          </div>
         </section>
 
-        <section className="rounded-2xl border border-red-100 bg-red-50 p-5 shadow-sm">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+          <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Prioridades</p>
+                <h3 className="mt-1 text-xl font-black text-slate-950">O que precisa de atenção agora</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  A ordem abaixo evita misturar dívida, caixa, terceiros e retirada.
+                </p>
+              </div>
+              <div className={`rounded-xl border px-3 py-2 text-xs font-black ${statusClasse}`}>
+                {resumoDono.maiorErroFinanceiro}
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-3">
+              <div className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">01</div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-black text-slate-900">Regularizar o caixa</p>
+                  <p className="text-xs font-semibold text-slate-500">Primeiro elimina o déficit real antes de novas retiradas.</p>
+                </div>
+                <p className={`text-right font-black ${resumoDono.caixaNegativoRealRegularizar > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                  {moeda(resumoDono.caixaNegativoRealRegularizar)}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">02</div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-black text-slate-900">Proteger valores de terceiros</p>
+                  <p className="text-xs font-semibold text-slate-500">Esse dinheiro não compõe lucro nem retirada da HC.</p>
+                </div>
+                <p className="text-right font-black text-amber-700">{moeda(resumoDono.terceirosProtegidos)}</p>
+              </div>
+
+              <div className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">03</div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-black text-slate-900">Cobrir compromissos mensais</p>
+                  <p className="text-xs font-semibold text-slate-500">Parcelas dos empréstimos entram antes da distribuição.</p>
+                </div>
+                <p className="text-right font-black text-violet-700">{moeda(resumoDono.emprestimosMensaisHC)}</p>
+              </div>
+
+              <div className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">04</div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-black text-slate-900">Completar custos pendentes</p>
+                  <p className="text-xs font-semibold text-slate-500">Processos recebidos sem compra deixam o resultado parcial.</p>
+                </div>
+                <p className={`text-right font-black ${resumoDono.qtdProcessosSemCompra > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {resumoDono.qtdProcessosSemCompra} processo(s)
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-blue-600">Próxima ação recomendada</p>
+              <p className="mt-1 text-sm font-bold leading-6 text-blue-950">{resumoDono.acaoRecomendada}</p>
+            </div>
+          </section>
+
+          <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
             <div>
-              <h3 className="text-xl font-black text-red-950">Onde estou errando</h3>
-              <p className="text-sm font-semibold text-red-700">
-                O sistema mostra os motivos que impedem retirada e gasto livre.
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Sócios</p>
+              <h3 className="mt-1 text-xl font-black text-slate-950">Distribuição 25% / 25%</h3>
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Mostra direito acumulado, retiradas registradas e saldo individual.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-red-200 bg-white px-4 py-3">
-              <p className="text-xs font-black uppercase tracking-wide text-red-500">Maior ponto de atenção</p>
-              <p className="text-lg font-black text-red-900">{resumoDono.maiorErroFinanceiro}</p>
+            <div className="mt-6 grid grid-cols-1 gap-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-black text-slate-950">Marcos</p>
+                    <p className="text-xs font-semibold text-slate-500">25% do lucro distribuível</p>
+                  </div>
+                  <Badge
+                    texto={resumoDono.saldoMarcos >= 0 ? 'DENTRO DA REGRA' : 'ADIANTADO'}
+                    classe={resumoDono.saldoMarcos >= 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}
+                  />
+                </div>
+                <div className="mt-5 grid grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Direito</p>
+                    <p className="mt-1 font-black text-slate-900">{moeda(resumoDono.direitoMarcos)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Retirado</p>
+                    <p className="mt-1 font-black text-red-700">{moeda(resumoDono.retiradasMarcos)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Saldo</p>
+                    <p className={`mt-1 font-black ${resumoDono.saldoMarcos >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                      {moeda(resumoDono.saldoMarcos)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-black text-slate-950">Hérica</p>
+                    <p className="text-xs font-semibold text-slate-500">25% do lucro distribuível</p>
+                  </div>
+                  <Badge
+                    texto={resumoDono.saldoHerica >= 0 ? 'DENTRO DA REGRA' : 'ADIANTADO'}
+                    classe={resumoDono.saldoHerica >= 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}
+                  />
+                </div>
+                <div className="mt-5 grid grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Direito</p>
+                    <p className="mt-1 font-black text-slate-900">{moeda(resumoDono.direitoHerica)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Retirado</p>
+                    <p className="mt-1 font-black text-red-700">{moeda(resumoDono.retiradasHerica)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Saldo</p>
+                    <p className={`mt-1 font-black ${resumoDono.saldoHerica >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                      {moeda(resumoDono.saldoHerica)}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-            <ErroCard
-              titulo="Retiradas acima do permitido"
-              valor={moeda(resumoDono.excessoRetiradasSocios)}
-              detalhe={`Marcos: ${moeda(resumoDono.excessoRetiradasMarcos)} | Hérica: ${moeda(resumoDono.excessoRetiradasHerica)}`}
-              ruim={resumoDono.excessoRetiradasSocios > 0}
-            />
-
-            <ErroCard
-              titulo="Caixa mínimo faltando"
-              valor={moeda(resumoDono.faltaReservaHC)}
-              detalhe={`Mínimo obrigatório: ${moeda(resumoDono.caixaMinimoRecomendado)}`}
-              ruim={resumoDono.faltaReservaHC > 0}
-            />
-
-            <ErroCard
-              titulo="Caixa negativo real"
-              valor={moeda(resumoDono.caixaNegativoRealRegularizar)}
-              detalhe="Terceiros + caixa mínimo + empréstimos para regularizar."
-              ruim={resumoDono.caixaNegativoRealRegularizar > 0}
-            />
-
-            <ErroCard
-              titulo="Empréstimos fixos"
-              valor={moeda(resumoDono.emprestimosMensaisHC)}
-              detalhe="Esse valor sai todo mês antes de retirada dos sócios."
-              ruim={resumoDono.emprestimosMensaisHC > 0}
-            />
-
-            <ErroCard
-              titulo="Processos pagos sem custo"
-              valor={resumoDono.qtdProcessosSemCompra}
-              detalhe={`${moeda(resumoDono.valorRecebidoSemCompra)} recebidos com compra zerada`}
-              ruim={resumoDono.qtdProcessosSemCompra > 0}
-            />
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h3 className="text-xl font-black text-gray-950">Plano de correção</h3>
-            <p className="text-sm font-semibold text-gray-500 mt-1">
-              Ordem para a HC voltar a ter caixa livre real.
-            </p>
-
-            <div className="mt-5 space-y-3">
-              <DecisionRow label="1. Bloquear retirada" valor={resumoDono.podeRetirarAgora > 0 ? 'Liberado com limite' : 'Bloqueado agora'} perigo={resumoDono.podeRetirarAgora <= 0} sucesso={resumoDono.podeRetirarAgora > 0} />
-              <DecisionRow label="2. Proteger terceiros" valor={moeda(resumoDono.terceirosProtegidos)} destaque />
-              <DecisionRow label="3. Cobrir empréstimos do mês" valor={moeda(resumoDono.emprestimosMensaisHC)} perigo={resumoDono.emprestimosMensaisHC > 0} />
-              <DecisionRow label="4. Repor caixa mínimo" valor={moeda(resumoDono.faltaReservaHC)} perigo={resumoDono.faltaReservaHC > 0} sucesso={resumoDono.faltaReservaHC <= 0} />
-              <DecisionRow label="5. Nova retirada só depois de" valor={moeda(resumoDono.caixaNegativoRealRegularizar)} perigo={resumoDono.caixaNegativoRealRegularizar > 0} sucesso={resumoDono.caixaNegativoRealRegularizar <= 0} />
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
-              <p className="text-sm font-black text-yellow-900">Ação recomendada</p>
-              <p className="mt-1 text-sm font-semibold text-yellow-800">{resumoDono.acaoRecomendada}</p>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h3 className="text-xl font-black text-gray-950">Sócios pela regra 25% / 25%</h3>
-            <p className="text-sm font-semibold text-gray-500 mt-1">
-              Retirada é abatimento da parte de cada sócio, não despesa da empresa.
-            </p>
-
-            <div className="mt-5 overflow-x-auto">
-              <table className="min-w-[620px] w-full text-sm">
-                <thead className="bg-gray-50 text-gray-500">
-                  <tr>
-                    <Th>Sócio</Th>
-                    <Th>Direito</Th>
-                    <Th>Já retirou</Th>
-                    <Th>Saldo</Th>
-                    <Th>Situação</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-gray-100">
-                    <Td>Marcos</Td>
-                    <Td>{moeda(resumoDono.direitoMarcos)}</Td>
-                    <Td><span className="font-black text-red-700">{moeda(resumoDono.retiradasMarcos)}</span></Td>
-                    <Td><span className={resumoDono.saldoMarcos >= 0 ? 'font-black text-green-700' : 'font-black text-red-700'}>{moeda(resumoDono.saldoMarcos)}</span></Td>
-                    <Td><Badge texto={resumoDono.saldoMarcos >= 0 ? 'DENTRO DA REGRA' : 'ADIANTADO'} classe={resumoDono.saldoMarcos >= 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'} /></Td>
-                  </tr>
-                  <tr className="border-b border-gray-100">
-                    <Td>Hérica</Td>
-                    <Td>{moeda(resumoDono.direitoHerica)}</Td>
-                    <Td><span className="font-black text-red-700">{moeda(resumoDono.retiradasHerica)}</span></Td>
-                    <Td><span className={resumoDono.saldoHerica >= 0 ? 'font-black text-green-700' : 'font-black text-red-700'}>{moeda(resumoDono.saldoHerica)}</span></Td>
-                    <Td><Badge texto={resumoDono.saldoHerica >= 0 ? 'DENTRO DA REGRA' : 'ADIANTADO'} classe={resumoDono.saldoHerica >= 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'} /></Td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="mt-5 rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-slate-500">Total retirado pelos sócios</span>
+                <span className="text-lg font-black text-slate-950">{moeda(resumoDono.retiradasTotal)}</span>
+              </div>
             </div>
           </section>
         </section>
@@ -5012,7 +5079,7 @@ export default function FinanceiroPage() {
         <div>
           <h1 className="text-2xl font-black text-gray-950">Financeiro</h1>
           <p className="text-sm text-gray-500">
-            Painel do Dono, resultado mensal, terceiros, processos faturados e movimentações financeiras
+            Visão executiva, resultado mensal, processos faturados, despesas, sócios e caixa
           </p>
         </div>
 
@@ -5122,12 +5189,12 @@ export default function FinanceiroPage() {
       </section>
 
       <section className="mb-6 flex gap-2 overflow-x-auto pb-1">
-        <TabButton ativo={abaPrincipal === 'EXTRATO'} onClick={() => mudarAbaPrincipal('EXTRATO')}>Painel do Dono</TabButton>
+        <TabButton ativo={abaPrincipal === 'EXTRATO'} onClick={() => mudarAbaPrincipal('EXTRATO')}>Visão Executiva</TabButton>
         <TabButton ativo={abaPrincipal === 'RESULTADO'} onClick={() => mudarAbaPrincipal('RESULTADO')}>Resultado Mensal</TabButton>
         <TabButton ativo={abaPrincipal === 'PROCESSOS'} onClick={() => mudarAbaPrincipal('PROCESSOS')}>Processos Faturados</TabButton>
         <TabButton ativo={abaPrincipal === 'DESPESAS'} onClick={() => mudarAbaPrincipal('DESPESAS')}>Despesas</TabButton>
         <TabButton ativo={abaPrincipal === 'SOCIOS'} onClick={() => mudarAbaPrincipal('SOCIOS')}>Retiradas / Sócios</TabButton>
-        <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Caixa Real</TabButton>
+        <TabButton ativo={abaPrincipal === 'FUNDO'} onClick={() => mudarAbaPrincipal('FUNDO')}>Caixa & Fundo</TabButton>
       </section>
 
       {abaPrincipal === 'PROCESSOS' && (
@@ -5506,95 +5573,192 @@ export default function FinanceiroPage() {
       )}
 
       {abaPrincipal === 'FUNDO' && (
-        <>
-          <section className="grid grid-cols-1 lg:grid-cols-4 gap-5 mb-5">
-            <BigCard
-              titulo="PROFIT RECEBIDO"
-              valor={moeda(resumoCaixaRealProfit.profitRecebido)}
-              subtitulo={`${resumoCaixaRealProfit.processosPagos} processos pagos | Receita bruta não entra`}
-              icone="R$"
-              classe="bg-green-50 border-green-200 text-green-700"
-            />
-
-            <BigCard
-              titulo="SAÍDAS REAIS"
-              valor={moeda(resumoCaixaRealProfit.saidasReais)}
-              subtitulo="Despesas + empréstimos + retiradas + saídas"
-              icone="SAI"
-              classe="bg-red-50 border-red-200 text-red-700"
-            />
-
-            <BigCard
-              titulo="CAIXA REAL AJUSTADO"
-              valor={moeda(resumoCaixaRealProfit.caixaRealAjustado)}
-              subtitulo="Profit + entradas extras - todas as saídas"
-              icone="CX"
-              classe={resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}
-            />
-
-            <BigCard
-              titulo="FALTA REGULARIZAR"
-              valor={moeda(resumoCaixaRealProfit.faltaRegularizarReal)}
-              subtitulo="Caixa real negativo + fundo pendente"
-              icone="!"
-              classe={resumoCaixaRealProfit.faltaRegularizarReal > 0 ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-green-50 border-green-200 text-green-700'}
-            />
-          </section>
-
-          <section className="mb-5 rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <section className="space-y-5">
+          <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-5 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white lg:flex-row lg:items-center lg:justify-between lg:p-7">
               <div>
-                <h3 className="text-xl font-black text-gray-950">Leitura correta do caixa</h3>
-                <p className="mt-1 text-sm font-semibold text-gray-500">
-                  Esta visão considera somente o Profit HC como entrada operacional. Receita bruta de cliente não entra no caixa livre da HC.
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-200">Caixa & Fundo</p>
+                <h2 className="mt-2 text-3xl font-black tracking-tight">Posição real de caixa</h2>
+                <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
+                  Profit é a entrada operacional da HC. Receita bruta do cliente aparece apenas como referência e não aumenta o caixa livre.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:min-w-[760px]">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">Receita bruta ignorada</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{moeda(resumoCaixaRealProfit.valorRecebidoBruto)}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">Valor recebido total, não é caixa livre.</p>
-                </div>
-
-                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-blue-500">Fundo previsto</p>
-                  <p className="mt-1 text-lg font-black text-blue-700">{moeda(resumoCaixaRealProfit.fundoPrevisto)}</p>
-                  <p className="mt-1 text-xs font-semibold text-blue-500">50% do resultado antes das retiradas.</p>
-                </div>
-
-                <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-orange-500">Fundo pendente</p>
-                  <p className="mt-1 text-lg font-black text-orange-700">{moeda(resumoCaixaRealProfit.fundoPendente)}</p>
-                  <p className="mt-1 text-xs font-semibold text-orange-500">Reserva não aplicada se não sobrou caixa.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-              <FiltroResumoCard titulo="Despesas" valor={moeda(resumoCaixaRealProfit.despesasPagas)} detalhe="Saída real" classe="bg-white text-red-700 border-red-100" />
-              <FiltroResumoCard titulo="Empréstimos" valor={moeda(resumoCaixaRealProfit.emprestimosPagos)} detalhe="Saída real" classe="bg-white text-purple-700 border-purple-100" />
-              <FiltroResumoCard titulo="Retiradas / sócios" valor={moeda(resumoCaixaRealProfit.retiradasSocios)} detalhe="Saída real" classe="bg-white text-red-700 border-red-100" />
-              <FiltroResumoCard titulo="Saídas fundo/caixa" valor={moeda(resumoCaixaRealProfit.saidasFundoCaixa)} detalhe="Uso real do fundo" classe="bg-white text-red-700 border-red-100" />
-              <FiltroResumoCard titulo="Reserva já lançada" valor={moeda(resumoCaixaRealProfit.reservasLancadas)} detalhe="Não cria caixa novo" classe="bg-white text-blue-700 border-blue-100" />
-              <FiltroResumoCard titulo="Caixa operacional" valor={moeda(resumoCaixaRealProfit.caixaOperacionalDoProfit)} detalhe="Só Profit - saídas operacionais" classe={resumoCaixaRealProfit.caixaOperacionalDoProfit >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
-              <FiltroResumoCard titulo="Entradas extraordinárias" valor={moeda(resumoCaixaRealProfit.entradasNaoOperacionais)} detalhe="Carro, aportes e ajustes positivos" classe="bg-white text-green-700 border-green-100" />
-              <FiltroResumoCard titulo="Saídas extraordinárias" valor={moeda(resumoCaixaRealProfit.saidasExtraordinarias)} detalhe="Ativos, fundo e ajustes negativos" classe="bg-white text-red-700 border-red-100" />
-            </div>
-
-            {resumoCaixaRealProfit.caixaRealAjustado < 0 && (
-              <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4">
-                <p className="text-sm font-black text-red-900">Atenção</p>
-                <p className="mt-1 text-sm font-semibold text-red-800">
-                  As saídas passaram das entradas reais consideradas no caixa. A reserva não deve deixar o caixa positivo artificialmente.
+              <div className={`rounded-2xl border px-5 py-4 text-center ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-red-400/30 bg-red-400/10'}`}>
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-300">Status do caixa</p>
+                <p className={`mt-1 text-xl font-black ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'POSITIVO' : 'NEGATIVO'}
                 </p>
               </div>
-            )}
+            </div>
+
+            <div className="grid grid-cols-1 divide-y divide-slate-100 md:grid-cols-2 md:divide-y-0 xl:grid-cols-4 xl:divide-x">
+              <div className="p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo de caixa calculado</p>
+                <p className={`mt-2 text-2xl font-black ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {moeda(resumoCaixaRealProfit.caixaRealAjustado)}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">Profit + extras - todas as saídas reais</p>
+              </div>
+              <div className="p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Profit recebido</p>
+                <p className="mt-2 text-2xl font-black text-emerald-700">{moeda(resumoCaixaRealProfit.profitRecebido)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">{resumoCaixaRealProfit.processosPagos} processos pagos</p>
+              </div>
+              <div className="p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saídas realizadas</p>
+                <p className="mt-2 text-2xl font-black text-red-700">{moeda(resumoCaixaRealProfit.saidasReais)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">Operacionais + extraordinárias</p>
+              </div>
+              <div className="p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Falta regularizar</p>
+                <p className={`mt-2 text-2xl font-black ${resumoCaixaRealProfit.faltaRegularizarReal > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {moeda(resumoCaixaRealProfit.faltaRegularizarReal)}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">Déficit real + fundo ainda pendente</p>
+              </div>
+            </div>
           </section>
 
-          {renderFormularioMovimento('Nova movimentação / ajuste de caixa', 'Use esta área apenas para ajustes reais, aportes, entradas ou saídas do fundo. Despesas e retiradas continuam em suas abas próprias.')}
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+            <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Fluxo do período</p>
+                <h3 className="mt-1 text-xl font-black text-slate-950">Como o caixa foi formado</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Uma única conta mostra de onde veio o saldo, sem repetir os mesmos totais em vários cards.
+                </p>
+              </div>
+
+              <div className="mt-6 space-y-1">
+                <div className="flex items-center justify-between gap-4 rounded-xl px-4 py-3">
+                  <div>
+                    <p className="font-black text-slate-900">Profit HC recebido</p>
+                    <p className="text-xs font-semibold text-slate-500">Entrada operacional</p>
+                  </div>
+                  <p className="font-black text-emerald-700">+ {moeda(resumoCaixaRealProfit.profitRecebido)}</p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-xl bg-emerald-50 px-4 py-3">
+                  <div>
+                    <p className="font-black text-slate-900">Entradas extraordinárias</p>
+                    <p className="text-xs font-semibold text-slate-500">Aportes, ajustes positivos e entradas não operacionais</p>
+                  </div>
+                  <p className="font-black text-emerald-700">+ {moeda(resumoCaixaRealProfit.entradasNaoOperacionais)}</p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-xl px-4 py-3">
+                  <div>
+                    <p className="font-black text-slate-900">Despesas</p>
+                    <p className="text-xs font-semibold text-slate-500">Saídas administrativas e operacionais</p>
+                  </div>
+                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.despesasPagas)}</p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-xl bg-red-50 px-4 py-3">
+                  <div>
+                    <p className="font-black text-slate-900">Empréstimos</p>
+                    <p className="text-xs font-semibold text-slate-500">Parcelas efetivamente pagas</p>
+                  </div>
+                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.emprestimosPagos)}</p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-xl px-4 py-3">
+                  <div>
+                    <p className="font-black text-slate-900">Retiradas dos sócios</p>
+                    <p className="text-xs font-semibold text-slate-500">Retiradas, pagamentos e reembolsos com impacto no caixa</p>
+                  </div>
+                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.retiradasSocios)}</p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-xl bg-red-50 px-4 py-3">
+                  <div>
+                    <p className="font-black text-slate-900">Outras saídas de caixa</p>
+                    <p className="text-xs font-semibold text-slate-500">Saídas de fundo e ajustes negativos</p>
+                  </div>
+                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.saidasExtraordinarias)}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-900 bg-slate-950 p-5 text-white sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Saldo final calculado</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-300">Resultado da movimentação real considerada pelo painel.</p>
+                </div>
+                <p className={`text-3xl font-black ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {moeda(resumoCaixaRealProfit.caixaRealAjustado)}
+                </p>
+              </div>
+            </section>
+
+            <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Reserva e proteção</p>
+                <h3 className="mt-1 text-xl font-black text-slate-950">Fundo da HC</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Separa o que é resultado, reserva prevista e o que ainda precisa ser constituído.
+                </p>
+              </div>
+
+              <div className="mt-6 space-y-3">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-500">Fundo previsto</p>
+                  <p className="mt-1 text-2xl font-black text-blue-700">{moeda(resumoCaixaRealProfit.fundoPrevisto)}</p>
+                  <p className="mt-1 text-xs font-semibold text-blue-600">50% do resultado positivo antes das retiradas.</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-[11px] font-black uppercase text-slate-400">Já reservado</p>
+                    <p className="mt-1 text-lg font-black text-slate-900">{moeda(resumoCaixaRealProfit.reservasLancadas)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-[11px] font-black uppercase text-amber-500">Ainda pendente</p>
+                    <p className="mt-1 text-lg font-black text-amber-700">{moeda(resumoCaixaRealProfit.fundoPendente)}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold text-slate-500">Processos pagos sem custo</span>
+                    <span className={`text-lg font-black ${resumoCaixaRealProfit.processosSemCusto > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                      {resumoCaixaRealProfit.processosSemCusto}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs font-semibold text-slate-500">
+                    Enquanto houver custo pendente, parte do Profit pode continuar parcial.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Receita bruta apenas informativa</p>
+                  <p className="mt-1 text-xl font-black text-slate-900">{moeda(resumoCaixaRealProfit.valorRecebidoBruto)}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">Não entra como caixa livre da HC.</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          {resumoCaixaRealProfit.caixaRealAjustado < 0 && (
+            <section className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-red-900">Caixa negativo</p>
+                  <p className="mt-1 text-sm font-semibold text-red-700">
+                    As saídas reais superaram as entradas consideradas. Novas retiradas devem permanecer bloqueadas até a regularização.
+                  </p>
+                </div>
+                <p className="text-2xl font-black text-red-700">{moeda(resumoCaixaRealProfit.faltaRegularizarReal)}</p>
+              </div>
+            </section>
+          )}
+
+          {renderFormularioMovimento(
+            'Nova movimentação / ajuste de caixa',
+            'Registre somente aportes, ajustes reais e entradas ou saídas de fundo. Despesas e retiradas permanecem em suas abas específicas.'
+          )}
           {renderTabelaMovimentos()}
-        </>
+        </section>
       )}
 
       {abaPrincipal === 'EXTRATO' && renderExtratoGeral()}
