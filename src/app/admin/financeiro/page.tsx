@@ -492,6 +492,14 @@ export default function FinanceiroPage() {
     )
   }
 
+  function mesResultadoLancamento(item: any) {
+    const recebimento = dataRecebimentoProcesso(item)
+
+    // Resultado mensal pertence exclusivamente ao mês em que o cliente pagou.
+    // Vencimento, mês importado e mês_profit não movem um processo pago para outro mês.
+    return recebimento ? mesReferenciaFinanceira(recebimento) : ''
+  }
+
   function mesBaseMovimento(item: any) {
     return (
       mesReferenciaFinanceira(item.mes_referencia) ||
@@ -1720,7 +1728,7 @@ export default function FinanceiroPage() {
     }
 
     function mesProcessoPdf(item: any) {
-      return mesBaseLancamento(item)
+      return mesResultadoLancamento(item)
     }
 
     function mesMovimentoPdf(item: any) {
@@ -2226,14 +2234,40 @@ export default function FinanceiroPage() {
       return
     }
 
+    const fechamentoParcial = resultadoGeral.semCusto > 0
+
+    const referenciasComCusto = resultadoGeral.processosComCustoDetalhados
+      .map((item: any) => item.awb || item.fatura || item.id)
+      .filter(Boolean)
+      .join(', ')
+
+    const referenciasSemCusto = resultadoGeral.processosSemCustoDetalhados
+      .map((item: any) => item.awb || item.fatura || item.id)
+      .filter(Boolean)
+      .join(', ')
+
     const descricaoFechamento = fechamentoJaLancado
       ? `Complemento do fechamento mensal - reserva 50% ${mesResultado}`
-      : `Fechamento mensal - reserva 50% ${mesResultado}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'}`
+      : `Fechamento mensal${fechamentoParcial ? ' parcial' : ''} - reserva 50% ${mesResultado}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'}`
+
+    const alertaCusto =
+      fechamentoParcial
+        ? `\n\nATENÇÃO: ${resultadoGeral.semCusto} processo(s) recebido(s) ainda estão sem valor de compra e NÃO entram no Profit agora. ` +
+          `Este fechamento ficará parcial e poderá ser complementado quando os custos forem lançados.\n` +
+          `Aguardando custo: ${referenciasSemCusto || 'sem referência'}.`
+        : ''
 
     const mensagem =
-      `${fechamentoJaLancado ? 'Complementar' : 'Gerar'} fechamento de ${mesResultado}?\n\n` +
+      `${fechamentoJaLancado ? 'Complementar' : 'Gerar'} fechamento de ${formatarMesVisual(mesResultado)}?\n\n` +
+      `Processos recebidos: ${resultadoGeral.processos}\n` +
+      `Com custo: ${resultadoGeral.comCusto}\n` +
+      `Aguardando custo: ${resultadoGeral.semCusto}\n` +
+      `Valor recebido: ${moeda(resultadoGeral.valorRecebido)}\n` +
+      `Profit apurado: ${moeda(resultadoGeral.profitRecebido)}\n` +
+      `Despesas + empréstimos: ${moeda(resultadoGeral.despesasPagas + resultadoGeral.emprestimosPagos)}\n` +
       `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
-      `Retiradas dos sócios: ${moeda(resultadoGeral.retiradasTotal)}\n` +
+      alertaCusto +
+      `\n\nRetiradas dos sócios: ${moeda(resultadoGeral.retiradasTotal)}\n` +
       `Caixa após retiradas: ${moeda(resultadoGeral.saldoCaixaRealMes)}\n\n` +
       `Fundo previsto 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}\n` +
       `Já reservado no fundo: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
@@ -2265,19 +2299,29 @@ export default function FinanceiroPage() {
       socio: null,
       forma_pagamento: fechamentoJaLancado
         ? 'Complemento automático'
-        : 'Fechamento automático',
+        : fechamentoParcial
+          ? 'Fechamento parcial automático'
+          : 'Fechamento automático',
       impacta_resultado: false,
       impacta_caixa: true,
       observacoes:
-        `${fechamentoJaLancado ? 'Complemento do fechamento' : 'Fechamento'} gerado pelo Resultado Mensal. ` +
-        `Profit HC recebido: ${moeda(resultadoGeral.profitRecebido)}. ` +
+        `${fechamentoJaLancado ? 'Complemento do fechamento' : fechamentoParcial ? 'Fechamento parcial' : 'Fechamento'} gerado pelo Resultado Mensal. ` +
+        `Mês de competência pelo recebimento: ${mesResultado}. ` +
+        `Processos recebidos: ${resultadoGeral.processos}. ` +
+        `Com custo: ${resultadoGeral.comCusto}. ` +
+        `Aguardando custo: ${resultadoGeral.semCusto}. ` +
+        `Valor recebido: ${moeda(resultadoGeral.valorRecebido)}. ` +
+        `Profit HC apurado: ${moeda(resultadoGeral.profitRecebido)}. ` +
         `Despesas pagas: ${moeda(resultadoGeral.despesasPagas)}. ` +
+        `Empréstimos pagos: ${moeda(resultadoGeral.emprestimosPagos)}. ` +
         `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}. ` +
         `Fundo 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}. ` +
         `Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}. ` +
         `Hérica 25%: ${moeda(resultadoGeral.parteHerica)}. ` +
         `Retirado Marcos: ${moeda(resultadoGeral.retiradasMarcos)}. ` +
-        `Retirado Hérica: ${moeda(resultadoGeral.retiradasHerica)}.`,
+        `Retirado Hérica: ${moeda(resultadoGeral.retiradasHerica)}. ` +
+        `Referências com custo: ${referenciasComCusto || 'nenhuma'}. ` +
+        `Referências aguardando custo: ${referenciasSemCusto || 'nenhuma'}.`,
       comprovante_url: '',
     })
 
@@ -2294,7 +2338,9 @@ export default function FinanceiroPage() {
     alert(
       fechamentoJaLancado
         ? 'Complemento do fechamento gerado com sucesso. Somente a diferença disponível foi lançada no Fundo de Caixa.'
-        : 'Fechamento mensal gerado com sucesso. A reserva disponível foi lançada no Fundo de Caixa.'
+        : fechamentoParcial
+          ? 'Fechamento parcial gerado. Os processos sem custo ficaram registrados para complemento posterior.'
+          : 'Fechamento mensal gerado com sucesso. A reserva disponível foi lançada no Fundo de Caixa.'
     )
   }
 
@@ -2306,27 +2352,38 @@ export default function FinanceiroPage() {
   }
 
   function calcularResultadoDoMes(mesRef: string) {
-    const embarquesMes = lancamentos.filter(
-      (item) => mesBaseLancamento(item) === mesRef
+    const processosPagosMes = lancamentos
+      .filter(
+        (item) =>
+          statusCobranca(item) === 'PAGO' &&
+          mesResultadoLancamento(item) === mesRef
+      )
+      .sort((a, b) =>
+        String(dataRecebimentoProcesso(a) || '').localeCompare(
+          String(dataRecebimentoProcesso(b) || '')
+        )
+      )
+
+    const processosComCusto = processosPagosMes.filter(
+      (item) => Number(item.valor_compra || 0) > 0
     )
 
-    const processosPagosMes = embarquesMes.filter(
-      (item) => statusCobranca(item) === 'PAGO'
-    )
+    const processosSemCusto = processosPagosMes.filter(aguardandoCustoProcesso)
 
     const valorRecebido = processosPagosMes.reduce(
       (acc, item) => acc + Number(item.valor_cobranca || 0),
       0
     )
 
-    const profitRecebido = processosPagosMes.reduce((acc, item) => {
-      const possuiCusto = Number(item.valor_compra || 0) > 0
-      return possuiCusto ? acc + calcularProfit(item) : acc
-    }, 0)
+    const valorRecebidoSemCusto = processosSemCusto.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
+      0
+    )
 
-    const semCusto = processosPagosMes.filter((item) =>
-      aguardandoCustoProcesso(item)
-    ).length
+    const profitRecebido = processosComCusto.reduce(
+      (acc, item) => acc + calcularProfit(item),
+      0
+    )
 
     const movimentosMes = movimentacoes.filter(
       (item) => mesBaseMovimento(item) === mesRef
@@ -2411,9 +2468,8 @@ export default function FinanceiroPage() {
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
-    const resultadoOperacional =
-      profitRecebido - despesasPagas - emprestimosPagos
-
+    const saidasResultado = despesasPagas + emprestimosPagos
+    const resultadoOperacional = profitRecebido - saidasResultado
     const lucroDistribuivel = resultadoOperacional > 0 ? resultadoOperacional : 0
     const fundoPrevistoMes = lucroDistribuivel * 0.5
     const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
@@ -2435,11 +2491,17 @@ export default function FinanceiroPage() {
     return {
       mesRef,
       processos: processosPagosMes.length,
+      comCusto: processosComCusto.length,
+      semCusto: processosSemCusto.length,
+      processosDetalhados: processosPagosMes,
+      processosComCustoDetalhados: processosComCusto,
+      processosSemCustoDetalhados: processosSemCusto,
       valorRecebido,
+      valorRecebidoSemCusto,
       profitRecebido,
-      semCusto,
       despesasPagas,
       emprestimosPagos,
+      saidasResultado,
       reservasFundoMes,
       resultadoOperacional,
       lucroDistribuivel,
@@ -2449,6 +2511,7 @@ export default function FinanceiroPage() {
       valorReservaPossivelMes,
     }
   }
+
 
   function deveRegistrarFechamentoRetroativo(item: any) {
     const temSaldoPendente = Number(item.saldoFundoMes || 0) > 0.009
@@ -2467,7 +2530,7 @@ export default function FinanceiroPage() {
     const meses = Array.from(
       new Set([
         ...lancamentos
-          .map((item) => mesBaseLancamento(item))
+          .map((item) => mesResultadoLancamento(item))
           .filter(Boolean),
         ...movimentacoes
           .map((item) => mesBaseMovimento(item))
@@ -2877,23 +2940,40 @@ export default function FinanceiroPage() {
   }, [movimentacoesFiltradas])
 
   const resultadoGeral = useMemo(() => {
-    const embarquesMes = lancamentos.filter(
-      (item) => mesBaseLancamento(item) === mesResultado
+    const processosPagosMes = lancamentos
+      .filter(
+        (item) =>
+          statusCobranca(item) === 'PAGO' &&
+          mesResultadoLancamento(item) === mesResultado
+      )
+      .sort((a, b) =>
+        String(dataRecebimentoProcesso(a) || '').localeCompare(
+          String(dataRecebimentoProcesso(b) || '')
+        )
+      )
+
+    const processosComCustoDetalhados = processosPagosMes.filter(
+      (item) => Number(item.valor_compra || 0) > 0
     )
 
-    const processosPagosMes = embarquesMes.filter((item) => statusCobranca(item) === 'PAGO')
+    const processosSemCustoDetalhados = processosPagosMes.filter(
+      aguardandoCustoProcesso
+    )
 
     const valorRecebido = processosPagosMes.reduce(
       (acc, item) => acc + Number(item.valor_cobranca || 0),
       0
     )
 
-    const profitRecebido = processosPagosMes.reduce((acc, item) => {
-      const possuiCusto = Number(item.valor_compra || 0) > 0
-      return possuiCusto ? acc + calcularProfit(item) : acc
-    }, 0)
+    const valorRecebidoSemCusto = processosSemCustoDetalhados.reduce(
+      (acc, item) => acc + Number(item.valor_cobranca || 0),
+      0
+    )
 
-    const semCusto = processosPagosMes.filter((item) => aguardandoCustoProcesso(item)).length
+    const profitRecebido = processosComCustoDetalhados.reduce(
+      (acc, item) => acc + calcularProfit(item),
+      0
+    )
 
     const movimentosMes = movimentacoes.filter(
       (item) => mesBaseMovimento(item) === mesResultado
@@ -3009,7 +3089,8 @@ export default function FinanceiroPage() {
     const fundoAtual = calcularFundoAtualPermitido()
 
     const retiradasTotal = retiradasMarcos + retiradasHerica
-    const resultadoOperacional = profitRecebido - despesasPagas - emprestimosPagos
+    const saidasResultado = despesasPagas + emprestimosPagos
+    const resultadoOperacional = profitRecebido - saidasResultado
     const lucroDistribuivel = resultadoOperacional > 0 ? resultadoOperacional : 0
     const fundoPrevistoMes = lucroDistribuivel * 0.5
     const parteMarcos = lucroDistribuivel * 0.25
@@ -3017,13 +3098,8 @@ export default function FinanceiroPage() {
     const saldoMarcos = parteMarcos - retiradasMarcos
     const saldoHerica = parteHerica - retiradasHerica
 
-    // Reserva operacional é somente o fechamento mensal dos 50% do lucro.
-    // Entradas não operacionais, como venda de carro, aumentam caixa,
-    // mas não contam como reserva mensal dos 50%.
     const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
 
-    // Caixa real do mês considera lucro operacional, entradas não operacionais,
-    // aportes, retiradas dos sócios e saídas reais do fundo/caixa.
     const saldoCaixaRealMes =
       profitRecebido -
       despesasCaixa -
@@ -3035,11 +3111,17 @@ export default function FinanceiroPage() {
 
     return {
       processos: processosPagosMes.length,
+      comCusto: processosComCustoDetalhados.length,
+      semCusto: processosSemCustoDetalhados.length,
+      processosDetalhados: processosPagosMes,
+      processosComCustoDetalhados,
+      processosSemCustoDetalhados,
       valorRecebido,
+      valorRecebidoSemCusto,
       profitRecebido,
-      semCusto,
       despesasPagas,
       emprestimosPagos,
+      saidasResultado,
       despesasPendentes,
       emprestimosPendentes,
       parcelaEmprestimosMensal: TOTAL_PARCELAS_EMPRESTIMOS_HC,
@@ -3063,6 +3145,25 @@ export default function FinanceiroPage() {
       saldoFundoMes,
       saldoCaixaRealMes,
     }
+  }, [lancamentos, movimentacoes, mesResultado, anoFinanceiro])
+
+  const evolucaoResultadoAnual = useMemo(() => {
+    const ano = String(mesResultado || mesAtualFinanceiro()).slice(0, 4)
+
+    return Array.from({ length: 12 }, (_, index) => {
+      const mesRef = `${ano}-${String(index + 1).padStart(2, '0')}`
+      const resultado = calcularResultadoDoMes(mesRef)
+
+      return {
+        mesRef,
+        valorRecebido: resultado.valorRecebido,
+        profitRecebido: resultado.profitRecebido,
+        saidasResultado: resultado.saidasResultado,
+        resultadoOperacional: resultado.resultadoOperacional,
+        processos: resultado.processos,
+        semCusto: resultado.semCusto,
+      }
+    })
   }, [lancamentos, movimentacoes, mesResultado, anoFinanceiro])
 
 
@@ -4217,40 +4318,47 @@ export default function FinanceiroPage() {
 
     if (abaPrincipal === 'RESULTADO') {
       abrirPdfDoFiltro({
-        titulo: 'Resultado geral do mês',
-        subtitulo: 'Distribuição do lucro pela regra 50% fundo de caixa, 25% Marcos e 25% Hérica.',
+        titulo: `Resultado mensal - ${formatarMesVisual(mesResultado)}`,
+        subtitulo: 'Competência definida exclusivamente pelo mês de recebimento do cliente. Processos sem valor de compra ficam identificados e não entram no Profit apurado.',
         filtros: [
-          { label: 'Mês', valor: formatarMesVisual(mesResultado) },
+          { label: 'Mês de recebimento', valor: formatarMesVisual(mesResultado) },
         ],
         cards: [
-          { label: 'Valor recebido', valor: moeda(resultadoGeral.valorRecebido), detalhe: `${resultadoGeral.processos} processos pagos` },
-          { label: 'Profit HC', valor: moeda(resultadoGeral.profitRecebido), detalhe: `${resultadoGeral.semCusto} sem custo` },
-          { label: 'Despesas pagas', valor: moeda(resultadoGeral.despesasPagas), detalhe: `${moeda(resultadoGeral.despesasPendentes)} pendente` },
-          { label: 'Empréstimos pagos', valor: moeda(resultadoGeral.emprestimosPagos), detalhe: `${moeda(resultadoGeral.emprestimosPendentes)} pendente` },
-          { label: 'Lucro líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - empréstimos' },
-          { label: 'Fundo 50%', valor: moeda(resultadoGeral.fundoPrevistoMes), detalhe: `${moeda(resultadoGeral.reservasFundoMes)} reservado` },
-          { label: 'Parte Marcos 25%', valor: moeda(resultadoGeral.parteMarcos), detalhe: `${moeda(resultadoGeral.retiradasMarcos)} retirado` },
-          { label: 'Parte Hérica 25%', valor: moeda(resultadoGeral.parteHerica), detalhe: `${moeda(resultadoGeral.retiradasHerica)} retirado` },
-          { label: 'Reserva calculada', valor: moeda(resultadoGeral.fundoAtual), detalhe: 'Histórico calculado' },
+          { label: 'Processos recebidos', valor: String(resultadoGeral.processos), detalhe: `${resultadoGeral.comCusto} com custo` },
+          { label: 'Aguardando custo', valor: String(resultadoGeral.semCusto), detalhe: moeda(resultadoGeral.valorRecebidoSemCusto) + ' recebidos' },
+          { label: 'Valor recebido', valor: moeda(resultadoGeral.valorRecebido), detalhe: 'Recebimento dos clientes' },
+          { label: 'Profit apurado', valor: moeda(resultadoGeral.profitRecebido), detalhe: 'Somente processos com custo' },
+          { label: 'Despesas + empréstimos', valor: moeda(resultadoGeral.saidasResultado), detalhe: 'Saídas que afetam o resultado' },
+          { label: 'Resultado líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - empréstimos' },
         ],
-        cabecalhos: ['Descrição', 'Valor'],
-        linhas: [
-          ['Profit HC dos processos recebidos', moeda(resultadoGeral.profitRecebido)],
-          ['Despesas pagas da empresa', `- ${moeda(resultadoGeral.despesasPagas)}`],
-          ['Empréstimos pagos da HC', `- ${moeda(resultadoGeral.emprestimosPagos)}`],
-          ['Lucro líquido para distribuição', moeda(resultadoGeral.resultadoOperacional)],
-          ['50% para fundo de caixa', moeda(resultadoGeral.fundoPrevistoMes)],
-          ['25% parte Marcos', moeda(resultadoGeral.parteMarcos)],
-          ['25% parte Hérica', moeda(resultadoGeral.parteHerica)],
-          ['Retirado Marcos no mês', `- ${moeda(resultadoGeral.retiradasMarcos)}`],
-          ['Saldo Marcos a retirar', moeda(resultadoGeral.saldoMarcos)],
-          ['Retirado Hérica no mês', `- ${moeda(resultadoGeral.retiradasHerica)}`],
-          ['Saldo Hérica a retirar', moeda(resultadoGeral.saldoHerica)],
-          ['Reservado no fundo no mês', moeda(resultadoGeral.reservasFundoMes)],
-          ['Entradas não operacionais no caixa', moeda(resultadoGeral.entradasNaoOperacionaisMes)],
-          ['Saldo para reservar no fundo', moeda(resultadoGeral.saldoFundoMes)],
-          ['Saldo real do caixa no mês', moeda(resultadoGeral.saldoCaixaRealMes)],
+        cabecalhos: [
+          'Cliente',
+          'AWB / Processo',
+          'Fatura',
+          'Recebimento',
+          'Valor faturado',
+          'DOC/DTA',
+          'Terceiros',
+          'Valor compra',
+          'Profit HC',
+          'Situação',
         ],
+        linhas: resultadoGeral.processosDetalhados.map((item: any) => {
+          const possuiCusto = Number(item.valor_compra || 0) > 0
+
+          return [
+            item.cliente || item.cliente_final || '-',
+            item.awb || '-',
+            item.fatura || '-',
+            normalizarData(dataRecebimentoProcesso(item)) || '-',
+            moeda(item.valor_cobranca || 0),
+            moeda(item.doc_dta || 0),
+            moeda(item.debito_terceiro || 0),
+            possuiCusto ? moeda(item.valor_compra || 0) : 'AGUARDANDO CUSTO',
+            possuiCusto ? moeda(calcularProfit(item)) : '-',
+            possuiCusto ? 'PROFIT APURADO' : 'AGUARDANDO CUSTO',
+          ]
+        }),
       })
 
       return
@@ -5493,139 +5601,410 @@ export default function FinanceiroPage() {
 
       {abaPrincipal === 'RESULTADO' && (
         <section className="space-y-5">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-black text-gray-950">Resultado Mensal</h2>
-              <p className="text-sm text-gray-500">
-                Visão do mês pela regra: lucro líquido = Profit HC - despesas; 50% fica no caixa, 25% Marcos e 25% Hérica.
-              </p>
-            </div>
-
-            <div className="flex flex-col md:flex-row md:items-end gap-3">
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <label className="text-sm font-semibold text-gray-600">Mês do resultado</label>
-                <input
-                  type="month"
-                  min={MES_MINIMO_FINANCEIRO}
-                  max={MES_MAXIMO_FINANCEIRO}
-                  value={mesResultado}
-                  onChange={(e) => {
-                    if (!mesFinanceiroPermitido(e.target.value)) {
-                      alert(`O financeiro está limitado a ${textoAnosFinanceiroPermitidos()}.`)
-                      return
-                    }
-
-                    setAnoFinanceiro(e.target.value.slice(0, 4))
-                    setMesResultado(e.target.value)
-                  }}
-                  className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={gerarFechamentoMensal}
-                disabled={gerandoFechamento || resultadoGeral.saldoFundoMes <= 0 || resultadoGeral.resultadoOperacional <= 0}
-                className="bg-green-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
-              >
-                {gerandoFechamento ? 'Gerando...' : 'Gerar ou complementar fechamento'}
-              </button>
-
-              <button
-                type="button"
-                onClick={gerarFechamentosRetroativos}
-                disabled={gerandoRetroativos || loading || loadingMovimentos}
-                className="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
-              >
-                {gerandoRetroativos ? 'Gerando retroativos...' : 'Gerar retroativos'}
-              </button>
-
-              <button
-                type="button"
-                onClick={gerarPDFFechamentoMensal}
-                disabled={loading || loadingMovimentos || !mesResultado}
-                className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
-              >
-                Gerar relatório completo PDF
-              </button>
-            </div>
-          </div>
-
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <FiltroResumoCard titulo="Valor recebido" valor={moeda(resultadoGeral.valorRecebido)} detalhe={`${resultadoGeral.processos} processos pagos`} classe="bg-white text-blue-700 border-blue-100" />
-            <FiltroResumoCard titulo="Profit HC recebido" valor={moeda(resultadoGeral.profitRecebido)} detalhe={resultadoGeral.semCusto > 0 ? `${resultadoGeral.semCusto} sem custo` : 'Com custo lançado'} classe="bg-white text-green-700 border-green-100" />
-            <FiltroResumoCard titulo="Despesas pagas" valor={moeda(resultadoGeral.despesasPagas)} detalhe={`${moeda(resultadoGeral.despesasPendentes)} pendente`} classe="bg-white text-red-700 border-red-100" />
-            <FiltroResumoCard titulo="Empréstimos pagos" valor={moeda(resultadoGeral.emprestimosPagos)} detalhe={`Parcela mensal fixa: ${moeda(resultadoGeral.parcelaEmprestimosMensal)}`} classe="bg-white text-purple-700 border-purple-100" />
-            <FiltroResumoCard titulo="Lucro líquido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas - empréstimos" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
-            <FiltroResumoCard titulo="Caixa após retiradas" valor={moeda(resultadoGeral.saldoCaixaRealMes)} detalhe="Lucro líquido - retiradas + aportes/ajustes" classe={resultadoGeral.saldoCaixaRealMes >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
-          </section>
-
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <FiltroResumoCard titulo="Fundo de caixa 50%" valor={moeda(resultadoGeral.fundoPrevistoMes)} detalhe={`${moeda(resultadoGeral.reservasFundoMes)} já reservado dos 50%`} classe="bg-white text-blue-700 border-blue-100" />
-            <FiltroResumoCard titulo="Parte Marcos 25%" valor={moeda(resultadoGeral.parteMarcos)} detalhe={`${moeda(resultadoGeral.retiradasMarcos)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
-            <FiltroResumoCard titulo="Parte Hérica 25%" valor={moeda(resultadoGeral.parteHerica)} detalhe={`${moeda(resultadoGeral.retiradasHerica)} já retirado`} classe="bg-white text-slate-700 border-slate-100" />
-            <FiltroResumoCard titulo="Reserva calculada" valor={moeda(resultadoGeral.fundoAtual)} detalhe="Histórico calculado, não caixa real" classe="bg-white text-blue-700 border-blue-100" />
-          </section>
-
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <FiltroResumoCard
-              titulo="Saldo Marcos"
-              valor={moeda(resultadoGeral.saldoMarcos)}
-              detalhe={resultadoGeral.saldoMarcos >= 0 ? 'Ainda pode retirar' : 'Retirou acima da parte'}
-              classe={resultadoGeral.saldoMarcos >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'}
-            />
-
-            <FiltroResumoCard
-              titulo="Saldo Hérica"
-              valor={moeda(resultadoGeral.saldoHerica)}
-              detalhe={resultadoGeral.saldoHerica >= 0 ? 'Ainda pode retirar' : 'Retirou acima da parte'}
-              classe={resultadoGeral.saldoHerica >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'}
-            />
-
-            <FiltroResumoCard
-              titulo="Fundo pendente do mês"
-              valor={moeda(resultadoGeral.saldoFundoMes)}
-              detalhe={resultadoGeral.saldoCaixaRealMes <= 0 && resultadoGeral.saldoFundoMes > 0 ? 'Sem caixa para reservar agora' : resultadoGeral.saldoFundoMes >= 0 ? 'Ainda falta reservar' : 'Reservado acima dos 50%'}
-              classe={resultadoGeral.saldoCaixaRealMes <= 0 && resultadoGeral.saldoFundoMes > 0 ? 'bg-white text-red-700 border-red-100' : resultadoGeral.saldoFundoMes >= 0 ? 'bg-white text-orange-700 border-orange-100' : 'bg-white text-blue-700 border-blue-100'}
-            />
-          </section>
-
-          <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-black text-gray-950 mb-4">Distribuição do lucro do mês</h3>
-
-            <div className="space-y-3 text-sm">
-              <LinhaResultado label="Profit HC dos processos recebidos" valor={resultadoGeral.profitRecebido} positivo />
-              <LinhaResultado label="Despesas pagas da empresa" valor={resultadoGeral.despesasPagas} negativo />
-              <LinhaResultado label="Lucro líquido para distribuição" valor={resultadoGeral.resultadoOperacional} destaque />
-              <LinhaResultado label="Caixa após retiradas" valor={resultadoGeral.saldoCaixaRealMes} destaque />
-              <LinhaResultado label="50% para fundo de caixa previsto" valor={resultadoGeral.fundoPrevistoMes} negativo />
-              <LinhaResultado label="25% parte Marcos" valor={resultadoGeral.parteMarcos} negativo />
-              <LinhaResultado label="25% parte Hérica" valor={resultadoGeral.parteHerica} negativo />
-
-              <div className="border-t border-gray-200 pt-4 mt-4 space-y-3">
-                <LinhaResultado label="Retirado Marcos no mês" valor={resultadoGeral.retiradasMarcos} negativo />
-                <LinhaResultado label="Saldo Marcos a retirar" valor={resultadoGeral.saldoMarcos} destaque />
-                <LinhaResultado label="Retirado Hérica no mês" valor={resultadoGeral.retiradasHerica} negativo />
-                <LinhaResultado label="Saldo Hérica a retirar" valor={resultadoGeral.saldoHerica} destaque />
-                <LinhaResultado label="Reservado no fundo no mês" valor={resultadoGeral.reservasFundoMes} negativo />
-                <LinhaResultado label="Entradas não operacionais no caixa" valor={resultadoGeral.entradasNaoOperacionaisMes} positivo />
-                <LinhaResultado label="Saldo para reservar no fundo" valor={resultadoGeral.saldoFundoMes} destaque />
-              </div>
-
-              <div className="border-t border-gray-200 pt-4 mt-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-base font-black text-gray-950">Saldo real do caixa no mês</p>
-                  <p className="text-xs font-bold text-gray-500">Lucro líquido + entradas não operacionais + aportes - retiradas - saídas do caixa/fundo</p>
-                </div>
-                <p className={`text-2xl font-black ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                  {moeda(resultadoGeral.saldoCaixaRealMes)}
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Resultado por recebimento</p>
+                <h2 className="mt-1 text-2xl font-black text-gray-950">Resultado Mensal</h2>
+                <p className="mt-1 text-sm font-semibold text-gray-500">
+                  Cada processo pertence ao mês em que o cliente pagou. Processo recebido sem valor de compra permanece no mês, mas fica fora do Profit até o custo ser lançado.
                 </p>
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <div>
+                  <label className="text-sm font-semibold text-gray-600">Mês do resultado</label>
+                  <input
+                    type="month"
+                    min={MES_MINIMO_FINANCEIRO}
+                    max={MES_MAXIMO_FINANCEIRO}
+                    value={mesResultado}
+                    onChange={(e) => {
+                      if (!mesFinanceiroPermitido(e.target.value)) {
+                        alert(`O financeiro está limitado a ${textoAnosFinanceiroPermitidos()}.`)
+                        return
+                      }
+
+                      setAnoFinanceiro(e.target.value.slice(0, 4))
+                      setMesResultado(e.target.value)
+                    }}
+                    className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={gerarFechamentoMensal}
+                  disabled={gerandoFechamento || resultadoGeral.saldoFundoMes <= 0 || resultadoGeral.resultadoOperacional <= 0}
+                  className="whitespace-nowrap rounded-xl bg-green-600 px-5 py-3 font-bold text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {gerandoFechamento ? 'Gerando...' : resultadoGeral.semCusto > 0 ? 'Gerar fechamento parcial' : 'Gerar ou complementar fechamento'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={gerarFechamentosRetroativos}
+                  disabled={gerandoRetroativos || loading || loadingMovimentos}
+                  className="whitespace-nowrap rounded-xl bg-slate-900 px-5 py-3 font-bold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {gerandoRetroativos ? 'Gerando retroativos...' : 'Gerar retroativos'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={gerarPDFFechamentoMensal}
+                  disabled={loading || loadingMovimentos || !mesResultado}
+                  className="whitespace-nowrap rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Relatório completo PDF
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {resultadoGeral.semCusto > 0 && (
+            <section className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-orange-900">Resultado ainda parcial</h3>
+                  <p className="mt-1 text-sm font-bold text-orange-800">
+                    {resultadoGeral.semCusto} processo(s) recebido(s) em {formatarMesVisual(mesResultado)} ainda não possuem valor de compra.
+                    Eles somam {moeda(resultadoGeral.valorRecebidoSemCusto)} em faturamento recebido e não entram no Profit apurado agora.
+                  </p>
+                </div>
+                <span className="rounded-full border border-orange-300 bg-white px-4 py-2 text-xs font-black text-orange-800">
+                  Complementar após lançar os custos
+                </span>
+              </div>
+
+              <p className="mt-3 break-words text-xs font-bold text-orange-700">
+                Referências: {resultadoGeral.processosSemCustoDetalhados
+                  .map((item: any) => item.awb || item.fatura || item.id)
+                  .filter(Boolean)
+                  .join(', ') || 'sem referência'}
+              </p>
+            </section>
+          )}
+
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <FiltroResumoCard titulo="Processos recebidos" valor={String(resultadoGeral.processos)} detalhe={`${resultadoGeral.comCusto} com custo`} classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Aguardando custo" valor={String(resultadoGeral.semCusto)} detalhe={moeda(resultadoGeral.valorRecebidoSemCusto) + ' recebidos'} classe={resultadoGeral.semCusto > 0 ? 'bg-white text-orange-700 border-orange-200' : 'bg-white text-green-700 border-green-100'} />
+            <FiltroResumoCard titulo="Valor recebido" valor={moeda(resultadoGeral.valorRecebido)} detalhe="Receita recebida dos clientes" classe="bg-white text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Profit apurado" valor={moeda(resultadoGeral.profitRecebido)} detalhe="Somente processos com custo" classe="bg-white text-green-700 border-green-100" />
+            <FiltroResumoCard titulo="Despesas + empréstimos" valor={moeda(resultadoGeral.saidasResultado)} detalhe="Saídas que afetam o resultado" classe="bg-white text-red-700 border-red-100" />
+            <FiltroResumoCard titulo="Resultado líquido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas - empréstimos" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+          </section>
+
+          <GraficoEvolucaoMensal
+            dados={evolucaoResultadoAnual}
+            moeda={moeda}
+            ano={String(mesResultado || '').slice(0, 4)}
+          />
+
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h3 className="text-xl font-black text-gray-950">Processos que formam o resultado</h3>
+                <p className="text-sm font-semibold text-gray-500">
+                  Relação completa dos processos recebidos em {formatarMesVisual(mesResultado)}. Aqui você consegue conferir exatamente de onde saiu o Profit.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-xs font-black">
+                <span className="rounded-full border border-green-200 bg-green-50 px-3 py-2 text-green-700">
+                  {resultadoGeral.comCusto} com Profit apurado
+                </span>
+                <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-2 text-orange-700">
+                  {resultadoGeral.semCusto} aguardando custo
+                </span>
+              </div>
+            </div>
+
+            {resultadoGeral.processosDetalhados.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm font-bold text-gray-500">
+                Nenhum processo recebido neste mês.
+              </div>
+            ) : (
+              <div className="max-h-[560px] overflow-auto rounded-xl border border-gray-200">
+                <table className="w-full min-w-[1500px] border-collapse text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-900 text-white">
+                    <tr>
+                      <th className="px-3 py-3 text-left">Cliente</th>
+                      <th className="px-3 py-3 text-left">AWB / Processo</th>
+                      <th className="px-3 py-3 text-left">Fatura</th>
+                      <th className="px-3 py-3 text-left">Recebimento</th>
+                      <th className="px-3 py-3 text-right">Faturado</th>
+                      <th className="px-3 py-3 text-right">DOC/DTA</th>
+                      <th className="px-3 py-3 text-right">Terceiros</th>
+                      <th className="px-3 py-3 text-right">Compra</th>
+                      <th className="px-3 py-3 text-right">Profit HC</th>
+                      <th className="px-3 py-3 text-left">Situação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resultadoGeral.processosDetalhados.map((item: any) => {
+                      const possuiCusto = Number(item.valor_compra || 0) > 0
+
+                      return (
+                        <tr key={item.id || `${item.awb}-${item.fatura}`} className="border-t border-gray-100 hover:bg-gray-50">
+                          <td className="px-3 py-3 font-bold text-gray-900">{item.cliente || item.cliente_final || '-'}</td>
+                          <td className="px-3 py-3 font-black text-blue-700">{item.awb || '-'}</td>
+                          <td className="px-3 py-3 text-gray-700">{item.fatura || '-'}</td>
+                          <td className="px-3 py-3 text-gray-700">{normalizarData(dataRecebimentoProcesso(item)) || '-'}</td>
+                          <td className="px-3 py-3 text-right font-bold text-gray-900">{moeda(item.valor_cobranca || 0)}</td>
+                          <td className="px-3 py-3 text-right text-gray-700">{moeda(item.doc_dta || 0)}</td>
+                          <td className="px-3 py-3 text-right text-gray-700">{moeda(item.debito_terceiro || 0)}</td>
+                          <td className={`px-3 py-3 text-right font-bold ${possuiCusto ? 'text-gray-900' : 'text-orange-700'}`}>
+                            {possuiCusto ? moeda(item.valor_compra || 0) : 'Aguardando'}
+                          </td>
+                          <td className={`px-3 py-3 text-right font-black ${possuiCusto ? 'text-green-700' : 'text-gray-400'}`}>
+                            {possuiCusto ? moeda(calcularProfit(item)) : '-'}
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${
+                              possuiCusto
+                                ? 'border-green-200 bg-green-50 text-green-700'
+                                : 'border-orange-200 bg-orange-50 text-orange-700'
+                            }`}>
+                              {possuiCusto ? 'PROFIT APURADO' : 'AGUARDANDO CUSTO'}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-black text-gray-950">Fechamento do resultado</h3>
+              <p className="mt-1 text-sm font-semibold text-gray-500">
+                Leitura resumida do que efetivamente formou o resultado de {formatarMesVisual(mesResultado)}.
+              </p>
+
+              <div className="mt-4 space-y-3 text-sm">
+                <LinhaResultado label="Profit HC apurado" valor={resultadoGeral.profitRecebido} positivo />
+                <LinhaResultado label="Despesas pagas" valor={resultadoGeral.despesasPagas} negativo />
+                <LinhaResultado label="Empréstimos pagos" valor={resultadoGeral.emprestimosPagos} negativo />
+                <LinhaResultado label="Resultado líquido" valor={resultadoGeral.resultadoOperacional} destaque />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-black text-gray-950">Distribuição após o resultado</h3>
+              <p className="mt-1 text-sm font-semibold text-gray-500">
+                Estes valores só são calculados sobre o lucro positivo já apurado.
+              </p>
+
+              <div className="mt-4 space-y-3 text-sm">
+                <LinhaResultado label="50% fundo previsto" valor={resultadoGeral.fundoPrevistoMes} />
+                <LinhaResultado label="25% Marcos" valor={resultadoGeral.parteMarcos} />
+                <LinhaResultado label="25% Hérica" valor={resultadoGeral.parteHerica} />
+                <LinhaResultado label="Fundo já reservado" valor={resultadoGeral.reservasFundoMes} />
+                <LinhaResultado label="Fundo ainda pendente" valor={resultadoGeral.saldoFundoMes} destaque />
               </div>
             </div>
           </section>
         </section>
       )}
+
     </main>
+  )
+}
+
+
+function GraficoEvolucaoMensal({ dados, moeda, ano }: any) {
+  const largura = 1200
+  const altura = 360
+  const margemEsquerda = 72
+  const margemDireita = 24
+  const margemTopo = 28
+  const margemBaixo = 54
+  const larguraGrafico = largura - margemEsquerda - margemDireita
+  const alturaGrafico = altura - margemTopo - margemBaixo
+
+  const series = [
+    { chave: 'valorRecebido', label: 'Valor recebido', cor: '#2563eb' },
+    { chave: 'profitRecebido', label: 'Profit HC', cor: '#16a34a' },
+    { chave: 'saidasResultado', label: 'Despesas + empréstimos', cor: '#dc2626' },
+    { chave: 'resultadoOperacional', label: 'Resultado líquido', cor: '#7c3aed' },
+  ]
+
+  const valores = dados.flatMap((item: any) =>
+    series.map((serie) => Number(item?.[serie.chave] || 0))
+  )
+
+  const minimoBruto = Math.min(0, ...valores)
+  const maximoBruto = Math.max(0, ...valores)
+  const intervaloBruto = Math.max(1, maximoBruto - minimoBruto)
+  const folga = intervaloBruto * 0.08
+  const minimo = minimoBruto < 0 ? minimoBruto - folga : 0
+  const maximo = maximoBruto + folga
+  const intervalo = Math.max(1, maximo - minimo)
+
+  const x = (index: number) =>
+    margemEsquerda +
+    (dados.length <= 1 ? larguraGrafico / 2 : (index / (dados.length - 1)) * larguraGrafico)
+
+  const y = (valor: number) =>
+    margemTopo + ((maximo - valor) / intervalo) * alturaGrafico
+
+  const linhaZero = y(0)
+  const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+  const moedaCurta = (valor: number) =>
+    Number(valor || 0).toLocaleString('pt-BR', {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    })
+
+  const grades = Array.from({ length: 5 }, (_, index) => {
+    const proporcao = index / 4
+    const valor = maximo - proporcao * intervalo
+    return { valor, y: y(valor) }
+  })
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-xl font-black text-gray-950">Evolução mensal de {ano}</h3>
+          <p className="mt-1 text-sm font-semibold text-gray-500">
+            Compare recebimento, Profit apurado, despesas/empréstimos e resultado líquido mês a mês.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          {series.map((serie) => (
+            <div key={serie.chave} className="flex items-center gap-2 text-xs font-black text-gray-700">
+              <span
+                className="h-3 w-3 rounded-full"
+                style={{ backgroundColor: serie.cor }}
+              />
+              {serie.label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <svg
+          viewBox={`0 0 ${largura} ${altura}`}
+          className="min-w-[900px] w-full"
+          role="img"
+          aria-label={`Gráfico de evolução mensal do financeiro de ${ano}`}
+        >
+          {grades.map((grade, index) => (
+            <g key={index}>
+              <line
+                x1={margemEsquerda}
+                x2={largura - margemDireita}
+                y1={grade.y}
+                y2={grade.y}
+                stroke="#e5e7eb"
+                strokeWidth="1"
+              />
+              <text
+                x={margemEsquerda - 10}
+                y={grade.y + 4}
+                textAnchor="end"
+                fontSize="11"
+                fill="#64748b"
+              >
+                {moedaCurta(grade.valor)}
+              </text>
+            </g>
+          ))}
+
+          {minimo < 0 && maximo > 0 && (
+            <line
+              x1={margemEsquerda}
+              x2={largura - margemDireita}
+              y1={linhaZero}
+              y2={linhaZero}
+              stroke="#94a3b8"
+              strokeWidth="1.5"
+            />
+          )}
+
+          {series.map((serie) => {
+            const pontos = dados
+              .map((item: any, index: number) => `${x(index)},${y(Number(item?.[serie.chave] || 0))}`)
+              .join(' ')
+
+            return (
+              <g key={serie.chave}>
+                <polyline
+                  fill="none"
+                  stroke={serie.cor}
+                  strokeWidth="3"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  points={pontos}
+                />
+
+                {dados.map((item: any, index: number) => {
+                  const valor = Number(item?.[serie.chave] || 0)
+
+                  return (
+                    <circle
+                      key={`${serie.chave}-${item.mesRef}`}
+                      cx={x(index)}
+                      cy={y(valor)}
+                      r="4"
+                      fill={serie.cor}
+                    >
+                      <title>{`${serie.label} - ${nomesMeses[index]}: ${moeda(valor)}`}</title>
+                    </circle>
+                  )
+                })}
+              </g>
+            )
+          })}
+
+          {dados.map((item: any, index: number) => (
+            <g key={item.mesRef}>
+              <text
+                x={x(index)}
+                y={altura - 28}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight="700"
+                fill="#475569"
+              >
+                {nomesMeses[index]}
+              </text>
+              <text
+                x={x(index)}
+                y={altura - 12}
+                textAnchor="middle"
+                fontSize="9"
+                fill="#94a3b8"
+              >
+                {item.processos} proc.
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs md:grid-cols-4 xl:grid-cols-6">
+        {dados.map((item: any, index: number) => (
+          <div key={item.mesRef} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+            <p className="font-black text-gray-900">{nomesMeses[index]}</p>
+            <p className={`mt-1 font-black ${item.resultadoOperacional >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+              {moeda(item.resultadoOperacional)}
+            </p>
+            <p className="mt-1 font-bold text-gray-500">
+              {item.processos} proc. · {item.semCusto} sem custo
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
