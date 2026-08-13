@@ -2071,8 +2071,8 @@ export default function FinanceiroPage() {
           <div class="cards">
             <div class="card"><strong>Valor recebido</strong><span>${moeda(resultadoGeral.valorRecebido)}</span></div>
             <div class="card"><strong>Profit HC recebido</strong><span>${moeda(resultadoGeral.profitRecebido)}</span></div>
-            <div class="card"><strong>Lucro líquido</strong><span class="${resultadoGeral.resultadoOperacional >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.resultadoOperacional)}</span></div>
-            <div class="card"><strong>Caixa após retiradas</strong><span class="${resultadoGeral.saldoCaixaRealMes >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.saldoCaixaRealMes)}</span></div>
+            <div class="card"><strong>Resultado operacional</strong><span class="${resultadoGeral.resultadoOperacional >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.resultadoOperacional)}</span></div>
+            <div class="card"><strong>Saldo final do mês</strong><span class="${resultadoGeral.saldoCaixaRealMes >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.saldoCaixaRealMes)}</span></div>
           </div>
 
           <h2>1. Resumo do fechamento</h2>
@@ -2089,15 +2089,17 @@ export default function FinanceiroPage() {
               ${linhaResumo('Despesas pagas', moeda(resultadoGeral.despesasPagas))}
               ${linhaResumo('Despesas/empréstimos pendentes', moeda(totalDespesasPendentes))}
               ${linhaResumo('Empréstimos pagos', moeda(resultadoGeral.emprestimosPagos))}
+              ${linhaResumo('Resultado operacional', moeda(resultadoGeral.resultadoOperacional))}
               ${linhaResumo('Retiradas realizadas', moeda(totalRetiradasPagas))}
               ${linhaResumo('Retiradas pendentes', moeda(totalRetiradasPendentes))}
-              ${linhaResumo('Entradas/aportes realizados', moeda(totalEntradasRealizadas))}
+              ${linhaResumo('Entradas extras de caixa', moeda(resultadoGeral.entradasCaixaMes))}
+              ${linhaResumo('Ajustes negativos de caixa', moeda(resultadoGeral.ajustesNegativosMes))}
               ${linhaResumo('Saídas do fundo realizadas', moeda(totalSaidasFundoPagas))}
-              ${linhaResumo('Lucro líquido para distribuição', moeda(resultadoGeral.resultadoOperacional))}
+              ${linhaResumo('Saídas totais de caixa', moeda(resultadoGeral.saidasCaixaMes))}
               ${linhaResumo('Retiradas Marcos', moeda(resultadoGeral.retiradasMarcos))}
               ${linhaResumo('Retiradas Hérica', moeda(resultadoGeral.retiradasHerica))}
               ${linhaResumo('Total retirado pelos sócios', moeda(resultadoGeral.retiradasTotal))}
-              ${linhaResumo('Caixa após retiradas', moeda(resultadoGeral.saldoCaixaRealMes))}
+              ${linhaResumo('Saldo final do mês após todas as entradas e saídas', moeda(resultadoGeral.saldoCaixaRealMes))}
               ${linhaResumo('Fundo previsto 50%', moeda(resultadoGeral.fundoPrevistoMes))}
               ${linhaResumo('Já reservado no fundo', moeda(resultadoGeral.reservasFundoMes))}
               ${linhaResumo('Fundo real possível agora', moeda(valorReservaReal))}
@@ -2468,20 +2470,44 @@ export default function FinanceiroPage() {
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
+    const ajustesPositivosMes = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'AJUSTE_CAIXA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false &&
+          Number(item.valor || 0) > 0
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const ajustesNegativosMes = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'AJUSTE_CAIXA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false &&
+          Number(item.valor || 0) < 0
+      )
+      .reduce((acc, item) => acc + Math.abs(Number(item.valor || 0)), 0)
+
     const saidasResultado = despesasPagas + emprestimosPagos
     const resultadoOperacional = profitRecebido - saidasResultado
     const lucroDistribuivel = resultadoOperacional > 0 ? resultadoOperacional : 0
     const fundoPrevistoMes = lucroDistribuivel * 0.5
     const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
 
-    const saldoCaixaRealMes =
-      profitRecebido -
-      despesasCaixa -
+    const entradasCaixaMes =
+      entradasNaoOperacionaisMes + aportesMes + ajustesPositivosMes
+
+    const saidasCaixaMes =
+      despesasCaixa +
       emprestimosCaixa +
-      entradasNaoOperacionaisMes +
-      aportesMes -
-      retiradasMes -
-      saidasFundoMes
+      retiradasMes +
+      saidasFundoMes +
+      ajustesNegativosMes
+
+    const saldoCaixaRealMes =
+      profitRecebido + entradasCaixaMes - saidasCaixaMes
 
     const valorReservaPossivelMes = Math.min(
       Math.max(saldoFundoMes, 0),
@@ -2502,6 +2528,14 @@ export default function FinanceiroPage() {
       despesasPagas,
       emprestimosPagos,
       saidasResultado,
+      retiradasMes,
+      aportesMes,
+      entradasNaoOperacionaisMes,
+      saidasFundoMes,
+      ajustesPositivosMes,
+      ajustesNegativosMes,
+      entradasCaixaMes,
+      saidasCaixaMes,
       reservasFundoMes,
       resultadoOperacional,
       lucroDistribuivel,
@@ -2647,7 +2681,7 @@ export default function FinanceiroPage() {
           `Profit HC recebido: ${moeda(item.profitRecebido)}. ` +
           `Despesas pagas: ${moeda(item.despesasPagas)}. ` +
           `Empréstimos pagos: ${moeda(item.emprestimosPagos)}. ` +
-          `Lucro líquido: ${moeda(item.resultadoOperacional)}. ` +
+          `Lucro líquido: ${moeda(item.saldoCaixaRealMes)}. ` +
           `Fundo previsto 50%: ${moeda(item.fundoPrevistoMes)}. ` +
           `Já reservado anteriormente: ${moeda(item.reservasFundoMes)}. ` +
           `Valor lançado agora: ${moeda(valorReserva)}. ` +
@@ -3086,6 +3120,26 @@ export default function FinanceiroPage() {
       )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
+    const ajustesPositivosMes = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'AJUSTE_CAIXA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false &&
+          Number(item.valor || 0) > 0
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const ajustesNegativosMes = movimentosMes
+      .filter(
+        (item) =>
+          item.tipo === 'AJUSTE_CAIXA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false &&
+          Number(item.valor || 0) < 0
+      )
+      .reduce((acc, item) => acc + Math.abs(Number(item.valor || 0)), 0)
+
     const fundoAtual = calcularFundoAtualPermitido()
 
     const retiradasTotal = retiradasMarcos + retiradasHerica
@@ -3100,14 +3154,18 @@ export default function FinanceiroPage() {
 
     const saldoFundoMes = fundoPrevistoMes - reservasFundoMes
 
-    const saldoCaixaRealMes =
-      profitRecebido -
-      despesasCaixa -
+    const entradasCaixaMes =
+      entradasNaoOperacionaisMes + aportes + ajustesPositivosMes
+
+    const saidasCaixaMes =
+      despesasCaixa +
       emprestimosCaixa +
-      entradasNaoOperacionaisMes +
-      aportes -
-      retiradasTotal -
-      saidasFundoMes
+      retiradasTotal +
+      saidasFundoMes +
+      ajustesNegativosMes
+
+    const saldoCaixaRealMes =
+      profitRecebido + entradasCaixaMes - saidasCaixaMes
 
     return {
       processos: processosPagosMes.length,
@@ -3134,6 +3192,10 @@ export default function FinanceiroPage() {
       reservasFundoMes,
       entradasNaoOperacionaisMes,
       saidasFundoMes,
+      ajustesPositivosMes,
+      ajustesNegativosMes,
+      entradasCaixaMes,
+      saidasCaixaMes,
       fundoAtual,
       resultadoOperacional,
       lucroDistribuivel,
@@ -3160,6 +3222,9 @@ export default function FinanceiroPage() {
         profitRecebido: resultado.profitRecebido,
         saidasResultado: resultado.saidasResultado,
         resultadoOperacional: resultado.resultadoOperacional,
+        retiradasTotal: resultado.retiradasMes,
+        saidasCaixaMes: resultado.saidasCaixaMes,
+        saldoCaixaRealMes: resultado.saldoCaixaRealMes,
         processos: resultado.processos,
         semCusto: resultado.semCusto,
       }
@@ -4328,8 +4393,11 @@ export default function FinanceiroPage() {
           { label: 'Aguardando custo', valor: String(resultadoGeral.semCusto), detalhe: moeda(resultadoGeral.valorRecebidoSemCusto) + ' recebidos' },
           { label: 'Valor recebido', valor: moeda(resultadoGeral.valorRecebido), detalhe: 'Recebimento dos clientes' },
           { label: 'Profit apurado', valor: moeda(resultadoGeral.profitRecebido), detalhe: 'Somente processos com custo' },
-          { label: 'Despesas + empréstimos', valor: moeda(resultadoGeral.saidasResultado), detalhe: 'Saídas que afetam o resultado' },
-          { label: 'Resultado líquido', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - empréstimos' },
+          { label: 'Despesas + empréstimos', valor: moeda(resultadoGeral.saidasResultado), detalhe: 'Saídas do resultado operacional' },
+          { label: 'Resultado operacional', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - empréstimos' },
+          { label: 'Retiradas dos sócios', valor: moeda(resultadoGeral.retiradasTotal), detalhe: `Marcos ${moeda(resultadoGeral.retiradasMarcos)} | Hérica ${moeda(resultadoGeral.retiradasHerica)}` },
+          { label: 'Saídas totais de caixa', valor: moeda(resultadoGeral.saidasCaixaMes), detalhe: 'Inclui retiradas, fundo e ajustes negativos' },
+          { label: 'Saldo final do mês', valor: moeda(resultadoGeral.saldoCaixaRealMes), detalhe: 'Profit + entradas extras - todas as saídas' },
         ],
         cabecalhos: [
           'Cliente',
@@ -5855,8 +5923,54 @@ export default function FinanceiroPage() {
             <FiltroResumoCard titulo="Aguardando custo" valor={String(resultadoGeral.semCusto)} detalhe={moeda(resultadoGeral.valorRecebidoSemCusto) + ' recebidos'} classe={resultadoGeral.semCusto > 0 ? 'bg-white text-orange-700 border-orange-200' : 'bg-white text-green-700 border-green-100'} />
             <FiltroResumoCard titulo="Valor recebido" valor={moeda(resultadoGeral.valorRecebido)} detalhe="Receita recebida dos clientes" classe="bg-white text-blue-700 border-blue-100" />
             <FiltroResumoCard titulo="Profit apurado" valor={moeda(resultadoGeral.profitRecebido)} detalhe="Somente processos com custo" classe="bg-white text-green-700 border-green-100" />
-            <FiltroResumoCard titulo="Despesas + empréstimos" valor={moeda(resultadoGeral.saidasResultado)} detalhe="Saídas que afetam o resultado" classe="bg-white text-red-700 border-red-100" />
-            <FiltroResumoCard titulo="Resultado líquido" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas - empréstimos" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+            <FiltroResumoCard titulo="Despesas + empréstimos" valor={moeda(resultadoGeral.saidasResultado)} detalhe="Saídas do resultado operacional" classe="bg-white text-red-700 border-red-100" />
+            <FiltroResumoCard titulo="Resultado operacional" valor={moeda(resultadoGeral.resultadoOperacional)} detalhe="Profit - despesas - empréstimos" classe={resultadoGeral.resultadoOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'} />
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-300">Movimentação real do mês</p>
+                <h3 className="mt-1 text-xl font-black">Todas as entradas e saídas de caixa</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-400">
+                  Aqui entram retiradas dos sócios, despesas, empréstimos, saídas de fundo e ajustes de caixa.
+                </p>
+              </div>
+              <div className={`rounded-2xl border px-4 py-3 text-right ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-red-400/30 bg-red-400/10'}`}>
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo final do mês</p>
+                <p className={`mt-1 text-2xl font-black ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {moeda(resultadoGeral.saldoCaixaRealMes)}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                <p className="text-xs font-black uppercase text-slate-400">Retiradas dos sócios</p>
+                <p className="mt-2 text-xl font-black text-red-300">{moeda(resultadoGeral.retiradasTotal)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Marcos {moeda(resultadoGeral.retiradasMarcos)} · Hérica {moeda(resultadoGeral.retiradasHerica)}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                <p className="text-xs font-black uppercase text-slate-400">Saídas de fundo / caixa</p>
+                <p className="mt-2 text-xl font-black text-red-300">{moeda(resultadoGeral.saidasFundoMes)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Movimentações pagas com impacto no caixa</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                <p className="text-xs font-black uppercase text-slate-400">Ajustes negativos</p>
+                <p className="mt-2 text-xl font-black text-red-300">{moeda(resultadoGeral.ajustesNegativosMes)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Correções e abatimentos de caixa</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                <p className="text-xs font-black uppercase text-slate-400">Entradas extras</p>
+                <p className="mt-2 text-xl font-black text-emerald-300">{moeda(resultadoGeral.entradasCaixaMes)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Aportes + entradas extraordinárias + ajustes positivos</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+                <p className="text-xs font-black uppercase text-slate-400">Saídas totais de caixa</p>
+                <p className="mt-2 text-xl font-black text-red-300">{moeda(resultadoGeral.saidasCaixaMes)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Inclui todas as saídas pagas do mês</p>
+              </div>
+            </div>
           </section>
 
           <GraficoEvolucaoMensal
@@ -5942,32 +6056,52 @@ export default function FinanceiroPage() {
             )}
           </section>
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-black text-gray-950">Fechamento do resultado</h3>
+              <h3 className="text-lg font-black text-gray-950">Resultado operacional</h3>
               <p className="mt-1 text-sm font-semibold text-gray-500">
-                Leitura resumida do que efetivamente formou o resultado de {formatarMesVisual(mesResultado)}.
+                Mede o desempenho da operação antes de retiradas e movimentações de caixa dos sócios.
               </p>
 
               <div className="mt-4 space-y-3 text-sm">
                 <LinhaResultado label="Profit HC apurado" valor={resultadoGeral.profitRecebido} positivo />
                 <LinhaResultado label="Despesas pagas" valor={resultadoGeral.despesasPagas} negativo />
                 <LinhaResultado label="Empréstimos pagos" valor={resultadoGeral.emprestimosPagos} negativo />
-                <LinhaResultado label="Resultado líquido" valor={resultadoGeral.resultadoOperacional} destaque />
+                <LinhaResultado label="Resultado operacional" valor={resultadoGeral.resultadoOperacional} destaque />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-black text-gray-950">Caixa do mês</h3>
+              <p className="mt-1 text-sm font-semibold text-gray-500">
+                Mostra o que realmente sobrou depois de todas as movimentações pagas.
+              </p>
+
+              <div className="mt-4 space-y-3 text-sm">
+                <LinhaResultado label="Resultado operacional" valor={resultadoGeral.resultadoOperacional} positivo={resultadoGeral.resultadoOperacional >= 0} />
+                <LinhaResultado label="Retirada Marcos" valor={resultadoGeral.retiradasMarcos} negativo />
+                <LinhaResultado label="Retirada Hérica" valor={resultadoGeral.retiradasHerica} negativo />
+                <LinhaResultado label="Saídas fundo / caixa" valor={resultadoGeral.saidasFundoMes} negativo />
+                <LinhaResultado label="Ajustes negativos" valor={resultadoGeral.ajustesNegativosMes} negativo />
+                <LinhaResultado label="Entradas extras" valor={resultadoGeral.entradasCaixaMes} positivo />
+                <LinhaResultado label="Saldo final do mês" valor={resultadoGeral.saldoCaixaRealMes} destaque />
               </div>
             </div>
 
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-black text-gray-950">Distribuição após o resultado</h3>
+              <h3 className="text-lg font-black text-gray-950">Distribuição do lucro</h3>
               <p className="mt-1 text-sm font-semibold text-gray-500">
-                Estes valores só são calculados sobre o lucro positivo já apurado.
+                A regra 50% / 25% / 25% usa o resultado operacional positivo; retiradas são abatidas do saldo individual.
               </p>
 
               <div className="mt-4 space-y-3 text-sm">
                 <LinhaResultado label="50% fundo previsto" valor={resultadoGeral.fundoPrevistoMes} />
                 <LinhaResultado label="25% Marcos" valor={resultadoGeral.parteMarcos} />
+                <LinhaResultado label="Já retirado Marcos" valor={resultadoGeral.retiradasMarcos} negativo />
+                <LinhaResultado label="Saldo Marcos" valor={resultadoGeral.saldoMarcos} destaque />
                 <LinhaResultado label="25% Hérica" valor={resultadoGeral.parteHerica} />
-                <LinhaResultado label="Fundo já reservado" valor={resultadoGeral.reservasFundoMes} />
+                <LinhaResultado label="Já retirado Hérica" valor={resultadoGeral.retiradasHerica} negativo />
+                <LinhaResultado label="Saldo Hérica" valor={resultadoGeral.saldoHerica} destaque />
                 <LinhaResultado label="Fundo ainda pendente" valor={resultadoGeral.saldoFundoMes} destaque />
               </div>
             </div>
@@ -5993,8 +6127,8 @@ function GraficoEvolucaoMensal({ dados, moeda, ano }: any) {
   const series = [
     { chave: 'valorRecebido', label: 'Valor recebido', cor: '#2563eb' },
     { chave: 'profitRecebido', label: 'Profit HC', cor: '#16a34a' },
-    { chave: 'saidasResultado', label: 'Despesas + empréstimos', cor: '#dc2626' },
-    { chave: 'resultadoOperacional', label: 'Resultado líquido', cor: '#7c3aed' },
+    { chave: 'saidasCaixaMes', label: 'Saídas totais de caixa', cor: '#dc2626' },
+    { chave: 'saldoCaixaRealMes', label: 'Saldo final do mês', cor: '#7c3aed' },
   ]
 
   const valores = dados.flatMap((item: any) =>
@@ -6037,7 +6171,7 @@ function GraficoEvolucaoMensal({ dados, moeda, ano }: any) {
         <div>
           <h3 className="text-xl font-black text-gray-950">Evolução mensal de {ano}</h3>
           <p className="mt-1 text-sm font-semibold text-gray-500">
-            Compare recebimento, Profit apurado, despesas/empréstimos e resultado líquido mês a mês.
+            Compare recebimento, Profit apurado, todas as saídas de caixa e o saldo final de cada mês.
           </p>
         </div>
 
@@ -6159,7 +6293,7 @@ function GraficoEvolucaoMensal({ dados, moeda, ano }: any) {
         {dados.map((item: any, index: number) => (
           <div key={item.mesRef} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
             <p className="font-black text-gray-900">{nomesMeses[index]}</p>
-            <p className={`mt-1 font-black ${item.resultadoOperacional >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+            <p className={`mt-1 font-black ${item.saldoCaixaRealMes >= 0 ? 'text-green-700' : 'text-red-700'}`}>
               {moeda(item.resultadoOperacional)}
             </p>
             <p className="mt-1 font-bold text-gray-500">
