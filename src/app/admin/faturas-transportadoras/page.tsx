@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 type FaturaTransportadora = {
@@ -30,6 +30,50 @@ type FaturaTransportadora = {
   atualizado_em: string | null
 }
 
+type ItemFaturaConciliacao = {
+  id: string
+  fatura_transportadora_id: string
+  awb: string | null
+  valor_compra: number | null
+  financeiro_embarque_id: string | null
+}
+
+type ProcessoFinanceiroConciliacao = {
+  id: string
+  awb: string | null
+  cliente: string | null
+  valor_cobranca: number | null
+  recebimento: string | null
+}
+
+type StatusConciliacao =
+  | 'SEM_CONCILIACAO'
+  | 'AGUARDANDO_RECEBIMENTO'
+  | 'COBERTURA_INSUFICIENTE'
+  | 'PRONTA_PARA_PAGAR'
+  | 'PAGA_COM_PENDENCIA'
+  | 'PAGA_COBERTA'
+
+type ItemConciliado = {
+  item: ItemFaturaConciliacao
+  processo: ProcessoFinanceiroConciliacao | null
+  recebido: boolean
+}
+
+type ResumoConciliacao = {
+  status: StatusConciliacao
+  itens: ItemConciliado[]
+  totalItens: number
+  recebidos: number
+  pendentes: number
+  naoLocalizados: number
+  valorRecebido: number
+  valorPendente: number
+  cobertura: number
+  todosRecebidos: boolean
+  coberturaSuficiente: boolean
+  liberadaPagamento: boolean
+}
 
 type ItemImportacaoPdf = {
   awb: string
@@ -109,6 +153,10 @@ export default function FaturasTransportadorasPage() {
   const [filtroDashboard, setFiltroDashboard] = useState('')
   const [ultimaAlteracao, setUltimaAlteracao] = useState('')
   const [selecionadas, setSelecionadas] = useState<string[]>([])
+  const [itensConciliacao, setItensConciliacao] = useState<ItemFaturaConciliacao[]>([])
+  const [financeirosConciliacao, setFinanceirosConciliacao] = useState<ProcessoFinanceiroConciliacao[]>([])
+  const [filtroConciliacao, setFiltroConciliacao] = useState('TODAS')
+  const [faturaConciliacaoAberta, setFaturaConciliacaoAberta] = useState<string | null>(null)
 
   useEffect(() => {
     const salvo = localStorage.getItem('hc_faturas_transportadoras_filtros')
@@ -134,6 +182,7 @@ export default function FaturasTransportadorasPage() {
         setFiltroSituacoes(situacoesSalvas)
         setFiltroArquivadas(dados.filtroArquivadas || 'ATIVAS')
         setFiltroPrazo(dados.filtroPrazo || '')
+        setFiltroConciliacao(dados.filtroConciliacao || 'TODAS')
         setUltimaAlteracao(dados.ultimaAlteracao || '')
       } catch (error) {
         console.log('Erro ao carregar filtros salvos:', error)
@@ -151,12 +200,13 @@ export default function FaturasTransportadorasPage() {
       filtroSituacoes,
       filtroArquivadas,
       filtroPrazo,
+      filtroConciliacao,
       ultimaAlteracao: new Date().toLocaleString('pt-BR'),
     }
 
     localStorage.setItem('hc_faturas_transportadoras_filtros', JSON.stringify(dados))
     setUltimaAlteracao(dados.ultimaAlteracao)
-  }, [busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo])
+  }, [busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo, filtroConciliacao])
 
 
   function aplicarFiltrosDaDashboard() {
@@ -172,17 +222,20 @@ export default function FaturasTransportadorasPage() {
     const situacaoUrl = params.get('situacao') || ''
     const arquivadasUrl = params.get('arquivadas') || ''
     const prazoUrl = params.get('prazo') || ''
+    const conciliacaoUrl = params.get('conciliacao') || ''
 
     setBusca(buscaUrl)
     setFiltroTransportadoras(transportadoraUrl ? [transportadoraUrl] : [])
     setFiltroSituacoes(situacaoUrl ? [situacaoUrl] : [])
     setFiltroArquivadas(arquivadasUrl || 'ATIVAS')
     setFiltroPrazo(prazoUrl)
+    setFiltroConciliacao(conciliacaoUrl || 'TODAS')
 
     const partes = [
       situacaoUrl ? `situação ${situacaoUrl}` : '',
       prazoUrl ? `prazo ${nomeFiltroPrazo(prazoUrl)}` : '',
       transportadoraUrl ? `transportadora ${transportadoraUrl}` : '',
+      conciliacaoUrl ? `conciliação ${textoStatusConciliacao(conciliacaoUrl as StatusConciliacao)}` : '',
       buscaUrl ? `busca ${buscaUrl}` : '',
     ].filter(Boolean)
 
@@ -315,23 +368,72 @@ export default function FaturasTransportadorasPage() {
       setImportandoPdf(false)
     }
   }
+  async function carregarItensConciliacao() {
+    const resultado: ItemFaturaConciliacao[] = []
+    const tamanhoPagina = 1000
+
+    for (let inicio = 0; ; inicio += tamanhoPagina) {
+      const { data, error } = await supabase
+        .from('faturas_transportadoras_itens')
+        .select('id, fatura_transportadora_id, awb, valor_compra, financeiro_embarque_id')
+        .range(inicio, inicio + tamanhoPagina - 1)
+
+      if (error) throw new Error('Erro ao carregar AWBs das faturas: ' + error.message)
+
+      const pagina = (data as ItemFaturaConciliacao[]) || []
+      resultado.push(...pagina)
+      if (pagina.length < tamanhoPagina) break
+    }
+
+    return resultado
+  }
+
+  async function carregarFinanceirosConciliacao() {
+    const resultado: ProcessoFinanceiroConciliacao[] = []
+    const tamanhoPagina = 1000
+
+    for (let inicio = 0; ; inicio += tamanhoPagina) {
+      const { data, error } = await supabase
+        .from('financeiro_embarques')
+        .select('id, awb, cliente, valor_cobranca, recebimento')
+        .range(inicio, inicio + tamanhoPagina - 1)
+
+      if (error) throw new Error('Erro ao carregar recebimentos dos clientes: ' + error.message)
+
+      const pagina = (data as ProcessoFinanceiroConciliacao[]) || []
+      resultado.push(...pagina)
+      if (pagina.length < tamanhoPagina) break
+    }
+
+    return resultado
+  }
+
   async function carregar() {
     setLoading(true)
 
-    const { data, error } = await supabase
-      .from('faturas_transportadoras')
-      .select('*')
-      .order('vencimento', { ascending: true, nullsFirst: false })
-      .order('criado_em', { ascending: false })
+    try {
+      const [respostaFaturas, itens, financeiros] = await Promise.all([
+        supabase
+          .from('faturas_transportadoras')
+          .select('*')
+          .order('vencimento', { ascending: true, nullsFirst: false })
+          .order('criado_em', { ascending: false }),
+        carregarItensConciliacao(),
+        carregarFinanceirosConciliacao(),
+      ])
 
-    if (error) {
-      alert('Erro ao carregar faturas de transportadoras: ' + error.message)
+      if (respostaFaturas.error) {
+        throw new Error('Erro ao carregar faturas de transportadoras: ' + respostaFaturas.error.message)
+      }
+
+      setFaturas((respostaFaturas.data as FaturaTransportadora[]) || [])
+      setItensConciliacao(itens)
+      setFinanceirosConciliacao(financeiros)
+    } catch (error: any) {
+      alert(error?.message || 'Erro ao carregar a conciliação das faturas.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    setFaturas((data as FaturaTransportadora[]) || [])
-    setLoading(false)
   }
 
   function numero(valor: any) {
@@ -395,6 +497,23 @@ export default function FaturasTransportadorasPage() {
     return 'bg-yellow-500/20 text-yellow-300 border-yellow-500'
   }
 
+  function textoStatusConciliacao(status: StatusConciliacao | string) {
+    if (status === 'PRONTA_PARA_PAGAR') return 'Pronta para pagar'
+    if (status === 'AGUARDANDO_RECEBIMENTO') return 'Aguardando recebimento'
+    if (status === 'COBERTURA_INSUFICIENTE') return 'Cobertura insuficiente'
+    if (status === 'PAGA_COM_PENDENCIA') return 'Paga com recebimento pendente'
+    if (status === 'PAGA_COBERTA') return 'Paga e conciliada'
+    return 'Sem conciliação'
+  }
+
+  function classeStatusConciliacao(status: StatusConciliacao) {
+    if (status === 'PRONTA_PARA_PAGAR') return 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+    if (status === 'PAGA_COBERTA') return 'border-green-500 bg-green-500/15 text-green-300'
+    if (status === 'PAGA_COM_PENDENCIA') return 'border-red-500 bg-red-500/15 text-red-300'
+    if (status === 'AGUARDANDO_RECEBIMENTO') return 'border-amber-500 bg-amber-500/15 text-amber-300'
+    if (status === 'COBERTURA_INSUFICIENTE') return 'border-orange-500 bg-orange-500/15 text-orange-300'
+    return 'border-slate-600 bg-slate-700/30 text-slate-300'
+  }
 
   function normalizarBusca(valor: any) {
     return String(valor || '')
@@ -1260,6 +1379,52 @@ export default function FaturasTransportadorasPage() {
   async function salvarFatura() {
     if (!form.transportadora) return alert('Selecione a transportadora.')
     if (!form.numero_fatura.trim()) return alert('Informe o número da fatura.')
+    if (form.situacao === 'PAGA' && !form.data_pagamento) {
+      return alert('Para marcar a fatura como paga, informe a data real do pagamento.')
+    }
+
+    if (form.data_pagamento && editandoId) {
+      const faturaAtual = faturas.find((item) => item.id === editandoId)
+
+      if (faturaAtual && !faturaAtual.data_pagamento) {
+        const conciliacao = resumoConciliacao(faturaAtual)
+
+        if (!conciliacao.liberadaPagamento) {
+          const pendentes = conciliacao.itens
+            .filter(({ processo, recebido }) => !processo || !recebido)
+            .map(({ item, processo }) => `${item.awb || '-'}${processo?.cliente ? ` - ${processo.cliente}` : ''}`)
+            .slice(0, 12)
+
+          const linhasAlertaPagamento = [
+            'ATENÇÃO — PAGAMENTO SEM COBERTURA COMPLETA',
+            '',
+            `Fatura: ${faturaAtual.numero_fatura || '-'}`,
+            `Transportadora: ${faturaAtual.transportadora || '-'}`,
+            `AWBs na fatura: ${conciliacao.totalItens}`,
+            `Recebidos: ${conciliacao.recebidos}`,
+            `Aguardando recebimento: ${conciliacao.pendentes}`,
+            `Não localizados no Financeiro: ${conciliacao.naoLocalizados}`,
+            `Valor pendente conhecido: ${moeda(conciliacao.valorPendente)}`,
+            `Cobertura financeira: ${conciliacao.cobertura.toFixed(1)}%`,
+            '',
+          ]
+
+          if (pendentes.length) {
+            linhasAlertaPagamento.push('Pendências:', ...pendentes, '')
+          }
+
+          linhasAlertaPagamento.push(
+            'Se continuar, a fatura ficará sinalizada em vermelho como PAGA COM RECEBIMENTO PENDENTE até a regularização.',
+            '',
+            'Deseja registrar o pagamento mesmo assim?'
+          )
+
+          const confirmarPagamento = confirm(linhasAlertaPagamento.join('\n'))
+
+          if (!confirmarPagamento) return
+        }
+      }
+    }
 
     setSalvando(true)
 
@@ -1481,10 +1646,13 @@ export default function FaturasTransportadorasPage() {
     setFiltroSituacoes([])
     setFiltroArquivadas('ATIVAS')
     setFiltroPrazo('')
+    setFiltroConciliacao('TODAS')
     setFiltroDashboard('')
   }
 
   function filtroRapido(tipo: string) {
+    setFiltroConciliacao('TODAS')
+
     if (tipo === 'DHL') {
       setFiltroTransportadoras(['DHL'])
       setFiltroSituacoes([])
@@ -1518,6 +1686,118 @@ export default function FaturasTransportadorasPage() {
       setFiltroSituacoes([])
       setFiltroArquivadas('ARQUIVADAS')
       setFiltroPrazo('')
+    }
+
+    if (tipo === 'PRONTAS_PAGAR') {
+      setFiltroTransportadoras([])
+      setFiltroSituacoes([])
+      setFiltroArquivadas('ATIVAS')
+      setFiltroPrazo('')
+      setFiltroConciliacao('PRONTA_PARA_PAGAR')
+    }
+
+    if (tipo === 'PAGAS_PENDENTES') {
+      setFiltroTransportadoras([])
+      setFiltroSituacoes([])
+      setFiltroArquivadas('TODAS')
+      setFiltroPrazo('')
+      setFiltroConciliacao('PAGA_COM_PENDENCIA')
+    }
+  }
+
+  const itensPorFatura = useMemo(() => {
+    const mapa = new Map<string, ItemFaturaConciliacao[]>()
+
+    itensConciliacao.forEach((item) => {
+      const lista = mapa.get(item.fatura_transportadora_id) || []
+      lista.push(item)
+      mapa.set(item.fatura_transportadora_id, lista)
+    })
+
+    return mapa
+  }, [itensConciliacao])
+
+  const financeirosPorId = useMemo(() => {
+    return new Map(financeirosConciliacao.map((item) => [item.id, item]))
+  }, [financeirosConciliacao])
+
+  const financeirosPorAwb = useMemo(() => {
+    const mapa = new Map<string, ProcessoFinanceiroConciliacao[]>()
+
+    financeirosConciliacao.forEach((item) => {
+      const awb = normalizarAwb(item.awb)
+      if (!awb) return
+      const lista = mapa.get(awb) || []
+      lista.push(item)
+      mapa.set(awb, lista)
+    })
+
+    return mapa
+  }, [financeirosConciliacao])
+
+  function resumoConciliacao(fatura: FaturaTransportadora): ResumoConciliacao {
+    const itens = itensPorFatura.get(fatura.id) || []
+
+    const detalhados: ItemConciliado[] = itens.map((item) => {
+      const vinculado = item.financeiro_embarque_id
+        ? financeirosPorId.get(item.financeiro_embarque_id) || null
+        : null
+
+      const candidatos = financeirosPorAwb.get(normalizarAwb(item.awb)) || []
+      const processo = vinculado || candidatos.find((registro) => !!registro.recebimento) || candidatos[0] || null
+
+      return {
+        item,
+        processo,
+        recebido: !!processo?.recebimento,
+      }
+    })
+
+    const recebidos = detalhados.filter((item) => item.recebido).length
+    const naoLocalizados = detalhados.filter((item) => !item.processo).length
+    const pendentes = detalhados.filter((item) => !!item.processo && !item.recebido).length
+    const valorRecebido = detalhados.reduce(
+      (acc, item) => acc + (item.recebido ? Number(item.processo?.valor_cobranca || 0) : 0),
+      0
+    )
+    const valorPendente = detalhados.reduce(
+      (acc, item) => acc + (item.processo && !item.recebido ? Number(item.processo.valor_cobranca || 0) : 0),
+      0
+    )
+    const totalFatura = Number(fatura.total || 0)
+    const cobertura = totalFatura > 0 ? (valorRecebido / totalFatura) * 100 : 0
+    const todosRecebidos = detalhados.length > 0 && recebidos === detalhados.length && naoLocalizados === 0
+    const coberturaSuficiente = totalFatura <= 0 || valorRecebido + 0.01 >= totalFatura
+    const liberadaPagamento = todosRecebidos && coberturaSuficiente
+    const paga = situacaoAutomatica(fatura) === 'PAGA'
+
+    let status: StatusConciliacao = paga ? 'PAGA_COM_PENDENCIA' : 'SEM_CONCILIACAO'
+
+    if (detalhados.length > 0) {
+      if (paga) {
+        status = liberadaPagamento ? 'PAGA_COBERTA' : 'PAGA_COM_PENDENCIA'
+      } else if (!todosRecebidos) {
+        status = 'AGUARDANDO_RECEBIMENTO'
+      } else if (!coberturaSuficiente) {
+        status = 'COBERTURA_INSUFICIENTE'
+      } else {
+        status = 'PRONTA_PARA_PAGAR'
+      }
+    }
+
+    return {
+      status,
+      itens: detalhados,
+      totalItens: detalhados.length,
+      recebidos,
+      pendentes,
+      naoLocalizados,
+      valorRecebido,
+      valorPendente,
+      cobertura,
+      todosRecebidos,
+      coberturaSuficiente,
+      liberadaPagamento,
     }
   }
 
@@ -1555,10 +1835,12 @@ export default function FaturasTransportadorasPage() {
         (filtroArquivadas === 'ARQUIVADAS' && !!item.arquivada)
 
       const passaPrazo = passaFiltroPrazo(item)
+      const conciliacao = resumoConciliacao(item)
+      const passaConciliacao = filtroConciliacao === 'TODAS' || conciliacao.status === filtroConciliacao
 
-      return passaBusca && passaTransportadora && passaSituacao && passaArquivadas && passaPrazo
+      return passaBusca && passaTransportadora && passaSituacao && passaArquivadas && passaPrazo && passaConciliacao
     })
-  }, [faturas, busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo])
+  }, [faturas, busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo, filtroConciliacao, itensPorFatura, financeirosPorId, financeirosPorAwb])
 
 
   const todasFiltradasSelecionadas =
@@ -1579,6 +1861,8 @@ export default function FaturasTransportadorasPage() {
     const vencidas = ativas.filter((item) => situacaoAutomatica(item) === 'VENCIDA')
     const abertas = ativas.filter((item) => situacaoAutomatica(item) === 'EM ABERTO')
     const arquivadas = faturas.filter((item) => item.arquivada)
+    const prontasPagar = ativas.filter((item) => resumoConciliacao(item).status === 'PRONTA_PARA_PAGAR')
+    const pagasPendentes = faturas.filter((item) => resumoConciliacao(item).status === 'PAGA_COM_PENDENCIA')
 
     function somarSaldo(lista: FaturaTransportadora[]) {
       return lista.reduce((acc, item) => acc + Number(item.saldo || 0), 0)
@@ -1594,9 +1878,18 @@ export default function FaturasTransportadorasPage() {
       vencidas: { qtd: vencidas.length, saldo: somarSaldo(vencidas) },
       abertas: { qtd: abertas.length, saldo: somarSaldo(abertas) },
       arquivadas: { qtd: arquivadas.length, saldo: somarSaldo(arquivadas) },
+      prontasPagar: { qtd: prontasPagar.length },
+      pagasPendentes: {
+        qtd: pagasPendentes.length,
+        processos: pagasPendentes.reduce((acc, item) => {
+          const resumo = resumoConciliacao(item)
+          return acc + resumo.pendentes + resumo.naoLocalizados
+        }, 0),
+        valorPendente: pagasPendentes.reduce((acc, item) => acc + resumoConciliacao(item).valorPendente, 0),
+      },
       geral: { qtd: ativas.length, saldo: somarSaldo(ativas), total: somarTotal(ativas) },
     }
-  }, [faturas])
+  }, [faturas, itensPorFatura, financeirosPorId, financeirosPorAwb])
 
   return (
     <main className="w-full max-w-none p-6 lg:p-8 text-white">
@@ -1687,11 +1980,13 @@ export default function FaturasTransportadorasPage() {
         </section>
       )}
 
-      <section className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-5 mb-8">
+      <section className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-8 gap-5 mb-8">
         <KpiCard titulo="DHL" valor={totais.dhl.qtd} detalhe={`Saldo ${moeda(totais.dhl.saldo)}`} icone="🟡" onClick={() => filtroRapido('DHL')} />
         <KpiCard titulo="FedEx" valor={totais.fedex.qtd} detalhe={`Saldo ${moeda(totais.fedex.saldo)}`} icone="🟣" onClick={() => filtroRapido('FEDEX')} />
         <KpiCard titulo="Vencidas" valor={totais.vencidas.qtd} detalhe={`Saldo ${moeda(totais.vencidas.saldo)}`} icone="🚨" onClick={() => filtroRapido('VENCIDAS')} />
         <KpiCard titulo="Em aberto" valor={totais.abertas.qtd} detalhe={`Saldo ${moeda(totais.abertas.saldo)}`} icone="⏳" onClick={() => filtroRapido('ABERTAS')} />
+        <KpiCard titulo="Prontas para pagar" valor={totais.prontasPagar.qtd} detalhe="Todos os AWBs recebidos" icone="✅" onClick={() => filtroRapido('PRONTAS_PAGAR')} />
+        <KpiCard titulo="Pagas c/ pendência" valor={totais.pagasPendentes.qtd} detalhe={`${totais.pagasPendentes.processos} processo(s) • ${moeda(totais.pagasPendentes.valorPendente)}`} icone="⚠️" onClick={() => filtroRapido('PAGAS_PENDENTES')} />
         <KpiCard titulo="Arquivadas" valor={totais.arquivadas.qtd} detalhe="Ocultas da visão principal" icone="🗄️" onClick={() => filtroRapido('ARQUIVADAS')} />
         <KpiCard titulo="Saldo ativo" valor={moeda(totais.geral.saldo)} detalhe={`${totais.geral.qtd} fatura(s)`} icone="💰" />
       </section>
@@ -1778,6 +2073,17 @@ export default function FaturasTransportadorasPage() {
               value={form.data_pagamento}
               onChange={(e) => setForm({ ...form, data_pagamento: e.target.value })}
             />
+            {editandoId && (() => {
+              const faturaAtual = faturas.find((item) => item.id === editandoId)
+              if (!faturaAtual) return null
+              const conciliacao = resumoConciliacao(faturaAtual)
+
+              return (
+                <p className={`mt-2 rounded-lg border px-3 py-2 text-xs font-bold ${classeStatusConciliacao(conciliacao.status)}`}>
+                  {textoStatusConciliacao(conciliacao.status)} • {conciliacao.recebidos}/{conciliacao.totalItens} AWB(s) recebidos
+                </p>
+              )
+            })()}
           </Campo>
 
           <Campo label="Banco utilizado">
@@ -1880,7 +2186,7 @@ export default function FaturasTransportadorasPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 w-full xl:max-w-[1100px]">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 w-full xl:max-w-[1320px]">
             <MultiFiltro
               titulo="Transportadora"
               opcoes={[
@@ -1913,6 +2219,19 @@ export default function FaturasTransportadorasPage() {
               <option value="ATIVAS">Ativas</option>
               <option value="ARQUIVADAS">Arquivadas</option>
               <option value="TODAS">Todas</option>
+            </select>
+
+            <select
+              value={filtroConciliacao}
+              onChange={(e) => setFiltroConciliacao(e.target.value)}
+            >
+              <option value="TODAS">Recebimentos: todos</option>
+              <option value="PRONTA_PARA_PAGAR">Prontas para pagar</option>
+              <option value="AGUARDANDO_RECEBIMENTO">Aguardando recebimento</option>
+              <option value="COBERTURA_INSUFICIENTE">Cobertura insuficiente</option>
+              <option value="PAGA_COM_PENDENCIA">Pagas com pendência</option>
+              <option value="PAGA_COBERTA">Pagas e conciliadas</option>
+              <option value="SEM_CONCILIACAO">Sem conciliação</option>
             </select>
 
             <input
@@ -1980,7 +2299,7 @@ export default function FaturasTransportadorasPage() {
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[1820px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+            <table className="w-full min-w-[2050px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
               <thead>
                 <tr>
                   <th className="w-[48px]">
@@ -1998,6 +2317,7 @@ export default function FaturasTransportadorasPage() {
                   <th>Pagamento</th>
                   <th>Banco</th>
                   <th>Situação</th>
+                  <th>Recebimentos</th>
                   <th>Total</th>
                   <th>Contestado</th>
                   <th>Pago/Ajust.</th>
@@ -2010,9 +2330,12 @@ export default function FaturasTransportadorasPage() {
               <tbody>
                 {filtradas.map((item) => {
                   const status = situacaoAutomatica(item)
+                  const conciliacao = resumoConciliacao(item)
+                  const detalhesAbertos = faturaConciliacaoAberta === item.id
 
                   return (
-                    <tr key={item.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
+                    <Fragment key={item.id}>
+                    <tr className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
                       <td>
                         <input
                           type="checkbox"
@@ -2063,6 +2386,21 @@ export default function FaturasTransportadorasPage() {
                         </span>
                       </td>
 
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => setFaturaConciliacaoAberta(detalhesAbertos ? null : item.id)}
+                          className={`min-w-[190px] rounded-xl border px-3 py-2 text-left ${classeStatusConciliacao(conciliacao.status)}`}
+                        >
+                          <span className="block text-xs font-black">{textoStatusConciliacao(conciliacao.status)}</span>
+                          <span className="mt-1 block text-[11px] opacity-90">
+                            {conciliacao.totalItens > 0
+                              ? `${conciliacao.recebidos}/${conciliacao.totalItens} recebidos • cobertura ${conciliacao.cobertura.toFixed(0)}%`
+                              : 'Nenhum AWB vinculado para conferência'}
+                          </span>
+                        </button>
+                      </td>
+
                       <td>{moeda(item.total, item.moeda || 'BRL')}</td>
                       <td>{moeda(item.valor_contestado, item.moeda || 'BRL')}</td>
                       <td>{moeda(item.pago_ajustado, item.moeda || 'BRL')}</td>
@@ -2097,6 +2435,14 @@ export default function FaturasTransportadorasPage() {
                           </label>
 
                           <button
+                            type="button"
+                            onClick={() => setFaturaConciliacaoAberta(detalhesAbertos ? null : item.id)}
+                            className="bg-emerald-700 hover:bg-emerald-600 px-3 py-2 rounded-xl font-bold text-xs"
+                          >
+                            {detalhesAbertos ? 'Fechar conciliação' : 'Conferir recebimentos'}
+                          </button>
+
+                          <button
                             onClick={() => editar(item)}
                             className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-xl font-bold text-xs"
                           >
@@ -2119,6 +2465,82 @@ export default function FaturasTransportadorasPage() {
                         </div>
                       </td>
                     </tr>
+
+                    {detalhesAbertos && (
+                      <tr className="border-b border-blue-900/80 bg-[#020817]">
+                        <td colSpan={16} className="px-4 py-5">
+                          <div className="rounded-2xl border border-blue-900 bg-[#071225] p-5">
+                            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                              <div>
+                                <p className="text-xs font-black uppercase tracking-wider text-blue-400">Conciliação de recebimentos</p>
+                                <h3 className="mt-1 text-xl font-black">
+                                  {item.transportadora} • Fatura {item.numero_fatura || '-'}
+                                </h3>
+                                <p className="mt-2 text-sm text-slate-400">
+                                  O pagamento da transportadora fica seguro somente quando todos os AWBs abaixo possuem data de recebimento no Financeiro.
+                                </p>
+                              </div>
+
+                              <span className={`w-fit rounded-full border px-4 py-2 text-xs font-black ${classeStatusConciliacao(conciliacao.status)}`}>
+                                {textoStatusConciliacao(conciliacao.status)}
+                              </span>
+                            </div>
+
+                            <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+                              <MiniResumo titulo="AWBs na fatura" valor={conciliacao.totalItens} />
+                              <MiniResumo titulo="Recebidos" valor={conciliacao.recebidos} destaque="verde" />
+                              <MiniResumo titulo="Pendentes" valor={conciliacao.pendentes} destaque={conciliacao.pendentes > 0 ? 'vermelho' : 'verde'} />
+                              <MiniResumo titulo="Não localizados" valor={conciliacao.naoLocalizados} destaque={conciliacao.naoLocalizados > 0 ? 'vermelho' : 'verde'} />
+                              <MiniResumo titulo="Recebido clientes" valor={moeda(conciliacao.valorRecebido)} destaque="verde" />
+                              <MiniResumo titulo="Ainda a receber" valor={moeda(conciliacao.valorPendente)} destaque={conciliacao.valorPendente > 0 ? 'vermelho' : 'verde'} />
+                              <MiniResumo titulo="Cobertura da fatura" valor={`${conciliacao.cobertura.toFixed(1)}%`} destaque={conciliacao.coberturaSuficiente ? 'verde' : 'vermelho'} />
+                            </div>
+
+                            {conciliacao.totalItens === 0 ? (
+                              <div className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm font-bold text-amber-200">
+                                Esta fatura ainda não possui AWBs vinculados em faturas_transportadoras_itens. Não é possível validar se os clientes pagaram até os itens da fatura serem importados/vinculados.
+                              </div>
+                            ) : (
+                              <div className="mt-5 overflow-x-auto rounded-xl border border-blue-900">
+                                <table className="w-full min-w-[980px] text-xs">
+                                  <thead className="bg-[#020817] text-slate-300">
+                                    <tr>
+                                      <th className="px-3 py-3 text-left">AWB / Processo</th>
+                                      <th className="px-3 py-3 text-left">Cliente</th>
+                                      <th className="px-3 py-3 text-right">Custo transportadora</th>
+                                      <th className="px-3 py-3 text-right">Cobrança cliente</th>
+                                      <th className="px-3 py-3 text-left">Recebimento</th>
+                                      <th className="px-3 py-3 text-left">Situação</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {conciliacao.itens.map(({ item: itemFatura, processo, recebido }) => (
+                                      <tr key={itemFatura.id} className="border-t border-blue-900/70">
+                                        <td className="px-3 py-3 font-black text-blue-300">{itemFatura.awb || '-'}</td>
+                                        <td className="px-3 py-3">{processo?.cliente || (processo ? '-' : 'Não localizado')}</td>
+                                        <td className="px-3 py-3 text-right">{moeda(itemFatura.valor_compra)}</td>
+                                        <td className="px-3 py-3 text-right">{processo ? moeda(processo.valor_cobranca) : '-'}</td>
+                                        <td className="px-3 py-3">{processo ? dataBR(processo.recebimento) : '-'}</td>
+                                        <td className="px-3 py-3">
+                                          {!processo ? (
+                                            <span className="rounded-full border border-red-500 bg-red-500/15 px-2 py-1 font-black text-red-300">NÃO LOCALIZADO</span>
+                                          ) : recebido ? (
+                                            <span className="rounded-full border border-green-500 bg-green-500/15 px-2 py-1 font-black text-green-300">RECEBIDO</span>
+                                          ) : (
+                                            <span className="rounded-full border border-amber-500 bg-amber-500/15 px-2 py-1 font-black text-amber-300">AGUARDANDO CLIENTE</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>
@@ -2199,6 +2621,32 @@ function MultiFiltro({
         </button>
       </div>
     </details>
+  )
+}
+
+function MiniResumo({
+  titulo,
+  valor,
+  destaque = 'padrao',
+}: {
+  titulo: string
+  valor: any
+  destaque?: 'padrao' | 'verde' | 'vermelho' | 'amarelo'
+}) {
+  const classe =
+    destaque === 'verde'
+      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+      : destaque === 'vermelho'
+        ? 'border-red-500/40 bg-red-500/10 text-red-300'
+        : destaque === 'amarelo'
+          ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+          : 'border-blue-900 bg-[#020817] text-white'
+
+  return (
+    <div className={`rounded-xl border p-3 ${classe}`}>
+      <p className="text-[10px] font-black uppercase tracking-wide opacity-75">{titulo}</p>
+      <p className="mt-2 text-lg font-black">{valor}</p>
+    </div>
   )
 }
 
