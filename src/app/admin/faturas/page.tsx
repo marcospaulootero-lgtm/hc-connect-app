@@ -17,6 +17,7 @@ type Embarque = {
   importador?: string | null
   transportadora: string | null
   status_operacional: string | null
+  data_envio?: string | null
   criado_em?: string | null
   servico?: string | null
   origem?: string | null
@@ -251,6 +252,7 @@ export default function FaturasPage() {
   const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS'>('FRETE')
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
+  const [emissorDataEmbarque, setEmissorDataEmbarque] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
   const [emissorTipoCambio, setEmissorTipoCambio] = useState('DOLAR_VENDA_DIA')
   const [emissorDolarVendaDia, setEmissorDolarVendaDia] = useState('')
@@ -3273,11 +3275,50 @@ export default function FaturasPage() {
     return true
   }
 
-  function dataUltimoDiaMesAnterior() {
-    const hoje = new Date()
-    const ultimoDiaMesAnterior = new Date(hoje.getFullYear(), hoje.getMonth(), 0)
+  function dataLocalISO(data: Date) {
+    const ano = data.getFullYear()
+    const mes = String(data.getMonth() + 1).padStart(2, '0')
+    const dia = String(data.getDate()).padStart(2, '0')
+    return `${ano}-${mes}-${dia}`
+  }
 
-    return ultimoDiaMesAnterior.toISOString().slice(0, 10)
+  function hojeLocalISO() {
+    return dataLocalISO(new Date())
+  }
+
+  function somarDiasISO(dataISO: string, dias: number) {
+    const dataNormalizada = normalizarData(dataISO) || hojeLocalISO()
+    const [ano, mes, dia] = dataNormalizada.split('-').map(Number)
+    const data = new Date(ano, mes - 1, dia, 12, 0, 0)
+    data.setDate(data.getDate() + dias)
+    return dataLocalISO(data)
+  }
+
+  function ehClienteDorfKetal(cliente?: ClienteFaturamento | null) {
+    const nome = normalizarTexto(
+      [
+        cliente?.nome_empresa,
+        cliente?.razao_social,
+        cliente?.nome,
+        cliente?.cliente,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    )
+
+    return nome.includes('DORF') && nome.includes('KETAL')
+  }
+
+  function vencimentoPadraoCliente(cliente?: ClienteFaturamento | null) {
+    return somarDiasISO(hojeLocalISO(), ehClienteDorfKetal(cliente) ? 21 : 7)
+  }
+
+  function dataUltimoDiaMesAnterior(dataBaseISO?: string | null) {
+    const base = normalizarData(dataBaseISO) || hojeLocalISO()
+    const [ano, mes] = base.split('-').map(Number)
+    const ultimoDiaMesAnterior = new Date(ano, mes - 1, 0, 12, 0, 0)
+
+    return dataLocalISO(ultimoDiaMesAnterior)
   }
 
   function dataBRSimples(dataISO?: string | null) {
@@ -3288,8 +3329,8 @@ export default function FaturasPage() {
     return `${dia}/${mes}/${ano}`
   }
 
-  function sugestaoPtaxDhlMesAnterior() {
-    const data = dataUltimoDiaMesAnterior()
+  function sugestaoPtaxDhlMesAnterior(dataBaseISO?: string | null) {
+    const data = dataUltimoDiaMesAnterior(dataBaseISO)
 
     return {
       data,
@@ -3313,11 +3354,30 @@ export default function FaturasPage() {
     recalcularItensPorTaxa(valor)
   }
 
-  async function carregarCambioAutomaticoEmissor(tipoPreferencial?: string, aplicarAutomaticamente = true) {
+  async function carregarCambioAutomaticoEmissor(
+    tipoPreferencial?: string,
+    aplicarAutomaticamente = true,
+    dataBasePtax?: string
+  ) {
+    const tipoFinal = tipoPreferencial || emissorTipoCambio
+    const usandoPtaxDhl = tipoFinal === 'PTAX_DHL_MES_ANTERIOR'
+    const dataConsultaPtax = normalizarData(dataBasePtax || emissorDataEmbarque) || ''
+
+    if (usandoPtaxDhl && !dataConsultaPtax) {
+      setEmissorAvisoCambio(
+        'DHL selecionada: informe a Data do embarque. A PTAX será buscada pelo último valor válido do mês anterior ao envio.'
+      )
+      return ''
+    }
+
     setCarregandoCambioEmissor(true)
 
     try {
-      const resposta = await fetch('/api/cambio-bacen', {
+      const endpoint = usandoPtaxDhl
+        ? `/api/cambio-bacen?data=${encodeURIComponent(dataConsultaPtax)}`
+        : '/api/cambio-bacen'
+
+      const resposta = await fetch(endpoint, {
         cache: 'no-store',
       })
 
@@ -3332,29 +3392,33 @@ export default function FaturasPage() {
       const ptaxDhl = formatarTaxaCambioInput(retorno?.ptax_dhl_mes_anterior?.valor)
       const dataPtaxDhl = retorno?.ptax_dhl_mes_anterior?.data || ''
 
-      setEmissorDolarVendaDia(dolarVenda)
-      setEmissorPtaxDhlMesAnterior(ptaxDhl)
-      setEmissorDataPtaxDhlMesAnterior(dataPtaxDhl || sugestaoPtaxDhlMesAnterior().data)
+      if (usandoPtaxDhl) {
+        setEmissorPtaxDhlMesAnterior(ptaxDhl)
+        setEmissorDataPtaxDhlMesAnterior(dataPtaxDhl || sugestaoPtaxDhlMesAnterior(dataConsultaPtax).data)
 
-      setEmissorAvisoCambio(
-        `Câmbio atualizado pelo Banco Central. Dólar venda: ${dolarVenda || '-'} (${dataBRSimples(dataDolarVenda)}). PTAX DHL mês anterior: ${ptaxDhl || '-'} (${dataBRSimples(dataPtaxDhl)}).`
-      )
+        setEmissorAvisoCambio(
+          `DHL: embarque em ${dataBRSimples(dataConsultaPtax)}. PTAX aplicada: ${ptaxDhl || '-'} (${dataBRSimples(dataPtaxDhl)}), último valor válido do mês anterior.`
+        )
+      } else {
+        setEmissorDolarVendaDia(dolarVenda)
+        setEmissorAvisoCambio(
+          `Câmbio atualizado pelo Banco Central. Dólar venda: ${dolarVenda || '-'} (${dataBRSimples(dataDolarVenda)}).`
+        )
+      }
 
       if (aplicarAutomaticamente) {
-        const tipoFinal = tipoPreferencial || emissorTipoCambio
-
-        if (tipoFinal === 'PTAX_DHL_MES_ANTERIOR' && ptaxDhl) {
+        if (usandoPtaxDhl && ptaxDhl) {
           aplicarTaxaCambio('PTAX_DHL_MES_ANTERIOR', ptaxDhl)
           return ptaxDhl
         }
 
-        if (dolarVenda) {
+        if (!usandoPtaxDhl && dolarVenda) {
           aplicarTaxaCambio('DOLAR_VENDA_DIA', dolarVenda)
           return dolarVenda
         }
       }
 
-      return tipoPreferencial === 'PTAX_DHL_MES_ANTERIOR' ? ptaxDhl : dolarVenda
+      return usandoPtaxDhl ? ptaxDhl : dolarVenda
     } catch (error: any) {
       console.log('Erro ao buscar câmbio automático:', error)
       setEmissorAvisoCambio(
@@ -3450,6 +3514,16 @@ export default function FaturasPage() {
       : null
   }
 
+  function selecionarClienteFaturamentoEmissor(clienteId: string) {
+    setEmissorClienteId(clienteId)
+
+    const cliente =
+      clientesFaturamento.find((item) => String(item.id) === String(clienteId)) ||
+      null
+
+    setEmissorVencimento(vencimentoPadraoCliente(cliente))
+  }
+
   function selecionarEmbarqueEmissor(embarqueId: string) {
     setEmissorEmbarqueId(embarqueId)
 
@@ -3480,20 +3554,23 @@ export default function FaturasPage() {
 
     const financeiro = financeiroDoEmbarque(embarque)
     const valor = valorFinanceiro(financeiro) || numero(embarque.valor_fechado) || numero(embarque.valor_cobrado_cliente) || numero(embarque.valor_venda)
-    const vencimento = normalizarData(vencimentoFinanceiro(financeiro)) || ''
+    const vencimentoExistente = normalizarData(vencimentoFinanceiro(financeiro)) || ''
+    const vencimento = vencimentoExistente || vencimentoPadraoCliente(clienteFaturamentoAutomatico)
+    const dataEmbarque = normalizarData(embarque.data_envio) || ''
     const taxa = numero(embarque.taxa_conversao)
     const numeroAtual = faturaDoEmbarque(embarque.id)?.numero_fatura || gerarNumeroFaturaSugerido(embarque)
     const transportadoraDhl = normalizarTexto(embarque.transportadora || '').includes('DHL')
-    const ptaxDhlSugerido = sugestaoPtaxDhlMesAnterior()
+    const ptaxDhlSugerido = sugestaoPtaxDhlMesAnterior(dataEmbarque)
     const taxaBaseEmbarque = taxa ? String(taxa).replace('.', ',') : ''
-    const taxaBaseInicial = transportadoraDhl && ptaxDhlSugerido.valor ? ptaxDhlSugerido.valor : taxaBaseEmbarque
+    const taxaBaseInicial = transportadoraDhl ? '' : taxaBaseEmbarque
 
     setEmissorNumeroFatura(numeroAtual)
     setEmissorVencimento(vencimento)
+    setEmissorDataEmbarque(dataEmbarque)
     setEmissorTaxaConversao(taxaBaseInicial)
     setEmissorTipoCambio(transportadoraDhl ? 'PTAX_DHL_MES_ANTERIOR' : 'DOLAR_VENDA_DIA')
-    setEmissorDataPtaxDhlMesAnterior(ptaxDhlSugerido.data)
-    setEmissorPtaxDhlMesAnterior(transportadoraDhl ? ptaxDhlSugerido.valor : '')
+    setEmissorDataPtaxDhlMesAnterior(transportadoraDhl && dataEmbarque ? ptaxDhlSugerido.data : '')
+    setEmissorPtaxDhlMesAnterior('')
     setEmissorDolarVendaDia(!transportadoraDhl ? taxaBaseEmbarque : '')
     setEmissorUsuarioId(embarque.usuario_id || '')
     setEmissorDespachante(financeiro?.despachante || '')
@@ -3518,10 +3595,17 @@ export default function FaturasPage() {
       )
     }
 
-    void carregarCambioAutomaticoEmissor(
-      transportadoraDhl ? 'PTAX_DHL_MES_ANTERIOR' : 'DOLAR_VENDA_DIA',
-      true
-    )
+    if (transportadoraDhl) {
+      if (dataEmbarque) {
+        void carregarCambioAutomaticoEmissor('PTAX_DHL_MES_ANTERIOR', true, dataEmbarque)
+      } else {
+        setEmissorAvisoCambio(
+          'DHL selecionada: informe a Data do embarque para buscar automaticamente a PTAX correta do mês anterior.'
+        )
+      }
+    } else {
+      void carregarCambioAutomaticoEmissor('DOLAR_VENDA_DIA', true)
+    }
   }
 
   function abrirEmissaoFaturaDireta(embarque: Embarque) {
@@ -3620,6 +3704,7 @@ export default function FaturasPage() {
     setEmissorTipoFatura('FRETE')
     setEmissorNumeroFatura('')
     setEmissorVencimento('')
+    setEmissorDataEmbarque('')
     setEmissorTaxaConversao('')
     setEmissorTipoCambio('DOLAR_VENDA_DIA')
     setEmissorDolarVendaDia('')
@@ -3819,7 +3904,14 @@ export default function FaturasPage() {
     if (!emissorEmbarqueSelecionado) return alert('Selecione o embarque/AWB primeiro.')
     if (!emissorClienteSelecionado) return alert('Selecione o cliente de faturamento.')
     if (!emissorNumeroFatura.trim()) return alert('Informe o número da fatura.')
+    if (!emissorDataEmbarque) return alert('Informe a data do embarque.')
     if (!emissorVencimento) return alert('Informe o vencimento da fatura.')
+
+    const embarqueEhDhl = normalizarTexto(emissorEmbarqueSelecionado.transportadora || '').includes('DHL')
+    if (embarqueEhDhl && numero(emissorTaxaConversao) <= 0) {
+      return alert('Informe a data do embarque e aguarde a busca da PTAX DHL antes de emitir a fatura.')
+    }
+
     if (itensSelecionadosFatura().length === 0 || totaisEmissor.totalBRL <= 0) {
       return alert('Selecione pelo menos um serviço com valor para emitir a fatura.')
     }
@@ -6022,7 +6114,7 @@ export default function FaturasPage() {
 
               <select
                 value={emissorClienteId}
-                onChange={(e) => setEmissorClienteId(e.target.value)}
+                onChange={(e) => selecionarClienteFaturamentoEmissor(e.target.value)}
                 className="w-full"
               >
                 <option value="">
@@ -6143,15 +6235,63 @@ export default function FaturasPage() {
                   placeholder="Número da fatura"
                 />
 
-                <label className="text-sm font-bold text-slate-300">
-                  Vencimento
-                  <input
-                    type="date"
-                    value={emissorVencimento}
-                    onChange={(e) => setEmissorVencimento(e.target.value)}
-                    className="mt-2 w-full"
-                  />
-                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="text-sm font-bold text-slate-300">
+                    Data do embarque
+                    <input
+                      type="date"
+                      value={emissorDataEmbarque}
+                      onChange={(e) => {
+                        const data = e.target.value
+                        setEmissorDataEmbarque(data)
+
+                        const ehDhl = normalizarTexto(
+                          emissorEmbarqueSelecionado?.transportadora || ''
+                        ).includes('DHL')
+
+                        if (!ehDhl) return
+
+                        if (!data) {
+                          setEmissorPtaxDhlMesAnterior('')
+                          setEmissorDataPtaxDhlMesAnterior('')
+                          setEmissorTaxaConversao('')
+                          setEmissorAvisoCambio(
+                            'Informe a Data do embarque para buscar a PTAX DHL do mês anterior.'
+                          )
+                          return
+                        }
+
+                        setEmissorDataPtaxDhlMesAnterior(
+                          sugestaoPtaxDhlMesAnterior(data).data
+                        )
+                        void carregarCambioAutomaticoEmissor(
+                          'PTAX_DHL_MES_ANTERIOR',
+                          true,
+                          data
+                        )
+                      }}
+                      className="mt-2 w-full"
+                    />
+                    <span className="mt-2 block text-xs font-normal text-slate-500">
+                      Na DHL, esta data define automaticamente qual mês de PTAX deve ser usado.
+                    </span>
+                  </label>
+
+                  <label className="text-sm font-bold text-slate-300">
+                    Vencimento
+                    <input
+                      type="date"
+                      value={emissorVencimento}
+                      onChange={(e) => setEmissorVencimento(e.target.value)}
+                      className="mt-2 w-full"
+                    />
+                    <span className="mt-2 block text-xs font-normal text-slate-500">
+                      {ehClienteDorfKetal(emissorClienteSelecionado)
+                        ? 'Dorf Ketal: padrão de 21 dias. A data continua editável.'
+                        : 'Padrão HC: 7 dias. A data continua editável para prazo menor ou diferente.'}
+                    </span>
+                  </label>
+                </div>
 
                 <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
                   <p className="text-xs font-black uppercase tracking-wide text-blue-300">Base cambial da fatura</p>
@@ -6196,7 +6336,7 @@ export default function FaturasPage() {
                       <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
                         <input
                           type="date"
-                          value={emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data}
+                          value={emissorDataPtaxDhlMesAnterior}
                           onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
                         />
                         <input
@@ -6243,7 +6383,13 @@ export default function FaturasPage() {
 
                     <button
                       type="button"
-                      onClick={() => carregarCambioAutomaticoEmissor(emissorTipoCambio, true)}
+                      onClick={() =>
+                        carregarCambioAutomaticoEmissor(
+                          emissorTipoCambio,
+                          true,
+                          emissorDataEmbarque
+                        )
+                      }
                       disabled={carregandoCambioEmissor}
                       className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black hover:bg-green-500 disabled:opacity-60"
                     >
@@ -6258,7 +6404,7 @@ export default function FaturasPage() {
                   )}
 
                   <p className="mt-3 text-xs text-slate-400">
-                    Regra DHL: usar o último PTAX do mês anterior. Ex.: faturamento em junho usa 31/05, R$ 5,0569.
+                    Regra DHL: a Data do embarque define a referência. O sistema consulta o Banco Central e aplica o último PTAX válido do mês imediatamente anterior ao envio.
                   </p>
                 </div>
 
@@ -6277,7 +6423,7 @@ export default function FaturasPage() {
                   <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
                   <p className="mt-1 text-xs text-slate-400">
                     Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
-                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior || sugestaoPtaxDhlMesAnterior().data)}`
+                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior)}`
                       : emissorTipoCambio === 'DOLAR_VENDA_DIA'
                         ? 'dólar fechamento venda do dia'
                         : 'taxa manual'} + spread.
