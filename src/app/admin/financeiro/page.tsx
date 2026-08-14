@@ -235,6 +235,13 @@ function textoMesAnoProcessos(valor: string) {
 export default function FinanceiroPage() {
   const [lancamentos, setLancamentos] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
+  const [contasBancarias, setContasBancarias] = useState<any[]>([])
+
+  const [loadingContasBancarias, setLoadingContasBancarias] = useState(false)
+  const [salvandoContaBancaria, setSalvandoContaBancaria] = useState(false)
+  const [editandoContaBancariaId, setEditandoContaBancariaId] = useState<string | null>(null)
+  const [erroContasBancarias, setErroContasBancarias] = useState('')
+  const [formContaBancaria, setFormContaBancaria] = useState({ banco: '', nome_conta: '', saldo_atual: '' })
 
   const [loading, setLoading] = useState(false)
   const [loadingMovimentos, setLoadingMovimentos] = useState(false)
@@ -805,7 +812,7 @@ export default function FinanceiroPage() {
   }
 
   async function carregarDados() {
-    await Promise.all([carregarFinanceiro(), carregarMovimentacoes()])
+    await Promise.all([carregarFinanceiro(), carregarMovimentacoes(), carregarContasBancarias()])
   }
 
   async function carregarFinanceiro() {
@@ -881,6 +888,104 @@ export default function FinanceiroPage() {
     setMovimentacoes((data || []) as any[])
     setPaginaMovimentos(1)
     setLoadingMovimentos(false)
+  }
+
+
+  async function carregarContasBancarias() {
+    setLoadingContasBancarias(true)
+    setErroContasBancarias('')
+
+    const { data, error } = await supabase
+      .from('financeiro_contas_bancarias')
+      .select('*')
+      .eq('ativo', true)
+      .order('banco', { ascending: true })
+      .order('nome_conta', { ascending: true })
+
+    if (error) {
+      console.error('Erro ao carregar contas bancárias:', error)
+      setContasBancarias([])
+      setErroContasBancarias(error.message)
+      setLoadingContasBancarias(false)
+      return
+    }
+
+    setContasBancarias(data || [])
+    setLoadingContasBancarias(false)
+  }
+
+  function limparFormContaBancaria() {
+    setFormContaBancaria({ banco: '', nome_conta: '', saldo_atual: '' })
+    setEditandoContaBancariaId(null)
+  }
+
+  function editarContaBancaria(item: any) {
+    setEditandoContaBancariaId(item.id)
+    setFormContaBancaria({
+      banco: item.banco || '',
+      nome_conta: item.nome_conta || '',
+      saldo_atual: formatarValorParaForm(item.saldo_atual),
+    })
+  }
+
+  async function salvarContaBancaria() {
+    const banco = String(formContaBancaria.banco || '').trim()
+    const nomeConta = String(formContaBancaria.nome_conta || '').trim()
+    const saldo = numero(formContaBancaria.saldo_atual)
+
+    if (!banco) {
+      alert('Informe o banco.')
+      return
+    }
+
+    if (!nomeConta) {
+      alert('Informe um nome para identificar a conta.')
+      return
+    }
+
+    setSalvandoContaBancaria(true)
+
+    const payload = {
+      banco,
+      nome_conta: nomeConta,
+      saldo_atual: saldo,
+      data_referencia: dataHojeFinanceiro(),
+      ativo: true,
+      atualizado_em: new Date().toISOString(),
+    }
+
+    const consulta = editandoContaBancariaId
+      ? supabase.from('financeiro_contas_bancarias').update(payload).eq('id', editandoContaBancariaId)
+      : supabase.from('financeiro_contas_bancarias').insert(payload)
+
+    const { error } = await consulta
+
+    if (error) {
+      alert('Erro ao salvar saldo bancário: ' + error.message)
+      setSalvandoContaBancaria(false)
+      return
+    }
+
+    await carregarContasBancarias()
+    limparFormContaBancaria()
+    setSalvandoContaBancaria(false)
+  }
+
+  async function arquivarContaBancaria(item: any) {
+    if (!confirm(`Remover ${item.banco} - ${item.nome_conta} da conciliação bancária?`)) return
+
+    const { error } = await supabase
+      .from('financeiro_contas_bancarias')
+      .update({ ativo: false, atualizado_em: new Date().toISOString() })
+      .eq('id', item.id)
+
+    if (error) {
+      alert('Erro ao remover conta bancária: ' + error.message)
+      return
+    }
+
+    if (editandoContaBancariaId === item.id) limparFormContaBancaria()
+    await carregarContasBancarias()
   }
 
   function montarPayload() {
@@ -3422,37 +3527,40 @@ export default function FinanceiroPage() {
     }
   }, [lancamentos, movimentacoes, filtroMesMovimento, anoFinanceiro])
 
-  const caixaDecisao = useMemo(() => {
-    const caixaOperacional = Number(resumoCaixaRealProfit.caixaOperacionalDoProfit || 0)
-    const fundoPendente = Number(resumoCaixaRealProfit.fundoPendente || 0)
-    const faltaRegularizarTudo = Number(resumoCaixaRealProfit.faltaRegularizarReal || 0)
+  const resumoConciliacaoBancaria = useMemo(() => {
+    const saldoBancarioReal = contasBancarias.reduce(
+      (acc, item) => acc + numero(item.saldo_atual || 0),
+      0
+    )
 
-    const profitRecebido = Number(resumoCaixaRealProfit.profitRecebido || 0)
-    const despesasPagas = Number(resumoCaixaRealProfit.despesasPagas || 0)
-    const emprestimosPagos = Number(resumoCaixaRealProfit.emprestimosPagos || 0)
-    const retiradasSocios = Number(resumoCaixaRealProfit.retiradasSocios || 0)
+    const saldoCalculado = Number(resumoCaixaRealProfit.caixaRealAjustado || 0)
+    const diferenca = saldoBancarioReal - saldoCalculado
+    const possuiContas = contasBancarias.length > 0
+    const tolerancia = 1
 
-    const saidasOperacionais =
-      despesasPagas +
-      emprestimosPagos +
-      retiradasSocios
+    const ultimaAtualizacao = contasBancarias
+      .map((item) => item.atualizado_em || item.data_referencia || item.criado_em)
+      .filter(Boolean)
+      .sort((a, b) => String(b).localeCompare(String(a)))[0] || ''
 
-    const faltaZerarCaixa = Math.max(0, -caixaOperacional)
-    const podeRetirar = caixaOperacional > 0 && fundoPendente <= 0 && faltaRegularizarTudo <= 0
+    const status = !possuiContas
+      ? 'SEM CONCILIAÇÃO'
+      : Math.abs(diferenca) <= tolerancia
+        ? 'CONCILIADO'
+        : 'DIVERGENTE'
 
     return {
-      caixaOperacional,
-      fundoPendente,
-      faltaRegularizarTudo,
-      faltaZerarCaixa,
-      podeRetirar,
-      profitRecebido,
-      despesasPagas,
-      emprestimosPagos,
-      retiradasSocios,
-      saidasOperacionais,
+      possuiContas,
+      saldoBancarioReal,
+      saldoCalculado,
+      diferenca,
+      status,
+      ultimaAtualizacao,
+      extraordinarioLiquido:
+        Number(resumoCaixaRealProfit.entradasNaoOperacionais || 0) -
+        Number(resumoCaixaRealProfit.saidasExtraordinarias || 0),
     }
-  }, [resumoCaixaRealProfit])
+  }, [contasBancarias, resumoCaixaRealProfit])
 
 
   const extratoAnual = useMemo(() => {
@@ -4502,89 +4610,6 @@ export default function FinanceiroPage() {
               </>
             )}
 
-            {abaPrincipal === 'FUNDO' && (
-        <section className="space-y-5">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">Caixa Real</p>
-                <h2 className="text-2xl font-black text-gray-950">Resumo simples do caixa</h2>
-                <p className="text-sm font-semibold text-gray-500 mt-1">
-                  Tela de decisão: quanto falta, se pode retirar e o que mais pesa no caixa.
-                </p>
-              </div>
-
-              <Badge
-                texto={caixaDecisao.podeRetirar ? 'RETIRADA LIBERADA' : 'RETIRADA BLOQUEADA'}
-                classe={caixaDecisao.podeRetirar ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}
-              />
-            </div>
-          </section>
-
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            <BigCard
-              titulo="PRECISO GERAR PARA ZERAR O CAIXA"
-              valor={moeda(caixaDecisao.faltaZerarCaixa)}
-              subtitulo="Meta principal: caixa operacional voltar para R$ 0,00"
-              icone="1"
-              classe={caixaDecisao.faltaZerarCaixa > 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'}
-            />
-
-            <BigCard
-              titulo="PRECISO GERAR PARA REGULARIZAR TUDO"
-              valor={moeda(caixaDecisao.faltaRegularizarTudo)}
-              subtitulo="Caixa negativo + fundo pendente"
-              icone="2"
-              classe={caixaDecisao.faltaRegularizarTudo > 0 ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-green-50 border-green-200 text-green-700'}
-            />
-
-            <BigCard
-              titulo="PODE RETIRAR HOJE?"
-              valor={caixaDecisao.podeRetirar ? 'SIM' : 'NÃO'}
-              subtitulo={caixaDecisao.podeRetirar ? 'Caixa regularizado pela regra atual' : 'Todo profit novo deve abater o caixa primeiro'}
-              icone="3"
-              classe={caixaDecisao.podeRetirar ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}
-            />
-          </section>
-
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-            <FiltroResumoCard
-              titulo="Caixa operacional"
-              valor={moeda(caixaDecisao.caixaOperacional)}
-              detalhe="Profit - despesas - empréstimos - retiradas"
-              classe={caixaDecisao.caixaOperacional >= 0 ? 'bg-white text-green-700 border-green-100' : 'bg-white text-red-700 border-red-100'}
-            />
-
-            <FiltroResumoCard
-              titulo="Fundo pendente"
-              valor={moeda(caixaDecisao.fundoPendente)}
-              detalhe="Reserva que ainda falta formar"
-              classe={caixaDecisao.fundoPendente > 0 ? 'bg-white text-orange-700 border-orange-100' : 'bg-white text-green-700 border-green-100'}
-            />
-
-            <FiltroResumoCard
-              titulo="Profit recebido"
-              valor={moeda(caixaDecisao.profitRecebido)}
-              detalhe="Entrou da operação HC"
-              classe="bg-white text-green-700 border-green-100"
-            />
-
-            <FiltroResumoCard
-              titulo="Saídas operacionais"
-              valor={moeda(caixaDecisao.saidasOperacionais)}
-              detalhe="Despesas + empréstimos + retiradas"
-              classe="bg-white text-red-700 border-red-100"
-            />
-
-            <FiltroResumoCard
-              titulo="Retiradas dos sócios"
-              valor={moeda(caixaDecisao.retiradasSocios)}
-              detalhe="Abate a parte dos sócios e pesa no caixa"
-              classe={caixaDecisao.retiradasSocios > 0 ? 'bg-white text-red-700 border-red-100' : 'bg-white text-slate-700 border-slate-100'}
-            />
-          </section>
-        </section>
-      )}
           </div>
         </div>
 
@@ -5147,7 +5172,7 @@ export default function FinanceiroPage() {
         <div>
           <h1 className="text-2xl font-black text-gray-950">Financeiro</h1>
           <p className="text-sm text-gray-500">
-            Visão executiva, resultado mensal, processos faturados, despesas, sócios e caixa
+            Visão executiva, resultado mensal, processos faturados, despesas, sócios e conciliação bancária
           </p>
         </div>
 
@@ -5643,145 +5668,229 @@ export default function FinanceiroPage() {
       {abaPrincipal === 'FUNDO' && (
         <section className="space-y-5">
           <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-5 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white lg:flex-row lg:items-center lg:justify-between lg:p-7">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-200">Caixa & Fundo</p>
-                <h2 className="mt-2 text-3xl font-black tracking-tight">Posição real de caixa</h2>
-                <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-300">
-                  Profit é a entrada operacional da HC. Receita bruta do cliente aparece apenas como referência e não aumenta o caixa livre.
-                </p>
+            <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white lg:p-7">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                <div className="max-w-3xl">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-200">Caixa & conciliação</p>
+                  <h2 className="mt-2 text-3xl font-black tracking-tight">Posição financeira calculada</h2>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
+                    O HC Connect calcula o fluxo pelos lançamentos registrados. O dinheiro que realmente existe hoje aparece separado no saldo bancário informado.
+                  </p>
+                </div>
+
+                <div className={`rounded-2xl border px-5 py-4 text-center ${
+                  resumoConciliacaoBancaria.status === 'CONCILIADO'
+                    ? 'border-emerald-400/30 bg-emerald-400/10'
+                    : resumoConciliacaoBancaria.status === 'DIVERGENTE'
+                      ? 'border-amber-400/30 bg-amber-400/10'
+                      : 'border-blue-400/30 bg-blue-400/10'
+                }`}>
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-300">Status da conciliação</p>
+                  <p className={`mt-1 text-xl font-black ${
+                    resumoConciliacaoBancaria.status === 'CONCILIADO'
+                      ? 'text-emerald-300'
+                      : resumoConciliacaoBancaria.status === 'DIVERGENTE'
+                        ? 'text-amber-300'
+                        : 'text-blue-300'
+                  }`}>
+                    {resumoConciliacaoBancaria.status}
+                  </p>
+                </div>
               </div>
 
-              <div className={`rounded-2xl border px-5 py-4 text-center ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-red-400/30 bg-red-400/10'}`}>
-                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-300">Status do caixa</p>
-                <p className={`mt-1 text-xl font-black ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                  {resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'POSITIVO' : 'NEGATIVO'}
-                </p>
-              </div>
-            </div>
+              <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Operação sem extraordinários</p>
+                  <p className={`mt-2 text-2xl font-black ${resumoCaixaRealProfit.caixaOperacionalDoProfit >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                    {moeda(resumoCaixaRealProfit.caixaOperacionalDoProfit)}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Profit - despesas - empréstimos - retiradas</p>
+                </div>
 
-            <div className="grid grid-cols-1 divide-y divide-slate-100 md:grid-cols-2 md:divide-y-0 xl:grid-cols-4 xl:divide-x">
-              <div className="p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo de caixa calculado</p>
-                <p className={`mt-2 text-2xl font-black ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                  {moeda(resumoCaixaRealProfit.caixaRealAjustado)}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">Profit + extras - todas as saídas reais</p>
-              </div>
-              <div className="p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Profit recebido</p>
-                <p className="mt-2 text-2xl font-black text-emerald-700">{moeda(resumoCaixaRealProfit.profitRecebido)}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">{resumoCaixaRealProfit.processosPagos} processos pagos</p>
-              </div>
-              <div className="p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saídas realizadas</p>
-                <p className="mt-2 text-2xl font-black text-red-700">{moeda(resumoCaixaRealProfit.saidasReais)}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">Operacionais + extraordinárias</p>
-              </div>
-              <div className="p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Falta regularizar</p>
-                <p className={`mt-2 text-2xl font-black ${resumoCaixaRealProfit.faltaRegularizarReal > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-                  {moeda(resumoCaixaRealProfit.faltaRegularizarReal)}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">Déficit real + fundo ainda pendente</p>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Extraordinário líquido</p>
+                  <p className={`mt-2 text-2xl font-black ${resumoConciliacaoBancaria.extraordinarioLiquido >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                    {moeda(resumoConciliacaoBancaria.extraordinarioLiquido)}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Entradas extras - outras saídas</p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo calculado HC Connect</p>
+                  <p className={`mt-2 text-2xl font-black ${resumoConciliacaoBancaria.saldoCalculado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                    {moeda(resumoConciliacaoBancaria.saldoCalculado)}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Resultado dos lançamentos do período</p>
+                </div>
+
+                <div className="rounded-2xl border border-blue-400/30 bg-blue-400/10 p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-200">Saldo bancário real</p>
+                  <p className="mt-2 text-2xl font-black text-white">
+                    {resumoConciliacaoBancaria.possuiContas ? moeda(resumoConciliacaoBancaria.saldoBancarioReal) : 'Não informado'}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-blue-200">
+                    {resumoConciliacaoBancaria.possuiContas
+                      ? `${contasBancarias.length} conta(s) atualizada(s)`
+                      : 'Cadastre os saldos abaixo para conciliar'}
+                  </p>
+                </div>
               </div>
             </div>
           </section>
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.08fr_0.92fr]">
             <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Fluxo do período</p>
-                <h3 className="mt-1 text-xl font-black text-slate-950">Como o caixa foi formado</h3>
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Uma única conta mostra de onde veio o saldo, sem repetir os mesmos totais em vários cards.
-                </p>
-              </div>
-
-              <div className="mt-6 space-y-1">
-                <div className="flex items-center justify-between gap-4 rounded-xl px-4 py-3">
-                  <div>
-                    <p className="font-black text-slate-900">Profit HC recebido</p>
-                    <p className="text-xs font-semibold text-slate-500">Entrada operacional</p>
-                  </div>
-                  <p className="font-black text-emerald-700">+ {moeda(resumoCaixaRealProfit.profitRecebido)}</p>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 rounded-xl bg-emerald-50 px-4 py-3">
-                  <div>
-                    <p className="font-black text-slate-900">Entradas extraordinárias</p>
-                    <p className="text-xs font-semibold text-slate-500">Aportes, ajustes positivos e entradas não operacionais</p>
-                  </div>
-                  <p className="font-black text-emerald-700">+ {moeda(resumoCaixaRealProfit.entradasNaoOperacionais)}</p>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 rounded-xl px-4 py-3">
-                  <div>
-                    <p className="font-black text-slate-900">Despesas</p>
-                    <p className="text-xs font-semibold text-slate-500">Saídas administrativas e operacionais</p>
-                  </div>
-                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.despesasPagas)}</p>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 rounded-xl bg-red-50 px-4 py-3">
-                  <div>
-                    <p className="font-black text-slate-900">Empréstimos</p>
-                    <p className="text-xs font-semibold text-slate-500">Parcelas efetivamente pagas</p>
-                  </div>
-                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.emprestimosPagos)}</p>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 rounded-xl px-4 py-3">
-                  <div>
-                    <p className="font-black text-slate-900">Retiradas dos sócios</p>
-                    <p className="text-xs font-semibold text-slate-500">Retiradas, pagamentos e reembolsos com impacto no caixa</p>
-                  </div>
-                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.retiradasSocios)}</p>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 rounded-xl bg-red-50 px-4 py-3">
-                  <div>
-                    <p className="font-black text-slate-900">Outras saídas de caixa</p>
-                    <p className="text-xs font-semibold text-slate-500">Saídas de fundo e ajustes negativos</p>
-                  </div>
-                  <p className="font-black text-red-700">- {moeda(resumoCaixaRealProfit.saidasExtraordinarias)}</p>
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-900 bg-slate-950 p-5 text-white sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Saldo final calculado</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-300">Resultado da movimentação real considerada pelo painel.</p>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Conciliação bancária</p>
+                  <h3 className="mt-1 text-xl font-black text-slate-950">Quanto existe hoje nas contas</h3>
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    Informe o saldo atual de cada conta. Esses valores não alteram Profit, despesas ou resultado: servem exclusivamente para comparar o sistema com os bancos.
+                  </p>
                 </div>
-                <p className={`text-3xl font-black ${resumoCaixaRealProfit.caixaRealAjustado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                  {moeda(resumoCaixaRealProfit.caixaRealAjustado)}
-                </p>
+
+                {resumoConciliacaoBancaria.possuiContas && (
+                  <div className={`rounded-xl border px-4 py-3 text-right ${
+                    Math.abs(resumoConciliacaoBancaria.diferenca) <= 1
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-amber-200 bg-amber-50'
+                  }`}>
+                    <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Diferença da conciliação</p>
+                    <p className={`mt-1 text-xl font-black ${Math.abs(resumoConciliacaoBancaria.diferenca) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {moeda(resumoConciliacaoBancaria.diferenca)}
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {erroContasBancarias && (
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="font-black text-amber-900">Conciliação bancária ainda não habilitada</p>
+                  <p className="mt-1 text-sm font-semibold text-amber-700">
+                    Rode o SQL da tabela financeiro_contas_bancarias no Supabase. Detalhe: {erroContasBancarias}
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-[0.9fr_1.2fr_0.8fr_auto]">
+                <div>
+                  <label className="text-xs font-black uppercase tracking-wide text-slate-500">Banco</label>
+                  <input
+                    value={formContaBancaria.banco}
+                    onChange={(e) => setFormContaBancaria({ ...formContaBancaria, banco: e.target.value })}
+                    placeholder="Ex.: Itaú"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-black uppercase tracking-wide text-slate-500">Conta / identificação</label>
+                  <input
+                    value={formContaBancaria.nome_conta}
+                    onChange={(e) => setFormContaBancaria({ ...formContaBancaria, nome_conta: e.target.value })}
+                    placeholder="Ex.: Conta corrente HC"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-black uppercase tracking-wide text-slate-500">Saldo atual R$</label>
+                  <input
+                    value={formContaBancaria.saldo_atual}
+                    onChange={(e) => setFormContaBancaria({ ...formContaBancaria, saldo_atual: e.target.value })}
+                    placeholder="0,00"
+                    inputMode="decimal"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={salvarContaBancaria}
+                    disabled={salvandoContaBancaria || loadingContasBancarias}
+                    className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {salvandoContaBancaria ? 'Salvando...' : editandoContaBancariaId ? 'Atualizar' : 'Adicionar'}
+                  </button>
+                  {editandoContaBancariaId && (
+                    <button
+                      type="button"
+                      onClick={limparFormContaBancaria}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+                {loadingContasBancarias ? (
+                  <div className="p-5 text-sm font-bold text-slate-500">Carregando saldos bancários...</div>
+                ) : contasBancarias.length === 0 ? (
+                  <div className="p-5 text-sm font-bold text-slate-500">Nenhuma conta informada. Adicione os saldos atuais para iniciar a conciliação.</div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {contasBancarias.map((item) => (
+                      <div key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-black text-slate-950">{item.banco} · {item.nome_conta}</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">
+                            Referência {normalizarData(item.data_referencia) || '-'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <p className="text-xl font-black text-slate-950">{moeda(item.saldo_atual)}</p>
+                          <button type="button" onClick={() => editarContaBancaria(item)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">Editar</button>
+                          <button type="button" onClick={() => arquivarContaBancaria(item)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-50">Remover</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {resumoConciliacaoBancaria.possuiContas && (
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-[11px] font-black uppercase text-slate-400">Total nos bancos</p>
+                    <p className="mt-1 text-xl font-black text-slate-950">{moeda(resumoConciliacaoBancaria.saldoBancarioReal)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-[11px] font-black uppercase text-slate-400">HC Connect calculado</p>
+                    <p className="mt-1 text-xl font-black text-slate-950">{moeda(resumoConciliacaoBancaria.saldoCalculado)}</p>
+                  </div>
+                  <div className={`rounded-2xl border p-4 ${Math.abs(resumoConciliacaoBancaria.diferenca) <= 1 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                    <p className="text-[11px] font-black uppercase text-slate-500">Diferença</p>
+                    <p className={`mt-1 text-xl font-black ${Math.abs(resumoConciliacaoBancaria.diferenca) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {moeda(resumoConciliacaoBancaria.diferenca)}
+                    </p>
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Reserva e proteção</p>
-                <h3 className="mt-1 text-xl font-black text-slate-950">Fundo da HC</h3>
+                <h3 className="mt-1 text-xl font-black text-slate-950">Meta de reserva da HC</h3>
                 <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Separa o que é resultado, reserva prevista e o que ainda precisa ser constituído.
+                  Reserva é uma meta financeira. Ela não representa automaticamente dinheiro disponível em conta.
                 </p>
               </div>
 
               <div className="mt-6 space-y-3">
                 <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-blue-500">Fundo previsto</p>
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-500">Reserva prevista</p>
                   <p className="mt-1 text-2xl font-black text-blue-700">{moeda(resumoCaixaRealProfit.fundoPrevisto)}</p>
-                  <p className="mt-1 text-xs font-semibold text-blue-600">50% do resultado positivo antes das retiradas.</p>
+                  <p className="mt-1 text-xs font-semibold text-blue-600">50% do resultado operacional positivo.</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-[11px] font-black uppercase text-slate-400">Já reservado</p>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Registrado como reserva</p>
                     <p className="mt-1 text-lg font-black text-slate-900">{moeda(resumoCaixaRealProfit.reservasLancadas)}</p>
                   </div>
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                    <p className="text-[11px] font-black uppercase text-amber-500">Ainda pendente</p>
+                    <p className="text-[11px] font-black uppercase text-amber-500">Reserva pendente</p>
                     <p className="mt-1 text-lg font-black text-amber-700">{moeda(resumoCaixaRealProfit.fundoPendente)}</p>
                   </div>
                 </div>
@@ -5793,33 +5902,53 @@ export default function FinanceiroPage() {
                       {resumoCaixaRealProfit.processosSemCusto}
                     </span>
                   </div>
-                  <p className="mt-2 text-xs font-semibold text-slate-500">
-                    Enquanto houver custo pendente, parte do Profit pode continuar parcial.
-                  </p>
+                  <p className="mt-2 text-xs font-semibold text-slate-500">Processos sem compra deixam o Profit parcial e podem alterar a reserva calculada.</p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Receita bruta apenas informativa</p>
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Receita bruta informativa</p>
                   <p className="mt-1 text-xl font-black text-slate-900">{moeda(resumoCaixaRealProfit.valorRecebidoBruto)}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">Não entra como caixa livre da HC.</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">Receita do cliente não é igual a dinheiro livre da HC.</p>
                 </div>
               </div>
             </section>
           </section>
 
-          {resumoCaixaRealProfit.caixaRealAjustado < 0 && (
-            <section className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-black text-red-900">Caixa negativo</p>
-                  <p className="mt-1 text-sm font-semibold text-red-700">
-                    As saídas reais superaram as entradas consideradas. Novas retiradas devem permanecer bloqueadas até a regularização.
-                  </p>
-                </div>
-                <p className="text-2xl font-black text-red-700">{moeda(resumoCaixaRealProfit.faltaRegularizarReal)}</p>
+          <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Formação do cálculo</p>
+              <h3 className="mt-1 text-xl font-black text-slate-950">Como o HC Connect chegou ao saldo calculado</h3>
+              <p className="mt-1 text-sm font-semibold text-slate-500">Aqui ficam somente os componentes da conta, sem repetir alertas ou transformar reserva em saldo bancário.</p>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Profit HC recebido</span><strong className="text-emerald-700">+ {moeda(resumoCaixaRealProfit.profitRecebido)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl px-4 py-3"><span className="font-bold text-slate-700">Despesas</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.despesasPagas)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-red-50 px-4 py-3"><span className="font-bold text-slate-700">Empréstimos</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.emprestimosPagos)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl px-4 py-3"><span className="font-bold text-slate-700">Retiradas dos sócios</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.retiradasSocios)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-slate-950 px-4 py-3 text-white"><span className="font-black">Operação sem extraordinários</span><strong className={resumoCaixaRealProfit.caixaOperacionalDoProfit >= 0 ? 'text-emerald-300' : 'text-red-300'}>{moeda(resumoCaixaRealProfit.caixaOperacionalDoProfit)}</strong></div>
               </div>
-            </section>
-          )}
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Entradas extraordinárias</span><strong className="text-emerald-700">+ {moeda(resumoCaixaRealProfit.entradasNaoOperacionais)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-red-50 px-4 py-3"><span className="font-bold text-slate-700">Outras saídas</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.saidasExtraordinarias)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3"><span className="font-black text-blue-950">Efeito extraordinário líquido</span><strong className={resumoConciliacaoBancaria.extraordinarioLiquido >= 0 ? 'text-emerald-700' : 'text-red-700'}>{moeda(resumoConciliacaoBancaria.extraordinarioLiquido)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-900 bg-slate-950 px-4 py-4 text-white"><span className="font-black">Saldo calculado HC Connect</span><strong className={`text-2xl ${resumoConciliacaoBancaria.saldoCalculado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{moeda(resumoConciliacaoBancaria.saldoCalculado)}</strong></div>
+              </div>
+            </div>
+
+            {resumoConciliacaoBancaria.possuiContas && Math.abs(resumoConciliacaoBancaria.diferenca) > 1 && (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="font-black text-amber-900">Existe diferença entre o sistema e os bancos</p>
+                <p className="mt-1 text-sm font-semibold leading-6 text-amber-800">
+                  {resumoConciliacaoBancaria.diferenca < 0
+                    ? `Os bancos possuem ${moeda(Math.abs(resumoConciliacaoBancaria.diferenca))} a menos do que o HC Connect calcula. Procure saídas não lançadas, duplicidades ou saldos iniciais incorretos.`
+                    : `Os bancos possuem ${moeda(resumoConciliacaoBancaria.diferenca)} a mais do que o HC Connect calcula. Procure entradas, aportes ou saldos iniciais ainda não registrados.`}
+                </p>
+              </div>
+            )}
+          </section>
 
           {renderFormularioMovimento(
             'Nova movimentação / ajuste de caixa',
