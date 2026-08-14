@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [financeiro, setFinanceiro] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
   const [faturasTransportadoras, setFaturasTransportadoras] = useState<any[]>([])
+  const [itensFaturasTransportadoras, setItensFaturasTransportadoras] = useState<any[]>([])
   const [ultimoRastreio, setUltimoRastreio] = useState<any>(null)
 
   const [modalErrosRastreio, setModalErrosRastreio] = useState(false)
@@ -102,6 +103,7 @@ export default function DashboardPage() {
       financeiroCarregado,
       movimentacoesCarregadas,
       faturasTransportadorasCarregadas,
+      itensFaturasTransportadorasCarregados,
       logRastreioRes,
     ] = await Promise.all([
       supabase.from('perfis').select('*').order('nome'),
@@ -112,6 +114,7 @@ export default function DashboardPage() {
       carregarTodos('financeiro_embarques', 'vencimento_cobranca', true),
       carregarTodos('financeiro_movimentacoes', 'data_vencimento', false),
       carregarTodos('faturas_transportadoras'),
+      carregarTodos('faturas_transportadoras_itens'),
       supabase
         .from('logs_rastreio')
         .select('id, criado_em, total_processado, total_sucesso, total_erro, detalhes')
@@ -131,6 +134,7 @@ export default function DashboardPage() {
     setFinanceiro(financeiroCarregado || [])
     setMovimentacoes(movimentacoesCarregadas || [])
     setFaturasTransportadoras(faturasTransportadorasCarregadas || [])
+    setItensFaturasTransportadoras(itensFaturasTransportadorasCarregados || [])
     setUltimoRastreio(logRastreioRes.data || null)
 
     if (mostrarLoading) setCarregando(false)
@@ -208,6 +212,10 @@ export default function DashboardPage() {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toUpperCase()
+  }
+
+  function normalizarAwbConciliacao(valor: any) {
+    return String(valor || '').replace(/\D/g, '')
   }
 
   function normalizarData(valor: any) {
@@ -743,6 +751,142 @@ export default function DashboardPage() {
     }
   }, [faturasTransportadoras])
 
+  const conciliacaoTransportadoras = useMemo(() => {
+    const financeirosPorId = new Map<string, any>()
+    const financeirosPorAwb = new Map<string, any[]>()
+
+    financeiro.forEach((processo: any) => {
+      if (processo?.id) financeirosPorId.set(String(processo.id), processo)
+
+      const awb = normalizarAwbConciliacao(processo?.awb)
+      if (!awb) return
+
+      const lista = financeirosPorAwb.get(awb) || []
+      lista.push(processo)
+      financeirosPorAwb.set(awb, lista)
+    })
+
+    const itensPorFatura = new Map<string, any[]>()
+
+    itensFaturasTransportadoras.forEach((item: any) => {
+      const faturaId = String(item?.fatura_transportadora_id || '')
+      if (!faturaId) return
+
+      const lista = itensPorFatura.get(faturaId) || []
+      lista.push(item)
+      itensPorFatura.set(faturaId, lista)
+    })
+
+    function resumoDaFatura(fatura: any) {
+      const itens = itensPorFatura.get(String(fatura?.id || '')) || []
+
+      const detalhes = itens.map((item: any) => {
+        const vinculado = item?.financeiro_embarque_id
+          ? financeirosPorId.get(String(item.financeiro_embarque_id)) || null
+          : null
+
+        const candidatos = financeirosPorAwb.get(normalizarAwbConciliacao(item?.awb)) || []
+        const processo =
+          vinculado ||
+          candidatos.find((registro: any) => !!registro?.recebimento) ||
+          candidatos[0] ||
+          null
+
+        return {
+          item,
+          processo,
+          recebido: !!processo?.recebimento,
+        }
+      })
+
+      const recebidos = detalhes.filter((item: any) => item.recebido).length
+      const naoLocalizados = detalhes.filter((item: any) => !item.processo).length
+      const pendentes = detalhes.filter((item: any) => !!item.processo && !item.recebido).length
+
+      const valorRecebido = detalhes.reduce(
+        (acc: number, item: any) =>
+          acc + (item.recebido ? numero(item.processo?.valor_cobranca) : 0),
+        0
+      )
+
+      const valorPendente = detalhes.reduce(
+        (acc: number, item: any) =>
+          acc + (item.processo && !item.recebido ? numero(item.processo?.valor_cobranca) : 0),
+        0
+      )
+
+      const totalFatura = totalFaturaTransportadora(fatura)
+      const cobertura = totalFatura > 0 ? (valorRecebido / totalFatura) * 100 : 0
+      const todosRecebidos =
+        detalhes.length > 0 &&
+        recebidos === detalhes.length &&
+        naoLocalizados === 0
+      const coberturaSuficiente =
+        totalFatura <= 0 || valorRecebido + 0.01 >= totalFatura
+      const prontaParaPagar =
+        statusFaturaTransportadora(fatura) !== 'PAGA' &&
+        todosRecebidos &&
+        coberturaSuficiente
+      const pagaComPendencia =
+        statusFaturaTransportadora(fatura) === 'PAGA' &&
+        (!todosRecebidos || !coberturaSuficiente)
+
+      return {
+        fatura,
+        totalItens: detalhes.length,
+        recebidos,
+        pendentes,
+        naoLocalizados,
+        valorRecebido,
+        valorPendente,
+        cobertura,
+        prontaParaPagar,
+        pagaComPendencia,
+      }
+    }
+
+    const faturasDhlFedex = faturasTransportadoras.filter((item) =>
+      ehDhlFedexFaturaTransportadora(item)
+    )
+
+    const resumos = faturasDhlFedex.map(resumoDaFatura)
+
+    const prontasParaPagar = resumos.filter(
+      (item) => item.prontaParaPagar && faturaTransportadoraAtiva(item.fatura)
+    )
+
+    const pagasComPendencia = resumos.filter((item) => item.pagaComPendencia)
+
+    const awbsPendentesPagos = pagasComPendencia.reduce(
+      (acc, item) => acc + item.pendentes + item.naoLocalizados,
+      0
+    )
+
+    const naoLocalizadosPagos = pagasComPendencia.reduce(
+      (acc, item) => acc + item.naoLocalizados,
+      0
+    )
+
+    const valorPendentePagos = pagasComPendencia.reduce(
+      (acc, item) => acc + item.valorPendente,
+      0
+    )
+
+    const totalProntasParaPagar = prontasParaPagar.reduce(
+      (acc, item) => acc + saldoFaturaTransportadora(item.fatura),
+      0
+    )
+
+    return {
+      prontasParaPagar,
+      pagasComPendencia,
+      awbsPendentesPagos,
+      naoLocalizadosPagos,
+      valorPendentePagos,
+      totalProntasParaPagar,
+    }
+  }, [faturasTransportadoras, itensFaturasTransportadoras, financeiro])
+
 
   const operacionalResumo = useMemo(() => {
     const statusEh = (item: any, termos: string[]) => {
@@ -866,6 +1010,23 @@ export default function DashboardPage() {
         cor: 'blue',
         href: '/admin/embarque-direto',
         acao: 'Ver solicitação',
+      })
+    }
+
+    if (conciliacaoTransportadoras.pagasComPendencia.length > 0) {
+      alertas.push({
+        titulo: 'Pagamos antes de receber',
+        valor: conciliacaoTransportadoras.pagasComPendencia.length,
+        detalhe:
+          `${conciliacaoTransportadoras.awbsPendentesPagos} AWB(s) pendente(s)` +
+          ` • ${moeda(conciliacaoTransportadoras.valorPendentePagos)} ainda a receber` +
+          (conciliacaoTransportadoras.naoLocalizadosPagos > 0
+            ? ` • ${conciliacaoTransportadoras.naoLocalizadosPagos} não localizado(s)`
+            : ''),
+        icone: '🚨',
+        cor: 'red',
+        href: '/admin/faturas-transportadoras?origem=dashboard&conciliacao=PAGA_COM_PENDENCIA',
+        acao: 'Cobrar recebimentos',
       })
     }
 
@@ -1066,6 +1227,7 @@ export default function DashboardPage() {
     suporteResumo.abertos,
     cotacoesPendentes,
     embarquesDiretosPendentes,
+    conciliacaoTransportadoras,
   ])
 
   const ritmoOperacao = useMemo(() => {
@@ -1371,6 +1533,104 @@ export default function DashboardPage() {
             }
             onClick={() => setModalFaturas(true)}
           />
+        </section>
+
+        <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <a
+            href="/admin/faturas-transportadoras?origem=dashboard&conciliacao=PRONTA_PARA_PAGAR"
+            className="group rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/15 via-[#071225] to-[#071225] p-5 transition hover:border-emerald-400 hover:bg-emerald-500/20"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">
+                  Conciliação de pagamentos
+                </p>
+                <h3 className="mt-2 text-xl font-black text-white">Prontas para pagar</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-400">
+                  Todos os AWBs foram recebidos e a cobertura financeira está completa.
+                </p>
+              </div>
+              <span className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 px-4 py-2 text-2xl">✅</span>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-3xl font-black text-emerald-300">
+                  {conciliacaoTransportadoras.prontasParaPagar.length}
+                </p>
+                <p className="text-xs font-bold text-slate-500">fatura(s) liberada(s)</p>
+              </div>
+              <div className="sm:text-right">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Valor a pagar</p>
+                <p className="mt-1 text-xl font-black text-white">
+                  {moeda(conciliacaoTransportadoras.totalProntasParaPagar)}
+                </p>
+              </div>
+            </div>
+          </a>
+
+          <a
+            href="/admin/faturas-transportadoras?origem=dashboard&conciliacao=PAGA_COM_PENDENCIA"
+            className={`group rounded-3xl border p-5 transition ${
+              conciliacaoTransportadoras.pagasComPendencia.length > 0
+                ? 'border-red-500/40 bg-gradient-to-br from-red-500/20 via-[#071225] to-[#071225] hover:border-red-400'
+                : 'border-slate-700 bg-[#071225] hover:border-slate-500'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className={`text-xs font-black uppercase tracking-[0.18em] ${
+                  conciliacaoTransportadoras.pagasComPendencia.length > 0 ? 'text-red-300' : 'text-slate-400'
+                }`}>
+                  Risco de capital de giro
+                </p>
+                <h3 className="mt-2 text-xl font-black text-white">Pagas antes de receber</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-400">
+                  Faturas da transportadora já pagas que ainda possuem recebimentos pendentes.
+                </p>
+              </div>
+              <span className={`rounded-2xl border px-4 py-2 text-2xl ${
+                conciliacaoTransportadoras.pagasComPendencia.length > 0
+                  ? 'border-red-500/30 bg-red-500/15'
+                  : 'border-slate-700 bg-slate-800'
+              }`}>
+                {conciliacaoTransportadoras.pagasComPendencia.length > 0 ? '🚨' : '🛡️'}
+              </span>
+            </div>
+
+            <div className="mt-5 grid grid-cols-3 gap-3">
+              <div>
+                <p className={`text-3xl font-black ${
+                  conciliacaoTransportadoras.pagasComPendencia.length > 0 ? 'text-red-300' : 'text-emerald-300'
+                }`}>
+                  {conciliacaoTransportadoras.pagasComPendencia.length}
+                </p>
+                <p className="text-xs font-bold text-slate-500">fatura(s)</p>
+              </div>
+              <div>
+                <p className={`text-xl font-black ${
+                  conciliacaoTransportadoras.awbsPendentesPagos > 0 ? 'text-amber-300' : 'text-emerald-300'
+                }`}>
+                  {conciliacaoTransportadoras.awbsPendentesPagos}
+                </p>
+                <p className="text-xs font-bold text-slate-500">AWB(s) pendente(s)</p>
+              </div>
+              <div className="text-right">
+                <p className={`text-xl font-black ${
+                  conciliacaoTransportadoras.valorPendentePagos > 0 ? 'text-red-300' : 'text-emerald-300'
+                }`}>
+                  {moeda(conciliacaoTransportadoras.valorPendentePagos)}
+                </p>
+                <p className="text-xs font-bold text-slate-500">ainda a receber</p>
+              </div>
+            </div>
+
+            {conciliacaoTransportadoras.naoLocalizadosPagos > 0 && (
+              <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">
+                {conciliacaoTransportadoras.naoLocalizadosPagos} AWB(s) ainda não localizado(s) no Financeiro.
+              </p>
+            )}
+          </a>
         </section>
 
         <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-4">
