@@ -1830,7 +1830,7 @@ export default function DashboardPage() {
               <LinhaResumo titulo="Resultado após retiradas" valor={moeda(financeiroResumo.resultadoAposRetiradasMes)} cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'} />
               <LinhaResumo titulo="Reserva 50% prevista" valor={moeda(financeiroResumo.reserva50PrevistaMes)} cor="blue" />
               <LinhaResumo titulo="Reserva 50% lançada" valor={moeda(financeiroResumo.reserva50LancadaMes)} cor="blue" />
-              <LinhaResumo titulo="Fundo atual do ano" valor={moeda(financeiroResumo.fundoAtual)} cor="blue" />
+              <LinhaResumo titulo="Reserva 50% pendente" valor={moeda(Math.max(0, financeiroResumo.reserva50PendenteMes))} cor={financeiroResumo.reserva50PendenteMes > 0 ? 'orange' : 'green'} />
             </div>
 
             <a href="/admin/financeiro" className="mt-4 block text-right font-black text-blue-400 hover:text-blue-300">
