@@ -100,7 +100,67 @@ async function lerTextoPdf(arquivo: File) {
   const mod: any = await import('pdf-parse')
   const pdfParse = mod.default || mod
 
-  const resultado = await pdfParse(buffer)
+  /*
+    O texto padrão do pdf-parse pode vir em ordem de colunas: primeiro todos os
+    AWBs, depois referências/datas e só depois os totais. Isso destrói a relação
+    visual de cada linha da fatura e fez a leitura segura retornar 0 AWBs.
+
+    Aqui reconstruímos cada página usando as coordenadas X/Y do PDF, agrupando
+    itens que estão na mesma linha e ordenando-os da esquerda para a direita.
+    Assim voltamos a ter:
+      AWB | Referência | Data do envio | ... | Total (BRL)
+    na mesma ordem visual em que a DHL apresenta a fatura.
+  */
+  const renderPaginaComLayout = async (pageData: any) => {
+    const conteudo = await pageData.getTextContent({
+      normalizeWhitespace: false,
+      disableCombineTextItems: false,
+    })
+
+    const itens = (Array.isArray(conteudo?.items) ? conteudo.items : [])
+      .map((item: any) => ({
+        texto: String(item?.str || '').trim(),
+        x: Number(item?.transform?.[4] || 0),
+        y: Number(item?.transform?.[5] || 0),
+      }))
+      .filter((item: any) => item.texto)
+      .sort((a: any, b: any) => {
+        if (Math.abs(b.y - a.y) > 2) return b.y - a.y
+        return a.x - b.x
+      })
+
+    const linhas: Array<{ y: number; itens: Array<{ x: number; texto: string }> }> = []
+
+    for (const item of itens) {
+      let linha = linhas.find((atual) => Math.abs(atual.y - item.y) <= 2)
+
+      if (!linha) {
+        linha = { y: item.y, itens: [] }
+        linhas.push(linha)
+      }
+
+      linha.itens.push({ x: item.x, texto: item.texto })
+    }
+
+    linhas.sort((a, b) => b.y - a.y)
+
+    return linhas
+      .map((linha) =>
+        linha.itens
+          .sort((a, b) => a.x - b.x)
+          .map((item) => item.texto)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      )
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  const resultado = await pdfParse(buffer, {
+    pagerender: renderPaginaComLayout,
+  })
+
   return String(resultado?.text || '')
 }
 
