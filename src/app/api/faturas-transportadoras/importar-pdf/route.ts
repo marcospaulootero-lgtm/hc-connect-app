@@ -480,9 +480,19 @@ function extrairFedEx(textoOriginal: string): PreviewPdf {
     numeroBR(texto.match(/Valor\s+Total\s+USD\s+[0-9.,]+\s+R\$\s*([0-9.]+,\d{2})/i)?.[1]) ||
     numeroBR(texto.match(/Valor\s+do\s+Documento:\s*([0-9.]+,\d{2})/i)?.[1])
 
+  // A FedEx pode trazer textos de taxas adicionais também em faturas normais de frete.
+  // Quando o bloco da própria fatura declara FRETE / TRANSPORTE, essa natureza deve
+  // prevalecer. Só tratamos como IMPOSTOS quando há um título forte de impostos e
+  // não há identificação explícita de fatura de frete no mesmo bloco.
+  const ehFaturaFrete =
+    /FATURA\s+DE\s+FRETE\s+INTERNACIONAL/i.test(texto) ||
+    /Sum[aá]rio\s+de\s+Transporte/i.test(texto) ||
+    /Custos\s+de\s+Transporte\s+Expresso/i.test(texto)
+
   const ehFaturaImpostosTaxas =
-    /TAXAS,\s*IMPOSTOS,\s*E\s*OUTROS\s*ENCARGOS/i.test(texto) ||
-    /Sumário\s+de\s+Taxas/i.test(texto)
+    !ehFaturaFrete &&
+    (/TAXAS,\s*IMPOSTOS,\s*E\s*OUTROS\s*ENCARGOS/i.test(texto) ||
+      /Sum[aá]rio\s+de\s+Taxas/i.test(texto))
 
   const itens: ItemPdf[] = []
 
