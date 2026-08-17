@@ -139,46 +139,52 @@ function extrairDhl(textoOriginal: string) {
   }> = []
 
   /*
-    Regra DHL:
-    acha AWB de 10 dígitos no texto extraído e, dentro do bloco até o próximo AWB,
-    pega somente o valor após "Total (BRL):".
-  */
-  /*
-    Em alguns PDFs da DHL, quando a coluna Referência está vazia, o texto
-    extraído cola a data diretamente no AWB. Exemplo:
+    Regra DHL segura:
+    o AWB real aparece no INÍCIO da linha do item da fatura. Referências numéricas
+    de 10 dígitos podem aparecer depois do AWB (ex.: "PO 4500636935") e não podem
+    ser tratadas como novos processos.
+
+    Também aceitamos o caso em que o pdf-parse cola a data diretamente no AWB:
     431637130121/07/2026
-
-    Nesse caso, os 10 primeiros dígitos são o AWB e os números seguintes já
-    pertencem à data. O lookahead abaixo aceita tanto esse formato quanto o
-    formato normal, em que depois do AWB existe espaço, referência ou quebra.
   */
-  const regexAwb = /(^|[^A-Za-z0-9])(\d{10})(?=(?:\d{1,2}\/\d{1,2}\/\d{4})|[^0-9]|$)/g
-  let matchAwb: RegExpExecArray | null
+  const regexAwbLinha = /^[\t \f]*(\d{10})(?=(?:\d{1,2}\/\d{1,2}\/\d{4})|[\t ]|$)/gm
+  let matchAwbLinha: RegExpExecArray | null
 
-  while ((matchAwb = regexAwb.exec(bruto)) !== null) {
-    const awb = normalizarAwb(matchAwb[2])
-    const index = Number(matchAwb.index || 0) + String(matchAwb[1] || '').length
+  while ((matchAwbLinha = regexAwbLinha.exec(bruto)) !== null) {
+    const awb = normalizarAwb(matchAwbLinha[1])
+    const index =
+      Number(matchAwbLinha.index || 0) +
+      Math.max(0, String(matchAwbLinha[0] || '').length - String(matchAwbLinha[1] || '').length)
 
     if (!awb || awb.length !== 10) continue
 
-    const trechoInicio = bruto.slice(index, index + 500)
-    const conteudoAposAwb = trechoInicio.replace(
+    /*
+      A data do envio precisa estar na MESMA linha do AWB. Isso elimina números
+      de referência, conta, pedido ou invoice que também possam ter 10 dígitos.
+    */
+    const quebraLinha = bruto.indexOf('\n', index)
+    const fimLinha = quebraLinha >= 0 ? quebraLinha : Math.min(bruto.length, index + 800)
+    const linhaItem = bruto.slice(index, fimLinha)
+
+    const conteudoAposAwb = linhaItem.replace(
       new RegExp('^' + awb + '\\s*'),
       ''
     )
+
     /*
       O pdf-parse também pode colar a data ao texto seguinte, como
       21/07/2026PVG. Por isso não usamos limite de palavra aqui.
     */
     const matchData = conteudoAposAwb.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)
-    const data_envio = dataBRParaISO(matchData?.[1]) || null
+    if (!matchData) continue
 
-    const referencia = matchData
-      ? conteudoAposAwb
-          .slice(0, matchData.index || 0)
-          .replace(/\s+/g, ' ')
-          .trim() || null
-      : null
+    const data_envio = dataBRParaISO(matchData[1]) || null
+
+    const referencia =
+      conteudoAposAwb
+        .slice(0, matchData.index || 0)
+        .replace(/\s+/g, ' ')
+        .trim() || null
 
     const depois = bruto.slice(index, index + 9000)
 
