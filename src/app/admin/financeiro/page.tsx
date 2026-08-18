@@ -114,6 +114,10 @@ const ANOS_FINANCEIRO_PERMITIDOS = Array.from(
 const MES_MINIMO_FINANCEIRO = `${ANO_BASE_FINANCEIRO}-01`
 const MES_MAXIMO_FINANCEIRO = `${ANO_ATUAL_FINANCEIRO}-12`
 
+const DATA_BASE_CONCILIACAO = '2026-08-17'
+const SALDO_BASE_CONCILIACAO = 12095.80
+const TOLERANCIA_CONCILIACAO = 1
+
 const EMPRESTIMOS_HC = [
   {
     contrato: '2925262376',
@@ -152,8 +156,8 @@ const TIPOS_MOVIMENTACAO = [
   { value: 'PAGAMENTO_SOCIO', label: 'Pagamento de sócio' },
   { value: 'REEMBOLSO_SOCIO', label: 'Reembolso de sócio' },
   { value: 'APORTE_SOCIO', label: 'Aporte de sócio' },
-  { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entrada no fundo de caixa' },
-  { value: 'FUNDO_CAIXA_SAIDA', label: 'Saída do fundo de caixa' },
+  { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entrada extraordinária / reserva' },
+  { value: 'FUNDO_CAIXA_SAIDA', label: 'Saída extraordinária / uso da reserva' },
   { value: 'AJUSTE_CAIXA', label: 'Ajuste de caixa' },
 ]
 
@@ -201,8 +205,8 @@ const TIPOS_EXTRATO = [
   { value: 'RETIRADA_SOCIO', label: 'Retiradas de sócio' },
   { value: 'REEMBOLSO_SOCIO', label: 'Reembolsos de sócio' },
   { value: 'APORTE_SOCIO', label: 'Aportes' },
-  { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entradas no fundo' },
-  { value: 'FUNDO_CAIXA_SAIDA', label: 'Saídas do fundo' },
+  { value: 'FUNDO_CAIXA_ENTRADA', label: 'Entradas extraordinárias / reservas' },
+  { value: 'FUNDO_CAIXA_SAIDA', label: 'Saídas extraordinárias / uso da reserva' },
   { value: 'AJUSTE_CAIXA', label: 'Ajustes de caixa' },
 ]
 
@@ -627,14 +631,24 @@ export default function FinanceiroPage() {
   }
 
   function calcularFundoAtualPermitido(lista = movimentacoes) {
-    return lista.reduce((acc, item) => {
-      if (!movimentoAnoSelecionado(item)) return acc
-      if (statusMovimento(item) !== 'PAGO') return acc
-      if (item.tipo === 'FUNDO_CAIXA_ENTRADA') return acc + Number(item.valor || 0)
-      if (item.tipo === 'FUNDO_CAIXA_SAIDA') return acc - Number(item.valor || 0)
-      if (item.tipo === 'AJUSTE_CAIXA') return acc + Number(item.valor || 0)
-      return acc
-    }, 0)
+    const reservasConstituidas = lista
+      .filter(
+        (item) =>
+          statusMovimento(item) === 'PAGO' &&
+          ehReservaOperacionalFundo(item)
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const usosDoFundo = lista
+      .filter(
+        (item) =>
+          statusMovimento(item) === 'PAGO' &&
+          item.tipo === 'FUNDO_CAIXA_SAIDA' &&
+          item.impacta_caixa !== false
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    return Math.max(0, reservasConstituidas - usosDoFundo)
   }
 
   function calcularCustos(item: any) {
@@ -783,6 +797,56 @@ export default function FinanceiroPage() {
       descricao.includes('FECHAMENTO MENSAL') &&
       descricao.includes('RESERVA 50')
     )
+  }
+
+  function dataEfetivaMovimentoCaixa(item: any) {
+    return (
+      normalizarData(item.data_pagamento) ||
+      normalizarData(item.data_vencimento) ||
+      normalizarData(item.criado_em) ||
+      ''
+    )
+  }
+
+  function ehEntradaRealMovimento(item: any) {
+    if (ehReservaOperacionalFundo(item)) return false
+
+    return (
+      item.tipo === 'APORTE_SOCIO' ||
+      item.tipo === 'FUNDO_CAIXA_ENTRADA' ||
+      (item.tipo === 'AJUSTE_CAIXA' && Number(item.valor || 0) > 0)
+    )
+  }
+
+  function ehSaidaRealMovimento(item: any) {
+    if (ehReservaOperacionalFundo(item)) return false
+
+    return (
+      ['DESPESA', 'PAGAMENTO_EMPRESTIMO', 'RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'FUNDO_CAIXA_SAIDA'].includes(item.tipo) ||
+      (item.tipo === 'AJUSTE_CAIXA' && Number(item.valor || 0) < 0)
+    )
+  }
+
+  function saldoBancarioAtualInformado() {
+    return contasBancarias.reduce(
+      (acc, item) => acc + numero(item.saldo_atual || 0),
+      0
+    )
+  }
+
+  function reservaConstituidaAtual() {
+    return calcularFundoAtualPermitido(movimentacoes)
+  }
+
+  function caixaLivreAtualInformado() {
+    const saldoBancario = saldoBancarioAtualInformado()
+    const reservaConstituida = reservaConstituidaAtual()
+    const reservaProtegida = Math.min(
+      Math.max(saldoBancario, 0),
+      Math.max(reservaConstituida, 0)
+    )
+
+    return Math.max(0, saldoBancario - reservaProtegida)
   }
 
   function limparFiltros() {
@@ -1783,7 +1847,7 @@ export default function FinanceiroPage() {
       ...movimentacaoVazia,
       tipo,
       mes_referencia: mesPadraoAnoFinanceiroAtivo(),
-      categoria: tipo === 'FUNDO_CAIXA_ENTRADA' ? 'Reserva' : 'Uso do fundo',
+      categoria: tipo === 'FUNDO_CAIXA_ENTRADA' ? 'Entrada extraordinária' : 'Uso do fundo',
       impacta_resultado: false,
       impacta_caixa: true,
     })
@@ -1869,8 +1933,8 @@ export default function FinanceiroPage() {
         PAGAMENTO_SOCIO: 'Pagamento sócio',
         REEMBOLSO_SOCIO: 'Reembolso sócio',
         APORTE_SOCIO: 'Aporte sócio',
-        FUNDO_CAIXA_ENTRADA: 'Entrada fundo',
-        FUNDO_CAIXA_SAIDA: 'Saída fundo',
+        FUNDO_CAIXA_ENTRADA: 'Entrada extraordinária / reserva',
+        FUNDO_CAIXA_SAIDA: 'Saída extraordinária / uso da reserva',
         AJUSTE_CAIXA: 'Ajuste caixa',
       }
 
@@ -1947,10 +2011,17 @@ export default function FinanceiroPage() {
       ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO'].includes(item.tipo)
     )
 
+    const reservasMes = movimentosMes.filter(
+      (item) => ehReservaOperacionalFundo(item)
+    )
+
     const entradasMes = movimentosMes.filter(
       (item) =>
-        ['APORTE_SOCIO', 'FUNDO_CAIXA_ENTRADA'].includes(item.tipo) ||
-        (item.tipo === 'AJUSTE_CAIXA' && numeroPdf(item.valor) >= 0)
+        !ehReservaOperacionalFundo(item) &&
+        (
+          ['APORTE_SOCIO', 'FUNDO_CAIXA_ENTRADA'].includes(item.tipo) ||
+          (item.tipo === 'AJUSTE_CAIXA' && numeroPdf(item.valor) >= 0)
+        )
     )
 
     const saidasFundoMes = movimentosMes.filter(
@@ -1960,8 +2031,8 @@ export default function FinanceiroPage() {
     )
 
     const saldoFundoPrevisto = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
-    const caixaDisponivelParaReserva = Number(Math.max(0, resultadoGeral.saldoCaixaRealMes || 0).toFixed(2))
-    const valorReservaReal = Number(Math.min(saldoFundoPrevisto, caixaDisponivelParaReserva).toFixed(2))
+    const caixaLivreAtual = Number(caixaLivreAtualInformado().toFixed(2))
+    const valorReservaReal = Number(Math.min(Math.max(saldoFundoPrevisto, 0), caixaLivreAtual).toFixed(2))
     const saldoPendenteFundo = Number(Math.max(0, saldoFundoPrevisto - valorReservaReal).toFixed(2))
 
     const totalProcessos = processosMes.reduce((acc, item) => acc + valorCobrancaPdf(item), 0)
@@ -1994,6 +2065,7 @@ export default function FinanceiroPage() {
     const totalRetiradasPendentes = totalMovimentosPendentes(retiradasMes)
     const totalEntradasRealizadas = totalMovimentosPagos(entradasMes)
     const totalEntradasPendentes = totalMovimentosPendentes(entradasMes)
+    const totalReservasConstituidas = totalMovimentosPagos(reservasMes)
     const totalSaidasFundoPagas = totalMovimentosPagos(saidasFundoMes)
     const totalSaidasFundoPendentes = totalMovimentosPendentes(saidasFundoMes)
 
@@ -2035,6 +2107,7 @@ export default function FinanceiroPage() {
     const linhasDespesas = despesasMes.map(linhaMovimento)
     const linhasRetiradas = retiradasMes.map(linhaMovimento)
     const linhasEntradas = entradasMes.map(linhaMovimento)
+    const linhasReservas = reservasMes.map(linhaMovimento)
     const linhasSaidasFundo = saidasFundoMes.map(linhaMovimento)
 
     const html = `
@@ -2177,7 +2250,7 @@ export default function FinanceiroPage() {
             <div class="card"><strong>Valor recebido</strong><span>${moeda(resultadoGeral.valorRecebido)}</span></div>
             <div class="card"><strong>Profit HC recebido</strong><span>${moeda(resultadoGeral.profitRecebido)}</span></div>
             <div class="card"><strong>Resultado operacional</strong><span class="${resultadoGeral.resultadoOperacional >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.resultadoOperacional)}</span></div>
-            <div class="card"><strong>Saldo final do mês</strong><span class="${resultadoGeral.saldoCaixaRealMes >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.saldoCaixaRealMes)}</span></div>
+            <div class="card"><strong>Saldo líquido da competência</strong><span class="${resultadoGeral.saldoCaixaRealMes >= 0 ? 'positivo' : 'negativo'}">${moeda(resultadoGeral.saldoCaixaRealMes)}</span></div>
           </div>
 
           <h2>1. Resumo do fechamento</h2>
@@ -2198,17 +2271,19 @@ export default function FinanceiroPage() {
               ${linhaResumo('Retiradas realizadas', moeda(totalRetiradasPagas))}
               ${linhaResumo('Retiradas pendentes', moeda(totalRetiradasPendentes))}
               ${linhaResumo('Entradas extras de caixa', moeda(resultadoGeral.entradasCaixaMes))}
+              ${linhaResumo('Reservas constituídas na competência', moeda(totalReservasConstituidas))}
               ${linhaResumo('Ajustes negativos de caixa', moeda(resultadoGeral.ajustesNegativosMes))}
               ${linhaResumo('Saídas do fundo realizadas', moeda(totalSaidasFundoPagas))}
               ${linhaResumo('Saídas totais de caixa', moeda(resultadoGeral.saidasCaixaMes))}
               ${linhaResumo('Retiradas Marcos', moeda(resultadoGeral.retiradasMarcos))}
               ${linhaResumo('Retiradas Hérica', moeda(resultadoGeral.retiradasHerica))}
               ${linhaResumo('Total retirado pelos sócios', moeda(resultadoGeral.retiradasTotal))}
-              ${linhaResumo('Saldo final do mês após todas as entradas e saídas', moeda(resultadoGeral.saldoCaixaRealMes))}
+              ${linhaResumo('Saldo líquido da competência após entradas e saídas reais', moeda(resultadoGeral.saldoCaixaRealMes))}
               ${linhaResumo('Fundo previsto 50%', moeda(resultadoGeral.fundoPrevistoMes))}
               ${linhaResumo('Já reservado no fundo', moeda(resultadoGeral.reservasFundoMes))}
-              ${linhaResumo('Fundo real possível agora', moeda(valorReservaReal))}
-              ${linhaResumo('Fundo pendente para reservar futuramente', moeda(saldoPendenteFundo))}
+              ${linhaResumo('Caixa livre atual nos bancos', moeda(caixaLivreAtual))}
+              ${linhaResumo('Reserva que pode ser constituída agora', moeda(valorReservaReal))}
+              ${linhaResumo('Reserva pendente da competência', moeda(saldoPendenteFundo))}
               ${linhaResumo('Parte Marcos 25%', moeda(resultadoGeral.parteMarcos))}
               ${linhaResumo('Saldo Marcos', moeda(resultadoGeral.saldoMarcos))}
               ${linhaResumo('Parte Hérica 25%', moeda(resultadoGeral.parteHerica))}
@@ -2216,8 +2291,8 @@ export default function FinanceiroPage() {
             </tbody>
           </table>
 
-          ${resultadoGeral.saldoCaixaRealMes <= 0 && saldoPendenteFundo > 0
-            ? `<div class="alerta">Atenção: este mês teve lucro para cálculo de distribuição, mas o caixa após retiradas ficou negativo ou zerado. Por isso, o fundo real não deve ser aumentado agora. O valor de ${moeda(saldoPendenteFundo)} fica como saldo a reservar futuramente.</div>`
+          ${caixaLivreAtual <= 0 && saldoPendenteFundo > 0
+            ? `<div class="alerta">Atenção: a competência possui reserva pendente, mas não há caixa livre atual disponível nos saldos bancários informados. O valor de ${moeda(saldoPendenteFundo)} permanece pendente e poderá ser constituído em outra data sem alterar a competência.</div>`
             : ''
           }
 
@@ -2257,15 +2332,23 @@ export default function FinanceiroPage() {
             'Nenhuma retirada ou pagamento de sócio encontrado para este mês.'
           )}
 
-          <h2>5. Entradas, aportes e reservas</h2>
+          <h2>5. Entradas e aportes reais</h2>
           <p><strong>Realizados:</strong> ${moeda(totalEntradasRealizadas)} | <strong>Pendentes/vencidos:</strong> ${moeda(totalEntradasPendentes)}</p>
           ${tabela(
             ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Status', 'Forma', 'Resultado', 'Caixa'],
             linhasEntradas,
-            'Nenhuma entrada, aporte ou reserva encontrada para este mês.'
+            'Nenhuma entrada real ou aporte encontrado para este mês.'
           )}
 
-          <h2>6. Saídas e ajustes do fundo/caixa</h2>
+          <h2>6. Reservas da competência</h2>
+          <p><strong>Reserva constituída:</strong> ${moeda(totalReservasConstituidas)}. Reserva é destinação do saldo existente e não entrada de caixa.</p>
+          ${tabela(
+            ['Data de constituição', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Status', 'Forma', 'Resultado', 'Caixa'],
+            linhasReservas,
+            'Nenhuma reserva constituída encontrada para esta competência.'
+          )}
+
+          <h2>7. Saídas e ajustes do fundo/caixa</h2>
           <p><strong>Realizados:</strong> ${moeda(totalSaidasFundoPagas)} | <strong>Pendentes/vencidos:</strong> ${moeda(totalSaidasFundoPendentes)}</p>
           ${tabela(
             ['Data', 'Tipo', 'Categoria', 'Descrição', 'Sócio', 'Valor', 'Status', 'Forma', 'Resultado', 'Caixa'],
@@ -2273,13 +2356,14 @@ export default function FinanceiroPage() {
             'Nenhuma saída ou ajuste negativo do fundo encontrado para este mês.'
           )}
 
-          <h2>7. Conclusão</h2>
+          <h2>8. Conclusão</h2>
           <table class="resumo">
             <tbody>
               ${linhaResumo('Resultado operacional do mês', moeda(resultadoGeral.resultadoOperacional))}
-              ${linhaResumo('Caixa real após retiradas', moeda(resultadoGeral.saldoCaixaRealMes))}
-              ${linhaResumo('Valor recomendado para fundo real agora', moeda(valorReservaReal))}
-              ${linhaResumo('Valor pendente para reservar depois', moeda(saldoPendenteFundo))}
+              ${linhaResumo('Saldo líquido da competência', moeda(resultadoGeral.saldoCaixaRealMes))}
+              ${linhaResumo('Caixa livre atual', moeda(caixaLivreAtual))}
+              ${linhaResumo('Reserva recomendada para constituir agora', moeda(valorReservaReal))}
+              ${linhaResumo('Reserva pendente da competência', moeda(saldoPendenteFundo))}
             </tbody>
           </table>
 
@@ -2320,8 +2404,8 @@ export default function FinanceiroPage() {
     }
 
     const saldoFundoPrevisto = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
-    const caixaDisponivelParaReserva = Number(Math.max(0, resultadoGeral.saldoCaixaRealMes || 0).toFixed(2))
-    const valorReserva = Number(Math.min(saldoFundoPrevisto, caixaDisponivelParaReserva).toFixed(2))
+    const caixaLivreAtual = Number(caixaLivreAtualInformado().toFixed(2))
+    const valorReserva = Number(Math.min(Math.max(saldoFundoPrevisto, 0), caixaLivreAtual).toFixed(2))
     const saldoPendenteFundo = Number(Math.max(0, saldoFundoPrevisto - valorReserva).toFixed(2))
 
     if (saldoFundoPrevisto <= 0) {
@@ -2375,14 +2459,15 @@ export default function FinanceiroPage() {
       `Lucro líquido: ${moeda(resultadoGeral.resultadoOperacional)}\n` +
       alertaCusto +
       `\n\nRetiradas dos sócios: ${moeda(resultadoGeral.retiradasTotal)}\n` +
-      `Caixa após retiradas: ${moeda(resultadoGeral.saldoCaixaRealMes)}\n\n` +
+      `Saldo líquido da competência: ${moeda(resultadoGeral.saldoCaixaRealMes)}\n` +
+      `Caixa livre atual nos bancos: ${moeda(caixaLivreAtual)}\n\n` +
       `Fundo previsto 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}\n` +
-      `Já reservado no fundo: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
-      `Valor que será lançado agora no fundo real: ${moeda(valorReserva)}\n` +
-      `Saldo do fundo a reservar futuramente: ${moeda(saldoPendenteFundo)}\n\n` +
+      `Já constituído para esta competência: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
+      `Reserva que será constituída agora: ${moeda(valorReserva)}\n` +
+      `Reserva pendente da competência: ${moeda(saldoPendenteFundo)}\n\n` +
       (
         valorReserva <= 0
-          ? 'ATENÇÃO: este mês será fechado sem reserva real no fundo, porque o caixa após retiradas ficou negativo ou zerado.\n\n'
+          ? 'ATENÇÃO: a competência ficará registrada sem nova reserva agora porque não existe caixa livre atual suficiente. A pendência poderá ser constituída em outra data, mantendo esta competência.\n\n'
           : ''
       ) +
       `Parte Marcos 25%: ${moeda(resultadoGeral.parteMarcos)}\n` +
@@ -2410,7 +2495,7 @@ export default function FinanceiroPage() {
           ? 'Fechamento parcial automático'
           : 'Fechamento automático',
       impacta_resultado: false,
-      impacta_caixa: true,
+      impacta_caixa: false,
       observacoes:
         `${fechamentoJaLancado ? 'Complemento do fechamento' : fechamentoParcial ? 'Fechamento parcial' : 'Fechamento'} gerado pelo Resultado Mensal. ` +
         `Mês de competência pelo recebimento: ${mesResultado}. ` +
@@ -2428,7 +2513,8 @@ export default function FinanceiroPage() {
         `Retirado Marcos: ${moeda(resultadoGeral.retiradasMarcos)}. ` +
         `Retirado Hérica: ${moeda(resultadoGeral.retiradasHerica)}. ` +
         `Referências com custo: ${referenciasComCusto || 'nenhuma'}. ` +
-        `Referências aguardando custo: ${referenciasSemCusto || 'nenhuma'}.`,
+        `Referências aguardando custo: ${referenciasSemCusto || 'nenhuma'}. ` +
+        `Data de constituição da reserva: ${hoje}. A reserva é destinação do saldo existente e não representa entrada de caixa.`,
       comprovante_url: '',
     })
 
@@ -2444,10 +2530,10 @@ export default function FinanceiroPage() {
 
     alert(
       fechamentoJaLancado
-        ? 'Complemento do fechamento gerado com sucesso. Somente a diferença disponível foi lançada no Fundo de Caixa.'
+        ? 'Complemento do fechamento gerado com sucesso. A reserva foi constituída sem criar entrada de caixa.'
         : fechamentoParcial
           ? 'Fechamento parcial gerado. Os processos sem custo ficaram registrados para complemento posterior.'
-          : 'Fechamento mensal gerado com sucesso. A reserva disponível foi lançada no Fundo de Caixa.'
+          : 'Fechamento mensal gerado com sucesso. A reserva foi constituída como destinação do saldo existente, sem criar entrada de caixa.'
     )
   }
 
@@ -2614,9 +2700,11 @@ export default function FinanceiroPage() {
     const saldoCaixaRealMes =
       profitRecebido + entradasCaixaMes - saidasCaixaMes
 
+    const caixaLivreAtual = caixaLivreAtualInformado()
+
     const valorReservaPossivelMes = Math.min(
       Math.max(saldoFundoMes, 0),
-      Math.max(saldoCaixaRealMes, 0)
+      Math.max(caixaLivreAtual, 0)
     )
 
     return {
@@ -2647,19 +2735,16 @@ export default function FinanceiroPage() {
       fundoPrevistoMes,
       saldoFundoMes,
       saldoCaixaRealMes,
+      caixaLivreAtual,
       valorReservaPossivelMes,
     }
   }
 
 
   function deveRegistrarFechamentoRetroativo(item: any) {
-    const temSaldoPendente = Number(item.saldoFundoMes || 0) > 0.009
-    const podeReservarAgora = Number(item.valorReservaPossivelMes || 0) > 0.009
-
     return (
       Number(item.resultadoOperacional || 0) > 0 &&
-      temSaldoPendente &&
-      (podeReservarAgora || !item.fechamentoExistente)
+      Number(item.saldoFundoMes || 0) > 0.009
     )
   }
 
@@ -2710,25 +2795,60 @@ export default function FinanceiroPage() {
       }
     })
 
-    const candidatos = resultados.filter(deveRegistrarFechamentoRetroativo)
+    const pendencias = resultados.filter(deveRegistrarFechamentoRetroativo)
 
-    if (candidatos.length === 0) {
+    if (pendencias.length === 0) {
       alert(
-        'Nenhum fechamento retroativo pendente encontrado.\n\n' +
-          'Os meses anteriores já estão fechados, não tiveram lucro positivo ou já possuem reserva suficiente no fundo.'
+        'Nenhuma reserva retroativa pendente encontrada.\n\n' +
+          'Os meses anteriores não tiveram lucro positivo ou já possuem reserva suficiente para a competência.'
       )
       return
     }
 
+    const caixaLivreAtual = Number(caixaLivreAtualInformado().toFixed(2))
+
+    if (caixaLivreAtual <= 0) {
+      alert(
+        'Existem reservas retroativas pendentes, mas não há caixa livre atual disponível nos saldos bancários informados.\n\n' +
+          'A competência continuará pendente até existir saldo livre para constituir a reserva.'
+      )
+      return
+    }
+
+    let saldoLivreParaDistribuir = caixaLivreAtual
+
+    const candidatos = pendencias
+      .map((item) => {
+        const saldoPendenteCompetencia = Number(Math.max(0, item.saldoFundoMes || 0).toFixed(2))
+        const valorReservaAgora = Number(
+          Math.min(saldoPendenteCompetencia, Math.max(0, saldoLivreParaDistribuir)).toFixed(2)
+        )
+
+        saldoLivreParaDistribuir = Number(
+          Math.max(0, saldoLivreParaDistribuir - valorReservaAgora).toFixed(2)
+        )
+
+        return {
+          ...item,
+          valorReservaAgora,
+        }
+      })
+      .filter((item) => item.valorReservaAgora > 0.009)
+
+    if (candidatos.length === 0) {
+      alert('Não existe caixa livre atual suficiente para constituir reservas retroativas agora.')
+      return
+    }
+
     const totalReservar = candidatos.reduce(
-      (acc, item) => acc + Number(item.valorReservaPossivelMes || 0),
+      (acc, item) => acc + Number(item.valorReservaAgora || 0),
       0
     )
 
     const listaMeses = candidatos
       .map(
         (item) =>
-          `${formatarMesVisual(item.mesRef)}${item.fechamentoExistente ? ' (complemento)' : ''}: ${moeda(item.valorReservaPossivelMes || 0)}`
+          `${formatarMesVisual(item.mesRef)}${item.fechamentoExistente ? ' (complemento)' : ''}: ${moeda(item.valorReservaAgora || 0)}`
       )
       .join('\n')
 
@@ -2737,9 +2857,10 @@ export default function FinanceiroPage() {
       : ''
 
     const confirmar = confirm(
-      `Gerar fechamentos retroativos de ${anoFinanceiroAtivo()}?\n\n` +
-        `Meses que serão lançados: ${candidatos.length}\n` +
-        `Total a reservar no fundo: ${moeda(totalReservar)}\n\n` +
+      `Constituir reservas retroativas de ${anoFinanceiroAtivo()}?\n\n` +
+        `Caixa livre atual disponível: ${moeda(caixaLivreAtual)}\n` +
+        `Competências que receberão reserva agora: ${candidatos.length}\n` +
+        `Total que será destinado à reserva: ${moeda(totalReservar)}\n\n` +
         listaMeses +
         avisoSaldoInicial
     )
@@ -2757,10 +2878,11 @@ export default function FinanceiroPage() {
 
     setGerandoRetroativos(true)
 
+    const hoje = dataHojeFinanceiro()
+
     const registros = candidatos.map((item) => {
-      const dataFechamento = ultimoDiaDoMes(item.mesRef)
       const saldoFundoPrevisto = Number((item.saldoFundoMes || 0).toFixed(2))
-      const valorReserva = Number((item.valorReservaPossivelMes || 0).toFixed(2))
+      const valorReserva = Number((item.valorReservaAgora || 0).toFixed(2))
       const saldoPendenteFundo = Number(Math.max(0, saldoFundoPrevisto - valorReserva).toFixed(2))
 
       return {
@@ -2770,8 +2892,8 @@ export default function FinanceiroPage() {
           ? `Complemento do fechamento mensal - reserva 50% ${item.mesRef} | pendente ${moeda(saldoPendenteFundo)}`
           : `Fechamento mensal - reserva 50% ${item.mesRef}${valorReserva > 0 ? '' : ' - sem caixa para reserva real'} | pendente ${moeda(saldoPendenteFundo)}`,
         valor: valorReserva,
-        data_vencimento: dataFechamento,
-        data_pagamento: dataFechamento,
+        data_vencimento: hoje,
+        data_pagamento: hoje,
         mes_referencia: item.mesRef,
         status: 'PAGO',
         socio: null,
@@ -2779,18 +2901,19 @@ export default function FinanceiroPage() {
           ? 'Complemento retroativo'
           : 'Fechamento retroativo',
         impacta_resultado: false,
-        impacta_caixa: true,
+        impacta_caixa: false,
         observacoes:
           `${item.fechamentoExistente ? 'Complemento retroativo' : 'Fechamento retroativo'} gerado pelo Resultado Mensal. ` +
           `Valor recebido: ${moeda(item.valorRecebido)}. ` +
           `Profit HC recebido: ${moeda(item.profitRecebido)}. ` +
           `Despesas pagas: ${moeda(item.despesasPagas)}. ` +
           `Empréstimos pagos: ${moeda(item.emprestimosPagos)}. ` +
-          `Lucro líquido: ${moeda(item.saldoCaixaRealMes)}. ` +
+          `Saldo líquido da competência: ${moeda(item.saldoCaixaRealMes)}. ` +
           `Fundo previsto 50%: ${moeda(item.fundoPrevistoMes)}. ` +
           `Já reservado anteriormente: ${moeda(item.reservasFundoMes)}. ` +
-          `Valor lançado agora: ${moeda(valorReserva)}. ` +
-          `Processos pagos sem custo no mês: ${item.semCusto}.`,
+          `Valor constituído agora: ${moeda(valorReserva)}. ` +
+          `Processos pagos sem custo no mês: ${item.semCusto}. ` +
+          `Data de constituição da reserva: ${hoje}. Competência preservada em ${item.mesRef}; a reserva não representa entrada de caixa.`,
         comprovante_url: '',
       }
     })
@@ -2813,9 +2936,10 @@ export default function FinanceiroPage() {
     setGerandoRetroativos(false)
 
     alert(
-      `Fechamentos retroativos gerados com sucesso.\n\n` +
-        `Meses lançados: ${registros.length}\n` +
-        `Total reservado no fundo: ${moeda(totalReservar)}`
+      `Reservas retroativas constituídas com sucesso.\n\n` +
+        `Competências atendidas: ${registros.length}\n` +
+        `Total destinado à reserva: ${moeda(totalReservar)}\n` +
+        `A data da constituição é hoje; a competência original foi preservada.`
     )
   }
 
@@ -3200,7 +3324,13 @@ export default function FinanceiroPage() {
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const entradasFundoMes = movimentosMes
-      .filter((item) => item.tipo === 'FUNDO_CAIXA_ENTRADA' && statusMovimento(item) === 'PAGO')
+      .filter(
+        (item) =>
+          item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
+          statusMovimento(item) === 'PAGO' &&
+          item.impacta_caixa !== false &&
+          !ehReservaOperacionalFundo(item)
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
     const reservasFundoMes = movimentosMes
@@ -3345,25 +3475,86 @@ export default function FinanceiroPage() {
       return tipoFundo && passaAno && passaMes && statusMovimento(item) === 'PAGO'
     })
 
-    const entradas = movimentosFundo
-      .filter((item) => item.tipo === 'FUNDO_CAIXA_ENTRADA')
+    const reservasConstituidas = movimentosFundo
+      .filter((item) => ehReservaOperacionalFundo(item))
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
-    const saidas = movimentosFundo
-      .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA')
+    const entradasExtraordinarias = movimentosFundo
+      .filter(
+        (item) =>
+          item.impacta_caixa !== false &&
+          item.tipo === 'FUNDO_CAIXA_ENTRADA' &&
+          !ehReservaOperacionalFundo(item)
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
 
-    const ajustes = movimentosFundo
-      .filter((item) => item.tipo === 'AJUSTE_CAIXA')
+    const saidasExtraordinarias = movimentosFundo
+      .filter(
+        (item) =>
+          item.impacta_caixa !== false &&
+          item.tipo === 'FUNDO_CAIXA_SAIDA'
+      )
       .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const ajustesPositivos = movimentosFundo
+      .filter(
+        (item) =>
+          item.impacta_caixa !== false &&
+          item.tipo === 'AJUSTE_CAIXA' &&
+          Number(item.valor || 0) > 0
+      )
+      .reduce((acc, item) => acc + Number(item.valor || 0), 0)
+
+    const ajustesNegativos = movimentosFundo
+      .filter(
+        (item) =>
+          item.impacta_caixa !== false &&
+          item.tipo === 'AJUSTE_CAIXA' &&
+          Number(item.valor || 0) < 0
+      )
+      .reduce((acc, item) => acc + Math.abs(Number(item.valor || 0)), 0)
+
+    const mesesCompetencia = Array.from(
+      new Set([
+        ...lancamentos.map((item) => mesResultadoLancamento(item)).filter(Boolean),
+        ...movimentacoes
+          .filter((item) => ehReservaOperacionalFundo(item))
+          .map((item) => mesBaseMovimento(item))
+          .filter(Boolean),
+      ])
+    )
+      .filter((mes: any) => mesFinanceiroPermitido(mes))
+      .filter((mes: any) => mesDoAnoFinanceiroAtivo(mes))
+      .filter((mes: any) => filtraMultipla(filtroMesMovimento, String(mes)))
+
+    const reservaPrevista = mesesCompetencia.reduce(
+      (acc, mes) => acc + Number(calcularResultadoDoMes(String(mes)).fundoPrevistoMes || 0),
+      0
+    )
+
+    const reservaPendente = Math.max(0, reservaPrevista - reservasConstituidas)
+    const entradasReais = entradasExtraordinarias + ajustesPositivos
+    const saidasReais = saidasExtraordinarias + ajustesNegativos
 
     return {
-      entradas,
-      saidas,
-      ajustes,
-      saldoPeriodo: entradas - saidas + ajustes,
+      reservaPrevista,
+      reservasConstituidas,
+      reservaPendente,
+      entradasExtraordinarias,
+      saidasExtraordinarias,
+      ajustesPositivos,
+      ajustesNegativos,
+      entradasReais,
+      saidasReais,
+      saldoMovimentacoesReais: entradasReais - saidasReais,
+      // aliases mantidos para não quebrar usos antigos dentro da página
+      entradas: entradasReais,
+      saidas: saidasReais,
+      ajustes: ajustesPositivos - ajustesNegativos,
+      saldoPeriodo: entradasReais - saidasReais,
     }
-  }, [movimentacoes, filtroMesMovimento, anoFinanceiro])
+  }, [movimentacoes, lancamentos, filtroMesMovimento, anoFinanceiro, contasBancarias])
+
 
   const resumoCaixaRealProfit = useMemo(() => {
     function mesesDoLancamento(item: any) {
@@ -3397,11 +3588,14 @@ export default function FinanceiroPage() {
       0
     )
 
-    const movimentosPagos = movimentacoes
+    const movimentosPagosTodos = movimentacoes
       .filter(movimentoAnoSelecionado)
       .filter((item) => passaMesSelecionado(mesesDoMovimento(item)))
       .filter((item) => statusMovimento(item) === 'PAGO')
+
+    const movimentosPagos = movimentosPagosTodos
       .filter((item) => item.impacta_caixa !== false)
+      .filter((item) => !ehReservaOperacionalFundo(item))
 
     const movimentosResultado = movimentacoes
       .filter(movimentoAnoSelecionado)
@@ -3433,7 +3627,7 @@ export default function FinanceiroPage() {
       .filter((item) => item.tipo === 'FUNDO_CAIXA_SAIDA')
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
-    const reservasLancadas = movimentosPagos
+    const reservasLancadas = movimentosPagosTodos
       .filter((item) => ehReservaOperacionalFundo(item))
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
@@ -3477,7 +3671,18 @@ export default function FinanceiroPage() {
       despesasResultado -
       emprestimosResultado
 
-    const fundoPrevisto = Math.max(0, resultadoAntesRetiradas) * 0.5
+    const mesesResultadoPeriodo = Array.from(
+      new Set(
+        processosPagos
+          .map((item) => mesResultadoLancamento(item))
+          .filter(Boolean)
+      )
+    )
+
+    const fundoPrevisto = mesesResultadoPeriodo.reduce(
+      (acc, mes) => acc + Number(calcularResultadoDoMes(String(mes)).fundoPrevistoMes || 0),
+      0
+    )
 
     const caixaOperacionalDoProfit =
       profitRecebido -
@@ -3527,16 +3732,137 @@ export default function FinanceiroPage() {
     }
   }, [lancamentos, movimentacoes, filtroMesMovimento, anoFinanceiro])
 
-  const resumoConciliacaoBancaria = useMemo(() => {
-    const saldoBancarioReal = contasBancarias.reduce(
-      (acc, item) => acc + numero(item.saldo_atual || 0),
+  const resumoPosicaoAtual = useMemo(() => {
+    const saldoBancarioReal = saldoBancarioAtualInformado()
+
+    const reservasRegistradas = movimentacoes
+      .filter(
+        (item) =>
+          statusMovimento(item) === 'PAGO' &&
+          ehReservaOperacionalFundo(item)
+      )
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const usosDoFundo = movimentacoes
+      .filter(
+        (item) =>
+          statusMovimento(item) === 'PAGO' &&
+          item.tipo === 'FUNDO_CAIXA_SAIDA' &&
+          item.impacta_caixa !== false
+      )
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const reservaConstituida = Math.max(0, reservasRegistradas - usosDoFundo)
+
+    const mesesComResultado = Array.from(
+      new Set(
+        lancamentos
+          .filter((item) => statusCobranca(item) === 'PAGO')
+          .map((item) => mesResultadoLancamento(item))
+          .filter(Boolean)
+      )
+    )
+
+    const reservaPrevistaAcumulada = mesesComResultado.reduce(
+      (acc, mes) => acc + Number(calcularResultadoDoMes(String(mes)).fundoPrevistoMes || 0),
       0
     )
 
-    const saldoCalculado = Number(resumoCaixaRealProfit.caixaRealAjustado || 0)
-    const diferenca = saldoBancarioReal - saldoCalculado
-    const possuiContas = contasBancarias.length > 0
-    const tolerancia = 1
+    const reservaPendente = Math.max(0, reservaPrevistaAcumulada - reservaConstituida)
+    const reservaProtegida = Math.min(
+      Math.max(saldoBancarioReal, 0),
+      reservaConstituida
+    )
+    const reservaSemCobertura = Math.max(
+      0,
+      reservaConstituida - Math.max(saldoBancarioReal, 0)
+    )
+    const caixaLivreAtual = Math.max(0, saldoBancarioReal - reservaProtegida)
+
+    return {
+      saldoBancarioReal,
+      possuiContas: contasBancarias.length > 0,
+      reservasRegistradas,
+      usosDoFundo,
+      reservaPrevistaAcumulada,
+      reservaConstituida,
+      reservaProtegida,
+      reservaSemCobertura,
+      reservaPendente,
+      caixaLivreAtual,
+    }
+  }, [contasBancarias, movimentacoes, lancamentos])
+
+
+  const resumoConciliacaoBancaria = useMemo(() => {
+    const saldoBancarioReal = Number(resumoPosicaoAtual.saldoBancarioReal || 0)
+    const possuiContas = resumoPosicaoAtual.possuiContas
+
+    const processosAposBase = lancamentos
+      .filter((item) => statusCobranca(item) === 'PAGO')
+      .filter((item) => {
+        const data = dataRecebimentoProcesso(item)
+        return !!data && data > DATA_BASE_CONCILIACAO
+      })
+
+    const processosComCustoAposBase = processosAposBase.filter(
+      (item) => !aguardandoCustoProcesso(item)
+    )
+
+    const processosSemCustoAposBase = processosAposBase.filter(
+      aguardandoCustoProcesso
+    )
+
+    // Enquanto os custos dos processos não possuem data financeira própria,
+    // a conciliação usa o efeito líquido (Profit) dos processos já apurados.
+    const efeitoOperacionalLiquidoAposBase = processosComCustoAposBase.reduce(
+      (acc, item) => acc + calcularProfit(item),
+      0
+    )
+
+    const movimentosReaisAposBase = movimentacoes
+      .filter((item) => statusMovimento(item) === 'PAGO')
+      .filter((item) => item.impacta_caixa !== false)
+      .filter((item) => !ehReservaOperacionalFundo(item))
+      .filter((item) => {
+        const data = dataEfetivaMovimentoCaixa(item)
+        return !!data && data > DATA_BASE_CONCILIACAO
+      })
+
+    const entradasReaisAposBase = movimentosReaisAposBase
+      .filter(ehEntradaRealMovimento)
+      .reduce((acc, item) => acc + Math.abs(numero(item.valor || 0)), 0)
+
+    const saidasReaisAposBase = movimentosReaisAposBase
+      .filter(ehSaidaRealMovimento)
+      .reduce((acc, item) => acc + Math.abs(numero(item.valor || 0)), 0)
+
+    const saldoEsperado =
+      SALDO_BASE_CONCILIACAO +
+      efeitoOperacionalLiquidoAposBase +
+      entradasReaisAposBase -
+      saidasReaisAposBase
+
+    const diferenca = saldoBancarioReal - saldoEsperado
+
+    const recebimentosAConferir = lancamentos.filter((item) => {
+      const status = statusCobranca(item)
+      return status === 'EM ABERTO' || status === 'ATRASADO'
+    })
+
+    const valorRecebimentosAConferir = recebimentosAConferir.reduce(
+      (acc, item) => acc + numero(item.valor_cobranca || 0),
+      0
+    )
+
+    const valorProcessosSemCustoAposBase = processosSemCustoAposBase.reduce(
+      (acc, item) => acc + numero(item.valor_cobranca || 0),
+      0
+    )
+
+    const possuiPendenciasClassificacao =
+      recebimentosAConferir.length > 0 ||
+      processosSemCustoAposBase.length > 0
 
     const ultimaAtualizacao = contasBancarias
       .map((item) => item.atualizado_em || item.data_referencia || item.criado_em)
@@ -3545,25 +3871,38 @@ export default function FinanceiroPage() {
 
     const status = !possuiContas
       ? 'SEM CONCILIAÇÃO'
-      : Math.abs(diferenca) <= tolerancia
+      : Math.abs(diferenca) <= TOLERANCIA_CONCILIACAO
         ? 'CONCILIADO'
-        : 'DIVERGENTE'
+        : possuiPendenciasClassificacao
+          ? 'A CONFERIR'
+          : 'A CONCILIAR'
 
     return {
       possuiContas,
+      dataBase: DATA_BASE_CONCILIACAO,
+      saldoBase: SALDO_BASE_CONCILIACAO,
       saldoBancarioReal,
-      saldoCalculado,
+      saldoEsperado,
+      saldoCalculado: saldoEsperado,
       diferenca,
       status,
       ultimaAtualizacao,
-      extraordinarioLiquido:
-        Number(resumoCaixaRealProfit.entradasNaoOperacionais || 0) -
-        Number(resumoCaixaRealProfit.saidasExtraordinarias || 0),
+      efeitoOperacionalLiquidoAposBase,
+      entradasReaisAposBase,
+      saidasReaisAposBase,
+      extraordinarioLiquido: entradasReaisAposBase - saidasReaisAposBase,
+      qtdRecebimentosAConferir: recebimentosAConferir.length,
+      valorRecebimentosAConferir,
+      qtdProcessosSemCustoAposBase: processosSemCustoAposBase.length,
+      valorProcessosSemCustoAposBase,
+      possuiPendenciasClassificacao,
     }
-  }, [contasBancarias, resumoCaixaRealProfit])
+  }, [contasBancarias, lancamentos, movimentacoes, resumoPosicaoAtual])
+
 
 
   const extratoAnual = useMemo(() => {
+    const todosAnos = String(anoExtrato || '').toUpperCase() === 'TODOS'
     const anoSelecionado = anoFinanceiroPermitido(anoExtrato)
       ? String(anoExtrato)
       : String(ANO_ATUAL_FINANCEIRO)
@@ -3573,7 +3912,9 @@ export default function FinanceiroPage() {
       .filter((item) => {
         if (statusCobranca(item) !== 'PAGO') return false
         const mesBase = mesBaseLancamento(item)
-        return String(mesBase || '').startsWith(ano)
+        return todosAnos
+          ? mesFinanceiroPermitido(mesBase)
+          : String(mesBase || '').startsWith(ano)
       })
       .map((item) => {
         const data =
@@ -3593,8 +3934,10 @@ export default function FinanceiroPage() {
           categoria: normalizarServicoFinanceiro(item.servico) || 'Processo faturado',
           descricao: `${item.cliente || 'Cliente'}${item.awb ? ` - AWB ${item.awb}` : ''}${item.fatura ? ` - Fatura ${item.fatura}` : ''}`,
           socio: '',
+          natureza: 'ENTRADA',
           entrada: Number(item.valor_cobranca || 0),
           saida: 0,
+          reserva: 0,
           profit,
           terceiros:
             String(item.pgta_terceiros || '').trim().toUpperCase() === 'PAGO'
@@ -3611,18 +3954,31 @@ export default function FinanceiroPage() {
       })
 
     const linhasMovimentos = movimentacoes
-      .filter((item) => mesBaseMovimento(item).startsWith(ano))
+      .filter((item) => {
+        const mesBase = mesBaseMovimento(item)
+        return todosAnos
+          ? mesFinanceiroPermitido(mesBase)
+          : mesBase.startsWith(ano)
+      })
       .map((item) => {
         const valor = Number(item.valor || 0)
         const status = statusMovimento(item)
+        const ehReserva = ehReservaOperacionalFundo(item)
+        const impactaCaixa = item.impacta_caixa !== false
+        let natureza = 'NEUTRO'
         let entrada = 0
         let saida = 0
+        let reserva = 0
 
-        if (item.tipo === 'APORTE_SOCIO' || item.tipo === 'FUNDO_CAIXA_ENTRADA') entrada = valor
-        else if (['DESPESA', 'PAGAMENTO_EMPRESTIMO', 'RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO', 'FUNDO_CAIXA_SAIDA'].includes(item.tipo)) saida = valor
-        else if (item.tipo === 'AJUSTE_CAIXA') {
-          if (valor >= 0) entrada = valor
-          else saida = Math.abs(valor)
+        if (ehReserva) {
+          natureza = 'RESERVA'
+          reserva = Math.abs(valor)
+        } else if (impactaCaixa && ehEntradaRealMovimento(item)) {
+          natureza = 'ENTRADA'
+          entrada = Math.abs(valor)
+        } else if (impactaCaixa && ehSaidaRealMovimento(item)) {
+          natureza = 'SAÍDA'
+          saida = Math.abs(valor)
         }
 
         return {
@@ -3635,8 +3991,10 @@ export default function FinanceiroPage() {
           categoria: item.categoria || '-',
           descricao: item.descricao || '-',
           socio: item.socio || '',
+          natureza,
           entrada: status === 'PAGO' ? entrada : 0,
           saida: status === 'PAGO' ? saida : 0,
+          reserva: status === 'PAGO' ? reserva : 0,
           profit: 0,
           terceiros: 0,
           custosProtegidos: 0,
@@ -3661,6 +4019,7 @@ export default function FinanceiroPage() {
     return extratoAnual.filter((item) => {
       const texto = normalizarBusca(`
         ${item.tipoLabel || ''}
+        ${item.natureza || ''}
         ${item.categoria || ''}
         ${item.descricao || ''}
         ${item.socio || ''}
@@ -3680,6 +4039,7 @@ export default function FinanceiroPage() {
     const pagos = lista.filter((item) => item.status === 'PAGO')
     const entradas = pagos.reduce((acc, item) => acc + Number(item.entrada || 0), 0)
     const saidas = pagos.reduce((acc, item) => acc + Number(item.saida || 0), 0)
+    const reservas = pagos.reduce((acc, item) => acc + Number(item.reserva || 0), 0)
     const valorRecebido = pagos
       .filter((item) => item.tipo === 'RECEBIMENTO_PROCESSO')
       .reduce((acc, item) => acc + Number(item.entrada || 0), 0)
@@ -3816,6 +4176,7 @@ export default function FinanceiroPage() {
       qtd: lista.length,
       entradas,
       saidas,
+      reservas,
       saldoMovimentado,
       valorRecebido,
       profitHC,
@@ -4438,7 +4799,7 @@ export default function FinanceiroPage() {
     if (abaPrincipal === 'EXTRATO') {
       abrirPdfDoFiltro({
         titulo: `Extrato geral ${anoExtrato}`,
-        subtitulo: 'Visão anual das movimentações lançadas no financeiro, incluindo processos recebidos, despesas, retiradas, aportes e fundo de caixa.',
+        subtitulo: 'Visão anual das movimentações reais e das reservas. Reserva é destinação do saldo existente e não entra nos totais de entrada ou saída.',
         filtros: [
           { label: 'Ano', valor: anoExtrato },
           { label: 'Busca', valor: buscaExtrato || 'Todas' },
@@ -4447,8 +4808,11 @@ export default function FinanceiroPage() {
           { label: 'Sócio', valor: textoFiltroMultiplo(filtroSocioExtrato, SOCIOS_OPCOES, 'Todos') },
         ],
         cards: [
-          { label: 'Caixa livre HC', valor: moeda(resumoExtratoGeralAno.caixaLivreHC), detalhe: resumoExtratoGeralAno.mensagemDono },
-          { label: 'Caixa protegido', valor: moeda(resumoExtratoGeralAno.caixaProtegido), detalhe: 'Terceiros + custos operacionais dos processos pagos' },
+          { label: 'Saldo bancário real', valor: resumoPosicaoAtual.possuiContas ? moeda(resumoPosicaoAtual.saldoBancarioReal) : 'Não informado', detalhe: 'Soma dos saldos bancários atuais cadastrados' },
+          { label: 'Reserva protegida', valor: moeda(resumoPosicaoAtual.reservaProtegida), detalhe: 'Parte do saldo bancário destinada à Reserva HC' },
+          { label: 'Caixa livre bancário', valor: moeda(resumoPosicaoAtual.caixaLivreAtual), detalhe: 'Saldo bancário real menos reserva protegida' },
+          { label: 'Reservas no extrato', valor: moeda(resumoExtrato.reservas), detalhe: 'Não somam como entrada nem como saída' },
+          { label: 'Caixa protegido operacional', valor: moeda(resumoExtratoGeralAno.caixaProtegido), detalhe: 'Terceiros + custos operacionais dos processos pagos' },
           { label: 'Terceiros a pagar/proteger', valor: moeda(resumoExtratoGeralAno.terceirosProtegidos), detalhe: 'Dinheiro que não pertence à HC' },
           { label: 'Uso de caixa protegido', valor: moeda(resumoExtratoGeralAno.usoCaixaProtegido), detalhe: 'Quando o caixa livre da HC fica negativo' },
           { label: 'Caixa mínimo recomendado', valor: moeda(resumoExtratoGeralAno.caixaMinimoRecomendado), detalhe: '50% do lucro operacional positivo' },
@@ -4467,8 +4831,10 @@ export default function FinanceiroPage() {
           'Categoria',
           'Descrição',
           'Sócio',
+          'Natureza',
           'Entrada',
           'Saída',
+          'Reserva',
           'Status',
           'Forma',
         ],
@@ -4479,8 +4845,10 @@ export default function FinanceiroPage() {
           item.categoria || '-',
           item.descricao || '-',
           item.socio || '-',
+          item.natureza || '-',
           item.entrada > 0 ? moeda(item.entrada) : '-',
           item.saida > 0 ? moeda(item.saida) : '-',
+          item.reserva > 0 ? moeda(item.reserva) : '-',
           item.status || '-',
           item.forma_pagamento || '-',
         ]),
@@ -4505,7 +4873,7 @@ export default function FinanceiroPage() {
           { label: 'Resultado operacional', valor: moeda(resultadoGeral.resultadoOperacional), detalhe: 'Profit - despesas - empréstimos' },
           { label: 'Retiradas dos sócios', valor: moeda(resultadoGeral.retiradasTotal), detalhe: `Marcos ${moeda(resultadoGeral.retiradasMarcos)} | Hérica ${moeda(resultadoGeral.retiradasHerica)}` },
           { label: 'Saídas totais de caixa', valor: moeda(resultadoGeral.saidasCaixaMes), detalhe: 'Inclui retiradas, fundo e ajustes negativos' },
-          { label: 'Saldo final do mês', valor: moeda(resultadoGeral.saldoCaixaRealMes), detalhe: 'Profit + entradas extras - todas as saídas' },
+          { label: 'Saldo líquido da competência', valor: moeda(resultadoGeral.saldoCaixaRealMes), detalhe: 'Profit + entradas extras - todas as saídas' },
         ],
         cabecalhos: [
           'Cliente',
@@ -4860,7 +5228,7 @@ export default function FinanceiroPage() {
   function renderExtratoGeral() {
     const resumoDono = resumoExtratoGeralAno
     const retiradaLiberada = Number(resumoDono.podeRetirarAgora || 0) > 0
-    const caixaSaudavel = Number(resumoDono.caixaLivreHC || 0) > 0
+    const caixaSaudavel = Number(resumoPosicaoAtual.caixaLivreAtual || 0) > 0
     const coberturaCaixa = Math.max(0, Math.min(100, Number(resumoDono.percentualCaixa || 0)))
 
     const statusClasse =
@@ -4925,13 +5293,13 @@ export default function FinanceiroPage() {
                 <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-                      Caixa livre disponível
+                      Caixa livre bancário atual
                     </p>
                     <p className={`mt-3 text-4xl font-black tracking-tight ${caixaSaudavel ? 'text-emerald-300' : 'text-red-300'}`}>
-                      {moeda(resumoDono.caixaLivreHC)}
+                      {moeda(resumoPosicaoAtual.caixaLivreAtual)}
                     </p>
                     <p className="mt-2 max-w-xl text-sm font-semibold text-slate-300">
-                      Valor realmente livre depois das proteções, obrigações e da regra dos sócios.
+                      Saldo bancário real menos a Reserva HC protegida. A reserva não cria uma nova entrada de dinheiro.
                     </p>
                   </div>
 
@@ -4945,15 +5313,15 @@ export default function FinanceiroPage() {
 
                 <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
-                    <p className="text-xs font-bold text-slate-400">Falta regularizar</p>
-                    <p className="mt-1 text-2xl font-black text-amber-300">
-                      {moeda(resumoDono.caixaNegativoRealRegularizar)}
+                    <p className="text-xs font-bold text-slate-400">Saldo bancário real</p>
+                    <p className="mt-1 text-2xl font-black text-white">
+                      {resumoPosicaoAtual.possuiContas ? moeda(resumoPosicaoAtual.saldoBancarioReal) : 'Não informado'}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
-                    <p className="text-xs font-bold text-slate-400">Limite seguro de retirada</p>
-                    <p className={`mt-1 text-2xl font-black ${retiradaLiberada ? 'text-emerald-300' : 'text-slate-300'}`}>
-                      {moeda(resumoDono.podeRetirarAgora)}
+                    <p className="text-xs font-bold text-slate-400">Reserva protegida</p>
+                    <p className="mt-1 text-2xl font-black text-blue-300">
+                      {moeda(resumoPosicaoAtual.reservaProtegida)}
                     </p>
                   </div>
                 </div>
@@ -5161,6 +5529,125 @@ export default function FinanceiroPage() {
               </div>
             </div>
           </section>
+        </section>
+
+        <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Extrato financeiro</p>
+              <h3 className="mt-1 text-xl font-black text-slate-950">Entradas, saídas e reservas separadas</h3>
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Reserva aparece com natureza própria e não soma nos totais de entradas ou saídas reais.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={limparFiltrosExtrato}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+            >
+              Limpar filtros
+            </button>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <input
+              value={buscaExtrato}
+              onChange={(e) => { setBuscaExtrato(e.target.value); setPaginaExtrato(1) }}
+              placeholder="Buscar tipo, descrição, categoria..."
+              className="rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <MultiSelect
+              label="Tipo"
+              values={tipoExtrato}
+              onChange={(valores) => { setTipoExtrato(valores); setPaginaExtrato(1) }}
+              options={TIPOS_EXTRATO}
+              placeholder="Todos os tipos"
+            />
+            <MultiSelect
+              label="Status"
+              values={filtroStatusExtrato}
+              onChange={(valores) => { setFiltroStatusExtrato(valores); setPaginaExtrato(1) }}
+              options={STATUS_MOVIMENTOS}
+              placeholder="Todos os status"
+            />
+            <MultiSelect
+              label="Sócio"
+              values={filtroSocioExtrato}
+              onChange={(valores) => { setFiltroSocioExtrato(valores); setPaginaExtrato(1) }}
+              options={SOCIOS_OPCOES}
+              placeholder="Todos os sócios"
+            />
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <FiltroResumoCard titulo="Entradas reais" valor={moeda(resumoExtrato.entradas)} detalhe="Reserva não incluída" classe="bg-emerald-50 text-emerald-700 border-emerald-100" />
+            <FiltroResumoCard titulo="Saídas reais" valor={moeda(resumoExtrato.saidas)} detalhe="Movimentações efetivas" classe="bg-red-50 text-red-700 border-red-100" />
+            <FiltroResumoCard titulo="Reservas" valor={moeda(resumoExtrato.reservas)} detalhe="Destinação, sem movimento bancário" classe="bg-blue-50 text-blue-700 border-blue-100" />
+            <FiltroResumoCard titulo="Saldo movimentado" valor={moeda(resumoExtrato.saldoMovimentado)} detalhe="Entradas reais - saídas reais" classe="bg-slate-50 text-slate-900 border-slate-200" />
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="min-w-[1450px] w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500">
+                <tr>
+                  <Th>Data</Th>
+                  <Th>Mês</Th>
+                  <Th>Natureza</Th>
+                  <Th>Tipo</Th>
+                  <Th>Categoria</Th>
+                  <Th>Descrição</Th>
+                  <Th>Sócio</Th>
+                  <Th>Entrada</Th>
+                  <Th>Saída</Th>
+                  <Th>Reserva</Th>
+                  <Th>Status</Th>
+                  <Th>Forma</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {extratoPaginado.length === 0 ? (
+                  <tr><td colSpan={12} className="p-6 text-center text-gray-500">Nenhuma movimentação encontrada no extrato.</td></tr>
+                ) : (
+                  extratoPaginado.map((item) => (
+                    <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <Td>{normalizarData(item.data) || '-'}</Td>
+                      <Td>{item.mes || '-'}</Td>
+                      <Td>
+                        <Badge
+                          texto={item.natureza || '-'}
+                          classe={
+                            item.natureza === 'RESERVA'
+                              ? 'bg-blue-100 text-blue-700 border-blue-300'
+                              : item.natureza === 'ENTRADA'
+                                ? 'bg-green-100 text-green-700 border-green-300'
+                                : item.natureza === 'SAÍDA'
+                                  ? 'bg-red-100 text-red-700 border-red-300'
+                                  : 'bg-gray-100 text-gray-700 border-gray-300'
+                          }
+                        />
+                      </Td>
+                      <Td>{item.tipoLabel || item.tipo}</Td>
+                      <Td>{item.categoria || '-'}</Td>
+                      <Td>{item.descricao || '-'}</Td>
+                      <Td>{item.socio || '-'}</Td>
+                      <Td>{item.entrada > 0 ? moeda(item.entrada) : '-'}</Td>
+                      <Td>{item.saida > 0 ? moeda(item.saida) : '-'}</Td>
+                      <Td>{item.reserva > 0 ? moeda(item.reserva) : '-'}</Td>
+                      <Td><Badge texto={item.status || '-'} classe={badgeStatus(item.status || '')} /></Td>
+                      <Td>{item.forma_pagamento || '-'}</Td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Paginacao
+            pagina={paginaExtrato}
+            totalPaginas={totalPaginasExtrato}
+            onAnterior={() => setPaginaExtrato((p) => Math.max(1, p - 1))}
+            onProxima={() => setPaginaExtrato((p) => Math.min(totalPaginasExtrato, p + 1))}
+          />
         </section>
       </section>
     )
@@ -5672,16 +6159,16 @@ export default function FinanceiroPage() {
               <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                 <div className="max-w-3xl">
                   <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-200">Caixa & conciliação</p>
-                  <h2 className="mt-2 text-3xl font-black tracking-tight">Posição financeira calculada</h2>
+                  <h2 className="mt-2 text-3xl font-black tracking-tight">Caixa real, reserva e conciliação</h2>
                   <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
-                    O HC Connect calcula o fluxo pelos lançamentos registrados. O dinheiro que realmente existe hoje aparece separado no saldo bancário informado.
+                    Reserva é destinação do dinheiro que já existe: não aumenta o saldo bancário. O caixa livre é o saldo real dos bancos menos a reserva protegida.
                   </p>
                 </div>
 
                 <div className={`rounded-2xl border px-5 py-4 text-center ${
                   resumoConciliacaoBancaria.status === 'CONCILIADO'
                     ? 'border-emerald-400/30 bg-emerald-400/10'
-                    : resumoConciliacaoBancaria.status === 'DIVERGENTE'
+                    : ['A CONFERIR', 'A CONCILIAR'].includes(resumoConciliacaoBancaria.status)
                       ? 'border-amber-400/30 bg-amber-400/10'
                       : 'border-blue-400/30 bg-blue-400/10'
                 }`}>
@@ -5689,7 +6176,7 @@ export default function FinanceiroPage() {
                   <p className={`mt-1 text-xl font-black ${
                     resumoConciliacaoBancaria.status === 'CONCILIADO'
                       ? 'text-emerald-300'
-                      : resumoConciliacaoBancaria.status === 'DIVERGENTE'
+                      : ['A CONFERIR', 'A CONCILIAR'].includes(resumoConciliacaoBancaria.status)
                         ? 'text-amber-300'
                         : 'text-blue-300'
                   }`}>
@@ -5699,40 +6186,34 @@ export default function FinanceiroPage() {
               </div>
 
               <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Operação sem extraordinários</p>
-                  <p className={`mt-2 text-2xl font-black ${resumoCaixaRealProfit.caixaOperacionalDoProfit >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                    {moeda(resumoCaixaRealProfit.caixaOperacionalDoProfit)}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Profit - despesas - empréstimos - retiradas</p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Extraordinário líquido</p>
-                  <p className={`mt-2 text-2xl font-black ${resumoConciliacaoBancaria.extraordinarioLiquido >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                    {moeda(resumoConciliacaoBancaria.extraordinarioLiquido)}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Entradas extras - outras saídas</p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo calculado HC Connect</p>
-                  <p className={`mt-2 text-2xl font-black ${resumoConciliacaoBancaria.saldoCalculado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                    {moeda(resumoConciliacaoBancaria.saldoCalculado)}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Resultado dos lançamentos do período</p>
-                </div>
-
                 <div className="rounded-2xl border border-blue-400/30 bg-blue-400/10 p-5 backdrop-blur">
                   <p className="text-xs font-black uppercase tracking-wide text-blue-200">Saldo bancário real</p>
                   <p className="mt-2 text-2xl font-black text-white">
-                    {resumoConciliacaoBancaria.possuiContas ? moeda(resumoConciliacaoBancaria.saldoBancarioReal) : 'Não informado'}
+                    {resumoPosicaoAtual.possuiContas ? moeda(resumoPosicaoAtual.saldoBancarioReal) : 'Não informado'}
                   </p>
-                  <p className="mt-1 text-xs font-semibold text-blue-200">
-                    {resumoConciliacaoBancaria.possuiContas
-                      ? `${contasBancarias.length} conta(s) atualizada(s)`
-                      : 'Cadastre os saldos abaixo para conciliar'}
+                  <p className="mt-1 text-xs font-semibold text-blue-200">Dinheiro efetivamente informado nas contas da HC</p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Reserva protegida</p>
+                  <p className="mt-2 text-2xl font-black text-blue-300">{moeda(resumoPosicaoAtual.reservaProtegida)}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Parte do saldo bancário já destinada à Reserva HC</p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Caixa livre atual</p>
+                  <p className={`mt-2 text-2xl font-black ${resumoPosicaoAtual.caixaLivreAtual > 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                    {moeda(resumoPosicaoAtual.caixaLivreAtual)}
                   </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Saldo bancário real - reserva protegida</p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo esperado desde a base</p>
+                  <p className={`mt-2 text-2xl font-black ${resumoConciliacaoBancaria.saldoEsperado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                    {moeda(resumoConciliacaoBancaria.saldoEsperado)}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Base 17/08/2026 + movimentos reais posteriores</p>
                 </div>
               </div>
             </div>
@@ -5743,9 +6224,9 @@ export default function FinanceiroPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Conciliação bancária</p>
-                  <h3 className="mt-1 text-xl font-black text-slate-950">Quanto existe hoje nas contas</h3>
+                  <h3 className="mt-1 text-xl font-black text-slate-950">Saldo atual x saldo esperado desde a data-base</h3>
                   <p className="mt-1 text-sm font-semibold text-slate-500">
-                    Informe o saldo atual de cada conta. Esses valores não alteram Profit, despesas ou resultado: servem exclusivamente para comparar o sistema com os bancos.
+                    Data-base {normalizarData(resumoConciliacaoBancaria.dataBase)} com saldo-base de {moeda(resumoConciliacaoBancaria.saldoBase)}. A conciliação não depende do filtro de ano/mês e reserva não entra como movimentação de caixa.
                   </p>
                 </div>
 
@@ -5755,7 +6236,7 @@ export default function FinanceiroPage() {
                       ? 'border-emerald-200 bg-emerald-50'
                       : 'border-amber-200 bg-amber-50'
                   }`}>
-                    <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Diferença da conciliação</p>
+                    <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Diferença a conciliar</p>
                     <p className={`mt-1 text-xl font-black ${Math.abs(resumoConciliacaoBancaria.diferenca) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
                       {moeda(resumoConciliacaoBancaria.diferenca)}
                     </p>
@@ -5855,11 +6336,11 @@ export default function FinanceiroPage() {
                     <p className="mt-1 text-xl font-black text-slate-950">{moeda(resumoConciliacaoBancaria.saldoBancarioReal)}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-[11px] font-black uppercase text-slate-400">HC Connect calculado</p>
-                    <p className="mt-1 text-xl font-black text-slate-950">{moeda(resumoConciliacaoBancaria.saldoCalculado)}</p>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Saldo esperado desde a base</p>
+                    <p className="mt-1 text-xl font-black text-slate-950">{moeda(resumoConciliacaoBancaria.saldoEsperado)}</p>
                   </div>
                   <div className={`rounded-2xl border p-4 ${Math.abs(resumoConciliacaoBancaria.diferenca) <= 1 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                    <p className="text-[11px] font-black uppercase text-slate-500">Diferença</p>
+                    <p className="text-[11px] font-black uppercase text-slate-500">Diferença a conciliar</p>
                     <p className={`mt-1 text-xl font-black ${Math.abs(resumoConciliacaoBancaria.diferenca) <= 1 ? 'text-emerald-700' : 'text-amber-700'}`}>
                       {moeda(resumoConciliacaoBancaria.diferenca)}
                     </p>
@@ -5879,19 +6360,32 @@ export default function FinanceiroPage() {
 
               <div className="mt-6 space-y-3">
                 <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-blue-500">Reserva prevista</p>
-                  <p className="mt-1 text-2xl font-black text-blue-700">{moeda(resumoCaixaRealProfit.fundoPrevisto)}</p>
-                  <p className="mt-1 text-xs font-semibold text-blue-600">50% do resultado operacional positivo.</p>
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-500">Reserva prevista acumulada</p>
+                  <p className="mt-1 text-2xl font-black text-blue-700">{moeda(resumoPosicaoAtual.reservaPrevistaAcumulada)}</p>
+                  <p className="mt-1 text-xs font-semibold text-blue-600">Soma de 50% dos resultados positivos por competência.</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-[11px] font-black uppercase text-slate-400">Registrado como reserva</p>
-                    <p className="mt-1 text-lg font-black text-slate-900">{moeda(resumoCaixaRealProfit.reservasLancadas)}</p>
+                    <p className="text-[11px] font-black uppercase text-slate-400">Reserva constituída</p>
+                    <p className="mt-1 text-lg font-black text-slate-900">{moeda(resumoPosicaoAtual.reservaConstituida)}</p>
                   </div>
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                     <p className="text-[11px] font-black uppercase text-amber-500">Reserva pendente</p>
-                    <p className="mt-1 text-lg font-black text-amber-700">{moeda(resumoCaixaRealProfit.fundoPendente)}</p>
+                    <p className="mt-1 text-lg font-black text-amber-700">{moeda(resumoPosicaoAtual.reservaPendente)}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                    <p className="text-[11px] font-black uppercase text-emerald-600">Caixa livre para constituir reserva</p>
+                    <p className="mt-1 text-lg font-black text-emerald-700">{moeda(resumoPosicaoAtual.caixaLivreAtual)}</p>
+                    <p className="mt-1 text-xs font-semibold text-emerald-700">Pode atender competência antiga sem mudar a competência original.</p>
+                  </div>
+                  <div className={`rounded-2xl border p-4 ${resumoPosicaoAtual.reservaSemCobertura > 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <p className={`text-[11px] font-black uppercase ${resumoPosicaoAtual.reservaSemCobertura > 0 ? 'text-red-600' : 'text-slate-400'}`}>Reserva sem cobertura bancária</p>
+                    <p className={`mt-1 text-lg font-black ${resumoPosicaoAtual.reservaSemCobertura > 0 ? 'text-red-700' : 'text-slate-900'}`}>{moeda(resumoPosicaoAtual.reservaSemCobertura)}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-500">Só existe quando a reserva constituída supera o saldo bancário informado.</p>
                   </div>
                 </div>
 
@@ -5917,34 +6411,45 @@ export default function FinanceiroPage() {
           <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Formação do cálculo</p>
-              <h3 className="mt-1 text-xl font-black text-slate-950">Como o HC Connect chegou ao saldo calculado</h3>
-              <p className="mt-1 text-sm font-semibold text-slate-500">Aqui ficam somente os componentes da conta, sem repetir alertas ou transformar reserva em saldo bancário.</p>
+              <h3 className="mt-1 text-xl font-black text-slate-950">Como o HC Connect chega ao saldo esperado</h3>
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                A conciliação parte do saldo-base de 17/08/2026 e considera somente efeitos reais posteriores. Reserva não entra nesta conta porque não movimenta o banco.
+              </p>
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Profit HC recebido</span><strong className="text-emerald-700">+ {moeda(resumoCaixaRealProfit.profitRecebido)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl px-4 py-3"><span className="font-bold text-slate-700">Despesas</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.despesasPagas)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl bg-red-50 px-4 py-3"><span className="font-bold text-slate-700">Empréstimos</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.emprestimosPagos)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl px-4 py-3"><span className="font-bold text-slate-700">Retiradas dos sócios</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.retiradasSocios)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl bg-slate-950 px-4 py-3 text-white"><span className="font-black">Operação sem extraordinários</span><strong className={resumoCaixaRealProfit.caixaOperacionalDoProfit >= 0 ? 'text-emerald-300' : 'text-red-300'}>{moeda(resumoCaixaRealProfit.caixaOperacionalDoProfit)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3"><span className="font-bold text-slate-700">Saldo-base em 17/08/2026</span><strong className="text-blue-700">{moeda(resumoConciliacaoBancaria.saldoBase)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Efeito líquido dos processos após a base</span><strong className={resumoConciliacaoBancaria.efeitoOperacionalLiquidoAposBase >= 0 ? 'text-emerald-700' : 'text-red-700'}>{moeda(resumoConciliacaoBancaria.efeitoOperacionalLiquidoAposBase)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Entradas reais após a base</span><strong className="text-emerald-700">+ {moeda(resumoConciliacaoBancaria.entradasReaisAposBase)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-red-50 px-4 py-3"><span className="font-bold text-slate-700">Saídas reais após a base</span><strong className="text-red-700">- {moeda(resumoConciliacaoBancaria.saidasReaisAposBase)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-900 bg-slate-950 px-4 py-4 text-white"><span className="font-black">Saldo esperado HC Connect</span><strong className={`text-2xl ${resumoConciliacaoBancaria.saldoEsperado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{moeda(resumoConciliacaoBancaria.saldoEsperado)}</strong></div>
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Entradas extraordinárias</span><strong className="text-emerald-700">+ {moeda(resumoCaixaRealProfit.entradasNaoOperacionais)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl bg-red-50 px-4 py-3"><span className="font-bold text-slate-700">Outras saídas</span><strong className="text-red-700">- {moeda(resumoCaixaRealProfit.saidasExtraordinarias)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3"><span className="font-black text-blue-950">Efeito extraordinário líquido</span><strong className={resumoConciliacaoBancaria.extraordinarioLiquido >= 0 ? 'text-emerald-700' : 'text-red-700'}>{moeda(resumoConciliacaoBancaria.extraordinarioLiquido)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl border border-slate-900 bg-slate-950 px-4 py-4 text-white"><span className="font-black">Saldo calculado HC Connect</span><strong className={`text-2xl ${resumoConciliacaoBancaria.saldoCalculado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{moeda(resumoConciliacaoBancaria.saldoCalculado)}</strong></div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-600">Reserva fora do fluxo</p>
+                  <p className="mt-1 text-sm font-bold text-blue-950">Reserva constituída: {moeda(resumoPosicaoAtual.reservaConstituida)}</p>
+                  <p className="mt-1 text-xs font-semibold text-blue-700">Ela protege parte do saldo bancário, mas não é somada como entrada nem subtraída como saída.</p>
+                </div>
+                <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <p className="text-xs font-black uppercase tracking-wide text-amber-600">Recebimentos a conferir</p>
+                  <p className="mt-1 text-sm font-bold text-amber-950">{resumoConciliacaoBancaria.qtdRecebimentosAConferir} processo(s) · {moeda(resumoConciliacaoBancaria.valorRecebimentosAConferir)}</p>
+                  <p className="mt-1 text-xs font-semibold text-amber-700">Em aberto/atrasados podem já ter sido pagos no banco e ainda não classificados no Financeiro.</p>
+                </div>
+                <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <p className="text-xs font-black uppercase tracking-wide text-amber-600">Pagos sem custo após a base</p>
+                  <p className="mt-1 text-sm font-bold text-amber-950">{resumoConciliacaoBancaria.qtdProcessosSemCustoAposBase} processo(s) · {moeda(resumoConciliacaoBancaria.valorProcessosSemCustoAposBase)}</p>
+                  <p className="mt-1 text-xs font-semibold text-amber-700">Ainda não entram no efeito líquido até o valor de compra ser informado.</p>
+                </div>
               </div>
             </div>
 
-            {resumoConciliacaoBancaria.possuiContas && Math.abs(resumoConciliacaoBancaria.diferenca) > 1 && (
+            {resumoConciliacaoBancaria.possuiContas && Math.abs(resumoConciliacaoBancaria.diferenca) > TOLERANCIA_CONCILIACAO && (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p className="font-black text-amber-900">Existe diferença entre o sistema e os bancos</p>
+                <p className="font-black text-amber-900">Existe diferença a conciliar — isso não significa automaticamente dinheiro faltando</p>
                 <p className="mt-1 text-sm font-semibold leading-6 text-amber-800">
-                  {resumoConciliacaoBancaria.diferenca < 0
-                    ? `Os bancos possuem ${moeda(Math.abs(resumoConciliacaoBancaria.diferenca))} a menos do que o HC Connect calcula. Procure saídas não lançadas, duplicidades ou saldos iniciais incorretos.`
-                    : `Os bancos possuem ${moeda(resumoConciliacaoBancaria.diferenca)} a mais do que o HC Connect calcula. Procure entradas, aportes ou saldos iniciais ainda não registrados.`}
+                  A diferença atual é {moeda(resumoConciliacaoBancaria.diferenca)} entre o saldo bancário informado e o saldo esperado desde a data-base. Antes de tratar como desvio, confira pagamentos de clientes ainda marcados como em aberto/atrasados, processos pagos sem custo e movimentações reais ainda não classificadas. Reservas não participam dessa diferença.
                 </p>
               </div>
             )}
@@ -5952,7 +6457,7 @@ export default function FinanceiroPage() {
 
           {renderFormularioMovimento(
             'Nova movimentação / ajuste de caixa',
-            'Registre somente aportes, ajustes reais e entradas ou saídas de fundo. Despesas e retiradas permanecem em suas abas específicas.'
+            'Registre aqui somente movimentações reais de caixa. Reservas são constituídas pelo fechamento mensal e não criam entrada financeira. Despesas e retiradas permanecem em suas abas específicas.'
           )}
           {renderTabelaMovimentos()}
         </section>
@@ -6066,7 +6571,7 @@ export default function FinanceiroPage() {
                 </p>
               </div>
               <div className={`rounded-2xl border px-4 py-3 text-right ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-red-400/30 bg-red-400/10'}`}>
-                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo final do mês</p>
+                <p className="text-xs font-black uppercase tracking-wide text-slate-400">Saldo líquido da competência</p>
                 <p className={`mt-1 text-2xl font-black ${resultadoGeral.saldoCaixaRealMes >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
                   {moeda(resultadoGeral.saldoCaixaRealMes)}
                 </p>
@@ -6213,7 +6718,7 @@ export default function FinanceiroPage() {
                 <LinhaResultado label="Saídas fundo / caixa" valor={resultadoGeral.saidasFundoMes} negativo />
                 <LinhaResultado label="Ajustes negativos" valor={resultadoGeral.ajustesNegativosMes} negativo />
                 <LinhaResultado label="Entradas extras" valor={resultadoGeral.entradasCaixaMes} positivo />
-                <LinhaResultado label="Saldo final do mês" valor={resultadoGeral.saldoCaixaRealMes} destaque />
+                <LinhaResultado label="Saldo líquido da competência" valor={resultadoGeral.saldoCaixaRealMes} destaque />
               </div>
             </div>
 
@@ -6257,7 +6762,7 @@ function GraficoEvolucaoMensal({ dados, moeda, ano }: any) {
     { chave: 'valorRecebido', label: 'Valor recebido', cor: '#2563eb' },
     { chave: 'profitRecebido', label: 'Profit HC', cor: '#16a34a' },
     { chave: 'saidasCaixaMes', label: 'Saídas totais de caixa', cor: '#dc2626' },
-    { chave: 'saldoCaixaRealMes', label: 'Saldo final do mês', cor: '#7c3aed' },
+    { chave: 'saldoCaixaRealMes', label: 'Saldo líquido da competência', cor: '#7c3aed' },
   ]
 
   const valores = dados.flatMap((item: any) =>
