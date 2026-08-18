@@ -287,6 +287,9 @@ export default function FinanceiroPage() {
 
   const [form, setForm] = useState<FormState>(formVazio)
   const [formMovimento, setFormMovimento] = useState<MovimentacaoFormState>(movimentacaoVazia)
+  const [faturasTransportadorasCaixa, setFaturasTransportadorasCaixa] = useState<any[]>([])
+  const [loadingCompromissosCaixa, setLoadingCompromissosCaixa] = useState(true)
+  const [erroCompromissosCaixa, setErroCompromissosCaixa] = useState('')
 
   useEffect(() => {
     carregarDados()
@@ -834,19 +837,120 @@ export default function FinanceiroPage() {
     )
   }
 
+  function faturaTransportadoraQuitada(item: any) {
+    const situacao = normalizarBusca(item.situacao || '')
+
+    return (
+      !!normalizarData(item.data_pagamento) ||
+      situacao.includes('PAGO') ||
+      situacao.includes('PAGA') ||
+      situacao.includes('BAIXADO')
+    )
+  }
+
+  function faturaTransportadoraCancelada(item: any) {
+    return normalizarBusca(item.situacao || '').includes('CANCEL')
+  }
+
+  function saldoPendenteFaturaTransportadora(item: any) {
+    if (faturaTransportadoraQuitada(item) || faturaTransportadoraCancelada(item)) return 0
+
+    const possuiSaldoInformado =
+      item.saldo !== null &&
+      item.saldo !== undefined &&
+      String(item.saldo).trim() !== ''
+
+    if (possuiSaldoInformado) return Math.max(0, numero(item.saldo))
+
+    return Math.max(
+      0,
+      numero(item.total || 0) - numero(item.pago_ajustado || 0)
+    )
+  }
+
+  function compromissosOperacionaisAtuais() {
+    const faturasMoedaNaoBRL = faturasTransportadorasCaixa.filter((item) => {
+      const moedaFatura = normalizarBusca(item.moeda || 'BRL')
+      return (
+        saldoPendenteFaturaTransportadora(item) > 0 &&
+        moedaFatura !== 'BRL' &&
+        moedaFatura !== 'R$' &&
+        !moedaFatura.includes('REAL')
+      )
+    })
+
+    const compromissoTransportadoras = faturasTransportadorasCaixa
+      .filter((item) => !faturasMoedaNaoBRL.includes(item))
+      .reduce(
+        (acc, item) => acc + saldoPendenteFaturaTransportadora(item),
+        0
+      )
+
+    const compromissoTerceiros = lancamentos
+      .filter((item) => statusCobranca(item) === 'PAGO')
+      .filter(
+        (item) =>
+          numero(item.debito_terceiro || 0) > 0 &&
+          normalizarBusca(item.pgta_terceiros || '') !== 'PAGO'
+      )
+      .reduce((acc, item) => acc + numero(item.debito_terceiro || 0), 0)
+
+    return {
+      compromissoTransportadoras,
+      compromissoTerceiros,
+      total: compromissoTransportadoras + compromissoTerceiros,
+      qtdFaturasMoedaNaoBRL: faturasMoedaNaoBRL.length,
+      dadosConfiaveis:
+        !loadingCompromissosCaixa &&
+        !erroCompromissosCaixa &&
+        faturasMoedaNaoBRL.length === 0,
+    }
+  }
+
   function reservaConstituidaAtual() {
-    return calcularFundoAtualPermitido(movimentacoes)
+    const reservasDepoisDaBase = movimentacoes
+      .filter(
+        (item) =>
+          statusMovimento(item) === 'PAGO' &&
+          ehReservaOperacionalFundo(item) &&
+          dataEfetivaMovimentoCaixa(item) > DATA_BASE_CONCILIACAO
+      )
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    const usosDepoisDaBase = movimentacoes
+      .filter(
+        (item) =>
+          statusMovimento(item) === 'PAGO' &&
+          item.tipo === 'FUNDO_CAIXA_SAIDA' &&
+          item.impacta_caixa !== false &&
+          dataEfetivaMovimentoCaixa(item) > DATA_BASE_CONCILIACAO
+      )
+      .reduce((acc, item) => acc + numero(item.valor || 0), 0)
+
+    // Em 17/08/2026 foi confirmado que o saldo bancário existente não
+    // representava reserva física. A reserva protegida parte de R$ 0,00.
+    return Math.max(0, reservasDepoisDaBase - usosDepoisDaBase)
   }
 
   function caixaLivreAtualInformado() {
     const saldoBancario = saldoBancarioAtualInformado()
+    const compromissos = compromissosOperacionaisAtuais()
+
+    // Se os compromissos não puderem ser lidos com segurança, não libera
+    // dinheiro para constituir reserva.
+    if (!compromissos.dadosConfiaveis) return 0
+
     const reservaConstituida = reservaConstituidaAtual()
+    const saldoAposCompromissos = Math.max(
+      0,
+      saldoBancario - compromissos.total
+    )
     const reservaProtegida = Math.min(
-      Math.max(saldoBancario, 0),
+      saldoAposCompromissos,
       Math.max(reservaConstituida, 0)
     )
 
-    return Math.max(0, saldoBancario - reservaProtegida)
+    return Math.max(0, saldoAposCompromissos - reservaProtegida)
   }
 
   function limparFiltros() {
@@ -876,7 +980,12 @@ export default function FinanceiroPage() {
   }
 
   async function carregarDados() {
-    await Promise.all([carregarFinanceiro(), carregarMovimentacoes(), carregarContasBancarias()])
+    await Promise.all([
+      carregarFinanceiro(),
+      carregarMovimentacoes(),
+      carregarContasBancarias(),
+      carregarCompromissosCaixa(),
+    ])
   }
 
   async function carregarFinanceiro() {
@@ -976,6 +1085,29 @@ export default function FinanceiroPage() {
 
     setContasBancarias(data || [])
     setLoadingContasBancarias(false)
+  }
+
+  async function carregarCompromissosCaixa() {
+    setLoadingCompromissosCaixa(true)
+    setErroCompromissosCaixa('')
+
+    const { data, error } = await supabase
+      .from('faturas_transportadoras')
+      .select(
+        'id, transportadora, numero_fatura, vencimento, data_pagamento, situacao, total, pago_ajustado, saldo, moeda, arquivada'
+      )
+      .order('vencimento', { ascending: true, nullsFirst: false })
+
+    if (error) {
+      console.error('Erro ao carregar compromissos das transportadoras:', error)
+      setFaturasTransportadorasCaixa([])
+      setErroCompromissosCaixa(error.message)
+      setLoadingCompromissosCaixa(false)
+      return
+    }
+
+    setFaturasTransportadorasCaixa(data || [])
+    setLoadingCompromissosCaixa(false)
   }
 
   function limparFormContaBancaria() {
@@ -2403,6 +2535,26 @@ export default function FinanceiroPage() {
       return
     }
 
+    if (loadingCompromissosCaixa) {
+      alert('Aguarde a leitura das obrigações atuais antes de constituir a reserva.')
+      return
+    }
+
+    if (erroCompromissosCaixa) {
+      alert(
+        'Não foi possível validar as obrigações atuais da HC. A reserva não será constituída até a leitura das faturas DHL/FedEx voltar a funcionar.\n\n' +
+          erroCompromissosCaixa
+      )
+      return
+    }
+
+    const compromissosAtuais = compromissosOperacionaisAtuais()
+
+    if (compromissosAtuais.qtdFaturasMoedaNaoBRL > 0) {
+      alert('Existem faturas de transportadora em moeda diferente de BRL. Converta/revise essas obrigações antes de constituir nova reserva.')
+      return
+    }
+
     const saldoFundoPrevisto = Number((resultadoGeral.saldoFundoMes || 0).toFixed(2))
     const caixaLivreAtual = Number(caixaLivreAtualInformado().toFixed(2))
     const valorReserva = Number(Math.min(Math.max(saldoFundoPrevisto, 0), caixaLivreAtual).toFixed(2))
@@ -2460,7 +2612,8 @@ export default function FinanceiroPage() {
       alertaCusto +
       `\n\nRetiradas dos sócios: ${moeda(resultadoGeral.retiradasTotal)}\n` +
       `Saldo líquido da competência: ${moeda(resultadoGeral.saldoCaixaRealMes)}\n` +
-      `Caixa livre atual nos bancos: ${moeda(caixaLivreAtual)}\n\n` +
+      `Compromissos operacionais identificados: ${moeda(compromissosAtuais.total)}\n` +
+      `Caixa livre atual após compromissos e reserva protegida: ${moeda(caixaLivreAtual)}\n\n` +
       `Fundo previsto 50%: ${moeda(resultadoGeral.fundoPrevistoMes)}\n` +
       `Já constituído para esta competência: ${moeda(resultadoGeral.reservasFundoMes)}\n` +
       `Reserva que será constituída agora: ${moeda(valorReserva)}\n` +
@@ -2805,6 +2958,28 @@ export default function FinanceiroPage() {
       return
     }
 
+    if (loadingCompromissosCaixa) {
+      alert('Aguarde a leitura das obrigações atuais antes de constituir reservas retroativas.')
+      return
+    }
+
+    if (erroCompromissosCaixa) {
+      alert(
+        'Não foi possível validar as obrigações atuais da HC. As reservas retroativas não serão constituídas até a leitura das faturas DHL/FedEx voltar a funcionar.\n\n' +
+          erroCompromissosCaixa
+      )
+      return
+    }
+
+    const compromissosAtuais = compromissosOperacionaisAtuais()
+
+    if (compromissosAtuais.qtdFaturasMoedaNaoBRL > 0) {
+      alert(
+        'Existem faturas de transportadora em moeda diferente de BRL. Converta/revise essas obrigações antes de constituir reservas retroativas.'
+      )
+      return
+    }
+
     const caixaLivreAtual = Number(caixaLivreAtualInformado().toFixed(2))
 
     if (caixaLivreAtual <= 0) {
@@ -2858,6 +3033,7 @@ export default function FinanceiroPage() {
 
     const confirmar = confirm(
       `Constituir reservas retroativas de ${anoFinanceiroAtivo()}?\n\n` +
+        `Compromissos operacionais identificados: ${moeda(compromissosAtuais.total)}\n` +
         `Caixa livre atual disponível: ${moeda(caixaLivreAtual)}\n` +
         `Competências que receberão reserva agora: ${candidatos.length}\n` +
         `Total que será destinado à reserva: ${moeda(totalReservar)}\n\n` +
@@ -3734,6 +3910,7 @@ export default function FinanceiroPage() {
 
   const resumoPosicaoAtual = useMemo(() => {
     const saldoBancarioReal = saldoBancarioAtualInformado()
+    const compromissos = compromissosOperacionaisAtuais()
 
     const reservasRegistradas = movimentacoes
       .filter(
@@ -3752,7 +3929,7 @@ export default function FinanceiroPage() {
       )
       .reduce((acc, item) => acc + numero(item.valor || 0), 0)
 
-    const reservaConstituida = Math.max(0, reservasRegistradas - usosDoFundo)
+    const reservaConstituida = reservaConstituidaAtual()
 
     const mesesComResultado = Array.from(
       new Set(
@@ -3768,16 +3945,32 @@ export default function FinanceiroPage() {
       0
     )
 
-    const reservaPendente = Math.max(0, reservaPrevistaAcumulada - reservaConstituida)
+    const reservaPendente = mesesComResultado.reduce(
+      (acc, mes) =>
+        acc +
+        Math.max(
+          0,
+          Number(calcularResultadoDoMes(String(mes)).saldoFundoMes || 0)
+        ),
+      0
+    )
+
+    const saldoAposCompromissos = Math.max(
+      0,
+      saldoBancarioReal - compromissos.total
+    )
+
     const reservaProtegida = Math.min(
-      Math.max(saldoBancarioReal, 0),
+      saldoAposCompromissos,
       reservaConstituida
     )
     const reservaSemCobertura = Math.max(
       0,
-      reservaConstituida - Math.max(saldoBancarioReal, 0)
+      reservaConstituida - saldoAposCompromissos
     )
-    const caixaLivreAtual = Math.max(0, saldoBancarioReal - reservaProtegida)
+    const caixaLivreAtual = compromissos.dadosConfiaveis
+      ? Math.max(0, saldoAposCompromissos - reservaProtegida)
+      : 0
 
     return {
       saldoBancarioReal,
@@ -3790,8 +3983,15 @@ export default function FinanceiroPage() {
       reservaSemCobertura,
       reservaPendente,
       caixaLivreAtual,
+      compromissoTransportadoras: compromissos.compromissoTransportadoras,
+      compromissoTerceiros: compromissos.compromissoTerceiros,
+      compromissosOperacionais: compromissos.total,
+      compromissosConfiaveis: compromissos.dadosConfiaveis,
+      qtdFaturasMoedaNaoBRL: compromissos.qtdFaturasMoedaNaoBRL,
+      dataBaseReserva: DATA_BASE_CONCILIACAO,
+      reservaBaseProtegida: 0,
     }
-  }, [contasBancarias, movimentacoes, lancamentos])
+  }, [contasBancarias, movimentacoes, lancamentos, faturasTransportadorasCaixa, loadingCompromissosCaixa, erroCompromissosCaixa])
 
 
   const resumoConciliacaoBancaria = useMemo(() => {
@@ -3805,20 +4005,33 @@ export default function FinanceiroPage() {
         return !!data && data > DATA_BASE_CONCILIACAO
       })
 
-    const processosComCustoAposBase = processosAposBase.filter(
-      (item) => !aguardandoCustoProcesso(item)
+    const recebimentosClientesAposBase = processosAposBase.reduce(
+      (acc, item) => acc + numero(item.valor_cobranca || 0),
+      0
     )
 
     const processosSemCustoAposBase = processosAposBase.filter(
       aguardandoCustoProcesso
     )
 
-    // Enquanto os custos dos processos não possuem data financeira própria,
-    // a conciliação usa o efeito líquido (Profit) dos processos já apurados.
-    const efeitoOperacionalLiquidoAposBase = processosComCustoAposBase.reduce(
-      (acc, item) => acc + calcularProfit(item),
+    const pagamentosTransportadorasAposBase = faturasTransportadorasCaixa
+      .filter((item) => {
+        const dataPagamento = normalizarData(item.data_pagamento)
+        return (
+          faturaTransportadoraQuitada(item) &&
+          !!dataPagamento &&
+          dataPagamento > DATA_BASE_CONCILIACAO
+        )
+      })
+      .reduce(
+        (acc, item) =>
+          acc +
+          Math.max(
+            numero(item.pago_ajustado || 0),
+            numero(item.total || 0) - numero(item.saldo || 0)
+          ),
       0
-    )
+      )
 
     const movimentosReaisAposBase = movimentacoes
       .filter((item) => statusMovimento(item) === 'PAGO')
@@ -3839,7 +4052,8 @@ export default function FinanceiroPage() {
 
     const saldoEsperado =
       SALDO_BASE_CONCILIACAO +
-      efeitoOperacionalLiquidoAposBase +
+      recebimentosClientesAposBase -
+      pagamentosTransportadorasAposBase +
       entradasReaisAposBase -
       saidasReaisAposBase
 
@@ -3887,7 +4101,10 @@ export default function FinanceiroPage() {
       diferenca,
       status,
       ultimaAtualizacao,
-      efeitoOperacionalLiquidoAposBase,
+      recebimentosClientesAposBase,
+      pagamentosTransportadorasAposBase,
+      efeitoOperacionalLiquidoAposBase:
+        recebimentosClientesAposBase - pagamentosTransportadorasAposBase,
       entradasReaisAposBase,
       saidasReaisAposBase,
       extraordinarioLiquido: entradasReaisAposBase - saidasReaisAposBase,
@@ -3897,7 +4114,7 @@ export default function FinanceiroPage() {
       valorProcessosSemCustoAposBase,
       possuiPendenciasClassificacao,
     }
-  }, [contasBancarias, lancamentos, movimentacoes, resumoPosicaoAtual])
+  }, [contasBancarias, lancamentos, movimentacoes, resumoPosicaoAtual, faturasTransportadorasCaixa])
 
 
 
@@ -6161,7 +6378,7 @@ export default function FinanceiroPage() {
                   <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-200">Caixa & conciliação</p>
                   <h2 className="mt-2 text-3xl font-black tracking-tight">Caixa real, reserva e conciliação</h2>
                   <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">
-                    Reserva é destinação do dinheiro que já existe: não aumenta o saldo bancário. O caixa livre é o saldo real dos bancos menos a reserva protegida.
+                    Reserva é destinação do dinheiro que já existe: não aumenta o saldo bancário. O caixa livre é o saldo real dos bancos menos obrigações identificadas e menos a reserva protegida.
                   </p>
                 </div>
 
@@ -6185,7 +6402,7 @@ export default function FinanceiroPage() {
                 </div>
               </div>
 
-              <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <div className="rounded-2xl border border-blue-400/30 bg-blue-400/10 p-5 backdrop-blur">
                   <p className="text-xs font-black uppercase tracking-wide text-blue-200">Saldo bancário real</p>
                   <p className="mt-2 text-2xl font-black text-white">
@@ -6194,10 +6411,16 @@ export default function FinanceiroPage() {
                   <p className="mt-1 text-xs font-semibold text-blue-200">Dinheiro efetivamente informado nas contas da HC</p>
                 </div>
 
+                <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-wide text-red-200">Compromissos operacionais</p>
+                  <p className="mt-2 text-2xl font-black text-red-200">{moeda(resumoPosicaoAtual.compromissosOperacionais)}</p>
+                  <p className="mt-1 text-xs font-semibold text-red-200">Faturas DHL/FedEx em aberto + terceiros ainda não pagos</p>
+                </div>
+
                 <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
                   <p className="text-xs font-black uppercase tracking-wide text-slate-400">Reserva protegida</p>
                   <p className="mt-2 text-2xl font-black text-blue-300">{moeda(resumoPosicaoAtual.reservaProtegida)}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Parte do saldo bancário já destinada à Reserva HC</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Reserva física constituída após a base de 17/08/2026</p>
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
@@ -6205,7 +6428,7 @@ export default function FinanceiroPage() {
                   <p className={`mt-2 text-2xl font-black ${resumoPosicaoAtual.caixaLivreAtual > 0 ? 'text-emerald-300' : 'text-red-300'}`}>
                     {moeda(resumoPosicaoAtual.caixaLivreAtual)}
                   </p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Saldo bancário real - reserva protegida</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Saldo bancário - compromissos - reserva protegida</p>
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/[0.07] p-5 backdrop-blur">
@@ -6217,6 +6440,17 @@ export default function FinanceiroPage() {
                 </div>
               </div>
             </div>
+
+            {(erroCompromissosCaixa || resumoPosicaoAtual.qtdFaturasMoedaNaoBRL > 0) && (
+              <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
+                <p className="font-black">Caixa livre bloqueado para novas reservas</p>
+                <p className="mt-1 text-sm font-semibold">
+                  {erroCompromissosCaixa
+                    ? `Não foi possível ler as obrigações DHL/FedEx: ${erroCompromissosCaixa}`
+                    : `${resumoPosicaoAtual.qtdFaturasMoedaNaoBRL} fatura(s) de transportadora estão em moeda diferente de BRL e precisam ser revisadas antes de constituir reserva.`}
+                </p>
+              </div>
+            )}
           </section>
 
           <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.08fr_0.92fr]">
@@ -6369,10 +6603,23 @@ export default function FinanceiroPage() {
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-[11px] font-black uppercase text-slate-400">Reserva constituída</p>
                     <p className="mt-1 text-lg font-black text-slate-900">{moeda(resumoPosicaoAtual.reservaConstituida)}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-500">Base física em 17/08/2026: R$ 0,00. Só entram reservas efetivamente constituídas depois dessa data.</p>
                   </div>
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                     <p className="text-[11px] font-black uppercase text-amber-500">Reserva pendente</p>
                     <p className="mt-1 text-lg font-black text-amber-700">{moeda(resumoPosicaoAtual.reservaPendente)}</p>
+                    <p className="mt-1 text-xs font-semibold text-amber-600">Soma das competências que ainda não receberam os 50% previstos.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
+                    <p className="text-[11px] font-black uppercase text-red-500">Faturas transportadoras a pagar</p>
+                    <p className="mt-1 text-lg font-black text-red-700">{moeda(resumoPosicaoAtual.compromissoTransportadoras)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                    <p className="text-[11px] font-black uppercase text-orange-500">Terceiros a pagar</p>
+                    <p className="mt-1 text-lg font-black text-orange-700">{moeda(resumoPosicaoAtual.compromissoTerceiros)}</p>
                   </div>
                 </div>
 
@@ -6385,7 +6632,7 @@ export default function FinanceiroPage() {
                   <div className={`rounded-2xl border p-4 ${resumoPosicaoAtual.reservaSemCobertura > 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
                     <p className={`text-[11px] font-black uppercase ${resumoPosicaoAtual.reservaSemCobertura > 0 ? 'text-red-600' : 'text-slate-400'}`}>Reserva sem cobertura bancária</p>
                     <p className={`mt-1 text-lg font-black ${resumoPosicaoAtual.reservaSemCobertura > 0 ? 'text-red-700' : 'text-slate-900'}`}>{moeda(resumoPosicaoAtual.reservaSemCobertura)}</p>
-                    <p className="mt-1 text-xs font-semibold text-slate-500">Só existe quando a reserva constituída supera o saldo bancário informado.</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-500">Só existe quando a reserva física constituída supera o saldo bancário disponível depois das obrigações identificadas.</p>
                   </div>
                 </div>
 
@@ -6420,7 +6667,8 @@ export default function FinanceiroPage() {
             <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
               <div className="space-y-2">
                 <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3"><span className="font-bold text-slate-700">Saldo-base em 17/08/2026</span><strong className="text-blue-700">{moeda(resumoConciliacaoBancaria.saldoBase)}</strong></div>
-                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Efeito líquido dos processos após a base</span><strong className={resumoConciliacaoBancaria.efeitoOperacionalLiquidoAposBase >= 0 ? 'text-emerald-700' : 'text-red-700'}>{moeda(resumoConciliacaoBancaria.efeitoOperacionalLiquidoAposBase)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Recebimentos de clientes após a base</span><strong className="text-emerald-700">+ {moeda(resumoConciliacaoBancaria.recebimentosClientesAposBase)}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-red-50 px-4 py-3"><span className="font-bold text-slate-700">Pagamentos DHL/FedEx após a base</span><strong className="text-red-700">- {moeda(resumoConciliacaoBancaria.pagamentosTransportadorasAposBase)}</strong></div>
                 <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"><span className="font-bold text-slate-700">Entradas reais após a base</span><strong className="text-emerald-700">+ {moeda(resumoConciliacaoBancaria.entradasReaisAposBase)}</strong></div>
                 <div className="flex items-center justify-between rounded-xl bg-red-50 px-4 py-3"><span className="font-bold text-slate-700">Saídas reais após a base</span><strong className="text-red-700">- {moeda(resumoConciliacaoBancaria.saidasReaisAposBase)}</strong></div>
                 <div className="flex items-center justify-between rounded-xl border border-slate-900 bg-slate-950 px-4 py-4 text-white"><span className="font-black">Saldo esperado HC Connect</span><strong className={`text-2xl ${resumoConciliacaoBancaria.saldoEsperado >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{moeda(resumoConciliacaoBancaria.saldoEsperado)}</strong></div>
