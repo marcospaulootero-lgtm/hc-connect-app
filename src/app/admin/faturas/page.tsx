@@ -1549,13 +1549,40 @@ export default function FaturasPage() {
       const blob = blobOriginal.type === 'application/pdf'
         ? blobOriginal
         : new Blob([blobOriginal], { type: 'application/pdf' })
-      const blobUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-
-      link.href = blobUrl
-      link.download = nomeArquivo.toLowerCase().endsWith('.pdf')
+      const nomeFinal = nomeArquivo.toLowerCase().endsWith('.pdf')
         ? nomeArquivo
         : `${nomeArquivo}.pdf`
+
+      const seletorSalvar = (window as any).showSaveFilePicker
+
+      if (typeof seletorSalvar === 'function') {
+        try {
+          const arquivo = await seletorSalvar({
+            suggestedName: nomeFinal,
+            types: [
+              {
+                description: 'Arquivo PDF',
+                accept: {
+                  'application/pdf': ['.pdf'],
+                },
+              },
+            ],
+          })
+
+          const gravador = await arquivo.createWritable()
+          await gravador.write(blob)
+          await gravador.close()
+          return
+        } catch (error: any) {
+          if (error?.name === 'AbortError') return
+          throw error
+        }
+      }
+
+      const blobUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = nomeFinal
       link.style.display = 'none'
 
       document.body.appendChild(link)
@@ -1566,7 +1593,7 @@ export default function FaturasPage() {
     } catch (error) {
       console.error('Erro ao salvar PDF:', error)
       window.open(url, '_blank', 'noopener,noreferrer')
-      alert('Não foi possível iniciar o download automático. O PDF foi aberto em nova aba para você salvar pelo navegador.')
+      alert('Não foi possível abrir a janela para escolher onde salvar. O PDF foi aberto em nova aba para você salvar pelo navegador.')
     }
   }
 
