@@ -232,6 +232,88 @@ const PAISES_COTACAO = CODIGOS_PAISES_COTACAO
 
 const INCOTERMS_COTACAO = ['EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP']
 
+type ItemServicoEnvioCotacao = {
+  id: string
+  descricao: string
+  moeda: string
+  valor: string
+  observacao: string
+}
+
+const SERVICOS_ENVIO_COTACAO = [
+  'Frete Internacional',
+  'Sobretaxa emergencial',
+  'Área remota',
+  'Peso excedente',
+  'Dimensão excedente',
+  'Volume excedente',
+  'DTA',
+  'Delivery doc fee',
+  'Emissão de DUE',
+  'Impostos no destino',
+  'Manuseio formal',
+  'DGR',
+  'Tarifa adicional p/ carga não empilhável',
+  'Oversize piece',
+  'Taxa de alta demanda',
+  'Entrega fora da área',
+  'Handling',
+  'AWB Fee',
+  'Desembaraço',
+  'Armazenagem',
+  'Taxas aeroportuárias',
+  'Outras taxas',
+]
+
+function novoItemServicoEnvioCotacao(
+  descricao = 'Frete Internacional',
+  moeda = 'USD'
+): ItemServicoEnvioCotacao {
+  return {
+    id: `cotacao-servico-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    descricao,
+    moeda,
+    valor: '',
+    observacao: '',
+  }
+}
+
+function gerarReferenciaHCCotacao() {
+  const agora = new Date()
+  const ano = String(agora.getFullYear()).slice(-2)
+  const mes = String(agora.getMonth() + 1).padStart(2, '0')
+  const dia = String(agora.getDate()).padStart(2, '0')
+  const hora = String(agora.getHours()).padStart(2, '0')
+  const minuto = String(agora.getMinutes()).padStart(2, '0')
+  const segundo = String(agora.getSeconds()).padStart(2, '0')
+
+  return `HCQ${ano}${mes}${dia}-${hora}${minuto}${segundo}`
+}
+
+function itensEnvioCotacaoLegados(formLegado: any): ItemServicoEnvioCotacao[] {
+  const mapa: Array<[string, string]> = [
+    ['Frete Internacional', 'frete'],
+    ['Sobretaxa emergencial', 'sobretaxa'],
+    ['Área remota', 'areaRemota'],
+    ['Peso excedente', 'pesoExcedente'],
+    ['Dimensão excedente', 'dimensaoExcedente'],
+    ['Volume excedente', 'volumeExcedente'],
+    ['DTA', 'dta'],
+    ['Delivery doc fee', 'deliveryDocFee'],
+    ['Emissão de DUE', 'emissaoDue'],
+    ['Impostos no destino', 'impostosDestino'],
+  ]
+
+  const itens = mapa
+    .filter(([, campo]) => numero(formLegado?.[campo]) > 0)
+    .map(([descricao, campo]) => ({
+      ...novoItemServicoEnvioCotacao(descricao),
+      valor: String(formLegado?.[campo] || ''),
+    }))
+
+  return itens.length > 0 ? itens : [novoItemServicoEnvioCotacao()]
+}
+
 export default function NovaCotacaoManualPage() {
   const searchParams = useSearchParams()
   const cotacaoEditandoId = searchParams.get('editar')
@@ -246,7 +328,7 @@ export default function NovaCotacaoManualPage() {
     responsavel_solicitante: '',
     telefone_solicitante: '',
     referencia_cliente: '',
-    referencia_hc: '',
+    referencia_hc: cotacaoEditandoId ? '' : gerarReferenciaHCCotacao(),
     servico: 'IMPORTAÇÃO FORMAL',
     transportadora: 'DHL',
     origem: '',
@@ -286,6 +368,10 @@ export default function NovaCotacaoManualPage() {
     },
   ])
 
+  const [itensEnvio, setItensEnvio] = useState<ItemServicoEnvioCotacao[]>([
+    novoItemServicoEnvioCotacao(),
+  ])
+
   const usarCamposAgente = modelo === 'AGENTE_CARGA_FORMAL'
   const divisorPesoDimensional = usarCamposAgente ? 6000 : 5000
 
@@ -312,7 +398,30 @@ export default function NovaCotacaoManualPage() {
         setForm((atual) => ({
           ...atual,
           ...dadosEmissor.form,
+          solicitante_nome:
+            dadosEmissor.form.solicitante_nome ||
+            dadosEmissor.form.responsavel_solicitante ||
+            '',
+          referencia_hc:
+            dadosEmissor.form.referencia_hc ||
+            data.referencia_hc ||
+            atual.referencia_hc ||
+            gerarReferenciaHCCotacao(),
         }))
+
+        if (Array.isArray(dadosEmissor.itensEnvio) && dadosEmissor.itensEnvio.length > 0) {
+          setItensEnvio(
+            dadosEmissor.itensEnvio.map((item: any) => ({
+              id: String(item.id || novoItemServicoEnvioCotacao().id),
+              descricao: String(item.descricao || item.servico || ''),
+              moeda: String(item.moeda || 'USD'),
+              valor: String(item.valor || ''),
+              observacao: String(item.observacao || ''),
+            }))
+          )
+        } else if (dadosEmissor.modelo !== 'AGENTE_CARGA_FORMAL') {
+          setItensEnvio(itensEnvioCotacaoLegados(dadosEmissor.form))
+        }
 
         if (Array.isArray(dadosEmissor.volumes) && dadosEmissor.volumes.length > 0) {
           setVolumes(
@@ -342,11 +451,14 @@ export default function NovaCotacaoManualPage() {
         origem_solicitacao: data.origem_solicitacao || atual.origem_solicitacao,
         solicitante_email: data.solicitante_email || '',
         empresa_solicitante: data.empresa_solicitante || data.cliente_final || '',
-        solicitante_nome: data.solicitante_nome || '',
+        solicitante_nome:
+          data.solicitante_nome ||
+          data.responsavel_solicitante ||
+          '',
         responsavel_solicitante: data.responsavel_solicitante || '',
         telefone_solicitante: data.telefone_solicitante || '',
         referencia_cliente: data.referencia_cliente || '',
-        referencia_hc: data.referencia_hc || '',
+        referencia_hc: data.referencia_hc || gerarReferenciaHCCotacao(),
         servico: data.servico || data.tipo_operacao || atual.servico,
         transportadora: Array.isArray(data.transportadoras_consulta)
           ? data.transportadoras_consulta[0] || atual.transportadora
@@ -454,25 +566,13 @@ const valores = useMemo(() => {
     const emissaoDue = numero(form.emissaoDue)
     const impostosDestino = numero(form.impostosDestino)
 
-    const totalDhl =
-      frete +
-      sobretaxa +
-      seguro +
-      areaRemota +
-      dta +
-      deliveryDocFee +
-      dimensaoExcedente +
-      pesoExcedente
+    const totalServicosUsd = itensEnvio.reduce((acc, item) => {
+      if (String(item.moeda || 'USD').toUpperCase() !== 'USD') return acc
+      return acc + numero(item.valor)
+    }, 0)
 
-    const totalFedex =
-      frete +
-      sobretaxa +
-      seguro +
-      emissaoDue +
-      areaRemota +
-      volumeExcedente +
-      pesoExcedente +
-      impostosDestino
+    const totalDhl = seguro + totalServicosUsd
+    const totalFedex = seguro + totalServicosUsd
 
     return {
       seguro,
@@ -488,7 +588,7 @@ const valores = useMemo(() => {
       impostosDestino,
       total: modelo === 'FEDEX_EXPORTACAO' ? totalFedex : totalDhl,
     }
-  }, [form, modelo])
+  }, [form, modelo, itensEnvio])
 
     const [itensAgente, setItensAgente] = useState(() =>
     SERVICOS_AGENTE_CARGA.map((servico) => ({
@@ -515,6 +615,26 @@ const totaisAgenteMoedaTela = useMemo(() => {
     }, {})
   }, [itensAgente])
 
+  const totaisEnvioMoedaTela = useMemo(() => {
+    const totais = itensEnvio.reduce<Record<string, number>>((acc, item) => {
+      if (!item.descricao.trim()) return acc
+
+      const moeda = String(item.moeda || 'USD').toUpperCase()
+      const valorItem = numero(item.valor)
+
+      if (valorItem <= 0) return acc
+
+      acc[moeda] = (acc[moeda] || 0) + valorItem
+      return acc
+    }, {})
+
+    if (valores.seguro > 0) {
+      totais.USD = (totais.USD || 0) + valores.seguro
+    }
+
+    return totais
+  }, [itensEnvio, valores.seguro])
+
   function atualizarItemAgente(
     index: number,
     campo: 'usar' | 'servico' | 'moeda' | 'valor' | 'observacao',
@@ -530,6 +650,39 @@ const totaisAgenteMoedaTela = useMemo(() => {
           : item
       )
     )
+  }
+
+  function atualizarItemEnvio(
+    index: number,
+    campo: 'descricao' | 'moeda' | 'valor' | 'observacao',
+    valor: string
+  ) {
+    setItensEnvio((atuais) =>
+      atuais.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              [campo]: valor,
+            }
+          : item
+      )
+    )
+  }
+
+  function adicionarItemEnvio() {
+    setItensEnvio((atuais) => [
+      ...atuais,
+      novoItemServicoEnvioCotacao(''),
+    ])
+  }
+
+  function removerItemEnvio(index: number) {
+    setItensEnvio((atuais) => {
+      const proximos = atuais.filter((_, i) => i !== index)
+      return proximos.length > 0
+        ? proximos
+        : [novoItemServicoEnvioCotacao()]
+    })
   }
 
   function atualizarCampo(campo: keyof typeof form, valor: string | boolean) {
@@ -732,12 +885,14 @@ const totaisAgenteMoedaTela = useMemo(() => {
     await inserirMarcaDaguaLogoDados()
 
     info('Referência HC', form.referencia_hc || '-')
+    if (String(form.referencia_cliente || '').trim()) {
+      info('Referência cliente', form.referencia_cliente)
+    }
     info('Empresa solicitante', form.empresa_solicitante || '-')
-    info('Nome do solicitante', form.solicitante_nome || '-')
-    info('Responsável / contato', form.responsavel_solicitante || '-')
-    info('Telefone / WhatsApp', form.telefone_solicitante || '-')
-    info('E-mail do cliente', form.solicitante_email || '-')
-    info('Origem da solicitação', form.origem_solicitacao || '-')
+    info('Solicitante / contato', form.solicitante_nome || '-')
+    if (String(form.solicitante_email || '').trim()) {
+      info('E-mail do cliente', form.solicitante_email)
+    }
     info('Origem', form.origem || '-')
     info('Destino', form.destino || '-')
     info('Incoterm', form.incoterm || '-')
@@ -791,22 +946,34 @@ const totaisAgenteMoedaTela = useMemo(() => {
       })}`
     )
 
-    valor('Frete', valores.frete)
-    valor('Sobretaxa emergencial', valores.sobretaxa)
-    valor('Seguro', valores.seguro)
-
-    if (modelo !== 'FEDEX_EXPORTACAO') {
-      valor('Área remota', valores.areaRemota)
-      valor('DTA', valores.dta)
-      valor('Delivery doc fee', valores.deliveryDocFee)
-      valor('Dimensão excedente', valores.dimensaoExcedente)
-      valor('Peso excedente', valores.pesoExcedente)
+    if (usarCamposAgente) {
+      itensAgente
+        .filter((item) => item.usar && numero(item.valor) > 0)
+        .forEach((item) => {
+          info(
+            item.servico,
+            `${item.moeda || 'USD'} ${numero(item.valor).toLocaleString('pt-BR', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}`
+          )
+        })
     } else {
-      valor('Emissão de DUE', valores.emissaoDue)
-      valor('Área remota', valores.areaRemota)
-      valor('Volume excedente', valores.volumeExcedente)
-      valor('Peso excedente', valores.pesoExcedente)
-      valor('Impostos no destino', valores.impostosDestino)
+      itensEnvio
+        .filter((item) => item.descricao.trim() && numero(item.valor) > 0)
+        .forEach((item) => {
+          info(
+            item.descricao,
+            `${String(item.moeda || 'USD').toUpperCase()} ${numero(item.valor).toLocaleString('pt-BR', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}`
+          )
+        })
+    }
+
+    if (valores.seguro > 0) {
+      info('Seguro', dinheiro(valores.seguro, 'USD'))
     }
 
     novaPagina(16)
@@ -815,8 +982,15 @@ const totaisAgenteMoedaTela = useMemo(() => {
     doc.setTextColor(15, 23, 42)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(11)
-    doc.text('TOTAL ALL IN USD', 118, y + 8)
-    doc.text(dinheiro(valores.total, 'USD'), 192, y + 8, { align: 'right' })
+    doc.text('TOTAL ALL IN', 118, y + 8)
+    doc.text(
+      usarCamposAgente
+        ? resumoTotalMoedas(totaisAgenteMoedaTela)
+        : resumoTotalMoedas(totaisEnvioMoedaTela),
+      192,
+      y + 8,
+      { align: 'right' }
+    )
     y += 18
 
     secao('MERCADORIA E OBSERVAÇÕES')
@@ -852,12 +1026,12 @@ const totaisAgenteMoedaTela = useMemo(() => {
         .join(' | ')
 
       const payloadCotacao = {
-            origem_solicitacao: form.origem_solicitacao,
+            origem_solicitacao: 'MANUAL',
             solicitante_email: form.solicitante_email.trim() || null,
             empresa_solicitante: form.empresa_solicitante || null,
             solicitante_nome: form.solicitante_nome || null,
-            responsavel_solicitante: form.responsavel_solicitante || form.solicitante_nome || null,
-            telefone_solicitante: form.telefone_solicitante || null,
+            responsavel_solicitante: form.solicitante_nome || null,
+            telefone_solicitante: null,
             cliente_final: form.empresa_solicitante || form.solicitante_nome || null,
             referencia_cliente: form.referencia_cliente || null,
             referencia_hc: form.referencia_hc || null,
@@ -881,6 +1055,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
               modelo,
               form,
               volumes,
+              itensEnvio,
               itensAgente,
               resumo,
               valores,
@@ -950,12 +1125,12 @@ const totaisAgenteMoedaTela = useMemo(() => {
           },
           body: JSON.stringify({
             email: form.solicitante_email,
-            nome: form.solicitante_nome || form.responsavel_solicitante || form.empresa_solicitante || 'cliente',
+            nome: form.solicitante_nome || form.empresa_solicitante || 'cliente',
             referencia_hc: form.referencia_hc || form.referencia_cliente || cotacaoCriada.id,
             pdf_url: publicUrl.publicUrl,
             pdf_nome: arquivo.name,
             modelo: nomeModelo(modelo),
-            total: usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : dinheiro(valores.total),
+            total: usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : resumoTotalMoedas(totaisEnvioMoedaTela),
           }),
         })
 
@@ -1003,7 +1178,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
           <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-right">
             <p className="text-xs font-black uppercase tracking-widest text-slate-500">Total all in</p>
-            <p className="mt-1 text-3xl font-black text-green-400">{usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : dinheiro(valores.total)}</p>
+            <p className="mt-1 text-3xl font-black text-green-400">{usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : resumoTotalMoedas(totaisEnvioMoedaTela)}</p>
           </div>
         </div>
 
@@ -1015,20 +1190,11 @@ const totaisAgenteMoedaTela = useMemo(() => {
             <option value="FEDEX_EXPORTACAO">FedEx - Exportação</option>
           </CampoSelect>
 
-          <CampoSelect label="Origem da solicitação" value={form.origem_solicitacao} onChange={(v) => atualizarCampo('origem_solicitacao', v)}>
-            <option value="EMAIL">E-mail</option>
-            <option value="WHATSAPP">WhatsApp</option>
-            <option value="TELEFONE">Telefone</option>
-            <option value="MANUAL">Manual</option>
-          </CampoSelect>
-
-          <Campo label="Referência HC" value={form.referencia_hc} onChange={(v) => atualizarCampo('referencia_hc', v)} />
-          <Campo label="Referência cliente" value={form.referencia_cliente} onChange={(v) => atualizarCampo('referencia_cliente', v)} />
+          <Campo label="Referência HC" value={form.referencia_hc} onChange={() => {}} readOnly />
+          <Campo label="Referência cliente (opcional)" value={form.referencia_cliente} onChange={(v) => atualizarCampo('referencia_cliente', v)} />
           <Campo label="E-mail do cliente (opcional)" value={form.solicitante_email} onChange={(v) => atualizarCampo('solicitante_email', v)} />
           <Campo label="Empresa solicitante" value={form.empresa_solicitante} onChange={(v) => atualizarCampo('empresa_solicitante', v)} />
-          <Campo label="Nome do solicitante" value={form.solicitante_nome} onChange={(v) => atualizarCampo('solicitante_nome', v)} />
-          <Campo label="Responsável / contato" value={form.responsavel_solicitante} onChange={(v) => atualizarCampo('responsavel_solicitante', v)} />
-          <Campo label="Telefone / WhatsApp" value={form.telefone_solicitante} onChange={(v) => atualizarCampo('telefone_solicitante', v)} />
+          <Campo label="Solicitante / contato" value={form.solicitante_nome} onChange={(v) => atualizarCampo('solicitante_nome', v)} />
         </div>
       </section>
 
@@ -1225,25 +1391,110 @@ const totaisAgenteMoedaTela = useMemo(() => {
             </div>
           </div>
         ) : (
-          <div className="form-grid">
-            <Campo label="Frete USD" type="number" value={form.frete} onChange={(v) => atualizarCampo('frete', v)} />
-            <Campo label="Sobretaxa emergencial USD" type="number" value={form.sobretaxa} onChange={(v) => atualizarCampo('sobretaxa', v)} />
-            <Campo label="Área remota USD" type="number" value={form.areaRemota} onChange={(v) => atualizarCampo('areaRemota', v)} />
-            <Campo label="Peso excedente USD" type="number" value={form.pesoExcedente} onChange={(v) => atualizarCampo('pesoExcedente', v)} />
+          <div className="space-y-4">
+            <div className="flex flex-col gap-4 rounded-2xl border border-blue-900 bg-[#020817] p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-black text-blue-300">Serviços da cotação</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">
+                  Selecione um serviço da lista ou digite qualquer descrição manualmente.
+                </p>
+              </div>
 
-            {modelo !== 'FEDEX_EXPORTACAO' ? (
-              <>
-                <Campo label="DTA USD" type="number" value={form.dta} onChange={(v) => atualizarCampo('dta', v)} />
-                <Campo label="Delivery doc fee USD" type="number" value={form.deliveryDocFee} onChange={(v) => atualizarCampo('deliveryDocFee', v)} />
-                <Campo label="Dimensão excedente USD" type="number" value={form.dimensaoExcedente} onChange={(v) => atualizarCampo('dimensaoExcedente', v)} />
-              </>
-            ) : (
-              <>
-                <Campo label="Emissão de DUE USD" type="number" value={form.emissaoDue} onChange={(v) => atualizarCampo('emissaoDue', v)} />
-                <Campo label="Volume excedente USD" type="number" value={form.volumeExcedente} onChange={(v) => atualizarCampo('volumeExcedente', v)} />
-                <Campo label="Impostos no destino USD" type="number" value={form.impostosDestino} onChange={(v) => atualizarCampo('impostosDestino', v)} />
-              </>
-            )}
+              <button
+                type="button"
+                onClick={adicionarItemEnvio}
+                className="rounded-xl bg-blue-600 px-5 py-3 font-bold hover:bg-blue-500"
+              >
+                + Adicionar serviço
+              </button>
+            </div>
+
+            <datalist id="servicos-envio-cotacao">
+              {SERVICOS_ENVIO_COTACAO.map((servico) => (
+                <option key={servico} value={servico} />
+              ))}
+            </datalist>
+
+            <div className="overflow-x-auto rounded-2xl border border-blue-900">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead className="bg-[#020817] text-xs uppercase tracking-widest text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">Descrição</th>
+                    <th className="px-4 py-3">Moeda</th>
+                    <th className="px-4 py-3">Valor original</th>
+                    <th className="px-4 py-3">Observação</th>
+                    <th className="px-4 py-3">Ação</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {itensEnvio.map((item, index) => (
+                    <tr key={item.id} className="border-t border-blue-950">
+                      <td className="px-4 py-3">
+                        <input
+                          list="servicos-envio-cotacao"
+                          value={item.descricao}
+                          onChange={(e) => atualizarItemEnvio(index, 'descricao', e.target.value)}
+                          placeholder="Selecione ou digite o serviço"
+                          className="min-w-[280px]"
+                        />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <select
+                          value={item.moeda}
+                          onChange={(e) => atualizarItemEnvio(index, 'moeda', e.target.value)}
+                          className="min-w-[110px]"
+                        >
+                          <option value="USD">USD</option>
+                          <option value="BRL">BRL</option>
+                          <option value="EUR">EUR</option>
+                          <option value="GBP">GBP</option>
+                          <option value="CNY">CNY</option>
+                          <option value="HKD">HKD</option>
+                        </select>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <input
+                          value={item.valor}
+                          onChange={(e) => atualizarItemEnvio(index, 'valor', e.target.value)}
+                          placeholder="0,00"
+                          inputMode="decimal"
+                          className="min-w-[150px]"
+                        />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <input
+                          value={item.observacao}
+                          onChange={(e) => atualizarItemEnvio(index, 'observacao', e.target.value)}
+                          placeholder="Opcional"
+                          className="min-w-[260px]"
+                        />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => removerItemEnvio(index)}
+                          className="rounded-lg bg-red-700 px-3 py-2 font-black text-white hover:bg-red-600"
+                        >
+                          Excluir
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total por moeda</p>
+              <p className="mt-2 text-2xl font-black text-green-400">
+                {resumoTotalMoedas(totaisEnvioMoedaTela)}
+              </p>
+            </div>
           </div>
         )}
       </section>
@@ -1332,16 +1583,25 @@ function Campo({
   value,
   onChange,
   type = 'text',
+  readOnly = false,
 }: {
   label: string
   value: string
   onChange: (valor: string) => void
   type?: string
+  readOnly?: boolean
 }) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-bold text-slate-400">{label}</span>
-      <input type={type} step={type === 'number' ? '0.01' : undefined} value={value || ''} onChange={(e) => onChange(e.target.value)} />
+      <input
+        type={type}
+        step={type === 'number' ? '0.01' : undefined}
+        value={value || ''}
+        readOnly={readOnly}
+        onChange={(e) => onChange(e.target.value)}
+        className={readOnly ? 'cursor-not-allowed bg-slate-900/70 text-blue-300' : undefined}
+      />
     </label>
   )
 }
