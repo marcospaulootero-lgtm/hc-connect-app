@@ -2315,6 +2315,9 @@ export default function FaturasPage() {
       return
     }
 
+    setAbaAtiva('RECIBO')
+    setBuscaRecibo(String(embarque.awb || ''))
+
     const clienteFiscalRecibo = localizarClienteFaturamentoParaRecibo(
       embarque,
       faturaPrincipal
@@ -2355,7 +2358,7 @@ export default function FaturasPage() {
       document
         .getElementById('form_recibo')
         ?.scrollIntoView({ behavior: 'smooth' })
-    }, 100)
+    }, 200)
   }
 
   function abrirEmissaoRecibo(embarque: Embarque) {
@@ -4593,8 +4596,10 @@ export default function FaturasPage() {
   function renderAbaRecibos() {
     const termo = normalizarTexto(buscaRecibo)
 
+    // Faturas arquivadas também precisam continuar disponíveis para reemissão
+    // e para emissão de recibos de cobranças complementares.
     const faturasParaRecibo = faturas
-      .filter((fatura) => !!fatura.arquivo_pdf && !fatura.arquivado_admin)
+      .filter((fatura) => !!fatura.arquivo_pdf)
       .map((fatura) => {
         const embarque =
           embarques.find((item) => String(item.id) === String(fatura.embarque_id)) ||
@@ -7126,6 +7131,32 @@ export default function FaturasPage() {
                                           >
                                             Abrir
                                           </a>
+
+                                          {reciboComplementarDoDocumento(doc)?.url ? (
+                                            <a
+                                              href={reciboComplementarDoDocumento(doc)?.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="rounded-lg bg-green-700 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-green-600"
+                                            >
+                                              Abrir recibo
+                                            </a>
+                                          ) : null}
+
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              abrirEmissaoReciboComplementar(
+                                                embarque,
+                                                doc
+                                              )
+                                            }
+                                            className="rounded-lg bg-green-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-green-500"
+                                          >
+                                            {reciboComplementarDoDocumento(doc)
+                                              ? 'Reemitir recibo comp.'
+                                              : 'Emitir recibo comp.'}
+                                          </button>
 
                                           {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
                                             <button
