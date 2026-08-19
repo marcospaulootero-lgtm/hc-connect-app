@@ -1264,6 +1264,8 @@ export default function FaturasPage() {
             arquivo.embarque_id === embarqueId ||
             idsFaturasDoEmbarque.has(arquivo.fatura_id)
           ) &&
+          !tipo.includes('BOLETO') &&
+          !tipo.includes('RECIBO') &&
           (
             tipo.includes('COMPLEMENTAR') ||
             tipo.includes('IMPOSTOS') ||
@@ -2270,12 +2272,79 @@ export default function FaturasPage() {
 
     if (!documento?.url) return false
     if (base.includes('RECIBO')) return false
+    if (base.includes('BOLETO')) return false
 
     return (
       base.includes('COMPLEMENTAR') ||
       base.includes('IMPOSTOS') ||
       base.includes('FATURA_EXTRA')
     )
+  }
+
+  function documentoEhBoleto(documento: any) {
+    const base = normalizarTexto(
+      String(documento?.tipo || '') +
+        ' ' +
+        String(documento?.nome || '') +
+        ' ' +
+        String(documento?.tipo_fatura || '')
+    )
+
+    return !!documento?.url && base.includes('BOLETO')
+  }
+
+  function boletoAssociadoAoDocumento(
+    embarque: Embarque,
+    faturaPrincipal: Fatura | null | undefined,
+    documento: any
+  ) {
+    const boletos = documentosPacoteAdmin(embarque, faturaPrincipal).filter(
+      documentoEhBoleto
+    )
+
+    if (boletos.length === 0) return null
+
+    const baseDocumento = normalizarTexto(
+      `${documento?.tipo || ''} ${documento?.nome || ''} ${documento?.tipo_fatura || ''}`
+    )
+
+    const pontuar = (boleto: any) => {
+      const baseBoleto = normalizarTexto(
+        `${boleto?.tipo || ''} ${boleto?.nome || ''}`
+      )
+
+      let pontos = 0
+
+      if (baseDocumento.includes('IMPOSTOS') && baseBoleto.includes('IMPOSTOS')) {
+        pontos += 100
+      }
+
+      if (
+        baseDocumento.includes('COMPLEMENTAR') &&
+        baseBoleto.includes('COMPLEMENTAR')
+      ) {
+        pontos += 80
+      }
+
+      if (baseDocumento.includes('DOC') && baseBoleto.includes('DOC')) {
+        pontos += 30
+      }
+
+      if (baseDocumento.includes('DTA') && baseBoleto.includes('DTA')) {
+        pontos += 30
+      }
+
+      return pontos
+    }
+
+    const ordenados = boletos
+      .map((boleto: any) => ({ boleto, pontos: pontuar(boleto) }))
+      .sort((a: any, b: any) => b.pontos - a.pontos)
+
+    if (ordenados[0]?.pontos > 0) return ordenados[0].boleto
+    if (boletos.length === 1) return boletos[0]
+
+    return null
   }
 
   function tipoReciboComplementarDocumento(documento: any) {
@@ -4742,6 +4811,12 @@ export default function FaturasPage() {
                           {faturasComplementares.map((documento: any) => {
                           const reciboComplementar =
                             reciboComplementarDoDocumento(documento)
+                          const boletoVinculado =
+                            boletoAssociadoAoDocumento(
+                              embarque,
+                              fatura,
+                              documento
+                            )
 
                           return (
                             <div
@@ -4762,6 +4837,38 @@ export default function FaturasPage() {
                                     ? moeda(documento.valor_total)
                                     : 'Valor será informado na emissão do recibo'}
                                 </p>
+
+                                {boletoVinculado ? (
+                                  <div className="mt-3 rounded-lg border border-blue-800 bg-blue-950/20 p-3">
+                                    <p className="text-[11px] font-black uppercase tracking-wide text-blue-300">
+                                      Boleto da mesma cobrança
+                                    </p>
+                                    <p className="mt-1 truncate text-xs text-slate-300">
+                                      {boletoVinculado.nome || 'Boleto'}
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      <Link
+                                        href={boletoVinculado.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-black text-white hover:bg-blue-500"
+                                      >
+                                        Abrir boleto
+                                      </Link>
+                                      <span
+                                        className={
+                                          reciboComplementar
+                                            ? 'rounded-lg border border-green-700 bg-green-950/30 px-3 py-2 text-[11px] font-black text-green-300'
+                                            : 'rounded-lg border border-yellow-700 bg-yellow-950/30 px-3 py-2 text-[11px] font-black text-yellow-300'
+                                        }
+                                      >
+                                        {reciboComplementar
+                                          ? 'Baixado pelo mesmo recibo'
+                                          : 'Será baixado junto com a fatura'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ) : null}
                               </div>
 
                               <div className="flex flex-wrap gap-2">
