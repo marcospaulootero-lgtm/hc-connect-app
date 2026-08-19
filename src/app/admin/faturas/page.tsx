@@ -1520,6 +1520,106 @@ export default function FaturasPage() {
     return documentosDoEmbarque(embarqueId).filter(documentoEhCotacao)
   }
 
+  function nomeSeguroPdf(valor: any) {
+    return String(valor || 'documento')
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+  }
+
+  function nomeArquivoPdf(prefixo: string, identificador: any) {
+    const base = nomeSeguroPdf(identificador || 'documento')
+    return `${nomeSeguroPdf(prefixo)}-${base}.pdf`
+  }
+
+  async function salvarPdf(url?: string | null, nomeArquivo = 'documento.pdf') {
+    if (!url) {
+      alert('PDF não disponível.')
+      return
+    }
+
+    try {
+      const resposta = await fetch(url, { cache: 'no-store' })
+      if (!resposta.ok) {
+        throw new Error(`Falha ao carregar PDF (${resposta.status}).`)
+      }
+
+      const blobOriginal = await resposta.blob()
+      const blob = blobOriginal.type === 'application/pdf'
+        ? blobOriginal
+        : new Blob([blobOriginal], { type: 'application/pdf' })
+      const blobUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+
+      link.href = blobUrl
+      link.download = nomeArquivo.toLowerCase().endsWith('.pdf')
+        ? nomeArquivo
+        : `${nomeArquivo}.pdf`
+      link.style.display = 'none'
+
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
+    } catch (error) {
+      console.error('Erro ao salvar PDF:', error)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      alert('Não foi possível iniciar o download automático. O PDF foi aberto em nova aba para você salvar pelo navegador.')
+    }
+  }
+
+  async function imprimirPdf(url?: string | null) {
+    if (!url) {
+      alert('PDF não disponível.')
+      return
+    }
+
+    const janela = window.open('', '_blank')
+
+    if (!janela) {
+      alert('O navegador bloqueou a janela de impressão. Libere pop-ups para o HC Connect e tente novamente.')
+      return
+    }
+
+    try {
+      janela.opener = null
+      janela.document.write(
+        '<!doctype html><html><head><title>Preparando impressão...</title></head><body style="font-family:Arial;padding:24px">Preparando PDF para impressão...</body></html>'
+      )
+      janela.document.close()
+
+      const resposta = await fetch(url, { cache: 'no-store' })
+      if (!resposta.ok) {
+        throw new Error(`Falha ao carregar PDF (${resposta.status}).`)
+      }
+
+      const blobOriginal = await resposta.blob()
+      const blob = blobOriginal.type === 'application/pdf'
+        ? blobOriginal
+        : new Blob([blobOriginal], { type: 'application/pdf' })
+      const blobUrl = URL.createObjectURL(blob)
+
+      janela.location.href = blobUrl
+
+      window.setTimeout(() => {
+        try {
+          janela.focus()
+          janela.print()
+        } catch (error) {
+          console.error('Erro ao abrir impressão do PDF:', error)
+        }
+
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+      }, 1800)
+    } catch (error) {
+      console.error('Erro ao preparar impressão do PDF:', error)
+      janela.location.href = url
+      alert('Não foi possível abrir a impressão automaticamente. O PDF foi aberto em nova aba; use Ctrl+P para imprimir.')
+    }
+  }
+
   function hojeISO() {
     return new Date().toISOString().slice(0, 10)
   }
@@ -6914,9 +7014,35 @@ export default function FaturasPage() {
                       <td>
                         {fatura?.arquivo_pdf ? (
                           <div className="flex flex-col gap-2">
-                            <Link href={fatura.arquivo_pdf} target="_blank" className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500">
+                            <Link
+                              href={fatura.arquivo_pdf}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-blue-500"
+                            >
                               Abrir
                             </Link>
+
+                            <button
+                              type="button"
+                              onClick={() => imprimirPdf(fatura.arquivo_pdf)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-center text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Imprimir
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                salvarPdf(
+                                  fatura.arquivo_pdf,
+                                  nomeArquivoPdf('Fatura', fatura.numero_fatura || embarque.awb)
+                                )
+                              }
+                              className="rounded-lg bg-emerald-700 px-3 py-2 text-center text-xs font-black text-white hover:bg-emerald-600"
+                            >
+                              Salvar PDF
+                            </button>
 
                             <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
                               {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
@@ -7028,9 +7154,36 @@ export default function FaturasPage() {
                       <td>
                         {fatura?.recibo_pdf ? (
                           <div className="flex flex-col gap-2">
-                            <Link href={fatura.recibo_pdf} target="_blank" className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500">
+                            <Link
+                              href={fatura.recibo_pdf}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500"
+                            >
                               Abrir
                             </Link>
+
+                            <button
+                              type="button"
+                              onClick={() => imprimirPdf(fatura.recibo_pdf)}
+                              className="rounded-lg bg-slate-700 px-3 py-2 text-center text-xs font-black text-white hover:bg-slate-600"
+                            >
+                              Imprimir
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                salvarPdf(
+                                  fatura.recibo_pdf,
+                                  nomeArquivoPdf('Recibo', fatura.numero_fatura || embarque.awb)
+                                )
+                              }
+                              className="rounded-lg bg-emerald-700 px-3 py-2 text-center text-xs font-black text-white hover:bg-emerald-600"
+                            >
+                              Salvar PDF
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => abrirEmissaoRecibo(embarque)}
