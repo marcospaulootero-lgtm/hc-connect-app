@@ -154,7 +154,7 @@ export default function AdminEmbarqueDiretoPage() {
 
     const { data: atualizado, error: erroBusca } = await supabase
       .from('embarque_direto')
-      .select('id, status, embarque_id, arquivado_admin, arquivado_admin_em, arquivado_admin_por, usuario_id, solicitante_email')
+      .select('id, status, embarque_id, criado_em, convertido_em, arquivado_admin, arquivado_admin_em, arquivado_admin_por, usuario_id, solicitante_email')
       .eq('id', id)
       .maybeSingle()
 
@@ -481,14 +481,17 @@ async function buscarClienteDaSolicitacao(item: any) {
         data: { user },
       } = await supabase.auth.getUser()
 
+      const convertidoEm = new Date().toISOString()
+
       const payloadAtualizacao: any = {
         status: 'CONVERTIDO EM EMBARQUE',
         embarque_id: novoEmbarque.id,
+        convertido_em: convertidoEm,
       }
 
       if (arquivarDepois) {
         payloadAtualizacao.arquivado_admin = true
-        payloadAtualizacao.arquivado_admin_em = new Date().toISOString()
+        payloadAtualizacao.arquivado_admin_em = convertidoEm
         payloadAtualizacao.arquivado_admin_por = user?.id || null
       }
 
@@ -627,14 +630,17 @@ async function buscarClienteDaSolicitacao(item: any) {
         data: { user },
       } = await supabase.auth.getUser()
 
+      const convertidoEm = new Date().toISOString()
+
       const payload: any = {
         status: 'CONVERTIDO EM EMBARQUE',
         embarque_id: embarque.id,
+        convertido_em: convertidoEm,
       }
 
       if (arquivarDepois) {
         payload.arquivado_admin = true
-        payload.arquivado_admin_em = new Date().toISOString()
+        payload.arquivado_admin_em = convertidoEm
         payload.arquivado_admin_por = user?.id || null
       }
 
@@ -679,6 +685,7 @@ async function buscarClienteDaSolicitacao(item: any) {
     try {
       const payload: any = {
         status: 'CONVERTIDO EM EMBARQUE',
+        convertido_em: new Date().toISOString(),
       }
 
       if (item.embarque_id) {
@@ -834,7 +841,10 @@ async function buscarClienteDaSolicitacao(item: any) {
                         <Info label="AWB / Referência" valor={item.awb} />
                         <Info label="Peso" valor={item.peso} />
                         <Info label="Volumes" valor={item.volumes} />
-                        <Info label="Criado em" valor={dataBR(item.created_at)} />
+                        <Info label="Solicitação enviada em" valor={dataBR(item.criado_em)} />
+                        {String(item.status || '').toUpperCase() === 'CONVERTIDO EM EMBARQUE' && (
+                          <Info label="Convertido em embarque em" valor={item.convertido_em ? dataBR(item.convertido_em) : 'Não registrado historicamente'} />
+                        )}
                         {itemArquivado && <Info label="Arquivado em" valor={dataBR(item.arquivado_admin_em)} />}
                       </div>
 
