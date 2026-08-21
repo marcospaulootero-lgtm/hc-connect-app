@@ -604,6 +604,15 @@ Observações do cliente: ${cotacao.observacoes || '-'}
             Aguardando transportadora
           </button>
 
+          {cotacao.status === 'COTAÇÃO DISPONÍVEL' && (
+            <button
+              onClick={() => atualizarStatus('APROVADA')}
+              className="bg-green-700 hover:bg-green-600"
+            >
+              Aprovar cotação
+            </button>
+          )}
+
           <button
             onClick={() => atualizarStatus('RECUSADA')}
             className="bg-red-600 hover:bg-red-500"

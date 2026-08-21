@@ -424,6 +424,25 @@ export default function CotacoesAdminPage() {
                         Disponível
                       </button>
 
+                      {item.status === 'COTAÇÃO DISPONÍVEL' && (
+                        <button
+                          onClick={() => atualizarStatus(item.id, 'APROVADA')}
+                          className="bg-green-700 hover:bg-green-600 px-4 py-2 rounded-xl font-bold"
+                          title="Use quando o cliente aprovar a cotação por e-mail, WhatsApp ou outro canal externo."
+                        >
+                          Aprovar
+                        </button>
+                      )}
+
+                      {(item.status === 'APROVADA' || item.status === 'AUTORIZADA') && (
+                        <a
+                          href={`/admin/cotacoes/${item.id}`}
+                          className="bg-cyan-700 hover:bg-cyan-600 px-4 py-2 rounded-xl font-bold text-white"
+                        >
+                          Converter em embarque
+                        </a>
+                      )}
+
                       <button
                         onClick={() => atualizarStatus(item.id, 'RECUSADA')}
                         className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-xl font-bold"
