@@ -20,6 +20,137 @@ const STATUS_COTACOES_BADGE = [
   'AGUARDANDO TRANSPORTADORA',
 ]
 
+type NotificacoesMenu = {
+  cotacoes: number
+  embarqueDireto: number
+  faturasClientes: number
+  faturasTransportadoras: number
+  usuarios: number
+}
+
+const NOTIFICACOES_MENU_ZERADAS: NotificacoesMenu = {
+  cotacoes: 0,
+  embarqueDireto: 0,
+  faturasClientes: 0,
+  faturasTransportadoras: 0,
+  usuarios: 0,
+}
+
+const STORAGE_ULTIMA_VISUALIZACAO_USUARIOS =
+  'hc_admin_ultima_visualizacao_usuarios_v1'
+
+function normalizarTextoMenu(valor: any) {
+  return String(valor ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+}
+
+function normalizarDataMenu(valor: any) {
+  if (!valor) return null
+
+  if (valor instanceof Date && !isNaN(valor.getTime())) {
+    return valor.toISOString().slice(0, 10)
+  }
+
+  const texto = String(valor).trim()
+  if (!texto) return null
+  if (/^\d{4}-\d{2}-\d{2}/.test(texto)) return texto.slice(0, 10)
+
+  const partes = texto.split('/')
+  if (partes.length === 3) {
+    const [dia, mes, ano] = partes
+    const anoFinal = ano.length === 2 ? `20${ano}` : ano
+    return `${anoFinal.padStart(4, '20')}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
+  }
+
+  const tentativa = new Date(texto)
+  if (!isNaN(tentativa.getTime())) return tentativa.toISOString().slice(0, 10)
+
+  return null
+}
+
+function hojeIsoMenu() {
+  const agora = new Date()
+  const ano = agora.getFullYear()
+  const mes = String(agora.getMonth() + 1).padStart(2, '0')
+  const dia = String(agora.getDate()).padStart(2, '0')
+  return `${ano}-${mes}-${dia}`
+}
+
+function campoFaturaTransportadoraMenu(item: any, nomes: string[]) {
+  for (const nome of nomes) {
+    const valor = item?.[nome]
+    if (valor !== undefined && valor !== null && valor !== '') return valor
+  }
+
+  return ''
+}
+
+function faturaTransportadoraUrgenteMenu(item: any) {
+  const transportadora = normalizarTextoMenu(
+    campoFaturaTransportadoraMenu(item, ['transportadora', 'empresa', 'carrier'])
+  )
+
+  if (
+    !transportadora.includes('DHL') &&
+    !transportadora.includes('FEDEX') &&
+    !transportadora.includes('FED EX')
+  ) {
+    return false
+  }
+
+  const flagArquivada = campoFaturaTransportadoraMenu(item, [
+    'arquivada',
+    'arquivado',
+    'oculta',
+    'oculto',
+  ])
+
+  if (
+    flagArquivada === true ||
+    ['TRUE', 'SIM', '1'].includes(normalizarTextoMenu(flagArquivada))
+  ) {
+    return false
+  }
+
+  const situacao = normalizarTextoMenu(
+    campoFaturaTransportadoraMenu(item, ['situacao', 'situação', 'status'])
+  )
+
+  const pagamento = normalizarDataMenu(
+    campoFaturaTransportadoraMenu(item, [
+      'data_pagamento',
+      'pagamento',
+      'data_pago',
+      'pago_em',
+    ])
+  )
+
+  if (pagamento) return false
+  if (
+    situacao.includes('PAGO') ||
+    situacao.includes('PAGA') ||
+    situacao.includes('BAIXADO') ||
+    situacao.includes('CANCEL') ||
+    situacao.includes('CONTEST')
+  ) {
+    return false
+  }
+
+  const vencimento = normalizarDataMenu(
+    campoFaturaTransportadoraMenu(item, [
+      'vencimento',
+      'data_vencimento',
+      'vencimento_fatura',
+      'data_vencimento_fatura',
+    ])
+  )
+
+  return !!vencimento && vencimento <= hojeIsoMenu()
+}
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -27,74 +158,68 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [carregando, setCarregando] = useState(true)
   const [usuario, setUsuario] = useState<any>(null)
   const [menuMobileAberto, setMenuMobileAberto] = useState(false)
-  const [notificacoesMenu, setNotificacoesMenu] = useState({
-    cotacoes: 0,
-  })
-
-
-  async function carregarBadgeCotacoes() {
-    const { count, error } = await supabase
-      .from('cotacoes')
-      .select('id', { count: 'exact', head: true })
-      .in('status', STATUS_COTACOES_BADGE)
-
-    if (error) {
-      console.log('Erro ao carregar badge de cotações:', error)
-      setNotificacoesMenu((atual) => ({ ...atual, cotacoes: 0 }))
-      return
-    }
-
-    setNotificacoesMenu((atual) => ({ ...atual, cotacoes: count || 0 }))
-  }
+  const [notificacoesMenu, setNotificacoesMenu] =
+    useState<NotificacoesMenu>(NOTIFICACOES_MENU_ZERADAS)
 
   useEffect(() => {
     verificarAcesso()
   }, [])
 
   useEffect(() => {
-    carregarBadgeCotacoes()
-
-    const canalBadgeCotacoes = supabase
-      .channel('badge-cotacoes-admin-menu')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'cotacoes',
-        },
-        () => carregarBadgeCotacoes()
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(canalBadgeCotacoes)
-    }
-  }, [])
-
-  useEffect(() => {
     setMenuMobileAberto(false)
+
+    if (pathname?.startsWith('/admin/usuarios')) {
+      window.localStorage.setItem(
+        STORAGE_ULTIMA_VISUALIZACAO_USUARIOS,
+        new Date().toISOString()
+      )
+      setNotificacoesMenu((atual) => ({ ...atual, usuarios: 0 }))
+    }
   }, [pathname])
 
   useEffect(() => {
     carregarNotificacoesMenu()
 
+    const atualizar = () => carregarNotificacoesMenu()
+
     const canal = supabase
-      .channel('notificacoes-menu-admin')
+      .channel('notificacoes-menu-admin-v2')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'cotacoes',
-        },
-        () => {
-          carregarNotificacoesMenu()
-        }
+        { event: '*', schema: 'public', table: 'cotacoes' },
+        atualizar
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'embarque_direto' },
+        atualizar
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'faturas' },
+        atualizar
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'financeiro_embarques' },
+        atualizar
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'faturas_transportadoras' },
+        atualizar
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'perfis' },
+        atualizar
       )
       .subscribe()
 
+    const intervalo = window.setInterval(atualizar, 60000)
+
     return () => {
+      window.clearInterval(intervalo)
       supabase.removeChannel(canal)
     }
   }, [])
@@ -131,22 +256,168 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   async function carregarNotificacoesMenu() {
     try {
-      const { count, error } = await supabase
-        .from('cotacoes')
-        .select('id', { count: 'exact', head: true })
-        .in('status', [
-          'AGUARDANDO ANÁLISE',
-          'AGUARDANDO ANALISE',
-          'AGUARDANDO_ANALISE',
-        ])
+      const [
+        cotacoesRes,
+        embarquesDiretosRes,
+        perfisRes,
+        financeiroRes,
+        faturasClientesRes,
+        faturasTransportadorasRes,
+      ] = await Promise.all([
+        supabase
+          .from('cotacoes')
+          .select('id', { count: 'exact', head: true })
+          .in('status', STATUS_COTACOES_BADGE),
+        supabase
+          .from('embarque_direto')
+          .select('id, status, embarque_id, arquivado_admin'),
+        supabase
+          .from('perfis')
+          .select('id, criado_em'),
+        supabase
+          .from('financeiro_embarques')
+          .select('id, embarque_id, awb, vencimento_cobranca, recebimento'),
+        supabase
+          .from('faturas')
+          .select(
+            'id, embarque_id, comprovante_pagamento, data_comprovante, status_pagamento, arquivado_admin'
+          ),
+        supabase.from('faturas_transportadoras').select('*'),
+      ])
 
-      if (error) {
-        console.error('Erro ao carregar notificações do menu:', error.message)
-        return
+      if (cotacoesRes.error) {
+        console.error('Erro no badge de cotações:', cotacoesRes.error.message)
+      }
+      if (embarquesDiretosRes.error) {
+        console.error(
+          'Erro no badge de embarque direto:',
+          embarquesDiretosRes.error.message
+        )
+      }
+      if (perfisRes.error) {
+        console.error('Erro no badge de usuários:', perfisRes.error.message)
+      }
+      if (financeiroRes.error) {
+        console.error(
+          'Erro no badge de faturas de clientes:',
+          financeiroRes.error.message
+        )
+      }
+      if (faturasClientesRes.error) {
+        console.error(
+          'Erro no badge de comprovantes:',
+          faturasClientesRes.error.message
+        )
+      }
+      if (faturasTransportadorasRes.error) {
+        console.error(
+          'Erro no badge de faturas DHL/FedEx:',
+          faturasTransportadorasRes.error.message
+        )
+      }
+
+      const embarquesDiretosPendentes = (embarquesDiretosRes.data || []).filter(
+        (item: any) => {
+          const status = normalizarTextoMenu(item.status)
+
+          if (item.arquivado_admin === true) return false
+          if (item.embarque_id) return false
+          if (
+            status.includes('CONVERTID') ||
+            status.includes('RECUSAD') ||
+            status.includes('CANCELAD') ||
+            status.includes('EXCLUID')
+          ) {
+            return false
+          }
+
+          return true
+        }
+      ).length
+
+      const hoje = hojeIsoMenu()
+      const financeiro = financeiroRes.data || []
+      const recebidosPorEmbarque = new Set(
+        financeiro
+          .filter((item: any) => !!item.recebimento && !!item.embarque_id)
+          .map((item: any) => String(item.embarque_id))
+      )
+
+      const alertasFaturasClientes = new Set<string>()
+
+      financeiro.forEach((item: any) => {
+        const vencimento = normalizarDataMenu(item.vencimento_cobranca)
+        if (!vencimento || vencimento >= hoje || item.recebimento) return
+
+        alertasFaturasClientes.add(
+          String(item.embarque_id || item.awb || item.id)
+        )
+      })
+
+      ;(faturasClientesRes.data || []).forEach((fatura: any) => {
+        if (fatura.arquivado_admin === true) return
+        if (!fatura.comprovante_pagamento) return
+
+        const status = normalizarTextoMenu(
+          fatura.status_pagamento || 'COMPROVANTE ENVIADO'
+        )
+
+        if (
+          status === 'PAGO' ||
+          status === 'COMPROVANTE REJEITADO' ||
+          (fatura.embarque_id &&
+            recebidosPorEmbarque.has(String(fatura.embarque_id)))
+        ) {
+          return
+        }
+
+        alertasFaturasClientes.add(
+          String(fatura.embarque_id || `fatura:${fatura.id}`)
+        )
+      })
+
+      const faturasTransportadorasUrgentes = (
+        faturasTransportadorasRes.data || []
+      ).filter(faturaTransportadoraUrgenteMenu).length
+
+      let usuariosNovos = 0
+
+      if (typeof window !== 'undefined') {
+        let ultimaVisualizacao = window.localStorage.getItem(
+          STORAGE_ULTIMA_VISUALIZACAO_USUARIOS
+        )
+
+        if (!ultimaVisualizacao) {
+          ultimaVisualizacao = new Date().toISOString()
+          window.localStorage.setItem(
+            STORAGE_ULTIMA_VISUALIZACAO_USUARIOS,
+            ultimaVisualizacao
+          )
+        }
+
+        const limite = new Date(ultimaVisualizacao).getTime()
+
+        usuariosNovos = (perfisRes.data || []).filter((perfil: any) => {
+          if (!perfil.criado_em) return false
+          const criadoEm = new Date(perfil.criado_em).getTime()
+          return !isNaN(criadoEm) && criadoEm > limite
+        }).length
+
+        if (window.location.pathname.startsWith('/admin/usuarios')) {
+          window.localStorage.setItem(
+            STORAGE_ULTIMA_VISUALIZACAO_USUARIOS,
+            new Date().toISOString()
+          )
+          usuariosNovos = 0
+        }
       }
 
       setNotificacoesMenu({
-        cotacoes: count || 0,
+        cotacoes: cotacoesRes.count || 0,
+        embarqueDireto: embarquesDiretosPendentes,
+        faturasClientes: alertasFaturasClientes.size,
+        faturasTransportadoras: faturasTransportadorasUrgentes,
+        usuarios: usuariosNovos,
       })
     } catch (error) {
       console.error('Erro ao carregar notificações do menu:', error)
@@ -246,7 +517,7 @@ function MenuContent({
   notificacoes,
 }: {
   pathname: string | null
-  notificacoes: { cotacoes: number }
+  notificacoes: NotificacoesMenu
 }) {
   return (
     <nav className="space-y-5 overflow-y-auto pr-1 pb-8">
@@ -288,6 +559,7 @@ function MenuContent({
           descricao="Criar operação rápida"
           icon="🚚"
           pathname={pathname}
+          badge={Number(notificacoes?.embarqueDireto || 0)}
         />
         <MenuItem
           href="/admin/cotacoes"
@@ -303,6 +575,7 @@ function MenuContent({
           descricao="PDFs e recibos"
           icon="🧾"
           pathname={pathname}
+          badge={Number(notificacoes?.faturasClientes || 0)}
         />
         <MenuItem
           href="/admin/faturas-transportadoras"
@@ -310,6 +583,7 @@ function MenuContent({
           descricao="Cobranças das transportadoras"
           icon="🚛"
           pathname={pathname}
+          badge={Number(notificacoes?.faturasTransportadoras || 0)}
         />
       </MenuGroup>
 
@@ -355,6 +629,7 @@ function MenuContent({
           descricao="Acessos e clientes"
           icon="👥"
           pathname={pathname}
+          badge={Number(notificacoes?.usuarios || 0)}
         />
         <MenuItem
           href="/admin/suporte"
@@ -440,8 +715,8 @@ function MenuItem({
         <span className="block leading-tight"><span className="inline-flex items-center gap-2">
               {label}
               {badge > 0 && (
-                <span className="min-w-[22px] rounded-full bg-red-600 px-2 py-0.5 text-center text-[11px] font-black text-white">
-                  {badge}
+                <span className="min-w-[22px] rounded-full bg-red-600 px-2 py-0.5 text-center text-[11px] font-black text-white shadow-lg">
+                  {badge > 99 ? '99+' : badge}
                 </span>
               )}
             </span></span>
@@ -457,11 +732,6 @@ function MenuItem({
           </span>
         ) : null}
       </span>
-          {Number(badge) > 0 ? (
-        <span className="absolute right-3 top-3 min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-black leading-none text-white shadow-lg">
-          {Number(badge) > 99 ? '99+' : badge}
-        </span>
-      ) : null}
     </Link>
   )
 }
