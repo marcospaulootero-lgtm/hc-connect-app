@@ -50,7 +50,7 @@ export default function PerfilClientePage() {
     } = await supabase.auth.getUser()
 
     if (erroUsuario || !user) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 

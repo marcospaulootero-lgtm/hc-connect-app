@@ -70,7 +70,7 @@ export default function ClienteEmbarquesPage() {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 
@@ -82,7 +82,7 @@ export default function ClienteEmbarquesPage() {
 
     if (error || !perfil || perfil.ativo === false) {
       await supabase.auth.signOut()
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 

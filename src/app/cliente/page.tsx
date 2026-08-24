@@ -59,7 +59,7 @@ export default function ClientePage() {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 

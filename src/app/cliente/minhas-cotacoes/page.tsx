@@ -20,7 +20,7 @@ export default function MinhasCotacoesPage() {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 
@@ -31,7 +31,7 @@ export default function MinhasCotacoesPage() {
       .single()
 
     if (error || !perfil) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 

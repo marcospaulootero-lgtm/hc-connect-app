@@ -63,7 +63,7 @@ export default function CotacoesClientePage() {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 
@@ -74,7 +74,7 @@ export default function CotacoesClientePage() {
       .single()
 
     if (error || !perfil) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 

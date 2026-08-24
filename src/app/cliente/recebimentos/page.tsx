@@ -45,7 +45,7 @@ export default function RecebimentosParceiroPage() {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      window.location.href = '/login'
+      window.location.replace('/')
       return
     }
 

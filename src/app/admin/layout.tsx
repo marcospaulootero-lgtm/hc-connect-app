@@ -237,7 +237,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      router.push('/login')
+      router.replace('/')
       return
     }
 
