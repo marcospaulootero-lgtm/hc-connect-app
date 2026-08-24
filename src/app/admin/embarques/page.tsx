@@ -1068,10 +1068,21 @@ export default function EmbarquesPage() {
       }
 
       try {
+        const {
+          data: { session: sessaoRastreio },
+        } = await supabase.auth.getSession()
+
+        const accessTokenRastreio = sessaoRastreio?.access_token
+
+        if (!accessTokenRastreio) {
+          throw new Error('Sessão administrativa expirada.')
+        }
+
         await fetch('/api/rastreio', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessTokenRastreio}`,
           },
           body: JSON.stringify({
             embarque_id: data.id,

@@ -253,6 +253,17 @@ export default function DetalheEmbarquePage() {
     return
   }
 
+  const {
+    data: { session: sessaoRastreio },
+  } = await supabase.auth.getSession()
+
+  const accessTokenRastreio = sessaoRastreio?.access_token
+
+  if (!accessTokenRastreio) {
+    alert('Sessão administrativa expirada. Entre novamente.')
+    return
+  }
+
   setAtualizandoRastreio(true)
 
   try {
@@ -260,6 +271,7 @@ export default function DetalheEmbarquePage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessTokenRastreio}`,
       },
       body: JSON.stringify({
         embarque_id: embarque.id,

@@ -153,6 +153,17 @@ export default function DashboardPage() {
   }
 
   async function atualizarTodosRastreios() {
+    const {
+      data: { session: sessaoRastreio },
+    } = await supabase.auth.getSession()
+
+    const accessTokenRastreio = sessaoRastreio?.access_token
+
+    if (!accessTokenRastreio) {
+      alert('Sessão administrativa expirada. Entre novamente.')
+      return
+    }
+
     setRodandoRastreio(true)
 
     try {
@@ -167,6 +178,7 @@ export default function DashboardPage() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessTokenRastreio}`,
             },
             body: JSON.stringify({
               embarque_id: embarque.id,

@@ -3,8 +3,16 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+})
 
 type TransportadoraRastreio = 'DHL' | 'FEDEX'
 
@@ -26,6 +34,39 @@ const STATUS_PRIORIDADE: Record<string, number> = {
 
 export async function POST(req: Request) {
   try {
+    const authHeader = req.headers.get('authorization') || ''
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : ''
+
+    if (!token) {
+      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+    }
+
+    const {
+      data: { user },
+      error: erroAuth,
+    } = await supabaseAuth.auth.getUser(token)
+
+    if (erroAuth || !user?.id) {
+      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+    }
+
+    const { data: perfil, error: erroPerfil } = await supabase
+      .from('perfis')
+      .select('tipo_acesso, ativo')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (
+      erroPerfil ||
+      !perfil ||
+      perfil.ativo === false ||
+      String(perfil.tipo_acesso || '').toLowerCase() !== 'admin'
+    ) {
+      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+    }
+
     const body = await req.json()
     const embarqueId = body.embarque_id
 
