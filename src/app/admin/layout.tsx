@@ -22,6 +22,7 @@ const STATUS_COTACOES_BADGE = [
 
 type NotificacoesMenu = {
   cotacoes: number
+  embarques: number
   embarqueDireto: number
   faturasClientes: number
   faturasTransportadoras: number
@@ -30,6 +31,7 @@ type NotificacoesMenu = {
 
 const NOTIFICACOES_MENU_ZERADAS: NotificacoesMenu = {
   cotacoes: 0,
+  embarques: 0,
   embarqueDireto: 0,
   faturasClientes: 0,
   faturasTransportadoras: 0,
@@ -214,6 +216,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         { event: '*', schema: 'public', table: 'perfis' },
         atualizar
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'solicitacoes_acesso_embarque' },
+        atualizar
+      )
       .subscribe()
 
     const intervalo = window.setInterval(atualizar, 60000)
@@ -258,6 +265,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     try {
       const [
         cotacoesRes,
+        solicitacoesAcessoRes,
         embarquesDiretosRes,
         perfisRes,
         financeiroRes,
@@ -268,6 +276,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           .from('cotacoes')
           .select('id', { count: 'exact', head: true })
           .in('status', STATUS_COTACOES_BADGE),
+        supabase
+          .from('solicitacoes_acesso_embarque')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'PENDENTE'),
         supabase
           .from('embarque_direto')
           .select('id, status, embarque_id, arquivado_admin'),
@@ -414,6 +426,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       setNotificacoesMenu({
         cotacoes: cotacoesRes.count || 0,
+        embarques: solicitacoesAcessoRes.count || 0,
         embarqueDireto: embarquesDiretosPendentes,
         faturasClientes: alertasFaturasClientes.size,
         faturasTransportadoras: faturasTransportadorasUrgentes,
@@ -552,6 +565,7 @@ function MenuContent({
           descricao="Processos e rastreios"
           icon="📦"
           pathname={pathname}
+          badge={Number(notificacoes?.embarques || 0)}
         />
         <MenuItem
           href="/admin/embarque-direto"

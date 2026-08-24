@@ -19,10 +19,50 @@ export default function ClienteEmbarquesPage() {
   const [filtroTransportadora, setFiltroTransportadora] = useState('')
   const [modo, setModo] = useState<ModoLista>('ATIVOS')
   const [processandoId, setProcessandoId] = useState<string | null>(null)
+  const [awbSolicitacao, setAwbSolicitacao] = useState('')
+  const [solicitacoesAcesso, setSolicitacoesAcesso] = useState<any[]>([])
+  const [enviandoSolicitacao, setEnviandoSolicitacao] = useState(false)
 
   useEffect(() => {
     carregarUsuario()
   }, [])
+
+  useEffect(() => {
+    if (!usuario?.id) return
+
+    const atualizarSolicitacoes = () => {
+      carregarSolicitacoesAcesso(usuario.id)
+      carregarEmbarques(usuario.id)
+    }
+
+    const canal = supabase
+      .channel(`solicitacoes-acesso-awb-cliente-${usuario.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'solicitacoes_acesso_embarque',
+          filter: `cliente_id=eq.${usuario.id}`,
+        },
+        atualizarSolicitacoes
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'embarque_clientes',
+          filter: `cliente_id=eq.${usuario.id}`,
+        },
+        () => carregarEmbarques(usuario.id)
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
+  }, [usuario?.id])
 
   async function carregarUsuario() {
     const {
@@ -59,7 +99,10 @@ export default function ClienteEmbarquesPage() {
     }
 
     setUsuario(dadosUsuario)
-    await carregarEmbarques(dadosUsuario.id)
+    await Promise.all([
+      carregarEmbarques(dadosUsuario.id),
+      carregarSolicitacoesAcesso(dadosUsuario.id),
+    ])
   }
 
   async function carregarEmbarques(usuarioId: string) {
@@ -145,6 +188,90 @@ export default function ClienteEmbarquesPage() {
     setEmbarques(unicos)
     setArquivadosIds(idsArquivados)
     setLoading(false)
+  }
+
+  function normalizarAwbSolicitacao(valor: string) {
+    return String(valor || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9-]/g, '')
+      .trim()
+  }
+
+  async function carregarSolicitacoesAcesso(usuarioId: string) {
+    const { data, error } = await supabase
+      .from('solicitacoes_acesso_embarque')
+      .select('id, awb, status, embarque_id, criado_em, analisado_em')
+      .eq('cliente_id', usuarioId)
+      .order('criado_em', { ascending: false })
+      .limit(20)
+
+    if (error) {
+      console.log('ERRO SOLICITAÇÕES DE ACESSO POR AWB:', error)
+      return
+    }
+
+    setSolicitacoesAcesso(data || [])
+  }
+
+  async function solicitarAcessoAwb(e: React.FormEvent) {
+    e.preventDefault()
+
+    if (!usuario?.id || enviandoSolicitacao) return
+
+    const awb = normalizarAwbSolicitacao(awbSolicitacao)
+
+    if (!awb) {
+      alert('Informe o número do AWB.')
+      return
+    }
+
+    const jaLiberado = embarques.some(
+      (item) => normalizarAwbSolicitacao(item.awb || '') === awb
+    )
+
+    if (jaLiberado) {
+      alert('Este AWB já está liberado no seu portal.')
+      return
+    }
+
+    const jaPendente = solicitacoesAcesso.some(
+      (item) =>
+        normalizarAwbSolicitacao(item.awb || '') === awb &&
+        String(item.status || '').toUpperCase() === 'PENDENTE'
+    )
+
+    if (jaPendente) {
+      alert('Já existe uma solicitação pendente para este AWB.')
+      return
+    }
+
+    setEnviandoSolicitacao(true)
+
+    const { error } = await supabase
+      .from('solicitacoes_acesso_embarque')
+      .insert([
+        {
+          cliente_id: usuario.id,
+          awb,
+          status: 'PENDENTE',
+        },
+      ])
+
+    setEnviandoSolicitacao(false)
+
+    if (error) {
+      console.log('ERRO SOLICITAÇÃO DE ACESSO POR AWB:', error)
+      alert(
+        error.code === '23505'
+          ? 'Já existe uma solicitação pendente para este AWB.'
+          : `Não foi possível enviar a solicitação: ${error.message}`
+      )
+      return
+    }
+
+    setAwbSolicitacao('')
+    await carregarSolicitacoesAcesso(usuario.id)
+    alert('Solicitação enviada. O acesso será liberado somente após autorização da HC.')
   }
 
   async function arquivarEmbarque(embarqueId: string) {
@@ -320,6 +447,65 @@ export default function ClienteEmbarquesPage() {
             </a>
           </div>
         </header>
+
+        <section className="border border-cyan-800/70 rounded-3xl bg-cyan-950/10 p-6 mb-8">
+          <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-5">
+            <div>
+              <p className="text-cyan-300 text-sm font-black uppercase tracking-wide">
+                Adicionar embarque existente
+              </p>
+              <h2 className="text-2xl font-black mt-1">Solicitar acesso pelo AWB</h2>
+              <p className="text-slate-400 text-sm mt-2 max-w-3xl">
+                Informe o AWB. Nenhum dado do embarque será exibido antes da análise.
+                O acesso só será liberado após autorização de um administrador da HC.
+              </p>
+            </div>
+
+            <form onSubmit={solicitarAcessoAwb} className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
+              <input
+                value={awbSolicitacao}
+                onChange={(e) => setAwbSolicitacao(e.target.value)}
+                placeholder="Número do AWB"
+                autoComplete="off"
+                className="min-w-0 sm:w-[320px]"
+              />
+              <button
+                type="submit"
+                disabled={enviandoSolicitacao}
+                className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 px-5 py-3 rounded-xl font-black whitespace-nowrap"
+              >
+                {enviandoSolicitacao ? 'Enviando...' : 'Solicitar acesso'}
+              </button>
+            </form>
+          </div>
+
+          {solicitacoesAcesso.length > 0 && (
+            <div className="mt-5 border-t border-cyan-900/60 pt-5">
+              <p className="text-sm font-black text-slate-300 mb-3">Solicitações recentes</p>
+              <div className="flex flex-wrap gap-2">
+                {solicitacoesAcesso.slice(0, 8).map((item: any) => {
+                  const status = String(item.status || 'PENDENTE').toUpperCase()
+                  const classe =
+                    status === 'APROVADA'
+                      ? 'border-green-500/50 bg-green-600/15 text-green-300'
+                      : status === 'RECUSADA'
+                        ? 'border-red-500/50 bg-red-600/15 text-red-300'
+                        : 'border-yellow-500/50 bg-yellow-500/15 text-yellow-300'
+
+                  return (
+                    <span
+                      key={item.id}
+                      className={`rounded-xl border px-3 py-2 text-xs font-black ${classe}`}
+                      title={`Solicitado em ${dataHoraBR(item.criado_em)}`}
+                    >
+                      AWB {item.awb} • {status}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </section>
 
         <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
           <ResumoCard titulo="Ativos" valor={totalAtivos} detalhe="Lista principal" icone="📦" />

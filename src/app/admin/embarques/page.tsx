@@ -78,6 +78,8 @@ export default function EmbarquesPage() {
   const [conhecimentoEmbarque, setConhecimentoEmbarque] = useState<File | null>(null)
   const [salvandoEmbarque, setSalvandoEmbarque] = useState(false)
   const [copiandoId, setCopiandoId] = useState<string | null>(null)
+  const [solicitacoesAcesso, setSolicitacoesAcesso] = useState<any[]>([])
+  const [processandoSolicitacaoAcesso, setProcessandoSolicitacaoAcesso] = useState<string | null>(null)
 
   const formInicial = {
     usuarios_ids: [] as string[],
@@ -114,6 +116,26 @@ export default function EmbarquesPage() {
     carregarUsuarios()
     carregarAdmins()
     carregarClientesFaturamento()
+    carregarSolicitacoesAcesso()
+  }, [])
+
+  useEffect(() => {
+    const canal = supabase
+      .channel('solicitacoes-acesso-awb-admin')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'solicitacoes_acesso_embarque',
+        },
+        () => carregarSolicitacoesAcesso()
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
   }, [])
 
 
@@ -528,6 +550,96 @@ export default function EmbarquesPage() {
       .order('nome')
 
     setAdmins(data || [])
+  }
+
+  async function carregarSolicitacoesAcesso() {
+    const { data, error } = await supabase
+      .from('solicitacoes_acesso_embarque')
+      .select('id, cliente_id, awb, status, embarque_id, criado_em, analisado_em')
+      .eq('status', 'PENDENTE')
+      .order('criado_em', { ascending: true })
+
+    if (error) {
+      console.error('Erro ao carregar solicitações de acesso por AWB:', error)
+      return
+    }
+
+    setSolicitacoesAcesso(data || [])
+  }
+
+  async function autorizarSolicitacaoAcesso(item: any) {
+    if (processandoSolicitacaoAcesso) return
+
+    const cliente = usuarios.find(
+      (usuario: any) => String(usuario.id) === String(item.cliente_id)
+    )
+    const nomeCliente =
+      cliente?.nome ||
+      cliente?.nome_empresa ||
+      cliente?.razao_social ||
+      cliente?.email ||
+      'cliente'
+
+    const confirmar = confirm(
+      `Autorizar ${nomeCliente} a acessar o embarque do AWB ${item.awb}?`
+    )
+
+    if (!confirmar) return
+
+    setProcessandoSolicitacaoAcesso(item.id)
+
+    const { error } = await supabase.rpc(
+      'aprovar_solicitacao_acesso_embarque',
+      { p_solicitacao_id: item.id }
+    )
+
+    setProcessandoSolicitacaoAcesso(null)
+
+    if (error) {
+      console.error('Erro ao autorizar acesso por AWB:', error)
+      alert(`Não foi possível autorizar: ${error.message}`)
+      return
+    }
+
+    alert(`Acesso ao AWB ${item.awb} liberado para ${nomeCliente}.`)
+    await Promise.all([carregar(), carregarSolicitacoesAcesso()])
+  }
+
+  async function recusarSolicitacaoAcesso(item: any) {
+    if (processandoSolicitacaoAcesso) return
+
+    const cliente = usuarios.find(
+      (usuario: any) => String(usuario.id) === String(item.cliente_id)
+    )
+    const nomeCliente =
+      cliente?.nome ||
+      cliente?.nome_empresa ||
+      cliente?.razao_social ||
+      cliente?.email ||
+      'cliente'
+
+    const confirmar = confirm(
+      `Recusar a solicitação de ${nomeCliente} para o AWB ${item.awb}?`
+    )
+
+    if (!confirmar) return
+
+    setProcessandoSolicitacaoAcesso(item.id)
+
+    const { error } = await supabase.rpc(
+      'recusar_solicitacao_acesso_embarque',
+      { p_solicitacao_id: item.id }
+    )
+
+    setProcessandoSolicitacaoAcesso(null)
+
+    if (error) {
+      console.error('Erro ao recusar acesso por AWB:', error)
+      alert(`Não foi possível recusar: ${error.message}`)
+      return
+    }
+
+    await carregarSolicitacoesAcesso()
   }
 
   function clientesDoEmbarque(embarqueId: string) {
@@ -1459,6 +1571,7 @@ export default function EmbarquesPage() {
   const totalLiberados = embarquesAtivos.filter((e) => e.status_operacional === 'Liberado').length
   const totalEntregues = embarquesAtivos.filter((e) => e.status_operacional === 'Entregue').length
   const totalArquivados = embarques.filter((e) => e.arquivado_admin).length
+  const totalSolicitacoesAcesso = solicitacoesAcesso.length
   const todosFiltradosSelecionados =
     embarquesFiltrados.length > 0 &&
     embarquesFiltrados.every((item) => embarquesSelecionados.includes(item.id))
@@ -1570,6 +1683,105 @@ export default function EmbarquesPage() {
         <KpiCard titulo="Entregues" valor={totalEntregues} detalhe="Finalizados" icone="📬" />
         <KpiCard titulo="Arquivados" valor={totalArquivados} detalhe="Ocultos do admin" icone="🗄️" />
       </section>
+
+      {totalSolicitacoesAcesso > 0 && (
+        <section className="mb-8 rounded-3xl border border-red-500/50 bg-red-950/10 p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-red-300">
+                Ação necessária
+              </p>
+              <h2 className="mt-1 text-2xl font-black">
+                Solicitações de acesso por AWB
+              </h2>
+              <p className="mt-1 text-sm text-slate-400">
+                O cliente só verá o embarque depois que um administrador autorizar.
+              </p>
+            </div>
+
+            <span className="w-fit rounded-full bg-red-600 px-4 py-2 text-sm font-black text-white">
+              {totalSolicitacoesAcesso} pendente(s)
+            </span>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {solicitacoesAcesso.map((item: any) => {
+              const cliente = usuarios.find(
+                (usuario: any) => String(usuario.id) === String(item.cliente_id)
+              )
+              const nomeCliente =
+                cliente?.nome ||
+                cliente?.nome_empresa ||
+                cliente?.razao_social ||
+                cliente?.email ||
+                'Cliente não identificado'
+
+              return (
+                <article
+                  key={item.id}
+                  className="rounded-2xl border border-red-900/70 bg-[#020817] p-5"
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Cliente
+                      </p>
+                      <p className="mt-1 font-black text-white">{nomeCliente}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {cliente?.email || '-'}
+                      </p>
+                    </div>
+
+                    <span className="w-fit rounded-full border border-yellow-500/50 bg-yellow-500/10 px-3 py-1 text-xs font-black text-yellow-300">
+                      PENDENTE
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-blue-900 bg-[#071225] p-3">
+                      <p className="text-xs font-bold text-slate-500">AWB solicitado</p>
+                      <p className="mt-1 break-all text-xl font-black text-blue-300">
+                        {item.awb}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-blue-900 bg-[#071225] p-3">
+                      <p className="text-xs font-bold text-slate-500">Solicitado em</p>
+                      <p className="mt-1 font-black text-slate-200">
+                        {item.criado_em
+                          ? new Date(item.criado_em).toLocaleString('pt-BR')
+                          : '-'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => autorizarSolicitacaoAcesso(item)}
+                      disabled={processandoSolicitacaoAcesso === item.id}
+                      className="rounded-xl bg-green-600 px-4 py-3 font-black text-white hover:bg-green-500 disabled:opacity-60"
+                    >
+                      {processandoSolicitacaoAcesso === item.id
+                        ? 'Processando...'
+                        : '✅ Autorizar acesso'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => recusarSolicitacaoAcesso(item)}
+                      disabled={processandoSolicitacaoAcesso === item.id}
+                      className="rounded-xl bg-red-700 px-4 py-3 font-black text-white hover:bg-red-600 disabled:opacity-60"
+                    >
+                      Recusar
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="mb-8 border border-blue-900 rounded-3xl bg-[#071225] p-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
