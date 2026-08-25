@@ -10,6 +10,21 @@ type Linha = Record<string, any>
 
 const CORES = ['#2563eb', '#22c55e', '#a855f7', '#f59e0b', '#06b6d4', '#ef4444', '#64748b']
 
+const MESES = [
+  { valor: '1', label: 'Janeiro' },
+  { valor: '2', label: 'Fevereiro' },
+  { valor: '3', label: 'Março' },
+  { valor: '4', label: 'Abril' },
+  { valor: '5', label: 'Maio' },
+  { valor: '6', label: 'Junho' },
+  { valor: '7', label: 'Julho' },
+  { valor: '8', label: 'Agosto' },
+  { valor: '9', label: 'Setembro' },
+  { valor: '10', label: 'Outubro' },
+  { valor: '11', label: 'Novembro' },
+  { valor: '12', label: 'Dezembro' },
+]
+
 function texto(valor: any) {
   return String(valor ?? '').trim()
 }
@@ -52,6 +67,27 @@ function numeroBR(valor: any, casas = 0) {
   })
 }
 
+function moedaCompacta(valor: any) {
+  const n = numero(valor)
+  const abs = Math.abs(n)
+
+  if (abs >= 1000000) {
+    return `R$ ${(n / 1000000).toLocaleString('pt-BR', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    })} mi`
+  }
+
+  if (abs >= 1000) {
+    return `R$ ${(n / 1000).toLocaleString('pt-BR', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    })} mil`
+  }
+
+  return moeda(n)
+}
+
 function normalizarAwb(valor: any) {
   return normalizar(valor).replace(/[^A-Z0-9]/g, '')
 }
@@ -78,6 +114,11 @@ function anoDaData(valor: any) {
 function mesDaData(valor: any) {
   const d = dataISO(valor)
   return d ? Number(d.slice(5, 7)) : 0
+}
+
+function diaDaData(valor: any) {
+  const d = dataISO(valor)
+  return d ? Number(d.slice(8, 10)) : 0
 }
 
 function dataBR(valor: any) {
@@ -293,6 +334,7 @@ export default function AnaliseTransportadorasPage() {
 
   const [transportadora, setTransportadora] = useState('TODAS')
   const [ano, setAno] = useState(String(ANO_ATUAL))
+  const [mes, setMes] = useState('TODOS')
   const [cliente, setCliente] = useState('TODOS')
   const [servico, setServico] = useState('TODOS')
   const [operacao, setOperacao] = useState('TODAS')
@@ -415,6 +457,7 @@ export default function AnaliseTransportadorasPage() {
       ) return false
 
       if (ano !== 'TODOS' && anoDaData(dataEmbarque(item)) !== Number(ano)) return false
+      if (mes !== 'TODOS' && mesDaData(dataEmbarque(item)) !== Number(mes)) return false
 
       const nomeCliente = texto(item.cliente_final || item.importador || item.exportador)
       if (cliente !== 'TODOS' && normalizar(nomeCliente) !== normalizar(cliente)) return false
@@ -425,7 +468,7 @@ export default function AnaliseTransportadorasPage() {
 
       return true
     })
-  }, [embarques, transportadora, ano, cliente, servico, operacao, regiao])
+  }, [embarques, transportadora, ano, mes, cliente, servico, operacao, regiao])
 
   const awbsFiltrados = useMemo(
     () => new Set(embarquesFiltrados.map((x) => normalizarAwb(x.awb)).filter(Boolean)),
@@ -444,10 +487,14 @@ export default function AnaliseTransportadorasPage() {
 
       if (filtrosDeEmbarqueAtivos && (!awb || !awbsFiltrados.has(awb))) return false
 
+      const dataItem = item.data_envio || dataEmbarque(embarque || {})
+
       if (ano !== 'TODOS') {
-        const anoItem = anoDaData(item.data_envio || dataEmbarque(embarque || {}))
+        const anoItem = anoDaData(dataItem)
         if (anoItem !== Number(ano)) return false
       }
+
+      if (mes !== 'TODOS' && mesDaData(dataItem) !== Number(mes)) return false
 
       return true
     })
@@ -455,6 +502,7 @@ export default function AnaliseTransportadorasPage() {
     itensFaturas,
     transportadora,
     ano,
+    mes,
     filtrosDeEmbarqueAtivos,
     awbsFiltrados,
     embarquesPorAwb,
@@ -473,6 +521,7 @@ export default function AnaliseTransportadorasPage() {
       ) return false
 
       if (ano !== 'TODOS' && anoDaData(dataFatura(item)) !== Number(ano)) return false
+      if (mes !== 'TODOS' && mesDaData(dataFatura(item)) !== Number(mes)) return false
       if (status !== 'TODOS' && statusFatura(item) !== status) return false
       if (faixa !== 'TODAS' && faixaValor(numero(item.total)) !== faixa) return false
 
@@ -484,6 +533,7 @@ export default function AnaliseTransportadorasPage() {
     faturas,
     transportadora,
     ano,
+    mes,
     status,
     faixa,
     filtrosDeEmbarqueAtivos,
@@ -542,11 +592,27 @@ export default function AnaliseTransportadorasPage() {
   }, [embarquesFiltrados])
 
   const evolucao = useMemo(() => {
+    if (ano !== 'TODOS' && mes !== 'TODOS') {
+      const totalDias = new Date(Number(ano), Number(mes), 0).getDate()
+
+      return Array.from({ length: totalDias }, (_, index) => {
+        const dia = index + 1
+        const fatDia = faturasFiltradas.filter((x) => diaDaData(dataFatura(x)) === dia)
+
+        return {
+          label: String(dia).padStart(2, '0'),
+          valor: fatDia.reduce((acc, x) => acc + numero(x.total), 0),
+        }
+      })
+    }
+
     if (ano !== 'TODOS') {
       const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
       return nomesMeses.map((label, index) => {
-        const mes = index + 1
-        const fatMes = faturasFiltradas.filter((x) => mesDaData(dataFatura(x)) === mes)
+        const numeroMes = index + 1
+        const fatMes = faturasFiltradas.filter((x) => mesDaData(dataFatura(x)) === numeroMes)
+
         return {
           label,
           valor: fatMes.reduce((acc, x) => acc + numero(x.total), 0),
@@ -563,7 +629,7 @@ export default function AnaliseTransportadorasPage() {
     return Array.from(mapa.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([a, valor]) => ({ label: String(a), valor }))
-  }, [faturasFiltradas, ano])
+  }, [faturasFiltradas, ano, mes])
 
   const topClientes = useMemo(() => {
     const mapa = new Map<string, { custo: number; embarques: Set<string> }>()
@@ -594,6 +660,7 @@ export default function AnaliseTransportadorasPage() {
 
     embarques.forEach((item) => {
       if (ano !== 'TODOS' && anoDaData(dataEmbarque(item)) !== Number(ano)) return false
+      if (mes !== 'TODOS' && mesDaData(dataEmbarque(item)) !== Number(mes)) return false
 
       const nomeCliente = texto(item.cliente_final || item.importador || item.exportador)
       if (cliente !== 'TODOS' && normalizar(nomeCliente) !== normalizar(cliente)) return false
@@ -609,13 +676,12 @@ export default function AnaliseTransportadorasPage() {
     })
 
     itensFaturas.forEach((item) => {
-      if (ano !== 'TODOS') {
-        const emb = embarquesPorAwb.get(normalizarAwb(item.awb))
-        const a = anoDaData(item.data_envio || dataEmbarque(emb || {}))
-        if (a !== Number(ano)) return
-      }
-
       const emb = embarquesPorAwb.get(normalizarAwb(item.awb))
+      const dataItem = item.data_envio || dataEmbarque(emb || {})
+
+      if (ano !== 'TODOS' && anoDaData(dataItem) !== Number(ano)) return
+      if (mes !== 'TODOS' && mesDaData(dataItem) !== Number(mes)) return
+
       if (cliente !== 'TODOS') {
         const nomeCliente = texto(emb?.cliente_final || emb?.importador || emb?.exportador)
         if (normalizar(nomeCliente) !== normalizar(cliente)) return
@@ -642,12 +708,23 @@ export default function AnaliseTransportadorasPage() {
         faturas: d.faturas.size,
       }))
       .sort((a, b) => b.embarques - a.embarques)
-  }, [embarques, itensFaturas, ano, cliente, servico, operacao, regiao, embarquesPorAwb])
+  }, [embarques, itensFaturas, ano, mes, cliente, servico, operacao, regiao, embarquesPorAwb])
 
   const maxRegiao = Math.max(1, ...porRegiao.map((x) => x.valor))
   const maxServico = Math.max(1, ...porServico.map((x) => x.valor))
   const maxEvolucao = Math.max(1, ...evolucao.map((x) => x.valor))
   const maxCliente = Math.max(1, ...topClientes.map((x) => x.custo))
+  const totalCustoComparativo = comparativo.reduce((acc, x) => acc + x.custo, 0)
+  const nomeMesSelecionado = MESES.find((x) => x.valor === mes)?.label || ''
+
+  const tituloEvolucao =
+    ano !== 'TODOS' && mes !== 'TODOS'
+      ? `Evolução diária das faturas — ${nomeMesSelecionado}/${ano}`
+      : ano !== 'TODOS'
+        ? `Evolução mensal das faturas — ${ano}`
+        : mes !== 'TODOS'
+          ? `Evolução anual das faturas — ${nomeMesSelecionado}`
+          : 'Evolução anual das faturas'
 
   const faturasRecentes = [...faturasFiltradas]
     .sort((a, b) => dataISO(dataFatura(b)).localeCompare(dataISO(dataFatura(a))))
@@ -656,6 +733,7 @@ export default function AnaliseTransportadorasPage() {
   function limparFiltros() {
     setTransportadora('TODAS')
     setAno(String(ANO_ATUAL))
+    setMes('TODOS')
     setCliente('TODOS')
     setServico('TODOS')
     setOperacao('TODAS')
@@ -733,7 +811,7 @@ export default function AnaliseTransportadorasPage() {
         ) : null}
 
         <section className="no-print rounded-2xl border border-slate-800 bg-[#071225] p-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-9">
             <Filtro label="Transportadora" valor={transportadora} setValor={setTransportadora}>
               <option value="TODAS">Todas</option>
               {opcoes.transportadoras.map((x) => <option key={x}>{x}</option>)}
@@ -742,6 +820,11 @@ export default function AnaliseTransportadorasPage() {
             <Filtro label="Ano" valor={ano} setValor={setAno}>
               <option value="TODOS">Todos</option>
               {opcoes.anos.map((x) => <option key={x} value={x}>{x}</option>)}
+            </Filtro>
+
+            <Filtro label="Mês" valor={mes} setValor={setMes}>
+              <option value="TODOS">Todos</option>
+              {MESES.map((x) => <option key={x.valor} value={x.valor}>{x.label}</option>)}
             </Filtro>
 
             <Filtro label="Cliente" valor={cliente} setValor={setCliente}>
@@ -804,7 +887,7 @@ export default function AnaliseTransportadorasPage() {
           <Card titulo="Clientes atendidos" valor={numeroBR(resumo.clientes)} detalhe="Clientes distintos" icone="👥" />
         </section>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Painel titulo="Embarques por região" subtitulo="Região comercial inferida pela origem/destino">
             <div className="space-y-4">
               {porRegiao.slice(0, 8).map((x, i) => (
@@ -822,86 +905,126 @@ export default function AnaliseTransportadorasPage() {
               {!porServico.length ? <Vazio /> : null}
             </div>
           </Painel>
+        </section>
 
-          <Painel titulo={ano === 'TODOS' ? 'Evolução anual das faturas' : `Evolução mensal das faturas — ${ano}`} subtitulo="Valor total cobrado pelas transportadoras">
-            <div className="flex h-56 items-end gap-2">
+        <Painel titulo={tituloEvolucao} subtitulo="Valor total cobrado pelas transportadoras">
+          <div className="overflow-x-auto pb-2">
+            <div
+              className={`flex h-[390px] items-end gap-3 pt-10 ${
+                ano !== 'TODOS' && mes !== 'TODOS' ? 'min-w-[1450px]' : 'min-w-[920px]'
+              }`}
+            >
               {evolucao.map((x, i) => {
-                const h = maxEvolucao > 0 ? Math.max(4, Math.round((x.valor / maxEvolucao) * 100)) : 0
+                const altura = x.valor
+                  ? Math.max(22, Math.round((x.valor / maxEvolucao) * 280))
+                  : 4
+
                 return (
-                  <div key={`${x.label}-${i}`} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                    <span className="text-xs font-bold text-slate-300">{x.valor ? moeda(x.valor) : ''}</span>
+                  <div
+                    key={`${x.label}-${i}`}
+                    className="flex min-w-[42px] flex-1 flex-col items-center justify-end gap-3"
+                    title={`${x.label}: ${moeda(x.valor)}`}
+                  >
+                    <span className="min-h-[20px] whitespace-nowrap text-xs font-black text-slate-200">
+                      {x.valor ? moedaCompacta(x.valor) : ''}
+                    </span>
                     <div
-                      className="w-full rounded-t-lg"
+                      className="w-full max-w-[76px] rounded-t-xl shadow-lg transition-all"
                       style={{
-                        height: `${h}%`,
-                        minHeight: x.valor ? '6px' : '2px',
+                        height: `${altura}px`,
                         backgroundColor: CORES[i % CORES.length],
-                        opacity: x.valor ? 1 : 0.15,
+                        opacity: x.valor ? 1 : 0.18,
                       }}
                     />
-                    <span className="text-xs font-black text-slate-400">{x.label}</span>
+                    <span className="text-sm font-black text-slate-300">{x.label}</span>
                   </div>
                 )
               })}
             </div>
-          </Painel>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-          <div className="xl:col-span-3">
-            <Painel
-              titulo="Top clientes por custo de transporte"
-              subtitulo="Soma dos valores por AWB encontrados nas faturas das transportadoras"
-            >
-              <div className="space-y-4">
-                {topClientes.map((x, i) => (
-                  <BarraHorizontal
-                    key={x.nome}
-                    label={`${i + 1}. ${modoApresentacao ? x.nome : x.nome}`}
-                    valor={x.custo}
-                    maximo={maxCliente}
-                    detalhe={`${moeda(x.custo)} • ${x.embarques} AWB(s)`}
-                    indice={i + 2}
-                  />
-                ))}
-                {!topClientes.length ? <Vazio texto="Ainda não há custos por AWB suficientes para este filtro." /> : null}
-              </div>
-            </Painel>
           </div>
+        </Painel>
 
-          <div className="xl:col-span-2">
-            <Painel titulo="Comparativo por transportadora" subtitulo="Mesmo período e filtros comerciais">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {comparativo.map((x, i) => (
-                  <div key={x.nome} className="rounded-xl border border-slate-800 bg-[#030b18] p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-lg font-black">{x.nome}</p>
-                      <span
-                        className="h-3 w-3 rounded-full"
-                        style={{ backgroundColor: CORES[i % CORES.length] }}
-                      />
+        <Painel
+          titulo="Top clientes por custo de transporte"
+          subtitulo="Soma dos valores por AWB encontrados nas faturas das transportadoras"
+        >
+          <div className="space-y-4">
+            {topClientes.map((x, i) => (
+              <BarraHorizontal
+                key={x.nome}
+                label={`${i + 1}. ${modoApresentacao ? x.nome : x.nome}`}
+                valor={x.custo}
+                maximo={maxCliente}
+                detalhe={`${moeda(x.custo)} • ${x.embarques} AWB(s)`}
+                indice={i + 2}
+              />
+            ))}
+            {!topClientes.length ? <Vazio texto="Ainda não há custos por AWB suficientes para este filtro." /> : null}
+          </div>
+        </Painel>
+
+        <Painel titulo="Comparativo por transportadora" subtitulo="Mesmo período e filtros comerciais">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            {comparativo.map((x, i) => {
+              const participacao = totalCustoComparativo > 0 ? (x.custo / totalCustoComparativo) * 100 : 0
+              const custoMedioAwb = x.embarques > 0 ? x.custo / x.embarques : 0
+
+              return (
+                <div
+                  key={x.nome}
+                  className="rounded-2xl border border-slate-700 bg-[#030b18] p-6 shadow-lg"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-2xl font-black text-white">{x.nome}</p>
+                    <span
+                      className="h-4 w-4 rounded-full"
+                      style={{ backgroundColor: CORES[i % CORES.length] }}
+                    />
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Embarques</p>
+                      <p className="mt-2 text-2xl font-black text-white">{numeroBR(x.embarques)}</p>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <p className="text-slate-500">Embarques</p>
-                        <p className="mt-1 text-lg font-black text-white">{numeroBR(x.embarques)}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-500">Custo por AWB</p>
-                        <p className="mt-1 font-black text-white">{moeda(x.custo)}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-500">Faturas vinculadas</p>
-                        <p className="mt-1 font-black text-white">{numeroBR(x.faturas)}</p>
-                      </div>
+
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Faturas vinculadas</p>
+                      <p className="mt-2 text-2xl font-black text-white">{numeroBR(x.faturas)}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Valor identificado</p>
+                      <p className="mt-2 text-xl font-black text-white">{moeda(x.custo)}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Custo médio / AWB</p>
+                      <p className="mt-2 text-xl font-black text-white">{moeda(custoMedioAwb)}</p>
                     </div>
                   </div>
-                ))}
-                {!comparativo.length ? <Vazio /> : null}
-              </div>
-            </Painel>
+
+                  <div className="mt-6">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                      <span className="font-bold text-slate-400">Participação no valor identificado</span>
+                      <span className="font-black text-white">{numeroBR(participacao, 1)}%</span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-900">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.max(participacao > 0 ? 2 : 0, participacao)}%`,
+                          backgroundColor: CORES[i % CORES.length],
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            {!comparativo.length ? <Vazio /> : null}
           </div>
-        </section>
+        </Painel>
 
         <Painel titulo="Faturas das transportadoras" subtitulo="Últimas faturas dentro dos filtros selecionados">
             <div className="overflow-x-auto">
