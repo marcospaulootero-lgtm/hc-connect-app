@@ -232,6 +232,15 @@ const PAISES_COTACAO = CODIGOS_PAISES_COTACAO
 
 const INCOTERMS_COTACAO = ['EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP']
 
+const TRANSPORTADORAS_COTACAO = [
+  'FedEx',
+  'DHL',
+  'UPS',
+  'KPM',
+  'CLIPPER',
+  'CRONOS LOGISTICS',
+]
+
 type ItemServicoEnvioCotacao = {
   id: string
   descricao: string
@@ -374,6 +383,10 @@ export default function NovaCotacaoManualPage() {
 
   const usarCamposAgente = modelo === 'AGENTE_CARGA_FORMAL'
   const divisorPesoDimensional = usarCamposAgente ? 6000 : 5000
+  const seguroFedexAtivo = String(form.transportadora || '')
+    .trim()
+    .toUpperCase()
+    .includes('FEDEX')
 
 
   useEffect(() => {
@@ -549,11 +562,15 @@ const valores = useMemo(() => {
     const seguroMinimo = numero(form.seguroMinimo)
     const seguroManual = numero(form.seguroManual)
 
+    const seguroAutomatico = seguroFedexAtivo
+      ? (valorMercadoria / 100) * 1.30
+      : Math.max(valorMercadoria * (percentualSeguro / 100), seguroMinimo)
+
     const seguro = form.semSeguro
       ? 0
       : form.usarSeguroManual
         ? seguroManual
-        : Math.max(valorMercadoria * (percentualSeguro / 100), seguroMinimo)
+        : seguroAutomatico
 
     const frete = numero(form.frete)
     const sobretaxa = numero(form.sobretaxa)
@@ -588,7 +605,7 @@ const valores = useMemo(() => {
       impostosDestino,
       total: modelo === 'FEDEX_EXPORTACAO' ? totalFedex : totalDhl,
     }
-  }, [form, modelo, itensEnvio])
+  }, [form, modelo, itensEnvio, seguroFedexAtivo])
 
     const [itensAgente, setItensAgente] = useState(() =>
     SERVICOS_AGENTE_CARGA.map((servico) => ({
@@ -1210,7 +1227,24 @@ const totaisAgenteMoedaTela = useMemo(() => {
             <option value="EXPORTAÇÃO TEMPORÁRIA">Exportação temporária</option>
             <option value="NACIONAL">Nacional</option>
           </CampoSelect>
-          <Campo label="Transportadora" value={form.transportadora} onChange={(v) => atualizarCampo('transportadora', v)} />
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-400">Transportadora</span>
+            <input
+              list="transportadoras-cotacao-manual"
+              value={form.transportadora}
+              onChange={(e) => atualizarCampo('transportadora', e.target.value)}
+              placeholder="Selecione ou digite a transportadora"
+              autoComplete="off"
+            />
+            <datalist id="transportadoras-cotacao-manual">
+              {TRANSPORTADORAS_COTACAO.map((transportadora) => (
+                <option key={transportadora} value={transportadora} />
+              ))}
+            </datalist>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              Selecione uma opção da lista ou digite outra transportadora manualmente.
+            </p>
+          </label>
           <CampoSelect label="Origem" value={form.origem || ''} onChange={(v) => atualizarCampo('origem', v)}>
             <option value="">Selecione o país</option>
             {PAISES_COTACAO.map((pais) => (
@@ -1298,13 +1332,34 @@ const totaisAgenteMoedaTela = useMemo(() => {
       <section className="card mb-8">
         <h2 className="mb-6 text-2xl font-black">Seguro</h2>
 
+        <div className="mb-5 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+          {seguroFedexAtivo ? (
+            <>
+              <p className="text-sm font-black text-purple-300">Cálculo automático FedEx</p>
+              <p className="mt-1 text-sm font-semibold text-slate-300">
+                Valor da mercadoria / 100 × 1,30
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Para FedEx, o percentual e o mínimo DHL abaixo não entram no cálculo automático.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-black text-blue-300">Cálculo automático DHL / padrão</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Mantém a regra atual: maior valor entre o percentual informado e o mínimo de seguro.
+              </p>
+            </>
+          )}
+        </div>
+
         <div className="form-grid">
           <Campo label="Percentual seguro %" type="number" value={form.percentualSeguro} onChange={(v) => atualizarCampo('percentualSeguro', v)} />
           <Campo label="Mínimo seguro USD" type="number" value={form.seguroMinimo} onChange={(v) => atualizarCampo('seguroMinimo', v)} />
           <Campo label="Seguro manual USD" type="number" value={form.seguroManual} onChange={(v) => atualizarCampo('seguroManual', v)} />
           <Checkbox label="Usar seguro manual" checked={form.usarSeguroManual} onChange={(v) => atualizarCampo('usarSeguroManual', v)} />
           <Checkbox label="Sem seguro" checked={form.semSeguro} onChange={(v) => atualizarCampo('semSeguro', v)} />
-          <Resumo titulo="Seguro final" valor={dinheiro(valores.seguro)} />
+          <Resumo titulo={seguroFedexAtivo ? 'Seguro final FedEx' : 'Seguro final'} valor={dinheiro(valores.seguro)} />
         </div>
       </section>
 
