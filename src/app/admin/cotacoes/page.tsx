@@ -8,6 +8,8 @@ export default function CotacoesAdminPage() {
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtroArquivamento, setFiltroArquivamento] = useState<'ATIVAS' | 'ARQUIVADAS' | 'TODAS'>('ATIVAS')
+  const [awbsPorEmbarque, setAwbsPorEmbarque] = useState<Record<string, string>>({})
 
   useEffect(() => {
     carregar()
@@ -15,12 +17,51 @@ export default function CotacoesAdminPage() {
   }, [])
 
   async function carregar() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('cotacoes')
       .select('*')
       .order('criado_em', { ascending: false })
 
-    setCotacoes(data || [])
+    if (error) {
+      console.error('Erro ao carregar cotações:', error)
+      return
+    }
+
+    const lista = data || []
+    setCotacoes(lista)
+
+    const idsEmbarques = Array.from(
+      new Set(
+        lista
+          .map((item: any) => String(item.embarque_id || '').trim())
+          .filter(Boolean)
+      )
+    )
+
+    if (idsEmbarques.length === 0) {
+      setAwbsPorEmbarque({})
+      return
+    }
+
+    const { data: embarquesData, error: erroEmbarques } = await supabase
+      .from('embarques')
+      .select('id, awb')
+      .in('id', idsEmbarques)
+
+    if (erroEmbarques) {
+      console.error('Erro ao carregar AWBs das cotações convertidas:', erroEmbarques)
+      setAwbsPorEmbarque({})
+      return
+    }
+
+    setAwbsPorEmbarque(
+      Object.fromEntries(
+        (embarquesData || []).map((item: any) => [
+          String(item.id),
+          String(item.awb || ''),
+        ])
+      )
+    )
   }
 
   async function carregarUsuarios() {
@@ -68,6 +109,70 @@ export default function CotacoesAdminPage() {
     if (dias > 0) return `${dias}d ${horas % 24}h`
     if (horas > 0) return `${horas}h ${minutos % 60}min`
     return `${minutos}min`
+  }
+
+  function dadosEmissorObjeto(item: any) {
+    const dados = item?.dados_emissor
+
+    if (dados && typeof dados === 'object' && !Array.isArray(dados)) {
+      return dados
+    }
+
+    if (typeof dados === 'string') {
+      try {
+        const convertido = JSON.parse(dados)
+        if (convertido && typeof convertido === 'object' && !Array.isArray(convertido)) {
+          return convertido
+        }
+      } catch {}
+    }
+
+    return {}
+  }
+
+  function cotacaoArquivada(item: any) {
+    return dadosEmissorObjeto(item)?.arquivada_admin === true
+  }
+
+  function awbCotacao(item: any) {
+    if (!item?.embarque_id) return ''
+    return awbsPorEmbarque[String(item.embarque_id)] || ''
+  }
+
+  async function alterarArquivamento(item: any, arquivar: boolean) {
+    const confirmar = confirm(
+      arquivar
+        ? 'Arquivar esta cotação da fila principal? Ela continuará salva e poderá ser restaurada.'
+        : 'Restaurar esta cotação para a fila principal?'
+    )
+
+    if (!confirmar) return
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const dadosAtuais = dadosEmissorObjeto(item)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        dados_emissor: {
+          ...dadosAtuais,
+          arquivada_admin: arquivar,
+          arquivada_admin_em: arquivar ? new Date().toISOString() : null,
+          arquivada_admin_por: arquivar ? user?.id || null : null,
+        },
+      })
+      .eq('id', item.id)
+
+    if (error) {
+      console.error('Erro ao alterar arquivamento da cotação:', error)
+      alert(error.message)
+      return
+    }
+
+    await carregar()
   }
 
   async function atualizarStatus(id: string, status: string) {
@@ -129,6 +234,7 @@ export default function CotacoesAdminPage() {
   const cotacoesFiltradas = useMemo(() => {
     return cotacoes
       .filter((item) => {
+        const arquivada = cotacaoArquivada(item)
         const texto = `
           ${nomeUsuario(item.usuario_id)}
           ${emailUsuario(item.usuario_id)}
@@ -136,6 +242,7 @@ export default function CotacoesAdminPage() {
           ${item.cliente_final}
           ${item.referencia_hc}
           ${item.referencia_cliente}
+          ${awbCotacao(item)}
           ${item.tipo_operacao}
           ${item.origem}
           ${item.destino}
@@ -144,8 +251,11 @@ export default function CotacoesAdminPage() {
 
         const matchBusca = texto.includes(busca.toLowerCase())
         const matchStatus = !filtroStatus || item.status === filtroStatus
+        const matchArquivamento =
+          filtroArquivamento === 'TODAS' ||
+          (filtroArquivamento === 'ARQUIVADAS' ? arquivada : !arquivada)
 
-        return matchBusca && matchStatus
+        return matchBusca && matchStatus && matchArquivamento
       })
       .sort((a, b) => {
         const dataA = a.criado_em ? new Date(a.criado_em).getTime() : 0
@@ -153,7 +263,7 @@ export default function CotacoesAdminPage() {
 
         return dataA - dataB
       })
-  }, [cotacoes, usuarios, busca, filtroStatus])
+  }, [cotacoes, usuarios, busca, filtroStatus, filtroArquivamento, awbsPorEmbarque])
 
   function corStatus(status: string) {
     if (status === 'AGUARDANDO ANÁLISE') return 'bg-yellow-400 text-black'
@@ -167,11 +277,12 @@ export default function CotacoesAdminPage() {
     return 'bg-slate-600 text-white'
   }
 
-  const totalAguardando = cotacoes.filter((c) => c.status === 'AGUARDANDO ANÁLISE').length
-  const totalAnalise = cotacoes.filter((c) => c.status === 'EM ANÁLISE').length
-  const totalDisponiveis = cotacoes.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
-  const totalAprovadas = cotacoes.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
-  const totalRecusadas = cotacoes.filter((c) => c.status === 'RECUSADA').length
+  const cotacoesAtivas = cotacoes.filter((c) => !cotacaoArquivada(c))
+  const totalAguardando = cotacoesAtivas.filter((c) => c.status === 'AGUARDANDO ANÁLISE').length
+  const totalAnalise = cotacoesAtivas.filter((c) => c.status === 'EM ANÁLISE').length
+  const totalDisponiveis = cotacoesAtivas.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
+  const totalAprovadas = cotacoesAtivas.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
+  const totalRecusadas = cotacoesAtivas.filter((c) => c.status === 'RECUSADA').length
 
   const proximaCotacao = cotacoesFiltradas[0]
   const ultimaCotacao = cotacoesFiltradas[cotacoesFiltradas.length - 1]
@@ -207,7 +318,7 @@ export default function CotacoesAdminPage() {
       </div>
 
       <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
-        <Card titulo="Total" valor={cotacoes.length} detalhe="Solicitações" icone="📨" />
+        <Card titulo="Total" valor={cotacoesAtivas.length} detalhe="Cotações ativas" icone="📨" />
         <Card titulo="Aguardando" valor={totalAguardando} detalhe="Nova análise" icone="⏳" />
         <Card titulo="Em análise" valor={totalAnalise} detalhe="Em tratamento" icone="🔎" />
         <Card titulo="Disponíveis" valor={totalDisponiveis} detalhe="Resposta enviada" icone="📄" />
@@ -263,6 +374,7 @@ export default function CotacoesAdminPage() {
             onClick={() => {
               setBusca('')
               setFiltroStatus('')
+              setFiltroArquivamento('ATIVAS')
             }}
             className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold h-fit"
           >
@@ -270,7 +382,7 @@ export default function CotacoesAdminPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <input
             placeholder="Buscar por referência, usuário, e-mail, cliente, origem, destino..."
             value={busca}
@@ -287,6 +399,19 @@ export default function CotacoesAdminPage() {
             <option value="AUTORIZADA">Autorizada</option>
             <option value="RECUSADA">Recusada</option>
             <option value="CONVERTIDA EM EMBARQUE">Convertida em embarque</option>
+          </select>
+
+          <select
+            value={filtroArquivamento}
+            onChange={(e) =>
+              setFiltroArquivamento(
+                e.target.value as 'ATIVAS' | 'ARQUIVADAS' | 'TODAS'
+              )
+            }
+          >
+            <option value="ATIVAS">Somente ativas</option>
+            <option value="ARQUIVADAS">Somente arquivadas</option>
+            <option value="TODAS">Ativas e arquivadas</option>
           </select>
 
           <div className="border border-blue-900 rounded-2xl bg-[#020817] px-5 py-3 text-slate-300 font-bold flex items-center">
@@ -317,6 +442,7 @@ export default function CotacoesAdminPage() {
                 <th>Tempo</th>
                 <th>Solicitante</th>
                 <th>Referência</th>
+                <th>AWB</th>
                 <th>E-mail</th>
                 <th>Cliente final</th>
                 <th>Operação</th>
@@ -378,6 +504,19 @@ export default function CotacoesAdminPage() {
                     </div>
                   </td>
 
+                  <td>
+                    {item.embarque_id ? (
+                      <a
+                        href={`/admin/embarques/${item.embarque_id}`}
+                        className="inline-flex min-w-[145px] items-center justify-center rounded-xl border border-cyan-700 bg-cyan-950/40 px-3 py-2 text-xs font-black text-cyan-300 hover:bg-cyan-900/50"
+                      >
+                        {awbCotacao(item) || 'Abrir embarque'}
+                      </a>
+                    ) : (
+                      <span className="text-slate-500">-</span>
+                    )}
+                  </td>
+
                   <td>{item.solicitante_email || emailUsuario(item.usuario_id)}</td>
 
                   <td>{item.cliente_final || '-'}</td>
@@ -396,9 +535,17 @@ export default function CotacoesAdminPage() {
                   </td>
 
                   <td>
-                    <span className={`px-3 py-2 rounded-xl text-xs font-black ${corStatus(item.status)}`}>
-                      {item.status || 'AGUARDANDO ANÁLISE'}
-                    </span>
+                    <div className="flex min-w-[170px] flex-col items-start gap-2">
+                      <span className={`px-3 py-2 rounded-xl text-xs font-black ${corStatus(item.status)}`}>
+                        {item.status || 'AGUARDANDO ANÁLISE'}
+                      </span>
+
+                      {cotacaoArquivada(item) ? (
+                        <span className="rounded-full border border-amber-600/60 bg-amber-600/10 px-3 py-1 text-[10px] font-black uppercase text-amber-300">
+                          Arquivada
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
 
                   <td>
@@ -464,6 +611,17 @@ export default function CotacoesAdminPage() {
                         className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-xl font-bold"
                       >
                         Recusar
+                      </button>
+
+                      <button
+                        onClick={() => alterarArquivamento(item, !cotacaoArquivada(item))}
+                        className={
+                          cotacaoArquivada(item)
+                            ? 'bg-emerald-700 hover:bg-emerald-600 px-4 py-2 rounded-xl font-bold'
+                            : 'bg-amber-700 hover:bg-amber-600 px-4 py-2 rounded-xl font-bold'
+                        }
+                      >
+                        {cotacaoArquivada(item) ? 'Restaurar' : 'Arquivar'}
                       </button>
 
                       <button

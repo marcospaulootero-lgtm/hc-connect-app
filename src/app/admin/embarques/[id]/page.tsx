@@ -523,7 +523,7 @@ export default function DetalheEmbarquePage() {
   }
 
   return (
-    <main className="max-w-7xl mx-auto p-8 text-white">
+    <main className="w-full max-w-none p-6 text-white lg:p-8">
       <header className="border border-blue-900 rounded-3xl bg-[#071225] p-8 mb-8 shadow-[0_0_35px_rgba(37,99,235,0.12)]">
         <div className="flex flex-col lg:flex-row justify-between gap-8">
           <div>

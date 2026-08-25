@@ -75,7 +75,216 @@ export default function DetalheCotacaoAdminPage() {
 
   function numero(valor: any) {
     if (valor === null || valor === undefined || valor === '') return null
-    return Number(String(valor).replace(',', '.'))
+
+    if (typeof valor === 'number') return Number.isFinite(valor) ? valor : null
+
+    const texto = String(valor).trim()
+
+    if (texto.includes(',') && texto.includes('.')) {
+      const convertido = Number(
+        texto.replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, '')
+      )
+      return Number.isFinite(convertido) ? convertido : null
+    }
+
+    const convertido = Number(
+      texto.includes(',')
+        ? texto.replace(',', '.').replace(/[^0-9.-]/g, '')
+        : texto.replace(/[^0-9.-]/g, '')
+    )
+
+    return Number.isFinite(convertido) ? convertido : null
+  }
+
+  function normalizarTexto(valor: any) {
+    return String(valor || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toUpperCase()
+  }
+
+  function dadosEmissorObjeto() {
+    const dados = cotacao?.dados_emissor
+
+    if (dados && typeof dados === 'object' && !Array.isArray(dados)) {
+      return dados
+    }
+
+    if (typeof dados === 'string') {
+      try {
+        const convertido = JSON.parse(dados)
+        if (convertido && typeof convertido === 'object' && !Array.isArray(convertido)) {
+          return convertido
+        }
+      } catch {}
+    }
+
+    return {}
+  }
+
+  function transportadoraSelecionadaCotacao() {
+    const dadosEmissor: any = dadosEmissorObjeto()
+    const transportadoraForm = String(dadosEmissor?.form?.transportadora || '').trim()
+
+    if (transportadoraForm) return transportadoraForm
+
+    const valor = cotacao?.transportadoras_consulta
+
+    if (Array.isArray(valor)) {
+      return String(valor.find((item) => String(item || '').trim()) || '').trim() || 'AGENTE DE CARGA'
+    }
+
+    if (typeof valor === 'string') {
+      try {
+        const lista = JSON.parse(valor)
+        if (Array.isArray(lista)) {
+          return String(lista.find((item) => String(item || '').trim()) || '').trim() || 'AGENTE DE CARGA'
+        }
+      } catch {}
+
+      const primeira = valor
+        .split(',')
+        .map((item) => item.trim())
+        .find(Boolean)
+
+      return primeira || 'AGENTE DE CARGA'
+    }
+
+    return 'AGENTE DE CARGA'
+  }
+
+  function empresaSolicitanteCotacao() {
+    const dadosEmissor: any = dadosEmissorObjeto()
+    return (
+      cotacao?.cliente_final ||
+      cotacao?.empresa_solicitante ||
+      dadosEmissor?.form?.empresa_solicitante ||
+      null
+    )
+  }
+
+  function exportadorCotacao() {
+    if (cotacao?.exportador) return cotacao.exportador
+
+    const operacao = normalizarTexto(
+      cotacao?.servico || cotacao?.tipo_operacao || dadosEmissorObjeto()?.form?.servico
+    )
+
+    return operacao.includes('EXPORT') ? empresaSolicitanteCotacao() : null
+  }
+
+  function importadorCotacao() {
+    if (cotacao?.importador) return cotacao.importador
+
+    const operacao = normalizarTexto(
+      cotacao?.servico || cotacao?.tipo_operacao || dadosEmissorObjeto()?.form?.servico
+    )
+
+    return operacao.includes('IMPORT') ? empresaSolicitanteCotacao() : null
+  }
+
+  function dadosFinanceirosCotacao() {
+    const dadosEmissor: any = dadosEmissorObjeto()
+    const formEmissor =
+      dadosEmissor?.form && typeof dadosEmissor.form === 'object'
+        ? dadosEmissor.form
+        : {}
+
+    const itensEnvioComValor = Array.isArray(dadosEmissor?.itensEnvio)
+      ? dadosEmissor.itensEnvio.filter(
+          (item: any) =>
+            String(item?.descricao || item?.servico || item?.nome || '').trim() &&
+            (numero(item?.valor) || 0) !== 0
+        )
+      : []
+
+    const itensAgenteComValor = Array.isArray(dadosEmissor?.itensAgente)
+      ? dadosEmissor.itensAgente.filter(
+          (item: any) =>
+            item?.usar !== false &&
+            String(item?.servico || item?.descricao || item?.nome || '').trim() &&
+            (numero(item?.valor) || 0) !== 0
+        )
+      : []
+
+    const modeloEmissor = normalizarTexto(dadosEmissor?.modelo)
+    const itensOriginais: any[] =
+      modeloEmissor.includes('AGENTE') && itensAgenteComValor.length > 0
+        ? itensAgenteComValor
+        : itensEnvioComValor.length > 0
+          ? itensEnvioComValor
+          : itensAgenteComValor
+
+    const itens = itensOriginais
+      .map((item: any) => {
+        const nome = String(item?.descricao || item?.servico || item?.nome || '').trim()
+        const valor = numero(item?.valor) || 0
+        const moeda = String(
+          item?.moeda || formEmissor?.moeda || cotacao?.moeda || 'USD'
+        )
+          .trim()
+          .toUpperCase()
+
+        return { nome, valor, moeda }
+      })
+      .filter((item: any) => item.nome && item.valor !== 0)
+
+    const seguro = numero(dadosEmissor?.valores?.seguro) || 0
+
+    if (
+      seguro > 0 &&
+      !itens.some((item: any) => normalizarTexto(item.nome).includes('SEGURO'))
+    ) {
+      itens.push({
+        nome: 'SEGURO',
+        valor: seguro,
+        moeda: 'USD',
+      })
+    }
+
+    const moedas = Array.from(
+      new Set(itens.map((item: any) => item.moeda).filter(Boolean))
+    )
+
+    const moedaPrincipal =
+      moedas.length === 1
+        ? moedas[0]
+        : String(formEmissor?.moeda || cotacao?.moeda || 'USD').toUpperCase()
+
+    const totaisPorMoeda = itens.reduce<Record<string, number>>((acc, item: any) => {
+      acc[item.moeda] = (acc[item.moeda] || 0) + Number(item.valor || 0)
+      return acc
+    }, {})
+
+    const totalUnico =
+      moedas.length === 1
+        ? totaisPorMoeda[moedas[0]] || 0
+        : numero(dadosEmissor?.valores?.total) || 0
+
+    const servicosFinanceiros = itens.map((item: any) => ({
+      nome:
+        moedas.length > 1
+          ? `${normalizarTexto(item.nome)} (${item.moeda})`
+          : normalizarTexto(item.nome),
+      valor: String(item.valor),
+    }))
+
+    const resumoMoedas = Object.entries(totaisPorMoeda)
+      .map(([moeda, total]) =>
+        `${moeda} ${Number(total).toLocaleString('pt-BR', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      )
+      .join(' • ')
+
+    return {
+      servicosFinanceiros,
+      total: totalUnico,
+      moeda: moedaPrincipal,
+      resumoMoedas,
+    }
   }
 
   async function salvarReferenciaHC() {
@@ -229,127 +438,253 @@ export default function DetalheCotacaoAdminPage() {
   async function converterEmEmbarque() {
     if (!cotacao) return
 
+    if (cotacao.embarque_id) {
+      alert('Esta cotação já foi convertida em embarque.')
+      window.location.href = `/admin/embarques/${cotacao.embarque_id}`
+      return
+    }
+
     const confirmar = confirm(
-      'Converter esta cotação em embarque?\n\nO embarque será criado com AWB AGUARDANDO AWB e o responsável será o admin logado.'
+      'Converter esta cotação em embarque?\n\nO embarque será criado com AWB AGUARDANDO AWB. Os valores, serviços, documentos e vínculo do cliente serão levados da cotação.'
     )
 
     if (!confirmar) return
 
     setConvertendo(true)
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
-    if (!user) {
-      alert('Admin não identificado. Faça login novamente.')
-      setConvertendo(false)
-      return
-    }
+      if (!user) {
+        alert('Admin não identificado. Faça login novamente.')
+        return
+      }
 
-    const { data: perfilAdmin } = await supabase
-      .from('perfis')
-      .select('nome, email')
-      .eq('id', user.id)
-      .single()
+      const { data: perfilAdmin } = await supabase
+        .from('perfis')
+        .select('nome, email')
+        .eq('id', user.id)
+        .single()
 
-    const exportador = cotacao.exportador || cotacao.cliente_final || null
-    const importador = cotacao.importador || null
-    const servico = cotacao.servico || cotacao.tipo_operacao || null
-    const pesoReal = numero(cotacao.peso_real || cotacao.peso)
-    const pesoTaxado = numero(cotacao.peso_taxado || cotacao.peso)
+      const dadosEmissor: any = dadosEmissorObjeto()
+      const formEmissor =
+        dadosEmissor?.form && typeof dadosEmissor.form === 'object'
+          ? dadosEmissor.form
+          : {}
 
-    const transportadoraSelecionada =
-      transportadorasTexto() !== '-'
-        ? transportadorasTexto()
-        : 'AGENTE DE CARGA'
+      const servico = cotacao.servico || cotacao.tipo_operacao || formEmissor.servico || null
+      const operacao = normalizarTexto(servico)
+      const empresaSolicitante =
+        cotacao.cliente_final ||
+        cotacao.empresa_solicitante ||
+        formEmissor.empresa_solicitante ||
+        null
 
-    const { data: novoEmbarque, error } = await supabase
-      .from('embarques')
-      .insert([
-        {
-          usuario_id: cotacao.usuario_id || null,
-          cliente_final: importador || exportador || null,
+      const ehImportacao = operacao.includes('IMPORT')
+      const ehExportacao = operacao.includes('EXPORT')
 
-          criado_por_admin_id: user.id,
-          criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
-          criado_por_admin_email: perfilAdmin?.email || user.email || null,
+      const exportador =
+        cotacao.exportador ||
+        (ehExportacao ? empresaSolicitante : null)
 
-          responsavel_id: user.id,
-          responsavel_nome: perfilAdmin?.nome || user.email || null,
-          responsavel_email: perfilAdmin?.email || user.email || null,
+      const importador =
+        cotacao.importador ||
+        (ehImportacao ? empresaSolicitante : null)
 
-          exportador,
-          importador,
-          referencia_cliente: cotacao.referencia_cliente || null,
+      const pesoReal =
+        numero(cotacao.peso_real) ??
+        numero(dadosEmissor?.resumo?.pesoReal) ??
+        numero(dadosEmissor?.resumo?.pesoBruto) ??
+        numero(cotacao.peso)
+
+      const pesoTaxado =
+        numero(cotacao.peso_taxado) ??
+        numero(dadosEmissor?.resumo?.pesoTaxado) ??
+        numero(cotacao.peso)
+
+      const financeiroCotacao = dadosFinanceirosCotacao()
+      const transportadoraSelecionada = transportadoraSelecionadaCotacao()
+
+      let clienteVinculadoId = cotacao.usuario_id || null
+      let empresaClienteId: string | null = null
+
+      if (clienteVinculadoId) {
+        const { data: perfilCliente } = await supabase
+          .from('perfis')
+          .select('id, empresa_id')
+          .eq('id', clienteVinculadoId)
+          .maybeSingle()
+
+        empresaClienteId = perfilCliente?.empresa_id || null
+      } else if (cotacao.solicitante_email) {
+        const { data: perfilCliente } = await supabase
+          .from('perfis')
+          .select('id, empresa_id')
+          .ilike('email', String(cotacao.solicitante_email).trim())
+          .eq('tipo_acesso', 'cliente')
+          .maybeSingle()
+
+        clienteVinculadoId = perfilCliente?.id || null
+        empresaClienteId = perfilCliente?.empresa_id || null
+      }
+
+      const observacoesConversao = [
+        'Embarque criado a partir da cotação.',
+        `Serviço: ${servico || '-'}`,
+        `Transportadora da cotação: ${transportadoraSelecionada || '-'}`,
+        `Transportadoras consultadas: ${transportadorasTexto()}`,
+        `Valor mercadoria: ${cotacao.moeda || formEmissor.moeda || ''} ${cotacao.valor_mercadoria || formEmissor.valor_mercadoria || '-'}`,
+        financeiroCotacao.resumoMoedas
+          ? `Total da cotação: ${financeiroCotacao.resumoMoedas}`
+          : '',
+        `Descrição: ${cotacao.descricao_mercadoria || formEmissor.descricao_mercadoria || '-'}`,
+        `Observações do cliente: ${cotacao.observacoes || formEmissor.observacoes || '-'}`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+
+      const { data: novoEmbarque, error } = await supabase
+        .from('embarques')
+        .insert([
+          {
+            usuario_id: clienteVinculadoId,
+            empresa_id: empresaClienteId,
+            cliente_final: empresaSolicitante || importador || exportador || null,
+
+            criado_por_admin_id: user.id,
+            criado_por_admin_nome: perfilAdmin?.nome || user.email || null,
+            criado_por_admin_email: perfilAdmin?.email || user.email || null,
+
+            responsavel_id: user.id,
+            responsavel_nome: perfilAdmin?.nome || user.email || null,
+            responsavel_email: perfilAdmin?.email || user.email || null,
+
+            exportador,
+            importador,
+            referencia_cliente: cotacao.referencia_cliente || null,
+            referencia_hc: referenciaHC || cotacao.referencia_hc || null,
+
+            awb: 'AGUARDANDO AWB',
+            transportadora: transportadoraSelecionada,
+            servico,
+            origem: cotacao.origem || formEmissor.origem || null,
+            destino: cotacao.destino || formEmissor.destino || null,
+
+            peso_real: pesoReal,
+            peso_taxado: pesoTaxado,
+
+            valor_cobrado_cliente:
+              financeiroCotacao.total > 0 ? financeiroCotacao.total : null,
+            moeda_cobranca: financeiroCotacao.moeda || 'USD',
+            taxa_conversao: null,
+            spread_percentual: null,
+            servicos_financeiros: financeiroCotacao.servicosFinanceiros,
+
+            status_operacional: 'Aguardando AWB',
+            data_envio: null,
+            data_prevista: null,
+            ultima_atualizacao: new Date().toISOString(),
+            observacoes: observacoesConversao,
+          },
+        ])
+        .select()
+        .single()
+
+      if (error) {
+        console.log(error)
+        alert(error.message)
+        return
+      }
+
+      if (clienteVinculadoId) {
+        const { error: erroVinculo } = await supabase
+          .from('embarque_clientes')
+          .upsert(
+            [
+              {
+                embarque_id: novoEmbarque.id,
+                cliente_id: clienteVinculadoId,
+              },
+            ],
+            { onConflict: 'embarque_id,cliente_id' }
+          )
+
+        if (erroVinculo) {
+          console.error('Embarque criado, mas houve erro ao vincular cliente:', erroVinculo)
+        }
+      }
+
+      for (const doc of documentosCliente) {
+        const { error: erroDocumento } = await supabase.from('documentos_embarques').insert([
+          {
+            embarque_id: novoEmbarque.id,
+            nome: doc.nome,
+            url: doc.url,
+            caminho: doc.caminho || null,
+          },
+        ])
+
+        if (erroDocumento) {
+          console.error('Erro ao copiar documento da cotação:', erroDocumento)
+        }
+      }
+
+      const pdfCotacaoUrl =
+        cotacao.pdf_cotacao_url || cotacao.arquivo_resposta_url || null
+
+      if (pdfCotacaoUrl) {
+        const { error: erroPdf } = await supabase.from('documentos_embarques').insert([
+          {
+            embarque_id: novoEmbarque.id,
+            nome: cotacao.pdf_nome
+              ? `Cotação aprovada - ${cotacao.pdf_nome}`
+              : 'Cotação aprovada - PDF',
+            url: pdfCotacaoUrl,
+            caminho: null,
+          },
+        ])
+
+        if (erroPdf) {
+          console.error('Erro ao vincular PDF da cotação ao embarque:', erroPdf)
+        }
+      }
+
+      const { error: erroCotacao } = await supabase
+        .from('cotacoes')
+        .update({
+          status: 'CONVERTIDA EM EMBARQUE',
+          embarque_id: novoEmbarque.id,
           referencia_hc: referenciaHC || cotacao.referencia_hc || null,
+        })
+        .eq('id', cotacao.id)
 
-          awb: 'AGUARDANDO AWB',
-          transportadora: transportadoraSelecionada,
-          servico,
-          origem: cotacao.origem || null,
-          destino: cotacao.destino || null,
+      if (erroCotacao) {
+        console.error('Embarque criado, mas houve erro ao atualizar a cotação:', erroCotacao)
+      }
 
-          peso_real: pesoReal,
-          peso_taxado: pesoTaxado,
-
-          status_operacional: 'COTAÇÃO APROVADA',
-          data_envio: null,
-          data_prevista: null,
-          ultima_atualizacao: new Date().toISOString(),
-          observacoes: `
-Embarque criado a partir da cotação.
-
-Serviço: ${servico || '-'}
-Transportadoras consultadas: ${transportadorasTexto()}
-Valor mercadoria: ${cotacao.moeda || ''} ${cotacao.valor_mercadoria || '-'}
-Descrição: ${cotacao.descricao_mercadoria || '-'}
-Observações do cliente: ${cotacao.observacoes || '-'}
-          `.trim(),
-        },
-      ])
-      .select()
-      .single()
-
-    if (error) {
-      setConvertendo(false)
-      console.log(error)
-      alert(error.message)
-      return
-    }
-
-    for (const doc of documentosCliente) {
-      await supabase.from('documentos_embarques').insert([
+      await supabase.from('timeline_embarques').insert([
         {
           embarque_id: novoEmbarque.id,
-          nome: doc.nome,
-          url: doc.url,
-          caminho: doc.caminho || null,
+          status: 'CRIADO POR COTAÇÃO',
+          descricao:
+            financeiroCotacao.total > 0
+              ? `Embarque criado automaticamente a partir da cotação aprovada com ${financeiroCotacao.servicosFinanceiros.length} serviço(s) e total ${financeiroCotacao.moeda} ${financeiroCotacao.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+              : 'Embarque criado automaticamente a partir de uma cotação aprovada.',
         },
       ])
+
+      alert(
+        'Embarque criado com sucesso.\n\nAgora informe o AWB. Ao salvar o número real, o portal tentará atualizar o rastreio imediatamente.'
+      )
+      window.location.href = `/admin/embarques/${novoEmbarque.id}`
+    } catch (erro: any) {
+      console.error('Erro ao converter cotação em embarque:', erro)
+      alert(erro?.message || 'Erro ao converter cotação em embarque.')
+    } finally {
+      setConvertendo(false)
     }
-
-    await supabase
-      .from('cotacoes')
-      .update({
-        status: 'CONVERTIDA EM EMBARQUE',
-        embarque_id: novoEmbarque.id,
-        referencia_hc: referenciaHC || cotacao.referencia_hc || null,
-      })
-      .eq('id', cotacao.id)
-
-    await supabase.from('timeline_embarques').insert([
-      {
-        embarque_id: novoEmbarque.id,
-        status: 'CRIADO POR COTAÇÃO',
-        descricao: 'Embarque criado automaticamente a partir de uma cotação aprovada.',
-      },
-    ])
-
-    setConvertendo(false)
-
-    alert('Embarque criado com sucesso. Agora informe AWB, transportadora vencedora e previsão no cadastro de embarques.')
-    window.location.href = `/admin/embarques/${novoEmbarque.id}`
   }
 
   function formatarTamanho(bytes?: number) {
@@ -411,8 +746,8 @@ Observações do cliente: ${cotacao.observacoes || '-'}
         <h2 className="text-2xl font-black mb-6">Dados da operação</h2>
 
         <div className="form-grid">
-          <Info titulo="Exportador" valor={cotacao.exportador || cotacao.cliente_final || '-'} />
-          <Info titulo="Importador" valor={cotacao.importador || '-'} />
+          <Info titulo="Exportador" valor={exportadorCotacao() || '-'} />
+          <Info titulo="Importador" valor={importadorCotacao() || '-'} />
           <Info titulo="Serviço" valor={servicoCotacao()} />
           <Info titulo="Transportadoras consultadas" valor={transportadorasTexto()} />
           <Info titulo="Origem" valor={cotacao.origem || '-'} />

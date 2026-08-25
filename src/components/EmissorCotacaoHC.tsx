@@ -79,6 +79,28 @@ function dinheiro(valor: any) {
   })}`
 }
 
+function dinheiroMoeda(valor: any, moeda = 'USD') {
+  return `${String(moeda || 'USD').toUpperCase()} ${numero(valor).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function objetoSeguro(valor: any) {
+  if (valor && typeof valor === 'object' && !Array.isArray(valor)) return valor
+
+  if (typeof valor === 'string') {
+    try {
+      const convertido = JSON.parse(valor)
+      if (convertido && typeof convertido === 'object' && !Array.isArray(convertido)) {
+        return convertido
+      }
+    } catch {}
+  }
+
+  return {}
+}
+
 function kg(valor: any) {
   return `${numero(valor).toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
@@ -91,6 +113,11 @@ function arredondarMeioKg(valor: number) {
 }
 
 function modeloInicial(cotacao: any): ModeloCotacao {
+  const dadosEmissor = objetoSeguro(cotacao?.dados_emissor)
+  const modeloSalvo = String((dadosEmissor as any)?.modelo || '').toUpperCase()
+
+  if (modeloSalvo.includes('FEDEX')) return 'FEDEX_EXPORTACAO'
+
   const texto = JSON.stringify({
     transportadoras: cotacao?.transportadoras_consulta,
     servico: cotacao?.servico,
@@ -201,11 +228,16 @@ export default function EmissorCotacaoHC({
     const seguroMinimo = numero(form.seguroMinimo)
     const seguroManual = numero(form.seguroManual)
 
+    const seguroAutomatico =
+      modelo === 'FEDEX_EXPORTACAO'
+        ? valorMercadoria * 0.013
+        : Math.max(valorMercadoria * (percentualSeguro / 100), seguroMinimo)
+
     const seguro = form.semSeguro
       ? 0
       : form.usarSeguroManual
         ? seguroManual
-        : Math.max(valorMercadoria * (percentualSeguro / 100), seguroMinimo)
+        : seguroAutomatico
 
     const frete = numero(form.frete)
     const sobretaxa = numero(form.sobretaxa)
@@ -253,6 +285,187 @@ export default function EmissorCotacaoHC({
       total: modelo === 'DHL_IMPORTACAO_FORMAL' ? totalDhl : totalFedex,
     }
   }, [form, modelo])
+
+  const dadosEmissorSalvos: any = objetoSeguro(cotacao?.dados_emissor)
+  const formSalvo: any = objetoSeguro(dadosEmissorSalvos?.form)
+
+  const itensEnvioSalvos = Array.isArray(dadosEmissorSalvos?.itensEnvio)
+    ? dadosEmissorSalvos.itensEnvio
+        .map((item: any) => ({
+          nome: String(item?.descricao || item?.servico || item?.nome || '').trim(),
+          moeda: String(item?.moeda || formSalvo?.moeda || cotacao?.moeda || 'USD').toUpperCase(),
+          valor: numero(item?.valor),
+          observacao: String(item?.observacao || '').trim(),
+        }))
+        .filter((item: any) => item.nome && item.valor !== 0)
+    : []
+
+  const itensAgenteSalvos = Array.isArray(dadosEmissorSalvos?.itensAgente)
+    ? dadosEmissorSalvos.itensAgente
+        .filter((item: any) => item?.usar)
+        .map((item: any) => ({
+          nome: String(item?.servico || item?.descricao || item?.nome || '').trim(),
+          moeda: String(item?.moeda || formSalvo?.moeda || cotacao?.moeda || 'USD').toUpperCase(),
+          valor: numero(item?.valor),
+          observacao: String(item?.observacao || '').trim(),
+        }))
+        .filter((item: any) => item.nome && item.valor !== 0)
+    : []
+
+  const modeloSalvoTexto = String(dadosEmissorSalvos?.modelo || '').toUpperCase()
+
+  const itensSalvos: Array<{
+    nome: string
+    moeda: string
+    valor: number
+    observacao?: string
+  }> =
+    modeloSalvoTexto.includes('AGENTE') && itensAgenteSalvos.length > 0
+      ? itensAgenteSalvos
+      : itensEnvioSalvos.length > 0
+        ? itensEnvioSalvos
+        : itensAgenteSalvos
+
+
+  const seguroSalvo = numero(dadosEmissorSalvos?.valores?.seguro)
+
+  const totaisSalvos = itensSalvos.reduce<Record<string, number>>((acc, item) => {
+    acc[item.moeda] = (acc[item.moeda] || 0) + item.valor
+    return acc
+  }, {})
+
+  if (seguroSalvo > 0) {
+    totaisSalvos.USD = (totaisSalvos.USD || 0) + seguroSalvo
+  }
+
+  const textoTotalSalvo = Object.entries(totaisSalvos)
+    .filter(([, total]) => Number(total) !== 0)
+    .map(([moeda, total]) => dinheiroMoeda(total, moeda))
+    .join(' • ')
+
+  const temDadosComerciaisSalvos =
+    Object.keys(formSalvo).length > 0 &&
+    (
+      itensSalvos.length > 0 ||
+      seguroSalvo > 0 ||
+      numero(dadosEmissorSalvos?.valores?.total) > 0
+    )
+
+  if (temDadosComerciaisSalvos) {
+    return (
+      <section className="card mb-8">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.22em] text-blue-400">
+              Valores salvos na cotação
+            </p>
+            <h2 className="mt-2 text-3xl font-black">
+              Proposta comercial registrada
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Estes valores são lidos diretamente do registro salvo da cotação e serão usados na conversão para embarque.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-green-600/60 bg-green-600/10 p-4 text-right">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+              Total all in
+            </p>
+            <p className="mt-1 text-2xl font-black text-green-400">
+              {textoTotalSalvo ||
+                dinheiroMoeda(
+                  dadosEmissorSalvos?.valores?.total || 0,
+                  formSalvo?.moeda || cotacao?.moeda || 'USD'
+                )}
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <ResumoCotacao
+            titulo="Modelo"
+            valor={String(dadosEmissorSalvos?.modelo || nomeModelo(modelo)).replaceAll('_', ' ')}
+            detalhe="Modelo salvo"
+          />
+          <ResumoCotacao
+            titulo="Transportadora"
+            valor={formSalvo?.transportadora || '-'}
+            detalhe="Selecionada na cotação"
+          />
+          <ResumoCotacao
+            titulo="Origem"
+            valor={formSalvo?.origem || cotacao?.origem || '-'}
+            detalhe="Rota da proposta"
+          />
+          <ResumoCotacao
+            titulo="Destino"
+            valor={formSalvo?.destino || cotacao?.destino || '-'}
+            detalhe="Rota da proposta"
+          />
+        </div>
+
+        <div className="mb-6 rounded-3xl border border-blue-900 bg-[#020817] p-5">
+          <h3 className="mb-4 text-xl font-black">Serviços e valores</h3>
+
+          {itensSalvos.length === 0 && seguroSalvo <= 0 ? (
+            <p className="text-slate-400">Nenhum item financeiro detalhado foi salvo.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {itensSalvos.map((item, index) => (
+                <div
+                  key={`${item.nome}-${index}`}
+                  className="rounded-2xl border border-blue-900 bg-[#071225] p-4"
+                >
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                    Serviço
+                  </p>
+                  <p className="mt-2 font-black text-white">{item.nome}</p>
+                  <p className="mt-3 text-2xl font-black text-green-300">
+                    {dinheiroMoeda(item.valor, item.moeda)}
+                  </p>
+                  {item.observacao ? (
+                    <p className="mt-2 text-xs text-slate-500">{item.observacao}</p>
+                  ) : null}
+                </div>
+              ))}
+
+              {seguroSalvo > 0 ? (
+                <div className="rounded-2xl border border-blue-900 bg-[#071225] p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                    Serviço
+                  </p>
+                  <p className="mt-2 font-black text-white">Seguro</p>
+                  <p className="mt-3 text-2xl font-black text-green-300">
+                    {dinheiroMoeda(seguroSalvo, 'USD')}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <a
+            href={`/admin/cotacoes/nova?editar=${cotacao.id}`}
+            className="rounded-xl bg-blue-600 px-5 py-3 font-black text-white hover:bg-blue-500"
+          >
+            Editar cotação
+          </a>
+
+          {cotacao?.pdf_cotacao_url ? (
+            <a
+              href={cotacao.pdf_cotacao_url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-xl bg-slate-700 px-5 py-3 font-black text-white hover:bg-slate-600"
+            >
+              Abrir PDF salvo
+            </a>
+          ) : null}
+        </div>
+      </section>
+    )
+  }
 
   function nomeArquivoPdf() {
     const base = referenciaHC || cotacao?.referencia_hc || cotacao?.referencia_cliente || cotacao?.id || 'cotacao-hc'
@@ -434,6 +647,31 @@ export default function EmissorCotacaoHC({
     montarPdf().save(nomeArquivoPdf())
   }
 
+  function itensEnvioAtual() {
+    const itens = [
+      { descricao: 'Frete Internacional', valor: valores.frete },
+      { descricao: 'Sobretaxa emergencial', valor: valores.sobretaxa },
+      { descricao: 'Área remota', valor: valores.areaRemota },
+      { descricao: 'Peso excedente', valor: valores.pesoExcedente },
+      { descricao: 'DTA', valor: valores.dta },
+      { descricao: 'Delivery doc fee', valor: valores.deliveryDocFee },
+      { descricao: 'Dimensão excedente', valor: valores.dimensaoExcedente },
+      { descricao: 'Volume excedente', valor: valores.volumeExcedente },
+      { descricao: 'Emissão de DUE', valor: valores.emissaoDue },
+      { descricao: 'Impostos no destino', valor: valores.impostosDestino },
+    ]
+
+    return itens
+      .filter((item) => numero(item.valor) !== 0)
+      .map((item, index) => ({
+        id: `detalhe-cotacao-${cotacao?.id || 'novo'}-${index}`,
+        descricao: item.descricao,
+        moeda: 'USD',
+        valor: String(item.valor),
+        observacao: '',
+      }))
+  }
+
   async function salvarPdf(enviarEmail: boolean) {
     if (!cotacao?.id) return
 
@@ -463,13 +701,65 @@ export default function EmissorCotacaoHC({
         .from('cotacoes')
         .getPublicUrl(nomeStorage)
 
+      const dadosEmissorAtuais: any = objetoSeguro(cotacao?.dados_emissor)
+
       const { data: cotacaoAtualizada, error: erroUpdate } = await supabase
         .from('cotacoes')
         .update({
           pdf_cotacao_url: publicUrl.publicUrl,
           pdf_nome: arquivo.name,
           referencia_hc: referenciaHC || cotacao.referencia_hc || null,
+          peso_real: resumoPesos.pesoBruto || cotacao.peso_real || cotacao.peso || null,
+          peso_taxado: resumoPesos.pesoTaxado || cotacao.peso_taxado || cotacao.peso || null,
           status: 'COTAÇÃO DISPONÍVEL',
+          dados_emissor: {
+            ...dadosEmissorAtuais,
+            modelo,
+            form: {
+              ...objetoSeguro(dadosEmissorAtuais?.form),
+              empresa_solicitante: form.cliente || null,
+              solicitante_nome: form.contato || null,
+              responsavel_solicitante: form.contato || null,
+              referencia_hc: referenciaHC || cotacao.referencia_hc || null,
+              referencia_cliente: cotacao.referencia_cliente || null,
+              servico: cotacao.servico || cotacao.tipo_operacao || null,
+              transportadora: modelo === 'FEDEX_EXPORTACAO' ? 'FedEx' : 'DHL',
+              origem: form.origem || null,
+              destino: form.destino || null,
+              aod: form.aod || null,
+              transito: form.transito || null,
+              validade: form.validade || null,
+              moeda: form.moedaMercadoria || cotacao.moeda || 'USD',
+              valor_mercadoria: form.valorMercadoria || null,
+              percentualSeguro: form.percentualSeguro,
+              seguroMinimo: form.seguroMinimo,
+              usarSeguroManual: form.usarSeguroManual,
+              seguroManual: form.seguroManual,
+              semSeguro: form.semSeguro,
+              frete: form.frete,
+              sobretaxa: form.sobretaxa,
+              areaRemota: form.areaRemota,
+              dta: form.dta,
+              deliveryDocFee: form.deliveryDocFee,
+              dimensaoExcedente: form.dimensaoExcedente,
+              pesoExcedente: form.pesoExcedente,
+              volumeExcedente: form.volumeExcedente,
+              emissaoDue: form.emissaoDue,
+              impostosDestino: form.impostosDestino,
+              descricao_mercadoria: form.descricaoMercadoria || null,
+              observacoes: form.observacoesComerciais || null,
+            },
+            volumes: Array.isArray(cotacao.volumes) ? cotacao.volumes : [],
+            itensEnvio: itensEnvioAtual(),
+            resumo: {
+              quantidadeVolumes: resumoPesos.volumesTotal,
+              pesoReal: resumoPesos.pesoBruto,
+              pesoDimensional: resumoPesos.pesoDimensional,
+              pesoTaxado: resumoPesos.pesoTaxado,
+            },
+            valores,
+            atualizado_em: new Date().toISOString(),
+          },
         })
         .eq('id', cotacao.id)
         .select()

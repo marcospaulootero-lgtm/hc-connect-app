@@ -328,6 +328,7 @@ export default function NovaCotacaoManualPage() {
   const cotacaoEditandoId = searchParams.get('editar')
   const [salvando, setSalvando] = useState(false)
   const [modelo, setModelo] = useState<ModeloCotacao>('DHL_IMPORTACAO_FORMAL')
+  const [dadosEmissorBase, setDadosEmissorBase] = useState<any>({})
 
   const [form, setForm] = useState({
     origem_solicitacao: 'EMAIL',
@@ -405,7 +406,14 @@ export default function NovaCotacaoManualPage() {
         return
       }
 
-      const dadosEmissor = data.dados_emissor || {}
+      const dadosEmissor =
+        data.dados_emissor &&
+        typeof data.dados_emissor === 'object' &&
+        !Array.isArray(data.dados_emissor)
+          ? data.dados_emissor
+          : {}
+
+      setDadosEmissorBase(dadosEmissor)
 
       if (dadosEmissor?.form) {
         setForm((atual) => ({
@@ -1069,6 +1077,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             peso_taxado: resumo.pesoTaxado,
             status: 'COTAÇÃO DISPONÍVEL',
             dados_emissor: {
+              ...dadosEmissorBase,
               modelo,
               form,
               volumes,

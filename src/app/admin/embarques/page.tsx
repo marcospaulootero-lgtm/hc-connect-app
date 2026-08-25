@@ -344,6 +344,63 @@ export default function EmbarquesPage() {
     return partes || 'arquivo'
   }
 
+  function normalizarAwbRastreio(valor: any) {
+    return String(valor || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+  }
+
+  function awbValidoParaRastreio(valor: any) {
+    const bruto = String(valor || '').trim().toUpperCase()
+    const normalizado = normalizarAwbRastreio(valor)
+
+    if (!normalizado) return false
+    if (bruto === 'AGUARDANDO AWB') return false
+    if (normalizado === 'AGUARDANDOAWB') return false
+
+    return true
+  }
+
+  async function atualizarRastreioImediato(embarqueId: string, awb: any) {
+    if (!embarqueId || !awbValidoParaRastreio(awb)) return false
+
+    try {
+      const {
+        data: { session: sessaoRastreio },
+      } = await supabase.auth.getSession()
+
+      const accessTokenRastreio = sessaoRastreio?.access_token
+
+      if (!accessTokenRastreio) {
+        console.warn('Rastreio imediato não executado: sessão administrativa expirada.')
+        return false
+      }
+
+      const response = await fetch('/api/rastreio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessTokenRastreio}`,
+        },
+        body: JSON.stringify({
+          embarque_id: embarqueId,
+        }),
+      })
+
+      if (!response.ok) {
+        const resposta = await response.json().catch(() => null)
+        console.warn(
+          'Rastreio imediato não atualizado:',
+          resposta?.error || resposta?.detalhes || response.status
+        )
+        return false
+      }
+
+      return true
+    } catch (erro) {
+      console.error('Erro ao atualizar rastreio inicial:', erro)
+      return false
+    }
+  }
+
   async function anexarConhecimentoEmbarque(embarqueId: string, arquivo: File) {
     const nomeOriginal = arquivo.name || 'conhecimento-embarque.pdf'
     const nomeArquivo = `${embarqueId}/conhecimento-embarque/${Date.now()}-${nomeSeguroArquivo(nomeOriginal)}`
@@ -1067,30 +1124,7 @@ export default function EmbarquesPage() {
         erroConhecimento = await anexarConhecimentoEmbarque(data.id, conhecimentoEmbarque)
       }
 
-      try {
-        const {
-          data: { session: sessaoRastreio },
-        } = await supabase.auth.getSession()
-
-        const accessTokenRastreio = sessaoRastreio?.access_token
-
-        if (!accessTokenRastreio) {
-          throw new Error('Sessão administrativa expirada.')
-        }
-
-        await fetch('/api/rastreio', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessTokenRastreio}`,
-          },
-          body: JSON.stringify({
-            embarque_id: data.id,
-          }),
-        })
-      } catch (erro) {
-        console.error('Erro ao atualizar rastreio inicial:', erro)
-      }
+      await atualizarRastreioImediato(data.id, form.awb)
 
       if (erroConhecimento) {
         alert(
@@ -1129,8 +1163,10 @@ export default function EmbarquesPage() {
       referencia_cliente: item.referencia_cliente || '',
       referencia_hc: item.referencia_hc || '',
       awb: item.awb || '',
+      awb_original: item.awb || '',
       master: item.master || '',
       master_original: item.master || '',
+      transportadora_original: item.transportadora || 'DHL',
       data_master: item.data_master || null,
       transportadora: item.transportadora || 'DHL',
       servico: item.servico || '',
@@ -1176,6 +1212,15 @@ export default function EmbarquesPage() {
 
     const servicosFinanceiros = servicosFinanceirosLista(editForm.servicos_financeiros)
     const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
+    const awbNovoValido = awbValidoParaRastreio(editForm.awb)
+    const statusAtualEdicao = String(editForm.status_operacional || '')
+      .trim()
+      .toUpperCase()
+
+    const statusOperacionalSalvar =
+      awbNovoValido && statusAtualEdicao === 'AGUARDANDO AWB'
+        ? 'Aguardando coleta'
+        : editForm.status_operacional || null
 
     const dadosAtualizar: any = {
       responsavel_id: responsavel?.id || null,
@@ -1218,7 +1263,7 @@ export default function EmbarquesPage() {
       observacao_divergencia_peso:
         editForm.observacao_divergencia_peso || null,
 
-      status_operacional: editForm.status_operacional || null,
+      status_operacional: statusOperacionalSalvar,
       data_prevista: editForm.data_prevista || null,
       observacoes: editForm.observacoes || null,
       ultima_atualizacao: new Date().toISOString(),
@@ -1244,6 +1289,18 @@ export default function EmbarquesPage() {
       status: 'EDIÇÃO',
       descricao: 'Embarque editado pelo painel administrativo.',
     })
+
+    const awbMudou =
+      normalizarAwbRastreio(editForm.awb) !==
+      normalizarAwbRastreio(editForm.awb_original)
+
+    const transportadoraMudou =
+      String(editForm.transportadora || '').trim().toUpperCase() !==
+      String(editForm.transportadora_original || '').trim().toUpperCase()
+
+    if (awbNovoValido && (awbMudou || transportadoraMudou)) {
+      await atualizarRastreioImediato(id, editForm.awb)
+    }
 
     alert('Embarque atualizado com sucesso')
     setEditandoId(null)
