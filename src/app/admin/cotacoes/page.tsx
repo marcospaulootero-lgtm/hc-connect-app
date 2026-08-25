@@ -134,6 +134,8 @@ export default function CotacoesAdminPage() {
           ${emailUsuario(item.usuario_id)}
           ${item.solicitante_email}
           ${item.cliente_final}
+          ${item.referencia_hc}
+          ${item.referencia_cliente}
           ${item.tipo_operacao}
           ${item.origem}
           ${item.destino}
@@ -253,7 +255,7 @@ export default function CotacoesAdminPage() {
             </h2>
 
             <p className="text-slate-400 text-sm mt-1">
-              Busque por cliente, e-mail, operação, origem, destino ou status.
+              Busque por referência, cliente, e-mail, operação, origem, destino ou status.
             </p>
           </div>
 
@@ -270,7 +272,7 @@ export default function CotacoesAdminPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <input
-            placeholder="Buscar por usuário, e-mail, cliente, origem, destino..."
+            placeholder="Buscar por referência, usuário, e-mail, cliente, origem, destino..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -314,6 +316,7 @@ export default function CotacoesAdminPage() {
                 <th>Chegou em</th>
                 <th>Tempo</th>
                 <th>Solicitante</th>
+                <th>Referência</th>
                 <th>E-mail</th>
                 <th>Cliente final</th>
                 <th>Operação</th>
@@ -359,6 +362,19 @@ export default function CotacoesAdminPage() {
                       <p className="text-slate-500 text-xs">
                         ID: {item.id?.slice(0, 8)}
                       </p>
+                    </div>
+                  </td>
+
+                  <td>
+                    <div className="min-w-[150px]">
+                      <p className="font-black text-blue-300">
+                        {item.referencia_hc || item.referencia_cliente || '-'}
+                      </p>
+                      {item.referencia_hc && item.referencia_cliente && (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Cliente: {item.referencia_cliente}
+                        </p>
+                      )}
                     </div>
                   </td>
 
