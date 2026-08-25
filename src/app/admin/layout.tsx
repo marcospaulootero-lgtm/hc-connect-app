@@ -556,6 +556,13 @@ function MenuContent({
           icon="🚨"
           pathname={pathname}
         />
+        <MenuItem
+          href="/admin/analise-transportadoras"
+          label="Análise de Transportadoras"
+          descricao="Volumes, custos e transportadoras"
+          icon="📈"
+          pathname={pathname}
+        />
       </MenuGroup>
 
       <MenuGroup titulo="Operação">
