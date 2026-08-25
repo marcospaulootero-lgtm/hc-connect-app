@@ -136,7 +136,14 @@ export default function CotacoesAdminPage() {
 
   function awbCotacao(item: any) {
     if (!item?.embarque_id) return ''
-    return awbsPorEmbarque[String(item.embarque_id)] || ''
+
+    const awb = awbsPorEmbarque[String(item.embarque_id)] || ''
+
+    if (String(awb).trim().toUpperCase().startsWith('AGUARDANDO AWB')) {
+      return 'AGUARDANDO AWB'
+    }
+
+    return awb
   }
 
   async function alterarArquivamento(item: any, arquivar: boolean) {

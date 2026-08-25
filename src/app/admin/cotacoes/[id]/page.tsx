@@ -566,7 +566,7 @@ export default function DetalheCotacaoAdminPage() {
             referencia_cliente: cotacao.referencia_cliente || null,
             referencia_hc: referenciaHC || cotacao.referencia_hc || null,
 
-            awb: 'AGUARDANDO AWB',
+            awb: `AGUARDANDO AWB:${cotacao.id}`,
             transportadora: transportadoraSelecionada,
             servico,
             origem: cotacao.origem || formEmissor.origem || null,

@@ -10,6 +10,15 @@ type ServicoFinanceiroEmbarque = {
   valor: string
 }
 
+function awbPendente(valor: any) {
+  return String(valor || '').trim().toUpperCase().startsWith('AGUARDANDO AWB')
+}
+
+function awbExibicao(valor: any) {
+  if (awbPendente(valor)) return 'AGUARDANDO AWB'
+  return String(valor || '').trim() || '-'
+}
+
 export default function DetalheEmbarquePage() {
   const params = useParams()
 
@@ -132,7 +141,7 @@ export default function DetalheEmbarquePage() {
   }
 
   function linkRastreio() {
-    if (!embarque?.awb || embarque.awb === 'AGUARDANDO AWB') return ''
+    if (!embarque?.awb || awbPendente(embarque.awb)) return ''
 
     const transportadora = (embarque.transportadora || '').toUpperCase()
 
@@ -530,7 +539,7 @@ export default function DetalheEmbarquePage() {
             <p className="text-blue-400 font-bold mb-2">Detalhe do embarque</p>
 
             <h1 className="text-5xl font-black mb-3">
-              AWB {embarque.awb || '-'}
+              AWB {awbExibicao(embarque.awb)}
             </h1>
 
             <div className="flex items-center gap-4 flex-wrap">

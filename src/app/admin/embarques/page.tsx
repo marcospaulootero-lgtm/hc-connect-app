@@ -348,13 +348,20 @@ export default function EmbarquesPage() {
     return String(valor || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
   }
 
+  function awbPendente(valor: any) {
+    return String(valor || '').trim().toUpperCase().startsWith('AGUARDANDO AWB')
+  }
+
+  function awbExibicao(valor: any) {
+    if (awbPendente(valor)) return 'AGUARDANDO AWB'
+    return String(valor || '').trim() || '-'
+  }
+
   function awbValidoParaRastreio(valor: any) {
-    const bruto = String(valor || '').trim().toUpperCase()
     const normalizado = normalizarAwbRastreio(valor)
 
     if (!normalizado) return false
-    if (bruto === 'AGUARDANDO AWB') return false
-    if (normalizado === 'AGUARDANDOAWB') return false
+    if (awbPendente(valor)) return false
 
     return true
   }
@@ -798,7 +805,7 @@ export default function EmbarquesPage() {
     const awb = item.awb || ''
     const transportadora = (item.transportadora || '').toUpperCase()
 
-    if (!awb || awb === 'AGUARDANDO AWB') return ''
+    if (!awb || awbPendente(awb)) return ''
 
     if (transportadora.includes('DHL')) {
       return `https://mydhl.express.dhl/br/pt/tracking.html#/results?id=${awb}`
@@ -1162,7 +1169,7 @@ export default function EmbarquesPage() {
       importador: item.importador || '',
       referencia_cliente: item.referencia_cliente || '',
       referencia_hc: item.referencia_hc || '',
-      awb: item.awb || '',
+      awb: awbPendente(item.awb) ? '' : item.awb || '',
       awb_original: item.awb || '',
       master: item.master || '',
       master_original: item.master || '',
@@ -1213,6 +1220,10 @@ export default function EmbarquesPage() {
     const servicosFinanceiros = servicosFinanceirosLista(editForm.servicos_financeiros)
     const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
     const awbNovoValido = awbValidoParaRastreio(editForm.awb)
+    const awbOriginalPendente = awbPendente(editForm.awb_original)
+    const awbSalvar =
+      String(editForm.awb || '').trim() ||
+      (awbOriginalPendente ? editForm.awb_original : null)
     const statusAtualEdicao = String(editForm.status_operacional || '')
       .trim()
       .toUpperCase()
@@ -1233,7 +1244,7 @@ export default function EmbarquesPage() {
       referencia_cliente: editForm.referencia_cliente || null,
       referencia_hc: editForm.referencia_hc || null,
 
-      awb: editForm.awb || null,
+      awb: awbSalvar,
       master: editForm.master || null,
       data_master: editForm.master
         ? editForm.master !== editForm.master_original
@@ -2390,7 +2401,7 @@ export default function EmbarquesPage() {
                     href={`/admin/embarques/${item.id}`}
                     className="text-3xl font-black text-blue-400 underline break-all"
                   >
-                    {item.awb || '-'}
+                    {awbExibicao(item.awb)}
                   </a>
 
                   <div className="mt-3 flex flex-wrap gap-2 items-center">
