@@ -238,14 +238,14 @@ function Card({
   icone: string
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-[#071225] p-5 shadow-xl">
+    <div className="min-h-[132px] rounded-2xl border border-slate-800 bg-[#071225] p-5 shadow-xl">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{titulo}</p>
-          <p className="mt-2 text-2xl font-black text-white">{valor}</p>
-          {detalhe ? <p className="mt-1 text-xs text-slate-500">{detalhe}</p> : null}
+          <p className="text-sm font-bold uppercase tracking-wider text-slate-400">{titulo}</p>
+          <p className="mt-2 text-3xl font-black tracking-tight text-white">{valor}</p>
+          {detalhe ? <p className="mt-2 text-sm leading-snug text-slate-500">{detalhe}</p> : null}
         </div>
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10 text-xl">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10 text-2xl">
           {icone}
         </div>
       </div>
@@ -270,11 +270,11 @@ function BarraHorizontal({
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-3 text-xs">
+      <div className="flex items-center justify-between gap-4 text-sm">
         <span className="truncate font-bold text-slate-300">{label}</span>
         <span className="shrink-0 font-black text-white">{detalhe || numeroBR(valor)}</span>
       </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-slate-900">
+      <div className="h-3 overflow-hidden rounded-full bg-slate-900">
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${largura}%`, backgroundColor: CORES[indice % CORES.length] }}
@@ -676,7 +676,7 @@ export default function AnaliseTransportadorasPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#020817] p-4 text-white lg:p-6">
+    <main className="min-h-screen w-full bg-[#020817] text-white">
       <style jsx global>{`
         @media print {
           aside, nav, .no-print { display: none !important; }
@@ -685,16 +685,16 @@ export default function AnaliseTransportadorasPage() {
         }
       `}</style>
 
-      <div className="mx-auto max-w-[1800px] space-y-5">
+      <div className="w-full max-w-none space-y-6">
         <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
           <div>
             <p className="text-sm font-black uppercase tracking-[0.2em] text-blue-400">
               Intelligence
             </p>
-            <h1 className="mt-1 text-3xl font-black tracking-tight lg:text-4xl">
+            <h1 className="mt-1 text-4xl font-black tracking-tight 2xl:text-5xl">
               Análise de Transportadoras
             </h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-400">
+            <p className="mt-2 max-w-4xl text-base leading-relaxed text-slate-400">
               Visão executiva de embarques, regiões, serviços, peso e faturas pagas às transportadoras.
               Não utiliza faturas emitidas contra clientes.
             </p>
@@ -703,7 +703,7 @@ export default function AnaliseTransportadorasPage() {
           <div className="no-print flex flex-wrap gap-2">
             <button
               onClick={() => setModoApresentacao((v) => !v)}
-              className={`rounded-xl border px-4 py-2 text-sm font-black ${
+              className={`rounded-xl border px-5 py-3 text-sm font-black ${
                 modoApresentacao
                   ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
                   : 'border-slate-700 bg-slate-900 text-slate-300'
@@ -713,13 +713,13 @@ export default function AnaliseTransportadorasPage() {
             </button>
             <button
               onClick={() => window.print()}
-              className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-black text-white hover:bg-violet-500"
+              className="rounded-xl bg-violet-600 px-5 py-3 text-sm font-black text-white hover:bg-violet-500"
             >
               📄 Gerar PDF
             </button>
             <button
               onClick={() => carregar()}
-              className="rounded-xl border border-blue-800 bg-blue-950/40 px-4 py-2 text-sm font-black text-blue-300"
+              className="rounded-xl border border-blue-800 bg-blue-950/40 px-5 py-3 text-sm font-black text-blue-300"
             >
               ↻ Atualizar
             </button>
@@ -732,8 +732,8 @@ export default function AnaliseTransportadorasPage() {
           </div>
         ) : null}
 
-        <section className="no-print rounded-2xl border border-slate-800 bg-[#071225] p-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+        <section className="no-print rounded-2xl border border-slate-800 bg-[#071225] p-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
             <Filtro label="Transportadora" valor={transportadora} setValor={setTransportadora}>
               <option value="TODAS">Todas</option>
               {opcoes.transportadoras.map((x) => <option key={x}>{x}</option>)}
@@ -829,7 +829,7 @@ export default function AnaliseTransportadorasPage() {
                 const h = maxEvolucao > 0 ? Math.max(4, Math.round((x.valor / maxEvolucao) * 100)) : 0
                 return (
                   <div key={`${x.label}-${i}`} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                    <span className="text-[10px] font-bold text-slate-400">{x.valor ? moeda(x.valor) : ''}</span>
+                    <span className="text-xs font-bold text-slate-300">{x.valor ? moeda(x.valor) : ''}</span>
                     <div
                       className="w-full rounded-t-lg"
                       style={{
@@ -839,7 +839,7 @@ export default function AnaliseTransportadorasPage() {
                         opacity: x.valor ? 1 : 0.15,
                       }}
                     />
-                    <span className="text-[10px] font-black text-slate-500">{x.label}</span>
+                    <span className="text-xs font-black text-slate-400">{x.label}</span>
                   </div>
                 )
               })}
@@ -903,10 +903,9 @@ export default function AnaliseTransportadorasPage() {
           </div>
         </section>
 
-        {!modoApresentacao ? (
-          <Painel titulo="Faturas das transportadoras" subtitulo="Últimas faturas dentro dos filtros selecionados">
+        <Painel titulo="Faturas das transportadoras" subtitulo="Últimas faturas dentro dos filtros selecionados">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-left text-xs">
+              <table className="w-full min-w-[1200px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-500">
                     <th className="px-3 py-3">Transportadora</th>
@@ -941,10 +940,9 @@ export default function AnaliseTransportadorasPage() {
 
               {!faturasRecentes.length ? <Vazio texto="Nenhuma fatura encontrada para os filtros atuais." /> : null}
             </div>
-          </Painel>
-        ) : null}
+        </Painel>
 
-        <footer className="flex flex-col justify-between gap-2 border-t border-slate-900 py-4 text-xs text-slate-600 sm:flex-row">
+        <footer className="flex flex-col justify-between gap-2 border-t border-slate-900 py-5 text-sm text-slate-500 sm:flex-row">
           <span>
             Dados: embarques + faturas_transportadoras + faturas_transportadoras_itens.
           </span>
@@ -970,13 +968,13 @@ function Filtro({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[10px] font-black uppercase tracking-wider text-slate-500">
+      <span className="mb-2 block text-xs font-black uppercase tracking-wider text-slate-400">
         {label}
       </span>
       <select
         value={valor}
         onChange={(e) => setValor(e.target.value)}
-        className="w-full rounded-xl border border-slate-700 bg-[#030b18] px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-blue-500"
+        className="w-full rounded-xl border border-slate-700 bg-[#030b18] px-4 py-3 text-sm font-bold text-white outline-none focus:border-blue-500"
       >
         {children}
       </select>
@@ -994,10 +992,10 @@ function Painel({
   children: ReactNode
 }) {
   return (
-    <section className="h-full rounded-2xl border border-slate-800 bg-[#071225] p-5 shadow-xl">
-      <div className="mb-5">
-        <h2 className="text-lg font-black text-white">{titulo}</h2>
-        {subtitulo ? <p className="mt-1 text-xs text-slate-500">{subtitulo}</p> : null}
+    <section className="h-full rounded-2xl border border-slate-800 bg-[#071225] p-6 shadow-xl">
+      <div className="mb-6">
+        <h2 className="text-xl font-black text-white">{titulo}</h2>
+        {subtitulo ? <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{subtitulo}</p> : null}
       </div>
       {children}
     </section>
@@ -1006,7 +1004,7 @@ function Painel({
 
 function Vazio({ texto: mensagem = 'Sem dados para os filtros selecionados.' }: { texto?: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 p-5 text-center text-xs font-bold text-slate-600">
+    <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 p-6 text-center text-sm font-bold text-slate-500">
       {mensagem}
     </div>
   )
