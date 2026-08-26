@@ -20,32 +20,28 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   },
 })
 
-type TransportadoraRastreio = 'DHL' | 'FEDEX'
-
-type IdentificacaoRastreio = {
-  transportadora: TransportadoraRastreio | ''
-  awb: string
-  aviso: string
-}
-
-const STATUS_PRIORIDADE: Record<string, number> = {
-  'Aguardando coleta': 0,
-  'Etiqueta gerada': 0,
-  Coletado: 1,
-  'Em trânsito': 2,
-  Fiscalização: 3,
-  Liberado: 4,
-  Entregue: 5,
-}
-
-const MAX_DHL_POR_EXECUCAO = Number(process.env.DHL_RASTREIO_MAX_POR_EXECUCAO || 5)
 const DELAY_DHL_MS = Number(process.env.DHL_RASTREIO_DELAY_MS || 1800)
 
 function aguardar(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function ehRateLimitDHL(mensagem: any) {
+function normalizarAwb(valor: any) {
+  return String(valor || '').replace(/\D/g, '')
+}
+
+function transportadoraCurta(transportadora: any, awb: any) {
+  const texto = String(transportadora || '').toUpperCase()
+  const awbLimpo = normalizarAwb(awb)
+
+  if (texto.includes('DHL')) return 'DHL'
+  if (texto.includes('FEDEX') || texto.includes('FED EX')) return 'FEDEX'
+  if (awbLimpo.length === 10) return 'DHL'
+  if (awbLimpo.length === 12) return 'FEDEX'
+  return ''
+}
+
+function ehRateLimit(mensagem: any) {
   const texto = String(mensagem || '').toLowerCase()
 
   return (
@@ -57,10 +53,24 @@ function ehRateLimitDHL(mensagem: any) {
   )
 }
 
+function limparMensagemErro(mensagem: any) {
+  const texto = String(mensagem || '').trim()
+
+  if (ehRateLimit(texto)) {
+    return 'Limite de consultas atingido na transportadora. O sistema tentará novamente mais tarde.'
+  }
+
+  if (texto.length > 220) {
+    return `${texto.slice(0, 220)}...`
+  }
+
+  return texto || 'Erro não informado.'
+}
+
 export async function GET(req: Request) {
   try {
     const cronSecret = process.env.CRON_SECRET
-    const authHeader = req.headers.get('authorization')
+    const authHeader = req.headers.get('authorization') || ''
 
     if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
@@ -68,7 +78,7 @@ export async function GET(req: Request) {
 
     const { data: embarques, error } = await supabase
       .from('embarques')
-      .select('*')
+      .select('id, awb, transportadora, status_operacional, proxima_tentativa_rastreio, ultima_atualizacao')
       .not('awb', 'is', null)
       .not('awb', 'ilike', 'AGUARDANDO AWB%')
       .not('status_operacional', 'eq', 'Entregue')
@@ -84,8 +94,9 @@ export async function GET(req: Request) {
     }
 
     const resultados: any[] = []
+    const origem = new URL(req.url).origin
+    let primeiraConsultaDhl = true
     let dhlBloqueadoNestaExecucao = false
-    let totalDhlConsultadoNestaExecucao = 0
 
     for (const embarque of embarques || []) {
       if (
@@ -94,104 +105,110 @@ export async function GET(req: Request) {
       ) {
         resultados.push({
           id: embarque.id,
-          awb: embarque.awb,
-          transportadora: embarque.transportadora,
+          awb: embarque.awb || '-',
+          transportadora: embarque.transportadora || '-',
           sucesso: false,
           erro: `AWB temporariamente bloqueado até ${embarque.proxima_tentativa_rastreio}`,
         })
-
         continue
       }
 
-      try {
-        const identificacao = identificarTransportadoraRastreio(
-          embarque.transportadora,
-          embarque.awb
-        )
+      const transportadora = transportadoraCurta(embarque.transportadora, embarque.awb)
 
-        if (!identificacao.awb || identificacao.awb === 'AGUARDANDO AWB') {
-          resultados.push({
-            id: embarque.id,
-            awb: embarque.awb || '-',
-            transportadora: embarque.transportadora || '-',
-            sucesso: false,
-            erro: 'AWB inválido.',
-          })
-          continue
-        }
-
-        if (identificacao.transportadora === 'DHL') {
-          if (dhlBloqueadoNestaExecucao) {
-            resultados.push({
-              id: embarque.id,
-              awb: identificacao.awb || embarque.awb || '-',
-              transportadora: 'DHL',
-              sucesso: false,
-              erro: 'DHL pausado nesta execução por limite de requisições. O sistema tentará novamente na próxima rodada.',
-            })
-            continue
-          }
-
-          if (totalDhlConsultadoNestaExecucao >= MAX_DHL_POR_EXECUCAO) {
-            resultados.push({
-              id: embarque.id,
-              awb: identificacao.awb || embarque.awb || '-',
-              transportadora: 'DHL',
-              sucesso: false,
-              erro: `DHL limitado a ${MAX_DHL_POR_EXECUCAO} consulta(s) por execução para evitar bloqueio da API.`,
-            })
-            continue
-          }
-
-          if (totalDhlConsultadoNestaExecucao > 0 && DELAY_DHL_MS > 0) {
-            await aguardar(DELAY_DHL_MS)
-          }
-
-          totalDhlConsultadoNestaExecucao++
-
-          const resultado = await rastrearDHL(embarque, identificacao.awb, identificacao.aviso)
-          resultados.push(resultado)
-          continue
-        }
-
-        if (identificacao.transportadora === 'FEDEX') {
-          const resultado = await rastrearFedEx(embarque, identificacao.awb, identificacao.aviso)
-          resultados.push(resultado)
-          continue
-        }
-
-        resultados.push({
-          id: embarque.id,
-          awb: identificacao.awb || embarque.awb || '-',
-          transportadora: embarque.transportadora || '-',
-          sucesso: false,
-          erro:
-            'Transportadora não suportada. Cadastre DHL ou FedEx, ou informe AWB de 10 dígitos para DHL / 12 dígitos para FedEx.',
-        })
-      } catch (erro: any) {
-        const mensagemErro = erro?.message || String(erro)
-
-        if (ehRateLimitDHL(mensagemErro)) {
-          const proximaTentativa = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString()
-
-          if (String(embarque.transportadora || '').toUpperCase().includes('DHL')) {
-            dhlBloqueadoNestaExecucao = true
-          }
-
-          await supabase
-            .from('embarques')
-            .update({
-              proxima_tentativa_rastreio: proximaTentativa,
-            })
-            .eq('id', embarque.id)
-        }
-
+      if (!transportadora) {
         resultados.push({
           id: embarque.id,
           awb: embarque.awb || '-',
           transportadora: embarque.transportadora || '-',
           sucesso: false,
-          erro: limparMensagemErro(mensagemErro),
+          erro: 'Transportadora não suportada para rastreio automático.',
+        })
+        continue
+      }
+
+      if (transportadora === 'DHL') {
+        if (dhlBloqueadoNestaExecucao) {
+          resultados.push({
+            id: embarque.id,
+            awb: embarque.awb || '-',
+            transportadora: 'DHL',
+            sucesso: false,
+            erro: 'DHL pausado nesta execução após limite de requisições. O sistema tentará novamente na próxima rodada.',
+          })
+          continue
+        }
+
+        if (!primeiraConsultaDhl && DELAY_DHL_MS > 0) {
+          await aguardar(DELAY_DHL_MS)
+        }
+
+        primeiraConsultaDhl = false
+      }
+
+      try {
+        // IMPORTANTE: o automático não possui uma segunda regra DHL/FedEx.
+        // Ele chama exatamente o mesmo endpoint usado pelo botão "Rodar rastreio".
+        const response = await fetch(`${origem}/api/rastreio`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cronSecret}`,
+          },
+          body: JSON.stringify({
+            embarque_id: embarque.id,
+          }),
+          cache: 'no-store',
+        })
+
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok || payload?.sucesso !== true) {
+          const mensagem =
+            payload?.detalhes ||
+            payload?.error ||
+            `Falha HTTP ${response.status} ao atualizar o rastreio.`
+
+          if (transportadora === 'DHL' && ehRateLimit(mensagem)) {
+            dhlBloqueadoNestaExecucao = true
+            const proximaTentativa = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString()
+
+            await supabase
+              .from('embarques')
+              .update({
+                proxima_tentativa_rastreio: proximaTentativa,
+              })
+              .eq('id', embarque.id)
+          }
+
+          resultados.push({
+            id: embarque.id,
+            awb: embarque.awb || '-',
+            transportadora: transportadora === 'FEDEX' ? 'FedEx' : transportadora,
+            sucesso: false,
+            erro: limparMensagemErro(mensagem),
+          })
+          continue
+        }
+
+        resultados.push({
+          id: embarque.id,
+          awb: payload?.awb || embarque.awb || '-',
+          transportadora:
+            payload?.transportadora ||
+            (transportadora === 'FEDEX' ? 'FedEx' : transportadora),
+          sucesso: true,
+          status: payload?.status || null,
+          descricao: payload?.descricao || null,
+        })
+      } catch (erro: any) {
+        const mensagem = erro?.message || String(erro)
+
+        resultados.push({
+          id: embarque.id,
+          awb: embarque.awb || '-',
+          transportadora: transportadora === 'FEDEX' ? 'FedEx' : transportadora,
+          sucesso: false,
+          erro: limparMensagemErro(mensagem),
         })
       }
     }
@@ -220,6 +237,7 @@ export async function GET(req: Request) {
         {
           error: 'Rastreio executado, mas houve erro ao salvar log.',
           detalhes: erroLog.message,
+          motor: '/api/rastreio',
           total_processado: resultados.length,
           total_sucesso: totalSucesso,
           total_erro: totalErro,
@@ -232,6 +250,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       sucesso: true,
+      motor: '/api/rastreio',
       total_processado: resultados.length,
       total_sucesso: totalSucesso,
       total_erro: totalErro,
@@ -247,787 +266,4 @@ export async function GET(req: Request) {
       { status: 500 }
     )
   }
-}
-
-async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
-  const dhlApiKey = process.env.DHL_API_KEY
-
-  if (!dhlApiKey) {
-    throw new Error('DHL_API_KEY não configurada.')
-  }
-
-  const url = `https://api-eu.dhl.com/track/shipments?trackingNumber=${encodeURIComponent(awb)}`
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'DHL-API-Key': dhlApiKey,
-      Accept: 'application/json',
-    },
-    cache: 'no-store',
-  })
-
-  const textoResposta = await response.text()
-
-  let data: any = {}
-
-  try {
-    data = textoResposta ? JSON.parse(textoResposta) : {}
-  } catch {
-    data = { message: textoResposta }
-  }
-
-  if (!response.ok) {
-    throw new Error(`Erro DHL: ${extrairErroApi(data)}`)
-  }
-
-  const shipment = data?.shipments?.[0]
-
-  if (!shipment) {
-    throw new Error('Nenhuma remessa DHL encontrada.')
-  }
-
-  const eventos = Array.isArray(shipment?.events) ? shipment.events : []
-  const eventoAtual = eventos[0]
-  const dataColeta = encontrarDataColetaDHL(eventos)
-
-  const descricaoOriginal =
-    shipment?.status?.description ||
-    eventoAtual?.description ||
-    shipment?.status?.status ||
-    shipment?.status?.statusCode ||
-    'Sem descrição'
-
-  const descricao = traduzirDescricao(descricaoOriginal, 'DHL')
-
-  // O status operacional deve refletir o estado ATUAL da transportadora.
-  // O histórico completo continua sendo usado apenas para localizar a coleta física.
-  const textosStatus = [
-    shipment?.status?.description,
-    shipment?.status?.status,
-    shipment?.status?.statusCode,
-    eventoAtual?.description,
-    eventoAtual?.typeCode,
-  ]
-
-  const local =
-    shipment?.status?.location?.address?.addressLocality ||
-    eventoAtual?.location?.address?.addressLocality ||
-    null
-
-  const dataEvento =
-    shipment?.status?.timestamp ||
-    eventoAtual?.timestamp ||
-    new Date().toISOString()
-
-  const statusNormalizado = await salvarRastreio({
-    embarque,
-    awb,
-    transportadora: 'DHL',
-    status: textosStatus.filter(Boolean).join(' | ') || descricao,
-    descricao,
-    local,
-    dataEvento,
-    dataColeta,
-    avisoValidacao,
-  })
-
-  return {
-    id: embarque.id,
-    awb,
-    transportadora: 'DHL',
-    sucesso: true,
-    status: statusNormalizado,
-    descricao,
-    aviso: avisoValidacao || null,
-  }
-}
-
-async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
-  const clientId = process.env.FEDEX_CLIENT_ID
-  const clientSecret = process.env.FEDEX_CLIENT_SECRET
-
-  if (!clientId || !clientSecret) {
-    throw new Error('FedEx não configurada.')
-  }
-
-  const tokenResponse = await fetch('https://apis.fedex.com/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
-    cache: 'no-store',
-  })
-
-  const tokenData = await tokenResponse.json()
-
-  if (!tokenResponse.ok) {
-    throw new Error(`Erro ao autenticar FedEx: ${extrairErroApi(tokenData)}`)
-  }
-
-  const accessToken = tokenData.access_token
-
-  const trackResponse = await fetch('https://apis.fedex.com/track/v1/trackingnumbers', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      includeDetailedScans: true,
-      trackingInfo: [
-        {
-          trackingNumberInfo: {
-            trackingNumber: awb,
-          },
-        },
-      ],
-    }),
-    cache: 'no-store',
-  })
-
-  const data = await trackResponse.json()
-
-  if (!trackResponse.ok) {
-    throw new Error(`Erro FedEx: ${extrairErroApi(data)}`)
-  }
-
-  const resultado = data?.output?.completeTrackResults?.[0]?.trackResults?.[0]
-
-  if (!resultado) {
-    throw new Error('Nenhuma remessa FedEx encontrada.')
-  }
-
-  const eventos = Array.isArray(resultado?.scanEvents) ? resultado.scanEvents : []
-  const ultimoEvento = eventos[0]
-  const dataColeta = encontrarDataColetaFedEx(eventos)
-
-  const descricaoOriginal =
-    resultado?.latestStatusDetail?.description ||
-    resultado?.derivedStatus ||
-    resultado?.statusByLocale ||
-    ultimoEvento?.eventDescription ||
-    'Sem descrição'
-
-  const descricao = traduzirDescricao(descricaoOriginal, 'FEDEX')
-
-  // Não misturar eventos antigos na decisão do status atual.
-  // O histórico continua disponível para detectar a coleta física.
-  const textosStatus = [
-    resultado?.latestStatusDetail?.description,
-    resultado?.latestStatusDetail?.code,
-    resultado?.latestStatusDetail?.ancillaryDetails?.[0]?.reason,
-    resultado?.latestStatusDetail?.ancillaryDetails?.[0]?.reasonDescription,
-    resultado?.derivedStatus,
-    resultado?.statusByLocale,
-    ultimoEvento?.eventDescription,
-    ultimoEvento?.eventType,
-    ultimoEvento?.derivedStatus,
-  ]
-
-  const local =
-    ultimoEvento?.scanLocation?.city ||
-    resultado?.latestStatusDetail?.scanLocation?.city ||
-    null
-
-  const dataEntregaFedEx = encontrarDataEntregaFedEx(resultado, eventos)
-
-  const dataEvento =
-    dataEntregaFedEx ||
-    ultimoEvento?.date ||
-    resultado?.dateAndTimes?.[0]?.dateTime ||
-    new Date().toISOString()
-
-  const statusNormalizado = await salvarRastreio({
-    embarque,
-    awb,
-    transportadora: 'FEDEX',
-    status: textosStatus.filter(Boolean).join(' | ') || descricao,
-    descricao,
-    local,
-    dataEvento,
-    dataColeta,
-    avisoValidacao,
-  })
-
-  return {
-    id: embarque.id,
-    awb,
-    transportadora: 'FEDEX',
-    sucesso: true,
-    status: statusNormalizado,
-    descricao,
-    aviso: avisoValidacao || null,
-  }
-}
-
-function normalizarAwb(valor: any) {
-  return String(valor || '').replace(/\D/g, '')
-}
-
-function identificarTransportadoraRastreio(transportadora: any, awb: any): IdentificacaoRastreio {
-  const awbOriginal = String(awb || '').trim()
-  const textoAwbOriginal = removerAcentos(awbOriginal).toUpperCase()
-
-  if (textoAwbOriginal.startsWith('AGUARDANDO AWB')) {
-    return {
-      transportadora: '',
-      awb: '',
-      aviso: 'AWB ainda não informado.',
-    }
-  }
-
-  const textoTransportadora = removerAcentos(String(transportadora || '')).toUpperCase()
-  const awbLimpo = normalizarAwb(awbOriginal)
-
-  if (textoTransportadora.includes('DHL')) {
-    return {
-      transportadora: 'DHL',
-      awb: awbLimpo,
-      aviso:
-        awbLimpo.length !== 10
-          ? 'AWB DHL normalmente possui 10 dígitos. Confira o número informado.'
-          : '',
-    }
-  }
-
-  if (textoTransportadora.includes('FEDEX') || textoTransportadora.includes('FED EX')) {
-    return {
-      transportadora: 'FEDEX',
-      awb: awbLimpo,
-      aviso:
-        awbLimpo.length !== 12
-          ? 'AWB FedEx normalmente possui 12 dígitos no padrão usado pela HC. Confira o número informado.'
-          : '',
-    }
-  }
-
-  if (awbLimpo.length === 10) {
-    return {
-      transportadora: 'DHL',
-      awb: awbLimpo,
-      aviso: 'Transportadora identificada automaticamente pelo AWB de 10 dígitos.',
-    }
-  }
-
-  if (awbLimpo.length === 12) {
-    return {
-      transportadora: 'FEDEX',
-      awb: awbLimpo,
-      aviso: 'Transportadora identificada automaticamente pelo AWB de 12 dígitos.',
-    }
-  }
-
-  return {
-    transportadora: '',
-    awb: awbLimpo,
-    aviso: 'Não foi possível identificar a transportadora pelo AWB.',
-  }
-}
-
-function encontrarDataColetaDHL(eventos: any[]) {
-  const eventoColeta = eventos.find((evento) => {
-    const texto = removerAcentos(
-      `${evento?.description || ''} ${evento?.status || ''} ${evento?.statusCode || ''} ${evento?.typeCode || ''}`
-    )
-
-    return (
-      texto.includes('picked up') ||
-      texto.includes('shipment picked up') ||
-      texto.includes('collected') ||
-      texto.includes('coletado') ||
-      texto.includes('coleta realizada') ||
-      texto.includes('envio recolhido') ||
-      texto === 'pu' ||
-      texto.includes(' pu ')
-    )
-  })
-
-  return eventoColeta?.timestamp || null
-}
-
-function encontrarDataEntregaFedEx(resultado: any, eventos: any[]) {
-  const dataEntregaPorResumo =
-    (resultado?.dateAndTimes || []).find((item: any) => {
-      const tipo = removerAcentos(`${item?.type || ''} ${item?.name || ''}`)
-      return (
-        tipo.includes('actual delivery') ||
-        tipo.includes('delivery') ||
-        tipo.includes('entrega')
-      )
-    })?.dateTime || null
-
-  if (dataEntregaPorResumo) return dataEntregaPorResumo
-
-  const eventoEntrega = (eventos || []).find((evento: any) => {
-    const texto = removerAcentos(
-      `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
-    )
-
-    return ehEntregue(texto)
-  })
-
-  return eventoEntrega?.date || null
-}
-
-function encontrarDataColetaFedEx(eventos: any[]) {
-  const eventoColeta = eventos.find((evento) => {
-    const texto = removerAcentos(
-      `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
-    )
-
-    const pickupReal =
-      texto.includes('picked up') ||
-      texto.includes('shipment picked up') ||
-      texto.includes('collected') ||
-      texto.includes('coletado') ||
-      texto.includes('coleta realizada') ||
-      texto.includes('envio recolhido') ||
-      texto === 'pu' ||
-      texto.includes(' pu ')
-
-    const pickupAgendadoOuPendente =
-      texto.includes('pickup scheduled') ||
-      texto.includes('pickup requested') ||
-      texto.includes('pickup pending') ||
-      texto.includes('scheduled pickup') ||
-      texto.includes('coleta agendada') ||
-      texto.includes('aguardando coleta')
-
-    return pickupReal && !pickupAgendadoOuPendente
-  })
-
-  return eventoColeta?.date || null
-}
-
-function removerAcentos(texto: string) {
-  return String(texto || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-}
-
-function traduzirDescricao(descricao: string, transportadora?: TransportadoraRastreio) {
-  const original = String(descricao || '').trim()
-  const d = removerAcentos(original)
-  const transportadoraNormalizada = String(transportadora || '').toUpperCase()
-
-  if (!original) return 'Sem descrição'
-
-  // Regra definitiva DHL:
-  // "liberada e entregue pelo despachante/broker" NÃO é entrega final ao destinatário.
-  if (transportadoraNormalizada === 'DHL') {
-    if (ehDhlLiberadoPorDespachante(d) || ehBrokerOuLiberado(d)) {
-      return 'A remessa será liberada e entregue pelo despachante aduaneiro'
-    }
-
-    if (ehEntregaFinalDhl(d)) return 'Envio entregue'
-  } else {
-    if (ehEntregue(d)) return 'Envio entregue'
-  }
-
-  if (ehSaiuParaEntrega(d)) return 'A remessa saiu para entrega'
-  if (ehBrokerOuLiberado(d)) return 'A remessa será liberada e entregue pelo despachante aduaneiro'
-  if (ehFiscalizacao(d)) return 'Envio em processo de liberação'
-  if (ehColetado(d)) return 'Envio recolhido'
-
-  if (ehTransito(d)) {
-    if (transportadora === 'FEDEX') return original
-    if (d.includes('processed') || d.includes('processado')) return 'Processado na unidade DHL'
-    if (d.includes('arrived') || d.includes('chegou')) return 'Chegou nas instalações da DHL'
-    if (d.includes('departed') || d.includes('partiu')) return 'A remessa partiu de uma instalação da DHL'
-    return original
-  }
-
-  if (ehEtiquetaGerada(d)) return 'Etiqueta criada. Aguardando coleta pela transportadora'
-
-  return original
-}
-
-function ehDhlLiberadoPorDespachante(s: string) {
-  const texto = removerAcentos(s)
-
-  return (
-    texto.includes('sera liberada e entregue pelo despachante') ||
-    texto.includes('será liberada e entregue pelo despachante') ||
-    texto.includes('liberada e entregue pelo despachante') ||
-    texto.includes('entregue pelo despachante') ||
-    texto.includes('despachante aduaneiro') ||
-    texto.includes('customs broker') ||
-    texto.includes('delivered by broker') ||
-    texto.includes('cleared and delivered by broker') ||
-    texto.includes('will be cleared and delivered by broker') ||
-    texto.includes('broker')
-  )
-}
-
-function ehEntregaFinalDhl(s: string) {
-  const texto = removerAcentos(s)
-
-  if (ehDhlLiberadoPorDespachante(texto)) return false
-
-  const negativoEntrega =
-    texto.includes('nao foi entregue') ||
-    texto.includes('não foi entregue') ||
-    texto.includes('not delivered') ||
-    texto.includes('not yet delivered') ||
-    texto.includes('not yet been delivered') ||
-    texto.includes('not yet handed over') ||
-    texto.includes('not yet received') ||
-    texto.includes('has not been handed over') ||
-    texto.includes('remessa ainda nao foi entregue') ||
-    texto.includes('nao foi entregue fisicamente')
-
-  if (negativoEntrega) return false
-
-  return (
-    texto === 'delivered' ||
-    texto === 'envio entregue' ||
-    texto.includes('shipment delivered') ||
-    texto.includes('delivered to consignee') ||
-    texto.includes('delivered to recipient') ||
-    texto.includes('delivered to customer') ||
-    texto.includes('signed for by') ||
-    texto.includes('entrega realizada') ||
-    texto.includes('entrega concluida') ||
-    texto.includes('entregue ao destinatario') ||
-    texto.includes('entregue para o destinatario') ||
-    texto.includes('envio entregue ao destinatario')
-  )
-}
-
-function normalizarStatus(status: string, transportadora?: TransportadoraRastreio | string) {
-  const s = removerAcentos(status)
-  const transportadoraNormalizada = String(transportadora || '').toUpperCase()
-
-  if (transportadoraNormalizada === 'DHL') {
-    if (ehDhlLiberadoPorDespachante(s) || ehBrokerOuLiberado(s)) return 'Liberado'
-    if (ehEntregaFinalDhl(s)) return 'Entregue'
-  } else {
-    if (ehEntregue(s)) return 'Entregue'
-  }
-
-  if (ehSaiuParaEntrega(s) || ehBrokerOuLiberado(s)) return 'Liberado'
-  if (ehFiscalizacao(s)) return 'Fiscalização'
-  if (ehTransito(s)) return 'Em trânsito'
-  if (ehColetado(s)) return 'Coletado'
-  if (ehEtiquetaGerada(s)) return 'Aguardando coleta'
-
-  return 'Aguardando coleta'
-}
-
-function ehEntregue(s: string) {
-  const texto = removerAcentos(s)
-
-  const negativoEntrega =
-    texto.includes('nao foi entregue') ||
-    texto.includes('não foi entregue') ||
-    texto.includes('not delivered') ||
-    texto.includes('not yet delivered') ||
-    texto.includes('not yet been delivered') ||
-    texto.includes('not yet handed over') ||
-    texto.includes('not yet received') ||
-    texto.includes('has not been handed over') ||
-    texto.includes('remessa ainda nao foi entregue') ||
-    texto.includes('nao foi entregue fisicamente')
-
-  if (negativoEntrega) return false
-
-  const codigoFedexEntregue = /(^|[\s|,;:/-])(dl)([\s|,;:/-]|$)/.test(texto)
-
-  return (
-    texto === 'envio entregue' ||
-    texto === 'delivered' ||
-    codigoFedexEntregue ||
-    texto.includes('delivered') ||
-    texto.includes('shipment delivered') ||
-    texto.includes('proof of delivery') ||
-    texto.includes('delivered to consignee') ||
-    texto.includes('delivered to recipient') ||
-    texto.includes('signed for') ||
-    texto.includes('signed by') ||
-    texto.includes('signature') ||
-    texto.includes('delivery completed') ||
-    texto.includes('entrega realizada') ||
-    texto.includes('entrega concluida') ||
-    texto.includes('entregue ao destinatario') ||
-    texto.includes('envio entregue') ||
-    texto.includes('foi entregue') ||
-    texto.includes('comprovante de entrega')
-  )
-}
-
-function ehSaiuParaEntrega(s: string) {
-  return (
-    s.includes('out for delivery') ||
-    s.includes('with delivery courier') ||
-    s.includes('with courier') ||
-    s.includes('saiu com o mensageiro para entrega') ||
-    s.includes('mensageiro para entrega') ||
-    s.includes('saiu para entrega')
-  )
-}
-
-function ehBrokerOuLiberado(s: string) {
-  return (
-    s.includes('shipment will be cleared and delivered by broker') ||
-    s.includes('cleared and delivered by broker') ||
-    s.includes('customs broker') ||
-    s.includes('broker') ||
-    s.includes('despachante aduaneiro') ||
-    s.includes('despachante') ||
-    s.includes('aduaneiro') ||
-    s.includes('available for delivery') ||
-    s.includes('released') ||
-    s.includes('liberado') ||
-    s.includes('liberada') ||
-    s.includes('clearance complete') ||
-    s.includes('clearance processing complete') ||
-    s.includes('liberacao concluida') ||
-    s.includes('liberacao aduaneira concluida')
-  )
-}
-
-function ehFiscalizacao(s: string) {
-  return (
-    s.includes('clearance event') ||
-    s.includes('customs status updated') ||
-    s.includes('clearance') ||
-    s.includes('customs') ||
-    s.includes('fiscal') ||
-    s.includes('desembaraco') ||
-    s.includes('processo de liberacao') ||
-    s.includes('em processo de liberacao') ||
-    s.includes('envio em proceso de liberacao') ||
-    s.includes('envio em processo de liberacao')
-  )
-}
-
-function ehTransito(s: string) {
-  return (
-    s.includes('on the way') ||
-    s.includes('we have your package') ||
-    s.includes('estamos com seu pacote') ||
-    s.includes('delivery updated') ||
-    (s.includes('transit') && !s.includes('shipment information sent to fedex')) ||
-    s.includes('transito') ||
-    s.includes('in transit') ||
-    s.includes('processed') ||
-    s.includes('processado') ||
-    s.includes('depart') ||
-    s.includes('partiu') ||
-    s.includes('arrived') ||
-    s.includes('arrival') ||
-    s.includes('chegou') ||
-    s.includes('movement') ||
-    s.includes('facility') ||
-    s.includes('sort facility') ||
-    s.includes('hub') ||
-    s.includes('origin facility') ||
-    s.includes('destination facility') ||
-    s.includes('left fedex') ||
-    s.includes('at fedex') ||
-    s.includes('fedex hub') ||
-    s.includes('instalacoes da dhl') ||
-    s.includes('instalacao da dhl') ||
-    s.includes('instalacao do dhl')
-  )
-}
-
-function ehColetado(s: string) {
-  const texto = removerAcentos(s)
-
-  const pickupReal =
-    texto.includes('picked up') ||
-    texto.includes('shipment picked up') ||
-    texto.includes('collected') ||
-    texto.includes('coletado') ||
-    texto.includes('coleta realizada') ||
-    texto.includes('envio recolhido') ||
-    texto.includes('remessa recolhida') ||
-    texto === 'pu' ||
-    texto.includes(' pu ')
-
-  const pickupAgendadoOuPendente =
-    texto.includes('pickup scheduled') ||
-    texto.includes('pickup requested') ||
-    texto.includes('pickup pending') ||
-    texto.includes('scheduled pickup') ||
-    texto.includes('coleta agendada') ||
-    texto.includes('aguardando coleta')
-
-  return pickupReal && !pickupAgendadoOuPendente
-}
-
-function ehEtiquetaGerada(s: string) {
-  return (
-    s.includes('shipment information received') ||
-    s.includes('shipping information received') ||
-    s.includes('shipment information sent to fedex') ||
-    s.includes('label created') ||
-    s.includes('label generated') ||
-    s.includes('etiqueta') ||
-    s.includes('gerou a etiqueta') ||
-    s.includes('remessa ainda nao foi entregue') ||
-    s.includes('nao foi entregue fisicamente') ||
-    s.includes('not yet handed over') ||
-    s.includes('not yet been handed over') ||
-    s.includes('not yet received') ||
-    s.includes('has not been handed over') ||
-    s.includes('aguardando coleta') ||
-    s.includes('pre-shipment')
-  )
-}
-
-function statusMaisForte(statusAtual: any, statusNovo: string) {
-  const atual = normalizarStatus(String(statusAtual || ''))
-  const prioridadeAtual = STATUS_PRIORIDADE[atual] ?? 0
-  const prioridadeNova = STATUS_PRIORIDADE[statusNovo] ?? 0
-
-  return prioridadeNova >= prioridadeAtual ? statusNovo : atual
-}
-
-async function salvarRastreio({
-  embarque,
-  awb,
-  transportadora,
-  status,
-  descricao,
-  local,
-  dataEvento,
-  dataColeta,
-  avisoValidacao,
-}: any) {
-  let statusDetectado = normalizarStatus(status, transportadora)
-  const statusAtualAntes = normalizarStatus(embarque.status_operacional || '', transportadora)
-
-  // Regra operacional HC:
-  // Coletado / Em trânsito só existem depois de uma coleta física confirmada no histórico.
-  if (!dataColeta && ['Coletado', 'Em trânsito'].includes(statusDetectado)) {
-    statusDetectado = 'Aguardando coleta'
-  }
-
-  let statusNormalizado = statusMaisForte(embarque.status_operacional, statusDetectado)
-
-  const textoCompletoStatus = removerAcentos(`${status || ''} ${descricao || ''}`)
-  const brokerDhlSemEntregaFinal =
-    String(transportadora || '').toUpperCase() === 'DHL' &&
-    ehDhlLiberadoPorDespachante(textoCompletoStatus)
-
-  if (brokerDhlSemEntregaFinal) {
-    statusNormalizado = 'Liberado'
-  }
-
-  // Corrige automaticamente registros que já ficaram adiantados sem coleta.
-  // Entregue continua sendo terminal e nunca regride.
-  if (
-    !brokerDhlSemEntregaFinal &&
-    statusDetectado === 'Aguardando coleta' &&
-    !dataColeta &&
-    statusAtualAntes !== 'Entregue'
-  ) {
-    statusNormalizado = 'Aguardando coleta'
-  }
-
-  const mudouStatus = statusNormalizado !== statusAtualAntes
-
-  const dadosAtualizar: any = {
-    status_operacional: statusNormalizado,
-    ultima_atualizacao: new Date().toISOString(),
-    proxima_tentativa_rastreio: null,
-  }
-
-  if (statusNormalizado === 'Aguardando coleta' && !dataColeta && statusAtualAntes !== 'Entregue') {
-    dadosAtualizar.data_envio = null
-  }
-
-  if (statusNormalizado === 'Entregue') {
-    dadosAtualizar.data_entrega = new Date(dataEvento || new Date()).toISOString().split('T')[0]
-  }
-
-  if (brokerDhlSemEntregaFinal && statusNormalizado !== 'Entregue') {
-    dadosAtualizar.data_entrega = null
-  }
-
-  // Data de envio = data real de coleta. Não preencher com data de etiqueta ou evento genérico.
-  if (dataColeta) {
-    dadosAtualizar.data_envio = new Date(dataColeta).toISOString().split('T')[0]
-  }
-
-  const { error: erroUpdate } = await supabase
-    .from('embarques')
-    .update(dadosAtualizar)
-    .eq('id', embarque.id)
-
-  if (erroUpdate) {
-    throw new Error(`Erro ao atualizar embarque: ${erroUpdate.message}`)
-  }
-
-  const { data: rastreioExistente } = await supabase
-    .from('rastreios_embarques')
-    .select('id')
-    .eq('embarque_id', embarque.id)
-    .eq('awb', awb)
-    .eq('status', statusNormalizado)
-    .eq('descricao', descricao)
-    .eq('data_evento', dataEvento)
-    .maybeSingle()
-
-  if (!rastreioExistente) {
-    const { error: erroInsert } = await supabase.from('rastreios_embarques').insert({
-      embarque_id: embarque.id,
-      awb,
-      transportadora,
-      status: statusNormalizado,
-      descricao,
-      localizacao: local,
-      data_evento: dataEvento,
-    })
-
-    if (erroInsert) {
-      throw new Error(`Erro ao salvar rastreio: ${erroInsert.message}`)
-    }
-  }
-
-  if (mudouStatus || !rastreioExistente) {
-    await supabase.from('timeline_embarques').insert({
-      embarque_id: embarque.id,
-      status: statusNormalizado,
-      descricao: avisoValidacao
-        ? `Rastreio atualizado: ${descricao}. Aviso: ${avisoValidacao}`
-        : `Rastreio atualizado: ${descricao}`,
-    })
-  }
-
-  return statusNormalizado
-}
-
-function extrairErroApi(data: any) {
-  return (
-    data?.detail ||
-    data?.title ||
-    data?.message ||
-    data?.errors?.[0]?.message ||
-    data?.errors?.[0]?.code ||
-    JSON.stringify(data)
-  )
-}
-
-function limparMensagemErro(mensagem: string) {
-  const texto = String(mensagem || '').trim()
-
-  if (texto.includes('Too Many Requests') || texto.includes('429')) {
-    return 'Limite de consultas atingido na transportadora. Tente novamente mais tarde.'
-  }
-
-  if (texto.length > 220) {
-    return `${texto.slice(0, 220)}...`
-  }
-
-  return texto || 'Erro não informado.'
 }

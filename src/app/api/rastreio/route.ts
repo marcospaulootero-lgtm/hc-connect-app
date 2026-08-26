@@ -43,28 +43,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
     }
 
-    const {
-      data: { user },
-      error: erroAuth,
-    } = await supabaseAuth.auth.getUser(token)
+    // O botão administrativo usa o access token do usuário.
+    // O rastreio automático usa o CRON_SECRET. Ambos entram no MESMO motor abaixo.
+    const cronSecret = process.env.CRON_SECRET
+    const chamadaAutomatica = Boolean(cronSecret && token === cronSecret)
 
-    if (erroAuth || !user?.id) {
-      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
-    }
+    if (!chamadaAutomatica) {
+      const {
+        data: { user },
+        error: erroAuth,
+      } = await supabaseAuth.auth.getUser(token)
 
-    const { data: perfil, error: erroPerfil } = await supabase
-      .from('perfis')
-      .select('tipo_acesso, ativo')
-      .eq('id', user.id)
-      .maybeSingle()
+      if (erroAuth || !user?.id) {
+        return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+      }
 
-    if (
-      erroPerfil ||
-      !perfil ||
-      perfil.ativo === false ||
-      String(perfil.tipo_acesso || '').toLowerCase() !== 'admin'
-    ) {
-      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+      const { data: perfil, error: erroPerfil } = await supabase
+        .from('perfis')
+        .select('tipo_acesso, ativo')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (
+        erroPerfil ||
+        !perfil ||
+        perfil.ativo === false ||
+        String(perfil.tipo_acesso || '').toLowerCase() !== 'admin'
+      ) {
+        return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+      }
     }
 
     const body = await req.json()
