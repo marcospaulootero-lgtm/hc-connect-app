@@ -184,18 +184,14 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
     eventoAtual?.timestamp ||
     new Date().toISOString()
 
+  // O status operacional deve refletir o estado ATUAL da transportadora.
+  // O histórico completo continua sendo usado apenas para localizar a coleta física.
   const textosStatus = [
     shipment?.status?.description,
     shipment?.status?.status,
     shipment?.status?.statusCode,
     eventoAtual?.description,
     eventoAtual?.typeCode,
-    ...eventos.flatMap((evento: any) => [
-      evento?.description,
-      evento?.status,
-      evento?.statusCode,
-      evento?.typeCode,
-    ]),
   ]
 
   const statusNormalizado = await salvarRastreio({
@@ -328,6 +324,8 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
     resultado?.dateAndTimes?.[0]?.dateTime ||
     new Date().toISOString()
 
+  // Não misturar eventos antigos na decisão do status atual.
+  // O histórico continua disponível para detectar a coleta física.
   const textosStatus = [
     resultado?.latestStatusDetail?.description,
     resultado?.latestStatusDetail?.code,
@@ -338,12 +336,6 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
     ultimoEvento?.eventDescription,
     ultimoEvento?.eventType,
     ultimoEvento?.derivedStatus,
-    ...eventos.flatMap((evento: any) => [
-      evento?.eventDescription,
-      evento?.eventType,
-      evento?.derivedStatus,
-      evento?.exceptionDescription,
-    ]),
   ]
 
   const statusNormalizado = await salvarRastreio({
@@ -376,8 +368,19 @@ function normalizarAwb(valor: any) {
 }
 
 function identificarTransportadoraRastreio(transportadora: any, awb: any): IdentificacaoRastreio {
+  const awbOriginal = String(awb || '').trim()
+  const textoAwbOriginal = removerAcentos(awbOriginal).toUpperCase()
+
+  if (textoAwbOriginal.startsWith('AGUARDANDO AWB')) {
+    return {
+      transportadora: '',
+      awb: '',
+      aviso: 'AWB ainda não informado.',
+    }
+  }
+
   const textoTransportadora = removerAcentos(String(transportadora || '')).toUpperCase()
-  const awbLimpo = normalizarAwb(awb)
+  const awbLimpo = normalizarAwb(awbOriginal)
 
   if (textoTransportadora.includes('DHL')) {
     return {
@@ -692,15 +695,23 @@ async function salvarRastreio({
   dataColeta,
   avisoValidacao,
 }: any) {
-  const statusDetectado = normalizarStatus(status)
+  let statusDetectado = normalizarStatus(status)
   const statusAtualAntes = normalizarStatus(embarque.status_operacional || '')
+
+  // Regra operacional HC:
+  // Coletado / Em trânsito só existem depois de uma coleta física confirmada no histórico.
+  // Isso impede "etiqueta criada", "shipment information received" ou eventos antigos
+  // de promoverem a remessa antes de a transportadora realmente receber o volume.
+  if (!dataColeta && ['Coletado', 'Em trânsito'].includes(statusDetectado)) {
+    statusDetectado = 'Aguardando coleta'
+  }
+
   let statusNormalizado = statusMaisForte(embarque.status_operacional, statusDetectado)
 
-  // Correção importante:
-  // "Aguardando coleta" / "Etiqueta criada" não pode permanecer como Coletado.
-  // Se o status anterior foi gravado errado como Coletado e a transportadora voltou etiqueta criada,
-  // o sistema deve corrigir para Aguardando coleta.
-  if (statusDetectado === 'Aguardando coleta' && statusAtualAntes === 'Coletado' && !dataColeta) {
+  // Permite corrigir registros antigos que ficaram indevidamente como
+  // Coletado / Em trânsito / Fiscalização / Liberado antes da coleta.
+  // Entregue é terminal e nunca regride.
+  if (statusDetectado === 'Aguardando coleta' && !dataColeta && statusAtualAntes !== 'Entregue') {
     statusNormalizado = 'Aguardando coleta'
   }
 
@@ -712,7 +723,8 @@ async function salvarRastreio({
     proxima_tentativa_rastreio: null,
   }
 
-  if (statusNormalizado === 'Aguardando coleta' && statusAtualAntes === 'Coletado' && !dataColeta) {
+  // Se ainda não houve coleta, remove data de envio gravada por classificação incorreta anterior.
+  if (statusNormalizado === 'Aguardando coleta' && !dataColeta && statusAtualAntes !== 'Entregue') {
     dadosAtualizar.data_envio = null
   }
 
@@ -720,12 +732,9 @@ async function salvarRastreio({
     dadosAtualizar.data_entrega = new Date(dataEvento || new Date()).toISOString().split('T')[0]
   }
 
-  if (
-    ['Coletado', 'Em trânsito', 'Fiscalização', 'Liberado', 'Entregue'].includes(statusNormalizado) &&
-    !embarque.data_envio
-  ) {
-    const dataBaseEnvio = dataColeta || dataEvento || new Date().toISOString()
-    dadosAtualizar.data_envio = new Date(dataBaseEnvio).toISOString().split('T')[0]
+  // Data de envio = data da coleta física. Nunca usar data de etiqueta/status como substituta.
+  if (dataColeta) {
+    dadosAtualizar.data_envio = new Date(dataColeta).toISOString().split('T')[0]
   }
 
   const { error: erroUpdate } = await supabase

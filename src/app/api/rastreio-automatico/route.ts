@@ -70,7 +70,7 @@ export async function GET(req: Request) {
       .from('embarques')
       .select('*')
       .not('awb', 'is', null)
-      .not('awb', 'eq', 'AGUARDANDO AWB')
+      .not('awb', 'ilike', 'AGUARDANDO AWB%')
       .not('status_operacional', 'eq', 'Entregue')
       .not('status_operacional', 'eq', 'Finalizado')
       .not('status_operacional', 'eq', 'Cancelado')
@@ -300,18 +300,14 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
 
   const descricao = traduzirDescricao(descricaoOriginal, 'DHL')
 
+  // O status operacional deve refletir o estado ATUAL da transportadora.
+  // O histórico completo continua sendo usado apenas para localizar a coleta física.
   const textosStatus = [
     shipment?.status?.description,
     shipment?.status?.status,
     shipment?.status?.statusCode,
     eventoAtual?.description,
     eventoAtual?.typeCode,
-    ...eventos.flatMap((evento: any) => [
-      evento?.description,
-      evento?.status,
-      evento?.statusCode,
-      evento?.typeCode,
-    ]),
   ]
 
   const local =
@@ -420,6 +416,8 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
 
   const descricao = traduzirDescricao(descricaoOriginal, 'FEDEX')
 
+  // Não misturar eventos antigos na decisão do status atual.
+  // O histórico continua disponível para detectar a coleta física.
   const textosStatus = [
     resultado?.latestStatusDetail?.description,
     resultado?.latestStatusDetail?.code,
@@ -430,12 +428,6 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
     ultimoEvento?.eventDescription,
     ultimoEvento?.eventType,
     ultimoEvento?.derivedStatus,
-    ...eventos.flatMap((evento: any) => [
-      evento?.eventDescription,
-      evento?.eventType,
-      evento?.derivedStatus,
-      evento?.exceptionDescription,
-    ]),
   ]
 
   const local =
@@ -479,8 +471,19 @@ function normalizarAwb(valor: any) {
 }
 
 function identificarTransportadoraRastreio(transportadora: any, awb: any): IdentificacaoRastreio {
+  const awbOriginal = String(awb || '').trim()
+  const textoAwbOriginal = removerAcentos(awbOriginal).toUpperCase()
+
+  if (textoAwbOriginal.startsWith('AGUARDANDO AWB')) {
+    return {
+      transportadora: '',
+      awb: '',
+      aviso: 'AWB ainda não informado.',
+    }
+  }
+
   const textoTransportadora = removerAcentos(String(transportadora || '')).toUpperCase()
-  const awbLimpo = normalizarAwb(awb)
+  const awbLimpo = normalizarAwb(awbOriginal)
 
   if (textoTransportadora.includes('DHL')) {
     return {
@@ -900,8 +903,15 @@ async function salvarRastreio({
   dataColeta,
   avisoValidacao,
 }: any) {
-  const statusDetectado = normalizarStatus(status, transportadora)
-  const statusAtualAntes = normalizarStatus(embarque.status_operacional || '')
+  let statusDetectado = normalizarStatus(status, transportadora)
+  const statusAtualAntes = normalizarStatus(embarque.status_operacional || '', transportadora)
+
+  // Regra operacional HC:
+  // Coletado / Em trânsito só existem depois de uma coleta física confirmada no histórico.
+  if (!dataColeta && ['Coletado', 'Em trânsito'].includes(statusDetectado)) {
+    statusDetectado = 'Aguardando coleta'
+  }
+
   let statusNormalizado = statusMaisForte(embarque.status_operacional, statusDetectado)
 
   const textoCompletoStatus = removerAcentos(`${status || ''} ${descricao || ''}`)
@@ -913,11 +923,14 @@ async function salvarRastreio({
     statusNormalizado = 'Liberado'
   }
 
-  // Correção importante:
-  // "Aguardando coleta" / "Etiqueta criada" não pode permanecer como Coletado.
-  // Se o status anterior foi gravado errado como Coletado e a transportadora voltou etiqueta criada,
-  // o sistema deve corrigir para Aguardando coleta.
-  if (statusDetectado === 'Aguardando coleta' && statusAtualAntes === 'Coletado' && !dataColeta) {
+  // Corrige automaticamente registros que já ficaram adiantados sem coleta.
+  // Entregue continua sendo terminal e nunca regride.
+  if (
+    !brokerDhlSemEntregaFinal &&
+    statusDetectado === 'Aguardando coleta' &&
+    !dataColeta &&
+    statusAtualAntes !== 'Entregue'
+  ) {
     statusNormalizado = 'Aguardando coleta'
   }
 
@@ -929,7 +942,7 @@ async function salvarRastreio({
     proxima_tentativa_rastreio: null,
   }
 
-  if (statusNormalizado === 'Aguardando coleta' && statusAtualAntes === 'Coletado' && !dataColeta) {
+  if (statusNormalizado === 'Aguardando coleta' && !dataColeta && statusAtualAntes !== 'Entregue') {
     dadosAtualizar.data_envio = null
   }
 
@@ -941,12 +954,9 @@ async function salvarRastreio({
     dadosAtualizar.data_entrega = null
   }
 
-  if (
-    ['Coletado', 'Em trânsito', 'Fiscalização', 'Liberado', 'Entregue'].includes(statusNormalizado) &&
-    !embarque.data_envio
-  ) {
-    const dataBaseEnvio = dataColeta || dataEvento || new Date().toISOString()
-    dadosAtualizar.data_envio = new Date(dataBaseEnvio).toISOString().split('T')[0]
+  // Data de envio = data real de coleta. Não preencher com data de etiqueta ou evento genérico.
+  if (dataColeta) {
+    dadosAtualizar.data_envio = new Date(dataColeta).toISOString().split('T')[0]
   }
 
   const { error: erroUpdate } = await supabase
