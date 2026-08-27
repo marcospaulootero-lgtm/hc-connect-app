@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -67,6 +67,193 @@ function limparMensagemErro(mensagem: any) {
   return texto || 'Erro não informado.'
 }
 
+async function registrarFalhaGeral(erro: any) {
+  const mensagem = limparMensagemErro(erro?.message || String(erro))
+
+  const { error } = await supabase.from('logs_rastreio').insert({
+    total_processado: 0,
+    total_sucesso: 0,
+    total_erro: 1,
+    detalhes: [
+      {
+        id: null,
+        awb: '-',
+        transportadora: '-',
+        erro: mensagem,
+      },
+    ],
+  })
+
+  if (error) {
+    console.error('Erro ao registrar falha geral do rastreio automático:', error.message)
+  }
+}
+
+async function processarRastreios(origem: string, cronSecret: string) {
+  const { data: embarques, error } = await supabase
+    .from('embarques')
+    .select('id, awb, transportadora, status_operacional, proxima_tentativa_rastreio, ultima_atualizacao')
+    .not('awb', 'is', null)
+    .not('awb', 'ilike', 'AGUARDANDO AWB%')
+    .not('status_operacional', 'eq', 'Entregue')
+    .not('status_operacional', 'eq', 'Finalizado')
+    .not('status_operacional', 'eq', 'Cancelado')
+    .order('ultima_atualizacao', { ascending: true })
+
+  if (error) {
+    throw new Error(`Erro ao buscar embarques: ${error.message}`)
+  }
+
+  const resultados: any[] = []
+  let primeiraConsultaDhl = true
+  let dhlBloqueadoNestaExecucao = false
+
+  for (const embarque of embarques || []) {
+    if (
+      embarque.proxima_tentativa_rastreio &&
+      new Date(embarque.proxima_tentativa_rastreio) > new Date()
+    ) {
+      resultados.push({
+        id: embarque.id,
+        awb: embarque.awb || '-',
+        transportadora: embarque.transportadora || '-',
+        sucesso: false,
+        erro: `AWB temporariamente bloqueado até ${embarque.proxima_tentativa_rastreio}`,
+      })
+      continue
+    }
+
+    const transportadora = transportadoraCurta(embarque.transportadora, embarque.awb)
+
+    if (!transportadora) {
+      resultados.push({
+        id: embarque.id,
+        awb: embarque.awb || '-',
+        transportadora: embarque.transportadora || '-',
+        sucesso: false,
+        erro: 'Transportadora não suportada para rastreio automático.',
+      })
+      continue
+    }
+
+    if (transportadora === 'DHL') {
+      if (dhlBloqueadoNestaExecucao) {
+        resultados.push({
+          id: embarque.id,
+          awb: embarque.awb || '-',
+          transportadora: 'DHL',
+          sucesso: false,
+          erro: 'DHL pausado nesta execução após limite de requisições. O sistema tentará novamente na próxima rodada.',
+        })
+        continue
+      }
+
+      if (!primeiraConsultaDhl && DELAY_DHL_MS > 0) {
+        await aguardar(DELAY_DHL_MS)
+      }
+
+      primeiraConsultaDhl = false
+    }
+
+    try {
+      // IMPORTANTE: o automático não possui uma segunda regra DHL/FedEx.
+      // Ele chama exatamente o mesmo endpoint usado pelo botão "Rodar rastreio".
+      const response = await fetch(`${origem}/api/rastreio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cronSecret}`,
+        },
+        body: JSON.stringify({
+          embarque_id: embarque.id,
+        }),
+        cache: 'no-store',
+      })
+
+      const payload = await response.json().catch(() => ({}))
+
+      if (!response.ok || payload?.sucesso !== true) {
+        const mensagem =
+          payload?.detalhes ||
+          payload?.error ||
+          `Falha HTTP ${response.status} ao atualizar o rastreio.`
+
+        if (transportadora === 'DHL' && ehRateLimit(mensagem)) {
+          dhlBloqueadoNestaExecucao = true
+          const proximaTentativa = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString()
+
+          await supabase
+            .from('embarques')
+            .update({
+              proxima_tentativa_rastreio: proximaTentativa,
+            })
+            .eq('id', embarque.id)
+        }
+
+        resultados.push({
+          id: embarque.id,
+          awb: embarque.awb || '-',
+          transportadora: transportadora === 'FEDEX' ? 'FedEx' : transportadora,
+          sucesso: false,
+          erro: limparMensagemErro(mensagem),
+        })
+        continue
+      }
+
+      resultados.push({
+        id: embarque.id,
+        awb: payload?.awb || embarque.awb || '-',
+        transportadora:
+          payload?.transportadora ||
+          (transportadora === 'FEDEX' ? 'FedEx' : transportadora),
+        sucesso: true,
+        status: payload?.status || null,
+        descricao: payload?.descricao || null,
+      })
+    } catch (erro: any) {
+      const mensagem = erro?.message || String(erro)
+
+      resultados.push({
+        id: embarque.id,
+        awb: embarque.awb || '-',
+        transportadora: transportadora === 'FEDEX' ? 'FedEx' : transportadora,
+        sucesso: false,
+        erro: limparMensagemErro(mensagem),
+      })
+    }
+  }
+
+  const totalSucesso = resultados.filter((r) => r.sucesso === true).length
+  const totalErro = resultados.filter((r) => r.sucesso === false).length
+
+  const errosDetalhados = resultados
+    .filter((r) => r.sucesso === false)
+    .map((r) => ({
+      id: r.id || null,
+      awb: r.awb || '-',
+      transportadora: r.transportadora || '-',
+      erro: limparMensagemErro(r.erro || 'Erro não informado.'),
+    }))
+
+  const { error: erroLog } = await supabase.from('logs_rastreio').insert({
+    total_processado: resultados.length,
+    total_sucesso: totalSucesso,
+    total_erro: totalErro,
+    detalhes: errosDetalhados,
+  })
+
+  if (erroLog) {
+    throw new Error(`Rastreio executado, mas houve erro ao salvar log: ${erroLog.message}`)
+  }
+
+  console.log('Rastreio automático concluído.', {
+    motor: '/api/rastreio',
+    total_processado: resultados.length,
+    total_sucesso: totalSucesso,
+    total_erro: totalErro,
+  })
+}
+
 export async function GET(req: Request) {
   try {
     const cronSecret = process.env.CRON_SECRET
@@ -76,191 +263,33 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
     }
 
-    const { data: embarques, error } = await supabase
-      .from('embarques')
-      .select('id, awb, transportadora, status_operacional, proxima_tentativa_rastreio, ultima_atualizacao')
-      .not('awb', 'is', null)
-      .not('awb', 'ilike', 'AGUARDANDO AWB%')
-      .not('status_operacional', 'eq', 'Entregue')
-      .not('status_operacional', 'eq', 'Finalizado')
-      .not('status_operacional', 'eq', 'Cancelado')
-      .order('ultima_atualizacao', { ascending: true })
-
-    if (error) {
-      return NextResponse.json(
-        { error: 'Erro ao buscar embarques.', detalhes: error.message },
-        { status: 500 }
-      )
-    }
-
-    const resultados: any[] = []
     const origem = new URL(req.url).origin
-    let primeiraConsultaDhl = true
-    let dhlBloqueadoNestaExecucao = false
 
-    for (const embarque of embarques || []) {
-      if (
-        embarque.proxima_tentativa_rastreio &&
-        new Date(embarque.proxima_tentativa_rastreio) > new Date()
-      ) {
-        resultados.push({
-          id: embarque.id,
-          awb: embarque.awb || '-',
-          transportadora: embarque.transportadora || '-',
-          sucesso: false,
-          erro: `AWB temporariamente bloqueado até ${embarque.proxima_tentativa_rastreio}`,
-        })
-        continue
-      }
-
-      const transportadora = transportadoraCurta(embarque.transportadora, embarque.awb)
-
-      if (!transportadora) {
-        resultados.push({
-          id: embarque.id,
-          awb: embarque.awb || '-',
-          transportadora: embarque.transportadora || '-',
-          sucesso: false,
-          erro: 'Transportadora não suportada para rastreio automático.',
-        })
-        continue
-      }
-
-      if (transportadora === 'DHL') {
-        if (dhlBloqueadoNestaExecucao) {
-          resultados.push({
-            id: embarque.id,
-            awb: embarque.awb || '-',
-            transportadora: 'DHL',
-            sucesso: false,
-            erro: 'DHL pausado nesta execução após limite de requisições. O sistema tentará novamente na próxima rodada.',
-          })
-          continue
-        }
-
-        if (!primeiraConsultaDhl && DELAY_DHL_MS > 0) {
-          await aguardar(DELAY_DHL_MS)
-        }
-
-        primeiraConsultaDhl = false
-      }
-
+    // O Supabase pg_net aceita no máximo 5 s de timeout.
+    // Respondemos imediatamente e mantemos o lote vivo com after(),
+    // que é a API oficial do Next.js para trabalho pós-resposta.
+    after(async () => {
       try {
-        // IMPORTANTE: o automático não possui uma segunda regra DHL/FedEx.
-        // Ele chama exatamente o mesmo endpoint usado pelo botão "Rodar rastreio".
-        const response = await fetch(`${origem}/api/rastreio`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${cronSecret}`,
-          },
-          body: JSON.stringify({
-            embarque_id: embarque.id,
-          }),
-          cache: 'no-store',
-        })
-
-        const payload = await response.json().catch(() => ({}))
-
-        if (!response.ok || payload?.sucesso !== true) {
-          const mensagem =
-            payload?.detalhes ||
-            payload?.error ||
-            `Falha HTTP ${response.status} ao atualizar o rastreio.`
-
-          if (transportadora === 'DHL' && ehRateLimit(mensagem)) {
-            dhlBloqueadoNestaExecucao = true
-            const proximaTentativa = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString()
-
-            await supabase
-              .from('embarques')
-              .update({
-                proxima_tentativa_rastreio: proximaTentativa,
-              })
-              .eq('id', embarque.id)
-          }
-
-          resultados.push({
-            id: embarque.id,
-            awb: embarque.awb || '-',
-            transportadora: transportadora === 'FEDEX' ? 'FedEx' : transportadora,
-            sucesso: false,
-            erro: limparMensagemErro(mensagem),
-          })
-          continue
-        }
-
-        resultados.push({
-          id: embarque.id,
-          awb: payload?.awb || embarque.awb || '-',
-          transportadora:
-            payload?.transportadora ||
-            (transportadora === 'FEDEX' ? 'FedEx' : transportadora),
-          sucesso: true,
-          status: payload?.status || null,
-          descricao: payload?.descricao || null,
-        })
+        await processarRastreios(origem, cronSecret)
       } catch (erro: any) {
-        const mensagem = erro?.message || String(erro)
-
-        resultados.push({
-          id: embarque.id,
-          awb: embarque.awb || '-',
-          transportadora: transportadora === 'FEDEX' ? 'FedEx' : transportadora,
-          sucesso: false,
-          erro: limparMensagemErro(mensagem),
-        })
+        console.error('Erro no processamento do rastreio automático:', erro)
+        await registrarFalhaGeral(erro)
       }
-    }
-
-    const totalSucesso = resultados.filter((r) => r.sucesso === true).length
-    const totalErro = resultados.filter((r) => r.sucesso === false).length
-
-    const errosDetalhados = resultados
-      .filter((r) => r.sucesso === false)
-      .map((r) => ({
-        id: r.id || null,
-        awb: r.awb || '-',
-        transportadora: r.transportadora || '-',
-        erro: limparMensagemErro(r.erro || 'Erro não informado.'),
-      }))
-
-    const { error: erroLog } = await supabase.from('logs_rastreio').insert({
-      total_processado: resultados.length,
-      total_sucesso: totalSucesso,
-      total_erro: totalErro,
-      detalhes: errosDetalhados,
     })
 
-    if (erroLog) {
-      return NextResponse.json(
-        {
-          error: 'Rastreio executado, mas houve erro ao salvar log.',
-          detalhes: erroLog.message,
-          motor: '/api/rastreio',
-          total_processado: resultados.length,
-          total_sucesso: totalSucesso,
-          total_erro: totalErro,
-          erros: errosDetalhados,
-          resultados,
-        },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({
-      sucesso: true,
-      motor: '/api/rastreio',
-      total_processado: resultados.length,
-      total_sucesso: totalSucesso,
-      total_erro: totalErro,
-      erros: errosDetalhados,
-      resultados,
-    })
+    return NextResponse.json(
+      {
+        sucesso: true,
+        aceito: true,
+        motor: '/api/rastreio',
+        mensagem: 'Rastreio automático iniciado em segundo plano.',
+      },
+      { status: 202 }
+    )
   } catch (error: any) {
     return NextResponse.json(
       {
-        error: 'Erro interno no rastreio automático.',
+        error: 'Erro ao iniciar o rastreio automático.',
         detalhes: error?.message || String(error),
       },
       { status: 500 }
