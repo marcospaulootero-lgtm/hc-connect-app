@@ -797,11 +797,24 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
   async function montarPdf() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const LIMITE_CONTEUDO = 258
+    const Y_INICIAL_NOVA_PAGINA = 20
+    const Y_RODAPE = 276
+    const ALTURA_LINHA_INFO = 5
+
     let y = 12
+    let rodapeInseridoNaPaginaAtual = false
+
+    function adicionarPaginaConteudo() {
+      inserirRodapePdf()
+      doc.addPage()
+      y = Y_INICIAL_NOVA_PAGINA
+      rodapeInseridoNaPaginaAtual = false
+    }
 
     function novaPagina(altura = 8) {
-      if (y + altura > 282) {
-        y = 268
+      if (y + altura > LIMITE_CONTEUDO) {
+        adicionarPaginaConteudo()
       }
     }
 
@@ -817,18 +830,37 @@ const totaisAgenteMoedaTela = useMemo(() => {
     }
 
     function info(label: string, valor: any) {
-      novaPagina(8)
-      doc.setTextColor(71, 85, 105)
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(8)
-      doc.text(label, 14, y)
+      const linhas = doc.splitTextToSize(String(valor || '-'), 120) as string[]
+      let indiceLinha = 0
+      let continuacao = false
 
-      doc.setTextColor(15, 23, 42)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      const linhas = doc.splitTextToSize(String(valor || '-'), 120)
-      doc.text(linhas, 68, y)
-      y += Math.max(6, linhas.length * 5)
+      while (indiceLinha < linhas.length) {
+        novaPagina(8)
+
+        const linhasQueCabem = Math.max(
+          1,
+          Math.floor((LIMITE_CONTEUDO - y) / ALTURA_LINHA_INFO) + 1
+        )
+        const trecho = linhas.slice(indiceLinha, indiceLinha + linhasQueCabem)
+
+        doc.setTextColor(71, 85, 105)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8)
+        doc.text(continuacao ? `${label} (cont.)` : label, 14, y)
+
+        doc.setTextColor(15, 23, 42)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9)
+        doc.text(trecho, 68, y)
+
+        y += Math.max(6, trecho.length * ALTURA_LINHA_INFO)
+        indiceLinha += trecho.length
+
+        if (indiceLinha < linhas.length) {
+          adicionarPaginaConteudo()
+          continuacao = true
+        }
+      }
     }
 
     function valor(label: string, numeroValor: any, moeda = 'USD') {
@@ -864,14 +896,10 @@ const totaisAgenteMoedaTela = useMemo(() => {
     }
 
     function inserirRodapePdf() {
-      const yRodape = 276
-
-      if (y > yRodape - 16) {
-        y = 268
-      }
+      if (rodapeInseridoNaPaginaAtual) return
 
       doc.setDrawColor(203, 213, 225)
-      doc.line(14, yRodape - 6, 196, yRodape - 6)
+      doc.line(14, Y_RODAPE - 6, 196, Y_RODAPE - 6)
 
       doc.setTextColor(100, 116, 139)
       doc.setFont('helvetica', 'normal')
@@ -882,13 +910,15 @@ const totaisAgenteMoedaTela = useMemo(() => {
         128
       )
 
-      doc.text(textoRodape, 14, yRodape)
+      doc.text(textoRodape, 14, Y_RODAPE)
 
       doc.setFont('helvetica', 'bold')
-      doc.text('HC Consultoria', 196, yRodape, { align: 'right' })
+      doc.text('HC Consultoria', 196, Y_RODAPE, { align: 'right' })
 
       doc.setFont('helvetica', 'normal')
-      doc.text('portal.hcbhz.com', 196, yRodape + 4, { align: 'right' })
+      doc.text('portal.hcbhz.com', 196, Y_RODAPE + 4, { align: 'right' })
+
+      rodapeInseridoNaPaginaAtual = true
     }
 
     doc.setTextColor(255, 255, 255)

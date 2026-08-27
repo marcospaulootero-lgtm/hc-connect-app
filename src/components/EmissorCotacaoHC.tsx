@@ -480,12 +480,24 @@ export default function EmissorCotacaoHC({
 
   function montarPdf() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const LIMITE_CONTEUDO = 268
+    const Y_INICIAL_NOVA_PAGINA = 20
+    const Y_RODAPE = 286
+    const ALTURA_LINHA_INFO = 5
+
     let y = 12
+    let rodapeInseridoNaPaginaAtual = false
+
+    function adicionarPaginaConteudo() {
+      inserirRodapePdf()
+      doc.addPage()
+      y = Y_INICIAL_NOVA_PAGINA
+      rodapeInseridoNaPaginaAtual = false
+    }
 
     function novaPagina(altura = 8) {
-      if (y + altura > 282) {
-        doc.addPage()
-        y = 14
+      if (y + altura > LIMITE_CONTEUDO) {
+        adicionarPaginaConteudo()
       }
     }
 
@@ -501,18 +513,53 @@ export default function EmissorCotacaoHC({
     }
 
     function info(label: string, valor: any) {
-      novaPagina(8)
-      doc.setTextColor(71, 85, 105)
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(8)
-      doc.text(label, 14, y)
+      const linhas = doc.splitTextToSize(String(valor || '-'), 120) as string[]
+      let indiceLinha = 0
+      let continuacao = false
 
-      doc.setTextColor(15, 23, 42)
+      while (indiceLinha < linhas.length) {
+        novaPagina(8)
+
+        const linhasQueCabem = Math.max(
+          1,
+          Math.floor((LIMITE_CONTEUDO - y) / ALTURA_LINHA_INFO) + 1
+        )
+        const trecho = linhas.slice(indiceLinha, indiceLinha + linhasQueCabem)
+
+        doc.setTextColor(71, 85, 105)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8)
+        doc.text(continuacao ? `${label} (cont.)` : label, 14, y)
+
+        doc.setTextColor(15, 23, 42)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9)
+        doc.text(trecho, 68, y)
+
+        y += Math.max(6, trecho.length * ALTURA_LINHA_INFO)
+        indiceLinha += trecho.length
+
+        if (indiceLinha < linhas.length) {
+          adicionarPaginaConteudo()
+          continuacao = true
+        }
+      }
+    }
+
+    function inserirRodapePdf() {
+      if (rodapeInseridoNaPaginaAtual) return
+
+      doc.setTextColor(100, 116, 139)
       doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      const linhas = doc.splitTextToSize(String(valor || '-'), 120)
-      doc.text(linhas, 68, y)
-      y += Math.max(6, linhas.length * 5)
+      doc.setFontSize(8)
+      doc.text(
+        'Cotação sujeita à confirmação de peso, dimensões, documentos, disponibilidade de rota e regras da transportadora.',
+        14,
+        Y_RODAPE
+      )
+      doc.text('HC Consultoria - portal.hcbhz.com', 196, Y_RODAPE, { align: 'right' })
+
+      rodapeInseridoNaPaginaAtual = true
     }
 
     function valor(label: string, numeroValor: any) {
@@ -634,11 +681,7 @@ export default function EmissorCotacaoHC({
     info('Descrição', form.descricaoMercadoria || '-')
     info('Observações comerciais', form.observacoesComerciais || cotacao?.observacoes || '-')
 
-    doc.setTextColor(100, 116, 139)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.text('Cotação sujeita à confirmação de peso, dimensões, documentos, disponibilidade de rota e regras da transportadora.', 14, 286)
-    doc.text('HC Consultoria - portal.hcbhz.com', 196, 286, { align: 'right' })
+    inserirRodapePdf()
 
     return doc
   }
