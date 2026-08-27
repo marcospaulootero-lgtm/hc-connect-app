@@ -21,6 +21,8 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 })
 
 const DELAY_DHL_MS = Number(process.env.DHL_RASTREIO_DELAY_MS || 1800)
+const MAX_DHL_POR_EXECUCAO = Number(process.env.DHL_RASTREIO_MAX_POR_EXECUCAO || 5)
+const MAX_FEDEX_POR_EXECUCAO = Number(process.env.FEDEX_RASTREIO_MAX_POR_EXECUCAO || 10)
 
 function aguardar(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -105,21 +107,18 @@ async function processarRastreios(origem: string, cronSecret: string) {
   }
 
   const resultados: any[] = []
-  let primeiraConsultaDhl = true
-  let dhlBloqueadoNestaExecucao = false
+  const filaFedEx: any[] = []
+  const filaDhl: any[] = []
+  const agora = new Date()
 
+  // Processa lotes pequenos e justos por transportadora.
+  // A ordenação por ultima_atualizacao faz os AWBs mais antigos avançarem
+  // para o início da fila nas próximas execuções.
   for (const embarque of embarques || []) {
     if (
       embarque.proxima_tentativa_rastreio &&
-      new Date(embarque.proxima_tentativa_rastreio) > new Date()
+      new Date(embarque.proxima_tentativa_rastreio) > agora
     ) {
-      resultados.push({
-        id: embarque.id,
-        awb: embarque.awb || '-',
-        transportadora: embarque.transportadora || '-',
-        sucesso: false,
-        erro: `AWB temporariamente bloqueado até ${embarque.proxima_tentativa_rastreio}`,
-      })
       continue
     }
 
@@ -136,15 +135,27 @@ async function processarRastreios(origem: string, cronSecret: string) {
       continue
     }
 
+    if (transportadora === 'FEDEX' && filaFedEx.length < MAX_FEDEX_POR_EXECUCAO) {
+      filaFedEx.push({ ...embarque, transportadora_rastreio: transportadora })
+      continue
+    }
+
+    if (transportadora === 'DHL' && filaDhl.length < MAX_DHL_POR_EXECUCAO) {
+      filaDhl.push({ ...embarque, transportadora_rastreio: transportadora })
+    }
+  }
+
+  // FedEx primeiro: não fica esperando os intervalos necessários entre consultas DHL.
+  const fila = [...filaFedEx, ...filaDhl]
+
+  let primeiraConsultaDhl = true
+  let dhlBloqueadoNestaExecucao = false
+
+  for (const embarque of fila) {
+    const transportadora = embarque.transportadora_rastreio as 'DHL' | 'FEDEX'
+
     if (transportadora === 'DHL') {
       if (dhlBloqueadoNestaExecucao) {
-        resultados.push({
-          id: embarque.id,
-          awb: embarque.awb || '-',
-          transportadora: 'DHL',
-          sucesso: false,
-          erro: 'DHL pausado nesta execução após limite de requisições. O sistema tentará novamente na próxima rodada.',
-        })
         continue
       }
 
@@ -156,8 +167,7 @@ async function processarRastreios(origem: string, cronSecret: string) {
     }
 
     try {
-      // IMPORTANTE: o automático não possui uma segunda regra DHL/FedEx.
-      // Ele chama exatamente o mesmo endpoint usado pelo botão "Rodar rastreio".
+      // O automático continua usando exatamente o mesmo motor do botão manual.
       const response = await fetch(`${origem}/api/rastreio`, {
         method: 'POST',
         headers: {
@@ -248,6 +258,8 @@ async function processarRastreios(origem: string, cronSecret: string) {
 
   console.log('Rastreio automático concluído.', {
     motor: '/api/rastreio',
+    dhl_selecionados: filaDhl.length,
+    fedex_selecionados: filaFedEx.length,
     total_processado: resultados.length,
     total_sucesso: totalSucesso,
     total_erro: totalErro,

@@ -159,7 +159,7 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
   }
 
   const eventos = Array.isArray(shipment?.events) ? shipment.events : []
-  const eventoAtual = eventos[0]
+  const eventoAtual = eventoMaisRecenteDHL(eventos)
   const dataColeta = encontrarDataColetaDHL(eventos)
 
   const descricaoOriginal =
@@ -301,7 +301,7 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
   }
 
   const eventos = Array.isArray(resultado?.scanEvents) ? resultado.scanEvents : []
-  const ultimoEvento = eventos[0]
+  const ultimoEvento = eventoMaisRecenteFedEx(eventos)
   const dataColeta = encontrarDataColetaFedEx(eventos)
 
   const descricaoOriginal =
@@ -362,6 +362,26 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
 
 function normalizarAwb(valor: any) {
   return String(valor || '').replace(/\D/g, '')
+}
+
+function eventoMaisRecenteDHL(eventos: any[]) {
+  return [...(eventos || [])]
+    .filter((evento) => evento?.timestamp)
+    .sort(
+      (a, b) =>
+        new Date(b.timestamp).getTime() -
+        new Date(a.timestamp).getTime()
+    )[0] || eventos?.[0]
+}
+
+function eventoMaisRecenteFedEx(eventos: any[]) {
+  return [...(eventos || [])]
+    .filter((evento) => evento?.date)
+    .sort(
+      (a, b) =>
+        new Date(b.date).getTime() -
+        new Date(a.date).getTime()
+    )[0] || eventos?.[0]
 }
 
 function identificarTransportadoraRastreio(transportadora: any, awb: any): IdentificacaoRastreio {
@@ -535,19 +555,34 @@ function normalizarStatus(status: string) {
 }
 
 function ehEntregue(s: string) {
+  const texto = removerAcentos(s)
+
+  const naoEntregue =
+    texto.includes('nao foi entregue') ||
+    texto.includes('not delivered') ||
+    texto.includes('not yet delivered') ||
+    texto.includes('not yet handed over') ||
+    texto.includes('ainda nao foi entregue')
+
+  if (naoEntregue) return false
+
+  const codigoFedExEntregue = /(^|[\s|,;:/-])dl([\s|,;:/-]|$)/.test(texto)
+
   return (
-    s === 'envio entregue' ||
-    s === 'delivered' ||
-    s.includes('shipment delivered') ||
-    s.includes('proof of delivery') ||
-    s.includes('delivered to consignee') ||
-    s.includes('delivered to recipient') ||
-    s.includes('signed for') ||
-    s.includes('delivery completed') ||
-    s.includes('entrega realizada') ||
-    s.includes('entrega concluida') ||
-    s.includes('entregue ao destinatario') ||
-    s.includes('comprovante de entrega')
+    texto === 'entregue' ||
+    texto === 'envio entregue' ||
+    texto === 'delivered' ||
+    codigoFedExEntregue ||
+    texto.includes('shipment delivered') ||
+    texto.includes('proof of delivery') ||
+    texto.includes('delivered to consignee') ||
+    texto.includes('delivered to recipient') ||
+    texto.includes('signed for') ||
+    texto.includes('delivery completed') ||
+    texto.includes('entrega realizada') ||
+    texto.includes('entrega concluida') ||
+    texto.includes('entregue ao destinatario') ||
+    texto.includes('comprovante de entrega')
   )
 }
 
