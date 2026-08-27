@@ -22,16 +22,6 @@ type IdentificacaoRastreio = {
   aviso: string
 }
 
-const STATUS_PRIORIDADE: Record<string, number> = {
-  'Aguardando coleta': 0,
-  'Etiqueta gerada': 0,
-  Coletado: 1,
-  'Em trânsito': 2,
-  Fiscalização: 3,
-  Liberado: 4,
-  Entregue: 5,
-}
-
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get('authorization') || ''
@@ -440,19 +430,24 @@ function encontrarDataColetaDHL(eventos: any[]) {
       `${evento?.description || ''} ${evento?.status || ''} ${evento?.statusCode || ''} ${evento?.typeCode || ''}`
     )
 
-    return (
-      texto.includes('picked up') ||
-      texto.includes('shipment picked up') ||
-      texto.includes('collected') ||
-      texto.includes('coletado') ||
-      texto.includes('coleta realizada') ||
-      texto.includes('envio recolhido') ||
-      texto === 'pu' ||
-      texto.includes(' pu ')
-    )
+    return ehColetado(texto)
   })
 
-  return eventoColeta?.timestamp || null
+  if (eventoColeta?.timestamp) return eventoColeta.timestamp
+
+  // Algumas respostas DHL não retornam um evento explícito de pickup, mesmo quando
+  // já existem eventos que comprovam posse/movimentação física do volume.
+  // Nesses casos, usa o primeiro evento físico conhecido como referência operacional.
+  const eventosFisicos = eventos
+    .filter((evento) => {
+      const texto = removerAcentos(
+        `${evento?.description || ''} ${evento?.status || ''} ${evento?.statusCode || ''} ${evento?.typeCode || ''}`
+      )
+      return ehMovimentoFisicoConfirmado(texto) && evento?.timestamp
+    })
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+  return eventosFisicos[0]?.timestamp || null
 }
 
 function encontrarDataColetaFedEx(eventos: any[]) {
@@ -461,28 +456,23 @@ function encontrarDataColetaFedEx(eventos: any[]) {
       `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
     )
 
-    const pickupReal =
-      texto.includes('picked up') ||
-      texto.includes('shipment picked up') ||
-      texto.includes('collected') ||
-      texto.includes('coletado') ||
-      texto.includes('coleta realizada') ||
-      texto.includes('envio recolhido') ||
-      texto === 'pu' ||
-      texto.includes(' pu ')
-
-    const pickupAgendadoOuPendente =
-      texto.includes('pickup scheduled') ||
-      texto.includes('pickup requested') ||
-      texto.includes('pickup pending') ||
-      texto.includes('scheduled pickup') ||
-      texto.includes('coleta agendada') ||
-      texto.includes('aguardando coleta')
-
-    return pickupReal && !pickupAgendadoOuPendente
+    return ehColetado(texto)
   })
 
-  return eventoColeta?.date || null
+  if (eventoColeta?.date) return eventoColeta.date
+
+  // A FedEx também pode não devolver o pickup explícito em alguns históricos.
+  // Se houver movimentação física inequívoca, usa o primeiro scan físico conhecido.
+  const eventosFisicos = eventos
+    .filter((evento) => {
+      const texto = removerAcentos(
+        `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
+      )
+      return ehMovimentoFisicoConfirmado(texto) && evento?.date
+    })
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  return eventosFisicos[0]?.date || null
 }
 
 function removerAcentos(texto: string) {
@@ -683,12 +673,33 @@ function ehEtiquetaGerada(s: string) {
   )
 }
 
-function statusMaisForte(statusAtual: any, statusNovo: string) {
-  const atual = normalizarStatus(String(statusAtual || ''))
-  const prioridadeAtual = STATUS_PRIORIDADE[atual] ?? 0
-  const prioridadeNova = STATUS_PRIORIDADE[statusNovo] ?? 0
+function ehMovimentoFisicoConfirmado(s: string) {
+  const texto = removerAcentos(s)
 
-  return prioridadeNova >= prioridadeAtual ? statusNovo : atual
+  if (ehColetado(texto)) return true
+
+  return (
+    texto.includes('departed') ||
+    texto.includes('partiu') ||
+    texto.includes('processed') ||
+    texto.includes('processado') ||
+    texto.includes('arrived at') ||
+    texto.includes('arrival at') ||
+    texto.includes('chegou') ||
+    texto.includes('in transit') ||
+    texto.includes('em transito') ||
+    texto.includes('on the way') ||
+    texto.includes('a caminho do destino') ||
+    texto.includes('at fedex location') ||
+    texto.includes('at local fedex facility') ||
+    texto.includes('fedex facility') ||
+    texto.includes('fedex hub') ||
+    texto.includes('origin facility') ||
+    texto.includes('destination facility') ||
+    texto.includes('instalacoes da dhl') ||
+    texto.includes('instalacao da dhl') ||
+    texto.includes('instalacao do dhl')
+  )
 }
 
 async function salvarRastreio({
@@ -706,19 +717,26 @@ async function salvarRastreio({
   const statusAtualAntes = normalizarStatus(embarque.status_operacional || '')
 
   // Regra operacional HC:
-  // Coletado / Em trânsito só existem depois de uma coleta física confirmada no histórico.
-  // Isso impede "etiqueta criada", "shipment information received" ou eventos antigos
-  // de promoverem a remessa antes de a transportadora realmente receber o volume.
-  if (!dataColeta && ['Coletado', 'Em trânsito'].includes(statusDetectado)) {
+  // etiqueta/pré-envio sem evidência física = Aguardando coleta.
+  // Porém, eventos atuais como "departed", "processed", "arrived" ou scans em
+  // instalações DHL/FedEx comprovam que a transportadora já recebeu/movimentou o volume,
+  // mesmo quando a API não devolve um evento explícito de pickup.
+  const movimentoFisicoConfirmado = Boolean(dataColeta) || ehMovimentoFisicoConfirmado(status)
+
+  if (!movimentoFisicoConfirmado && ['Coletado', 'Em trânsito'].includes(statusDetectado)) {
     statusDetectado = 'Aguardando coleta'
   }
 
-  let statusNormalizado = statusMaisForte(embarque.status_operacional, statusDetectado)
+  // O status operacional acompanha o estado ATUAL informado pela transportadora.
+  // Fiscalização/Liberado podem naturalmente voltar para Em trânsito após o desembaraço.
+  // Apenas Entregue é terminal e nunca regride.
+  let statusNormalizado = statusAtualAntes === 'Entregue' ? 'Entregue' : statusDetectado
 
-  // Permite corrigir registros antigos que ficaram indevidamente como
-  // Coletado / Em trânsito / Fiscalização / Liberado antes da coleta.
-  // Entregue é terminal e nunca regride.
-  if (statusDetectado === 'Aguardando coleta' && !dataColeta && statusAtualAntes !== 'Entregue') {
+  if (
+    statusDetectado === 'Aguardando coleta' &&
+    !movimentoFisicoConfirmado &&
+    statusAtualAntes !== 'Entregue'
+  ) {
     statusNormalizado = 'Aguardando coleta'
   }
 
