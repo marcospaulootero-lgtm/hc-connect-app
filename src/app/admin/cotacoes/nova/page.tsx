@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf'
 import { supabase } from '@/lib/supabaseClient'
 import { AEROPORTOS_BRASIL } from '@/lib/aeroportos-brasil'
 import { useSearchParams } from 'next/navigation'
+import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'DHL_IMPORTACAO_COURIER' | 'FEDEX_EXPORTACAO' | 'AGENTE_CARGA_FORMAL'
 
@@ -18,19 +19,7 @@ type VolumeCotacao = {
 }
 
 function numero(valor: any) {
-  if (valor === null || valor === undefined || valor === '') return 0
-
-  const texto = String(valor).trim()
-
-  if (texto.includes(',') && texto.includes('.')) {
-    return Number(texto.replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0
-  }
-
-  if (texto.includes(',')) {
-    return Number(texto.replace(',', '.').replace(/[^0-9.-]/g, '')) || 0
-  }
-
-  return Number(texto.replace(/[^0-9.-]/g, '')) || 0
+  return numeroValorBR(valor)
 }
 
 function arredondarMeioKg(valor: number) {
@@ -1080,6 +1069,16 @@ const totaisAgenteMoedaTela = useMemo(() => {
         .map((v) => `${v.quantidade || 1} vol - ${v.comprimento_cm || 0} x ${v.largura_cm || 0} x ${v.altura_cm || 0} cm - ${v.peso_kg || 0} kg`)
         .join(' | ')
 
+      const itensEnvioPersistidos = itensEnvio.map((item) => ({
+        ...item,
+        valor: numero(item.valor),
+      }))
+
+      const itensAgentePersistidos = itensAgente.map((item) => ({
+        ...item,
+        valor: numero(item.valor),
+      }))
+
       const payloadCotacao = {
             origem_solicitacao: 'MANUAL',
             solicitante_email: form.solicitante_email.trim() || null,
@@ -1098,7 +1097,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             origem: form.origem || null,
             destino: form.destino || null,
             moeda: form.moeda || 'USD',
-            valor_mercadoria: form.valor_mercadoria || null,
+            valor_mercadoria: numero(form.valor_mercadoria) || null,
             descricao_mercadoria: form.descricao_mercadoria || null,
             observacoes: form.observacoes || null,
             volumes,
@@ -1111,8 +1110,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
               modelo,
               form,
               volumes,
-              itensEnvio,
-              itensAgente,
+              itensEnvio: itensEnvioPersistidos,
+              itensAgente: itensAgentePersistidos,
               resumo,
               valores,
               totaisAgenteMoeda: totaisAgenteMoedaTela,
@@ -1323,7 +1322,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
               </option>
             ))}
           </CampoSelect>
-          <Campo label="Valor mercadoria" type="number" value={form.valor_mercadoria} onChange={(v) => atualizarCampo('valor_mercadoria', v)} />
+          <Campo label="Valor mercadoria" type="money" value={form.valor_mercadoria} onChange={(v) => atualizarCampo('valor_mercadoria', v)} />
         </div>
       </section>
 
@@ -1393,9 +1392,9 @@ const totaisAgenteMoedaTela = useMemo(() => {
         </div>
 
         <div className="form-grid">
-          <Campo label="Percentual seguro %" type="number" value={form.percentualSeguro} onChange={(v) => atualizarCampo('percentualSeguro', v)} />
-          <Campo label="Mínimo seguro USD" type="number" value={form.seguroMinimo} onChange={(v) => atualizarCampo('seguroMinimo', v)} />
-          <Campo label="Seguro manual USD" type="number" value={form.seguroManual} onChange={(v) => atualizarCampo('seguroManual', v)} />
+          <Campo label="Percentual seguro %" type="decimal" value={form.percentualSeguro} onChange={(v) => atualizarCampo('percentualSeguro', v)} />
+          <Campo label="Mínimo seguro USD" type="money" value={form.seguroMinimo} onChange={(v) => atualizarCampo('seguroMinimo', v)} />
+          <Campo label="Seguro manual USD" type="money" value={form.seguroManual} onChange={(v) => atualizarCampo('seguroManual', v)} />
           <Checkbox label="Usar seguro manual" checked={form.usarSeguroManual} onChange={(v) => atualizarCampo('usarSeguroManual', v)} />
           <Checkbox label="Sem seguro" checked={form.semSeguro} onChange={(v) => atualizarCampo('semSeguro', v)} />
           <Resumo titulo={seguroFedexAtivo ? 'Seguro final FedEx' : 'Seguro final'} valor={dinheiro(valores.seguro)} />
@@ -1456,8 +1455,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
                       <td className="px-4 py-3">
                         <input
-                          value={item.valor}
-                          onChange={(e) => atualizarItemAgente(index, 'valor', e.target.value)}
+                          value={formatarEntradaValorBR(item.valor)}
+                          onChange={(e) => atualizarItemAgente(index, 'valor', formatarEntradaValorBR(e.target.value))}
                           placeholder="0,00"
                           className="min-w-[140px]"
                         />
@@ -1551,8 +1550,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
                       <td className="px-4 py-3">
                         <input
-                          value={item.valor}
-                          onChange={(e) => atualizarItemEnvio(index, 'valor', e.target.value)}
+                          value={formatarEntradaValorBR(item.valor)}
+                          onChange={(e) => atualizarItemEnvio(index, 'valor', formatarEntradaValorBR(e.target.value))}
                           placeholder="0,00"
                           inputMode="decimal"
                           className="min-w-[150px]"
@@ -1689,11 +1688,26 @@ function Campo({
     <label className="block">
       <span className="mb-2 block text-sm font-bold text-slate-400">{label}</span>
       <input
-        type={type}
+        type={type === 'money' || type === 'decimal' ? 'text' : type}
+        inputMode={type === 'money' || type === 'decimal' ? 'decimal' : undefined}
         step={type === 'number' ? '0.01' : undefined}
-        value={value || ''}
+        value={
+          type === 'money'
+            ? formatarEntradaValorBR(value)
+            : type === 'decimal'
+              ? formatarEntradaTaxaBR(value)
+              : value || ''
+        }
         readOnly={readOnly}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) =>
+          onChange(
+            type === 'money'
+              ? formatarEntradaValorBR(e.target.value)
+              : type === 'decimal'
+                ? formatarEntradaTaxaBR(e.target.value)
+                : e.target.value
+          )
+        }
         className={readOnly ? 'cursor-not-allowed bg-slate-900/70 text-blue-300' : undefined}
       />
     </label>

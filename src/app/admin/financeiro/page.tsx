@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 type FormState = {
   cliente: string
@@ -413,17 +414,7 @@ export default function FinanceiroPage() {
   }
 
   function numero(valor: any) {
-    if (valor === null || valor === undefined || valor === '') return 0
-    if (typeof valor === 'number') return valor
-
-    return (
-      Number(
-        String(valor)
-          .replace(/[R$\s]/g, '')
-          .replace(/\./g, '')
-          .replace(',', '.')
-      ) || 0
-    )
+    return numeroValorBR(valor)
   }
 
   function formatarValorParaForm(valor: any) {
@@ -6509,8 +6500,8 @@ export default function FinanceiroPage() {
                 <div>
                   <label className="text-xs font-black uppercase tracking-wide text-slate-500">Saldo atual R$</label>
                   <input
-                    value={formContaBancaria.saldo_atual}
-                    onChange={(e) => setFormContaBancaria({ ...formContaBancaria, saldo_atual: e.target.value })}
+                    value={formatarEntradaValorBR(formContaBancaria.saldo_atual)}
+                    onChange={(e) => setFormContaBancaria({ ...formContaBancaria, saldo_atual: formatarEntradaValorBR(e.target.value) })}
                     placeholder="0,00"
                     inputMode="decimal"
                     className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500"
@@ -7344,26 +7335,14 @@ function MultiSelect({ label, values, onChange, options, placeholder = 'Todos' }
 }
 
 function InputMoney({ label, value, onChange }: InputProps) {
-  function formatar(valor: string) {
-    const apenasNumeros = String(valor || '').replace(/\D/g, '')
-    if (!apenasNumeros) return ''
-
-    const numeroFinal = Number(apenasNumeros) / 100
-
-    return numeroFinal.toLocaleString('pt-BR', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  }
-
   return (
     <div>
       <label className="text-sm font-semibold text-gray-600">{label}</label>
       <input
         type="text"
-        inputMode="numeric"
-        value={value}
-        onChange={(e) => onChange(formatar(e.target.value))}
+        inputMode="decimal"
+        value={formatarEntradaValorBR(value)}
+        onChange={(e) => onChange(formatarEntradaValorBR(e.target.value))}
         className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>

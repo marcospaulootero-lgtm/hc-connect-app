@@ -3,6 +3,7 @@
 import StatusBadge from '@/components/StatusBadge'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 
 type ServicoFinanceiroEmbarque = {
@@ -512,31 +513,9 @@ export default function EmbarquesPage() {
   }
 
   function numeroFinanceiro(valor: any) {
-    if (valor === null || valor === undefined || valor === '') return 0
-    if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0
-
-    const texto = String(valor)
-      .trim()
-      .replace(/[^0-9,.-]/g, '')
-
-    if (!texto) return 0
-
-    const ultimaVirgula = texto.lastIndexOf(',')
-    const ultimoPonto = texto.lastIndexOf('.')
-    let normalizado = texto
-
-    if (ultimaVirgula >= 0 && ultimoPonto >= 0) {
-      normalizado =
-        ultimaVirgula > ultimoPonto
-          ? texto.replace(/\./g, '').replace(',', '.')
-          : texto.replace(/,/g, '')
-    } else if (ultimaVirgula >= 0) {
-      normalizado = texto.replace(',', '.')
-    }
-
-    const convertido = Number(normalizado)
-    return Number.isFinite(convertido) ? convertido : 0
+    return numeroValorBR(valor)
   }
+
 
   function chaveServicoFinanceiro(nome: any) {
     const base = String(nome || '')
@@ -572,10 +551,12 @@ export default function EmbarquesPage() {
       const canonico = chaveServicoFinanceiro(nomeOriginal)
       if (!canonico.chave || itens.has(canonico.chave)) continue
 
-      const valor = Math.round((numeroFinanceiro(item?.valor) + Number.EPSILON) * 100) / 100
       itens.set(canonico.chave, {
         nome: canonico.nome,
-        valor: String(valor),
+        valor:
+          item?.valor === null || item?.valor === undefined || item?.valor === ''
+            ? ''
+            : formatarEntradaValorBR(item.valor),
       })
     }
 
@@ -602,8 +583,10 @@ export default function EmbarquesPage() {
   }
 
   function alterarValorItemFinanceiro(lista: any, nome: string, valor: string) {
+    const valorFormatado = formatarEntradaValorBR(valor)
+
     return servicosFinanceirosLista(lista).map((item) =>
-      item.nome === nome ? { ...item, valor } : item
+      item.nome === nome ? { ...item, valor: valorFormatado } : item
     )
   }
 
@@ -1316,7 +1299,7 @@ export default function EmbarquesPage() {
       peso_inicial_taxado: numero(editForm.peso_inicial_taxado),
       peso_final_taxado: numero(editForm.peso_final_taxado),
       divergencia_peso: divergenciaCalculada,
-      valor_adicional_peso: numero(editForm.valor_adicional_peso),
+      valor_adicional_peso: numeroFinanceiro(editForm.valor_adicional_peso),
       mostrar_divergencia_cliente:
         editForm.mostrar_divergencia_cliente || false,
       observacao_divergencia_peso:
@@ -2222,10 +2205,37 @@ export default function EmbarquesPage() {
               return (
                 <div
                   key={item}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    const alvo = e.target as HTMLElement
+                    if (alvo.closest('input, select, textarea, button, label')) return
+
+                    setForm({
+                      ...form,
+                      servicos_financeiros: atualizarItemFinanceiro(
+                        form.servicos_financeiros,
+                        item,
+                        !selecionado
+                      ),
+                    })
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return
+                    e.preventDefault()
+                    setForm({
+                      ...form,
+                      servicos_financeiros: atualizarItemFinanceiro(
+                        form.servicos_financeiros,
+                        item,
+                        !selecionado
+                      ),
+                    })
+                  }}
                   className={
                     selecionado
-                      ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4'
-                      : 'border border-blue-900 bg-[#020817] rounded-2xl p-4'
+                      ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4 cursor-pointer'
+                      : 'border border-blue-900 bg-[#020817] rounded-2xl p-4 cursor-pointer'
                   }
                 >
                   <label className="flex items-center gap-2 font-bold text-sm">
@@ -2260,6 +2270,7 @@ export default function EmbarquesPage() {
                         })
                       }
                       placeholder={item === 'DESCONTO' ? 'Valor do desconto' : 'Valor'}
+                      inputMode="decimal"
                       className="mt-3"
                     />
                   )}
@@ -2668,10 +2679,37 @@ export default function EmbarquesPage() {
                         return (
                           <div
                             key={item}
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              const alvo = e.target as HTMLElement
+                              if (alvo.closest('input, select, textarea, button, label')) return
+
+                              setEditForm({
+                                ...editForm,
+                                servicos_financeiros: atualizarItemFinanceiro(
+                                  editForm.servicos_financeiros,
+                                  item,
+                                  !selecionado
+                                ),
+                              })
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter' && e.key !== ' ') return
+                              e.preventDefault()
+                              setEditForm({
+                                ...editForm,
+                                servicos_financeiros: atualizarItemFinanceiro(
+                                  editForm.servicos_financeiros,
+                                  item,
+                                  !selecionado
+                                ),
+                              })
+                            }}
                             className={
                               selecionado
-                                ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4'
-                                : 'border border-blue-900 bg-[#020817] rounded-2xl p-4'
+                                ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4 cursor-pointer'
+                                : 'border border-blue-900 bg-[#020817] rounded-2xl p-4 cursor-pointer'
                             }
                           >
                             <label className="flex items-center gap-2 font-bold text-sm">
@@ -2706,6 +2744,7 @@ export default function EmbarquesPage() {
                                   })
                                 }
                                 placeholder={item === 'DESCONTO' ? 'Valor do desconto' : 'Valor'}
+                                inputMode="decimal"
                                 className="mt-3"
                               />
                             )}
@@ -2753,11 +2792,12 @@ export default function EmbarquesPage() {
 
                     <Campo label="Valor adicional">
                       <input
-                        value={editForm.valor_adicional_peso}
+                        value={formatarEntradaValorBR(editForm.valor_adicional_peso)}
+                        inputMode="decimal"
                         onChange={(e) =>
                           setEditForm({
                             ...editForm,
-                            valor_adicional_peso: e.target.value,
+                            valor_adicional_peso: formatarEntradaValorBR(e.target.value),
                           })
                         }
                       />

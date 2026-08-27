@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
+import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 const LOTE_SUPABASE = 1000
 const STORAGE_FILTROS_FATURAS_ADMIN = 'hc_admin_faturas_filtros_v1'
@@ -987,17 +988,7 @@ export default function FaturasPage() {
   }
 
   function numero(valor: any) {
-    if (valor === null || valor === undefined || valor === '') return 0
-    if (typeof valor === 'number') return valor
-
-    return (
-      Number(
-        String(valor)
-          .replace(/[R$USD\s]/gi, '')
-          .replace(/\./g, '')
-          .replace(',', '.')
-      ) || 0
-    )
+    return numeroValorBR(valor)
   }
 
   function texto(valor: any) {
@@ -3835,9 +3826,14 @@ export default function FaturasPage() {
       atuais.map((item) => {
         if (item.id !== id) return item
 
+        const valorTratado =
+          campo === 'valor_usd' || campo === 'valor_brl'
+            ? formatarEntradaValorBR(valor)
+            : valor
+
         const atualizado: ItemFaturaServico = {
           ...item,
-          [campo]: valor,
+          [campo]: valorTratado,
         } as ItemFaturaServico
 
         if (campo === 'valor_usd') {
@@ -3854,9 +3850,10 @@ export default function FaturasPage() {
   }
 
   function recalcularItensPorTaxa(novaTaxa: string) {
-    setEmissorTaxaConversao(novaTaxa)
+    const taxaFormatada = formatarEntradaTaxaBR(novaTaxa)
+    setEmissorTaxaConversao(taxaFormatada)
 
-    const taxa = taxaConversaoFinal(novaTaxa, emissorSpread)
+    const taxa = taxaConversaoFinal(taxaFormatada, emissorSpread)
     if (taxa <= 0) return
 
     setItensFatura((atuais) =>
@@ -3873,9 +3870,10 @@ export default function FaturasPage() {
   }
 
   function recalcularItensPorSpread(novoSpread: string) {
-    setEmissorSpread(novoSpread)
+    const spreadFormatado = formatarEntradaTaxaBR(novoSpread)
+    setEmissorSpread(spreadFormatado)
 
-    const taxa = taxaConversaoFinal(emissorTaxaConversao, novoSpread)
+    const taxa = taxaConversaoFinal(emissorTaxaConversao, spreadFormatado)
     if (taxa <= 0) return
 
     setItensFatura((atuais) =>
@@ -4617,8 +4615,9 @@ export default function FaturasPage() {
     <div>
       <label className="block text-sm font-black text-slate-300 mb-2">Valor recebido</label>
       <input
-        value={valorRecebidoRecibo}
-        onChange={(e) => setValorRecebidoRecibo(e.target.value)}
+        value={formatarEntradaValorBR(valorRecebidoRecibo)}
+        inputMode="decimal"
+        onChange={(e) => setValorRecebidoRecibo(formatarEntradaValorBR(e.target.value))}
         placeholder="Ex: 1.359,29"
       />
     </div>
@@ -4975,7 +4974,8 @@ export default function FaturasPage() {
       atuais.map((item) => {
         if (item.id !== id) return item
 
-        const atualizado = { ...item, [campo]: valor } as ItemFaturaAgente
+        const valorTratado = campo === 'valor_original' ? formatarEntradaValorBR(valor) : valor
+        const atualizado = { ...item, [campo]: valorTratado } as ItemFaturaAgente
 
         if (campo === 'valor_original' || campo === 'moeda') {
           const taxa = taxaFinalFaturaAgente(atualizado.moeda)
@@ -6025,10 +6025,12 @@ export default function FaturasPage() {
             <label className="text-sm font-bold text-slate-300">
               Taxa base USD
               <input
-                value={agenteTaxaBaseUsd}
+                value={formatarEntradaTaxaBR(agenteTaxaBaseUsd)}
+                        inputMode="decimal"
                 onChange={(e) => {
-                  setAgenteTaxaBaseUsd(e.target.value)
-                  recalcularItensFaturaAgente(e.target.value, agenteTaxaBaseEur, agenteSpread)
+                  const valorFormatado = formatarEntradaTaxaBR(e.target.value)
+                  setAgenteTaxaBaseUsd(valorFormatado)
+                  recalcularItensFaturaAgente(valorFormatado, agenteTaxaBaseEur, agenteSpread)
                 }}
                 placeholder="Ex.: 5,1005"
                 className="mt-2 w-full"
@@ -6039,10 +6041,12 @@ export default function FaturasPage() {
             <label className="text-sm font-bold text-slate-300">
               Taxa base EUR
               <input
-                value={agenteTaxaBaseEur}
+                value={formatarEntradaTaxaBR(agenteTaxaBaseEur)}
+                        inputMode="decimal"
                 onChange={(e) => {
-                  setAgenteTaxaBaseEur(e.target.value)
-                  recalcularItensFaturaAgente(agenteTaxaBaseUsd, e.target.value, agenteSpread)
+                  const valorFormatado = formatarEntradaTaxaBR(e.target.value)
+                  setAgenteTaxaBaseEur(valorFormatado)
+                  recalcularItensFaturaAgente(agenteTaxaBaseUsd, valorFormatado, agenteSpread)
                 }}
                 placeholder="Ex.: 5,8023"
                 className="mt-2 w-full"
@@ -6053,10 +6057,12 @@ export default function FaturasPage() {
             <label className="text-sm font-bold text-slate-300">
               Spread %
               <input
-                value={agenteSpread}
+                value={formatarEntradaTaxaBR(agenteSpread)}
+                        inputMode="decimal"
                 onChange={(e) => {
-                  setAgenteSpread(e.target.value)
-                  recalcularItensFaturaAgente(agenteTaxaBaseUsd, agenteTaxaBaseEur, e.target.value)
+                  const valorFormatado = formatarEntradaTaxaBR(e.target.value)
+                  setAgenteSpread(valorFormatado)
+                  recalcularItensFaturaAgente(agenteTaxaBaseUsd, agenteTaxaBaseEur, valorFormatado)
                 }}
                 placeholder="3"
                 className="mt-2 w-full"
@@ -6098,7 +6104,7 @@ export default function FaturasPage() {
                         <option value="EUR">EUR</option>
                       </select>
                     </td>
-                    <td><input value={item.valor_original} onChange={(e) => atualizarItemFaturaAgente(item.id, 'valor_original', e.target.value)} placeholder="0,00" className="w-full" /></td>
+                    <td><input value={formatarEntradaValorBR(item.valor_original)} inputMode="decimal" onChange={(e) => atualizarItemFaturaAgente(item.id, 'valor_original', e.target.value)} placeholder="0,00" className="w-full" /></td>
                     <td className="font-black text-green-300">{item.moeda === 'BRL' ? '1,0000' : taxaFinalFaturaAgenteFormatada(item.moeda)}</td>
                     <td className="font-black text-green-300">{numero(item.valor_brl) > 0 ? moeda(numero(item.valor_brl)) : '-'}</td>
                     <td><input value={item.observacao} onChange={(e) => atualizarItemFaturaAgente(item.id, 'observacao', e.target.value)} placeholder="Opcional" className="w-full" /></td>
@@ -6164,7 +6170,7 @@ export default function FaturasPage() {
               </label>
               <label className="text-sm font-bold text-slate-300">
                 Valor recebido
-                <input value={reciboAgenteValor} onChange={(e) => setReciboAgenteValor(e.target.value)} placeholder="0,00" className="mt-2 w-full" />
+                <input value={formatarEntradaValorBR(reciboAgenteValor)} inputMode="decimal" onChange={(e) => setReciboAgenteValor(formatarEntradaValorBR(e.target.value))} placeholder="0,00" className="mt-2 w-full" />
               </label>
               <label className="text-sm font-bold text-slate-300">
                 Forma de recebimento
@@ -6560,10 +6566,12 @@ export default function FaturasPage() {
                     <label className="text-sm font-bold text-slate-300">
                       Dólar fechamento venda do dia
                       <input
-                        value={emissorDolarVendaDia}
+                        value={formatarEntradaTaxaBR(emissorDolarVendaDia)}
+                        inputMode="decimal"
                         onChange={(e) => {
-                          setEmissorDolarVendaDia(e.target.value)
-                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(e.target.value)
+                          const valorFormatado = formatarEntradaTaxaBR(e.target.value)
+                          setEmissorDolarVendaDia(valorFormatado)
+                          if (emissorTipoCambio === 'DOLAR_VENDA_DIA') recalcularItensPorTaxa(valorFormatado)
                         }}
                         placeholder="Ex.: 5,1743"
                         className="mt-2 w-full"
@@ -6579,10 +6587,12 @@ export default function FaturasPage() {
                           onChange={(e) => setEmissorDataPtaxDhlMesAnterior(e.target.value)}
                         />
                         <input
-                          value={emissorPtaxDhlMesAnterior}
+                          value={formatarEntradaTaxaBR(emissorPtaxDhlMesAnterior)}
+                        inputMode="decimal"
                           onChange={(e) => {
-                            setEmissorPtaxDhlMesAnterior(e.target.value)
-                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(e.target.value)
+                            const valorFormatado = formatarEntradaTaxaBR(e.target.value)
+                            setEmissorPtaxDhlMesAnterior(valorFormatado)
+                            if (emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR') recalcularItensPorTaxa(valorFormatado)
                           }}
                           placeholder="Ex.: 5,0569"
                         />
@@ -6592,7 +6602,8 @@ export default function FaturasPage() {
                     <label className="text-sm font-bold text-slate-300">
                       Taxa base usada na fatura
                       <input
-                        value={emissorTaxaConversao}
+                        value={formatarEntradaTaxaBR(emissorTaxaConversao)}
+                        inputMode="decimal"
                         onChange={(e) => {
                           setEmissorTipoCambio('MANUAL')
                           recalcularItensPorTaxa(e.target.value)
@@ -6650,7 +6661,8 @@ export default function FaturasPage() {
                 <label className="text-sm font-bold text-slate-300">
                   Spread %
                   <input
-                    value={emissorSpread}
+                    value={formatarEntradaTaxaBR(emissorSpread)}
+                        inputMode="decimal"
                     onChange={(e) => recalcularItensPorSpread(e.target.value)}
                     placeholder="3"
                     className="mt-2 w-full"
@@ -6727,7 +6739,8 @@ export default function FaturasPage() {
                     <td className="font-black text-slate-200">{item.descricao}</td>
                     <td>
                       <input
-                        value={item.valor_usd}
+                        value={formatarEntradaValorBR(item.valor_usd)}
+                        inputMode="decimal"
                         onChange={(e) => atualizarItemFatura(item.id, 'valor_usd', e.target.value)}
                         placeholder="0,00"
                         className="w-full"
@@ -6735,7 +6748,8 @@ export default function FaturasPage() {
                     </td>
                     <td>
                       <input
-                        value={item.valor_brl}
+                        value={formatarEntradaValorBR(item.valor_brl)}
+                        inputMode="decimal"
                         onChange={(e) => atualizarItemFatura(item.id, 'valor_brl', e.target.value)}
                         placeholder="0,00"
                         className="w-full"

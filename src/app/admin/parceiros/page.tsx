@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 const PAGE_SIZE = 10
 const LOTE_SUPABASE = 1000
@@ -425,35 +426,9 @@ export default function ParceirosPage() {
   }
 
   function normalizarNumero(valor: any) {
-    if (valor === null || valor === undefined || valor === '') return 0
-    if (typeof valor === 'number') return valor
-
-    let texto = String(valor)
-      .trim()
-      .replace(/\s/g, '')
-      .replace(/R\$/gi, '')
-
-    if (!texto) return 0
-
-    const temVirgula = texto.includes(',')
-    const temPonto = texto.includes('.')
-
-    if (temVirgula && temPonto) {
-      const ultimaVirgula = texto.lastIndexOf(',')
-      const ultimoPonto = texto.lastIndexOf('.')
-
-      if (ultimaVirgula > ultimoPonto) {
-        texto = texto.replace(/\./g, '').replace(',', '.')
-      } else {
-        texto = texto.replace(/,/g, '')
-      }
-    } else if (temVirgula) {
-      texto = texto.replace(/\./g, '').replace(',', '.')
-    }
-
-    const numero = Number(texto)
-    return Number.isFinite(numero) ? numero : 0
+    return numeroValorBR(valor)
   }
+
 
   function mesAtual() {
     return new Date()
@@ -1853,7 +1828,7 @@ export default function ParceirosPage() {
 
                   <div>
                     <label className="text-sm font-semibold text-slate-600">Valor parceiro</label>
-                    <input value={form.debito_terceiro} onChange={(e) => setForm({ ...form, debito_terceiro: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+                    <input value={formatarEntradaValorBR(form.debito_terceiro)} inputMode="decimal" onChange={(e) => setForm({ ...form, debito_terceiro: formatarEntradaValorBR(e.target.value) })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
                   </div>
 
                   <div>
@@ -2104,8 +2079,9 @@ export default function ParceirosPage() {
 
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_auto_auto_auto]">
               <input
-                value={valorAlvoPdf}
-                onChange={(e) => setValorAlvoPdf(e.target.value)}
+                value={formatarEntradaValorBR(valorAlvoPdf)}
+                inputMode="decimal"
+                onChange={(e) => setValorAlvoPdf(formatarEntradaValorBR(e.target.value))}
                 placeholder="Valor alvo. Ex: 10000"
                 className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
               />

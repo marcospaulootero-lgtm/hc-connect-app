@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 type FaturaTransportadora = {
   id: string
@@ -437,17 +438,7 @@ export default function FaturasTransportadorasPage() {
   }
 
   function numero(valor: any) {
-    if (valor === null || valor === undefined || valor === '') return 0
-    if (typeof valor === 'number') return valor
-
-    return (
-      Number(
-        String(valor)
-          .replace(/[R$USD\s]/gi, '')
-          .replace(/\./g, '')
-          .replace(',', '.')
-      ) || 0
-    )
+    return numeroValorBR(valor)
   }
 
   function moeda(valor: any, moedaBase = 'BRL') {
@@ -2115,32 +2106,36 @@ export default function FaturasTransportadorasPage() {
 
           <Campo label="Total">
             <input
-              value={form.total}
-              onChange={(e) => setForm({ ...form, total: e.target.value })}
+              value={formatarEntradaValorBR(form.total)}
+              inputMode="decimal"
+              onChange={(e) => setForm({ ...form, total: formatarEntradaValorBR(e.target.value) })}
               placeholder="Ex: 3810,58"
             />
           </Campo>
 
           <Campo label="Valor contestado">
             <input
-              value={form.valor_contestado}
-              onChange={(e) => setForm({ ...form, valor_contestado: e.target.value })}
+              value={formatarEntradaValorBR(form.valor_contestado)}
+              inputMode="decimal"
+              onChange={(e) => setForm({ ...form, valor_contestado: formatarEntradaValorBR(e.target.value) })}
               placeholder="Ex: 0,00"
             />
           </Campo>
 
           <Campo label="Pago / Ajustado">
             <input
-              value={form.pago_ajustado}
-              onChange={(e) => setForm({ ...form, pago_ajustado: e.target.value })}
+              value={formatarEntradaValorBR(form.pago_ajustado)}
+              inputMode="decimal"
+              onChange={(e) => setForm({ ...form, pago_ajustado: formatarEntradaValorBR(e.target.value) })}
               placeholder="Ex: 0,00"
             />
           </Campo>
 
           <Campo label="Saldo">
             <input
-              value={form.saldo}
-              onChange={(e) => setForm({ ...form, saldo: e.target.value })}
+              value={formatarEntradaValorBR(form.saldo)}
+              inputMode="decimal"
+              onChange={(e) => setForm({ ...form, saldo: formatarEntradaValorBR(e.target.value) })}
               placeholder="Se vazio, calcula automático"
             />
           </Campo>

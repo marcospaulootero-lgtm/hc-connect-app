@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
+import { numeroValorBR } from '@/lib/valorContabil'
 
 type ServicoFinanceiroEmbarque = {
   nome: string
@@ -419,31 +420,9 @@ export default function DetalheEmbarquePage() {
 
 
   function numeroFinanceiro(valor: any) {
-    if (valor === null || valor === undefined || valor === '') return 0
-    if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0
-
-    const texto = String(valor)
-      .trim()
-      .replace(/[^0-9,.-]/g, '')
-
-    if (!texto) return 0
-
-    const ultimaVirgula = texto.lastIndexOf(',')
-    const ultimoPonto = texto.lastIndexOf('.')
-    let normalizado = texto
-
-    if (ultimaVirgula >= 0 && ultimoPonto >= 0) {
-      normalizado =
-        ultimaVirgula > ultimoPonto
-          ? texto.replace(/\./g, '').replace(',', '.')
-          : texto.replace(/,/g, '')
-    } else if (ultimaVirgula >= 0) {
-      normalizado = texto.replace(',', '.')
-    }
-
-    const convertido = Number(normalizado)
-    return Number.isFinite(convertido) ? convertido : 0
+    return numeroValorBR(valor)
   }
+
 
   function moeda(valor: any, moedaBase = 'USD') {
     if (valor === null || valor === undefined || valor === '') return '-'

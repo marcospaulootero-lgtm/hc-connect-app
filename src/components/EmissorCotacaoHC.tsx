@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { supabase } from '@/lib/supabaseClient'
+import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'FEDEX_EXPORTACAO'
 
@@ -57,19 +58,7 @@ type FormEmissor = {
 }
 
 function numero(valor: any) {
-  if (valor === null || valor === undefined || valor === '') return 0
-
-  const texto = String(valor).trim()
-
-  if (texto.includes(',') && texto.includes('.')) {
-    return Number(texto.replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0
-  }
-
-  if (texto.includes(',')) {
-    return Number(texto.replace(',', '.').replace(/[^0-9.-]/g, '')) || 0
-  }
-
-  return Number(texto.replace(/[^0-9.-]/g, '')) || 0
+  return numeroValorBR(valor)
 }
 
 function dinheiro(valor: any) {
@@ -897,10 +886,10 @@ export default function EmissorCotacaoHC({
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <CampoCotacao label="Moeda mercadoria" value={form.moedaMercadoria} onChange={(v) => atualizar('moedaMercadoria', v)} />
-          <CampoCotacao label="Valor mercadoria" type="number" value={form.valorMercadoria} onChange={(v) => atualizar('valorMercadoria', v)} />
-          <CampoCotacao label="Percentual seguro %" type="number" value={form.percentualSeguro} onChange={(v) => atualizar('percentualSeguro', v)} />
-          <CampoCotacao label="Mínimo seguro USD" type="number" value={form.seguroMinimo} onChange={(v) => atualizar('seguroMinimo', v)} />
-          <CampoCotacao label="Seguro manual USD" type="number" value={form.seguroManual} onChange={(v) => atualizar('seguroManual', v)} />
+          <CampoCotacao label="Valor mercadoria" type="money" value={form.valorMercadoria} onChange={(v) => atualizar('valorMercadoria', v)} />
+          <CampoCotacao label="Percentual seguro %" type="decimal" value={form.percentualSeguro} onChange={(v) => atualizar('percentualSeguro', v)} />
+          <CampoCotacao label="Mínimo seguro USD" type="money" value={form.seguroMinimo} onChange={(v) => atualizar('seguroMinimo', v)} />
+          <CampoCotacao label="Seguro manual USD" type="money" value={form.seguroManual} onChange={(v) => atualizar('seguroManual', v)} />
 
           <CheckboxCotacao label="Usar seguro manual" checked={form.usarSeguroManual} onChange={(v) => atualizar('usarSeguroManual', v)} />
           <CheckboxCotacao label="Sem seguro" checked={form.semSeguro} onChange={(v) => atualizar('semSeguro', v)} />
@@ -912,22 +901,22 @@ export default function EmissorCotacaoHC({
         <h3 className="mb-4 text-xl font-black">Valores do envio</h3>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <CampoCotacao label="Frete USD" type="number" value={form.frete} onChange={(v) => atualizar('frete', v)} />
-          <CampoCotacao label="Sobretaxa emergencial USD" type="number" value={form.sobretaxa} onChange={(v) => atualizar('sobretaxa', v)} />
-          <CampoCotacao label="Área remota USD" type="number" value={form.areaRemota} onChange={(v) => atualizar('areaRemota', v)} />
-          <CampoCotacao label="Peso excedente USD" type="number" value={form.pesoExcedente} onChange={(v) => atualizar('pesoExcedente', v)} />
+          <CampoCotacao label="Frete USD" type="money" value={form.frete} onChange={(v) => atualizar('frete', v)} />
+          <CampoCotacao label="Sobretaxa emergencial USD" type="money" value={form.sobretaxa} onChange={(v) => atualizar('sobretaxa', v)} />
+          <CampoCotacao label="Área remota USD" type="money" value={form.areaRemota} onChange={(v) => atualizar('areaRemota', v)} />
+          <CampoCotacao label="Peso excedente USD" type="money" value={form.pesoExcedente} onChange={(v) => atualizar('pesoExcedente', v)} />
 
           {modelo === 'DHL_IMPORTACAO_FORMAL' ? (
             <>
-              <CampoCotacao label="DTA USD" type="number" value={form.dta} onChange={(v) => atualizar('dta', v)} />
-              <CampoCotacao label="Delivery doc fee USD" type="number" value={form.deliveryDocFee} onChange={(v) => atualizar('deliveryDocFee', v)} />
-              <CampoCotacao label="Dimensão excedente USD" type="number" value={form.dimensaoExcedente} onChange={(v) => atualizar('dimensaoExcedente', v)} />
+              <CampoCotacao label="DTA USD" type="money" value={form.dta} onChange={(v) => atualizar('dta', v)} />
+              <CampoCotacao label="Delivery doc fee USD" type="money" value={form.deliveryDocFee} onChange={(v) => atualizar('deliveryDocFee', v)} />
+              <CampoCotacao label="Dimensão excedente USD" type="money" value={form.dimensaoExcedente} onChange={(v) => atualizar('dimensaoExcedente', v)} />
             </>
           ) : (
             <>
-              <CampoCotacao label="Emissão de DUE USD" type="number" value={form.emissaoDue} onChange={(v) => atualizar('emissaoDue', v)} />
-              <CampoCotacao label="Volume excedente USD" type="number" value={form.volumeExcedente} onChange={(v) => atualizar('volumeExcedente', v)} />
-              <CampoCotacao label="Impostos no destino USD" type="number" value={form.impostosDestino} onChange={(v) => atualizar('impostosDestino', v)} />
+              <CampoCotacao label="Emissão de DUE USD" type="money" value={form.emissaoDue} onChange={(v) => atualizar('emissaoDue', v)} />
+              <CampoCotacao label="Volume excedente USD" type="money" value={form.volumeExcedente} onChange={(v) => atualizar('volumeExcedente', v)} />
+              <CampoCotacao label="Impostos no destino USD" type="money" value={form.impostosDestino} onChange={(v) => atualizar('impostosDestino', v)} />
             </>
           )}
         </div>
@@ -984,10 +973,25 @@ function CampoCotacao({
     <label className="block">
       <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">{label}</span>
       <input
-        type={type}
+        type={type === 'money' || type === 'decimal' ? 'text' : type}
+        inputMode={type === 'money' || type === 'decimal' ? 'decimal' : undefined}
         step={type === 'number' ? '0.01' : undefined}
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
+        value={
+          type === 'money'
+            ? formatarEntradaValorBR(value)
+            : type === 'decimal'
+              ? formatarEntradaTaxaBR(value)
+              : value || ''
+        }
+        onChange={(e) =>
+          onChange(
+            type === 'money'
+              ? formatarEntradaValorBR(e.target.value)
+              : type === 'decimal'
+                ? formatarEntradaTaxaBR(e.target.value)
+                : e.target.value
+          )
+        }
         className="w-full rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 font-bold text-white outline-none focus:border-blue-500"
       />
     </label>
