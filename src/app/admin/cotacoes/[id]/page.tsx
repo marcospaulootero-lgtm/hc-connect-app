@@ -184,6 +184,36 @@ export default function DetalheCotacaoAdminPage() {
     return operacao.includes('IMPORT') ? empresaSolicitanteCotacao() : null
   }
 
+  function arredondarValorFinanceiro(valor: number) {
+    return Math.round((valor + Number.EPSILON) * 100) / 100
+  }
+
+  function servicoFinanceiroCanonico(nome: any) {
+    const base = normalizarTexto(nome)
+
+    if (
+      base === 'FRETE' ||
+      base === 'FRETE INTERNACIONAL' ||
+      base === 'INTERNATIONAL FREIGHT'
+    ) {
+      return { chave: 'FRETE', nome: 'FRETE' }
+    }
+
+    if (
+      base === 'DELIVERY DOC FEE' ||
+      base === 'DELIVERY FEE DOC' ||
+      base === 'DELIVER FEE DOC'
+    ) {
+      return { chave: 'DELIVERY_FEE_DOC', nome: 'DELIVER FEE DOC' }
+    }
+
+    if (base === 'INSURANCE' || base.includes('SEGURO')) {
+      return { chave: 'SEGURO', nome: 'SEGURO' }
+    }
+
+    return { chave: base, nome: base }
+  }
+
   function dadosFinanceirosCotacao() {
     const dadosEmissor: any = dadosEmissorObjeto()
     const formEmissor =
@@ -209,38 +239,79 @@ export default function DetalheCotacaoAdminPage() {
       : []
 
     const modeloEmissor = normalizarTexto(dadosEmissor?.modelo)
+    const ehAgente = modeloEmissor.includes('AGENTE')
     const itensOriginais: any[] =
-      modeloEmissor.includes('AGENTE') && itensAgenteComValor.length > 0
+      ehAgente && itensAgenteComValor.length > 0
         ? itensAgenteComValor
         : itensEnvioComValor.length > 0
           ? itensEnvioComValor
           : itensAgenteComValor
 
-    const itens = itensOriginais
+    const itensMapeados = itensOriginais
       .map((item: any) => {
-        const nome = String(item?.descricao || item?.servico || item?.nome || '').trim()
-        const valor = numero(item?.valor) || 0
+        const nomeOriginal = String(item?.descricao || item?.servico || item?.nome || '').trim()
+        const valor = arredondarValorFinanceiro(numero(item?.valor) || 0)
         const moeda = String(
           item?.moeda || formEmissor?.moeda || cotacao?.moeda || 'USD'
         )
           .trim()
           .toUpperCase()
 
-        return { nome, valor, moeda }
+        if (ehAgente) {
+          return { nome: nomeOriginal, valor, moeda }
+        }
+
+        const canonico = servicoFinanceiroCanonico(nomeOriginal)
+        return {
+          chave: `${canonico.chave}|${moeda}`,
+          nome: canonico.nome,
+          valor,
+          moeda,
+        }
       })
       .filter((item: any) => item.nome && item.valor !== 0)
 
-    const seguro = numero(dadosEmissor?.valores?.seguro) || 0
+    // Nas cotações DHL/FedEx antigas podem coexistir os campos legados
+    // (FRETE / DELIVERY FEE DOC) e os novos itens da proposta
+    // (Frete Internacional / Delivery doc fee). São o mesmo serviço e
+    // não podem ser somados duas vezes na conversão para embarque.
+    const itens = ehAgente
+      ? itensMapeados
+      : Array.from(
+          itensMapeados.reduce<Map<string, any>>((mapa, item: any) => {
+            if (!mapa.has(item.chave)) mapa.set(item.chave, item)
+            return mapa
+          }, new Map()).values()
+        )
 
-    if (
-      seguro > 0 &&
-      !itens.some((item: any) => normalizarTexto(item.nome).includes('SEGURO'))
-    ) {
-      itens.push({
-        nome: 'SEGURO',
-        valor: seguro,
-        moeda: 'USD',
-      })
+    const seguro = arredondarValorFinanceiro(numero(dadosEmissor?.valores?.seguro) || 0)
+
+    if (seguro > 0) {
+      if (ehAgente) {
+        if (!itens.some((item: any) => normalizarTexto(item.nome).includes('SEGURO'))) {
+          itens.push({ nome: 'SEGURO', valor: seguro, moeda: 'USD' })
+        }
+      } else {
+        const indiceSeguro = itens.findIndex(
+          (item: any) => servicoFinanceiroCanonico(item.nome).chave === 'SEGURO'
+        )
+
+        if (indiceSeguro >= 0) {
+          itens[indiceSeguro] = {
+            ...itens[indiceSeguro],
+            nome: 'SEGURO',
+            valor: seguro,
+            moeda: 'USD',
+          }
+        } else {
+          itens.push({
+            chave: 'SEGURO|USD',
+            nome: 'SEGURO',
+            valor: seguro,
+            moeda: 'USD',
+          })
+        }
+      }
     }
 
     const moedas = Array.from(
@@ -253,21 +324,24 @@ export default function DetalheCotacaoAdminPage() {
         : String(formEmissor?.moeda || cotacao?.moeda || 'USD').toUpperCase()
 
     const totaisPorMoeda = itens.reduce<Record<string, number>>((acc, item: any) => {
-      acc[item.moeda] = (acc[item.moeda] || 0) + Number(item.valor || 0)
+      acc[item.moeda] = arredondarValorFinanceiro(
+        (acc[item.moeda] || 0) + Number(item.valor || 0)
+      )
       return acc
     }, {})
 
-    const totalUnico =
+    const totalUnico = arredondarValorFinanceiro(
       moedas.length === 1
         ? totaisPorMoeda[moedas[0]] || 0
         : numero(dadosEmissor?.valores?.total) || 0
+    )
 
     const servicosFinanceiros = itens.map((item: any) => ({
       nome:
         moedas.length > 1
           ? `${normalizarTexto(item.nome)} (${item.moeda})`
           : normalizarTexto(item.nome),
-      valor: String(item.valor),
+      valor: String(arredondarValorFinanceiro(Number(item.valor || 0))),
     }))
 
     const resumoMoedas = Object.entries(totaisPorMoeda)

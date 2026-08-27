@@ -513,25 +513,73 @@ export default function EmbarquesPage() {
 
   function numeroFinanceiro(valor: any) {
     if (valor === null || valor === undefined || valor === '') return 0
-    if (typeof valor === 'number') return valor
+    if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0
 
-    return (
-      Number(
-        String(valor)
-          .replace(/[R$USD\s]/gi, '')
-          .replace(/\./g, '')
-          .replace(',', '.')
-      ) || 0
-    )
+    const texto = String(valor)
+      .trim()
+      .replace(/[^0-9,.-]/g, '')
+
+    if (!texto) return 0
+
+    const ultimaVirgula = texto.lastIndexOf(',')
+    const ultimoPonto = texto.lastIndexOf('.')
+    let normalizado = texto
+
+    if (ultimaVirgula >= 0 && ultimoPonto >= 0) {
+      normalizado =
+        ultimaVirgula > ultimoPonto
+          ? texto.replace(/\./g, '').replace(',', '.')
+          : texto.replace(/,/g, '')
+    } else if (ultimaVirgula >= 0) {
+      normalizado = texto.replace(',', '.')
+    }
+
+    const convertido = Number(normalizado)
+    return Number.isFinite(convertido) ? convertido : 0
+  }
+
+  function chaveServicoFinanceiro(nome: any) {
+    const base = String(nome || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toUpperCase()
+
+    if (base === 'FRETE' || base === 'FRETE INTERNACIONAL' || base === 'INTERNATIONAL FREIGHT') {
+      return { chave: 'FRETE', nome: 'FRETE' }
+    }
+
+    if (base === 'DELIVERY DOC FEE' || base === 'DELIVERY FEE DOC' || base === 'DELIVER FEE DOC') {
+      return { chave: 'DELIVERY_FEE_DOC', nome: 'DELIVER FEE DOC' }
+    }
+
+    if (base === 'INSURANCE' || base.includes('SEGURO')) {
+      return { chave: 'SEGURO', nome: 'SEGURO' }
+    }
+
+    return { chave: base, nome: base }
   }
 
   function servicosFinanceirosLista(lista: any): ServicoFinanceiroEmbarque[] {
-    return Array.isArray(lista)
-      ? lista.map((item) => ({
-          nome: String(item?.nome || ''),
-          valor: item?.valor === null || item?.valor === undefined ? '' : String(item.valor),
-        })).filter((item) => item.nome)
-      : []
+    if (!Array.isArray(lista)) return []
+
+    const itens = new Map<string, ServicoFinanceiroEmbarque>()
+
+    for (const item of lista) {
+      const nomeOriginal = String(item?.nome || '')
+      if (!nomeOriginal.trim()) continue
+
+      const canonico = chaveServicoFinanceiro(nomeOriginal)
+      if (!canonico.chave || itens.has(canonico.chave)) continue
+
+      const valor = Math.round((numeroFinanceiro(item?.valor) + Number.EPSILON) * 100) / 100
+      itens.set(canonico.chave, {
+        nome: canonico.nome,
+        valor: String(valor),
+      })
+    }
+
+    return Array.from(itens.values())
   }
 
   function itemFinanceiroSelecionado(lista: any, nome: string) {
