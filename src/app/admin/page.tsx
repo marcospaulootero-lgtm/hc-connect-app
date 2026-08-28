@@ -1005,7 +1005,7 @@ export default function DashboardPage() {
     0
   )
 
-  const ultimosEmbarques = embarques.slice(0, 7)
+  const ultimosEmbarques = embarques.slice(0, 16)
 
   const alertasCriticos = useMemo(() => {
     const alertas: any[] = []
@@ -1696,7 +1696,7 @@ export default function DashboardPage() {
 
           
 
-                    <div data-dashboard-ultimos-topo="true" className="card h-full text-sm">
+                    <div data-dashboard-ultimos-topo="true" className="card h-full text-sm flex flex-col">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-black">Últimos embarques</h2>
@@ -1708,7 +1708,7 @@ export default function DashboardPage() {
               </a>
             </div>
 
-            <div className="overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               <table className="w-full min-w-[520px] text-sm">
                 <thead>
                   <tr className="border-b border-blue-950 text-left text-slate-400">
@@ -1720,7 +1720,7 @@ export default function DashboardPage() {
                 </thead>
 
                 <tbody>
-                  {ultimosEmbarques.slice(0, 6).map((item) => (
+                  {ultimosEmbarques.map((item) => (
                     <tr key={item.id} className="border-b border-blue-950">
                       <td className="py-2 font-bold text-blue-400">
                         <a href={'/admin/embarques/' + item.id} className="hover:underline">
