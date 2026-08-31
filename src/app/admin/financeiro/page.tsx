@@ -1980,7 +1980,7 @@ export default function FinanceiroPage() {
 
 
 
-  function gerarPDFFechamentoMensal() {
+  function gerarPDFFechamentoMensal(somenteFechamento = false) {
     if (!mesResultado) {
       alert('Selecione o mês do resultado antes de gerar o relatório completo.')
       return
@@ -2126,6 +2126,40 @@ export default function FinanceiroPage() {
         )
       )
 
+    const fechamentosMes = movimentosMes.filter((item) =>
+      ehFechamentoDoMes(item, mesResultado)
+    )
+
+    const fechamentoPdf =
+      fechamentosMes.length > 0
+        ? fechamentosMes[fechamentosMes.length - 1]
+        : null
+
+    if (somenteFechamento && !fechamentoPdf) {
+      alert(
+        'Ainda não existe fechamento registrado para este mês. Gere o fechamento antes de emitir o PDF.'
+      )
+      return
+    }
+
+    const textoTipoFechamento = String(
+      fechamentoPdf?.forma_pagamento || fechamentoPdf?.descricao || ''
+    ).toLowerCase()
+
+    const tipoFechamentoPdf =
+      textoTipoFechamento.includes('complemento')
+        ? 'COMPLEMENTO DO FECHAMENTO'
+        : textoTipoFechamento.includes('parcial')
+          ? 'FECHAMENTO PARCIAL'
+          : 'FECHAMENTO MENSAL'
+
+    const dataFechamentoPdf = fechamentoPdf
+      ? dataPdf(
+          fechamentoPdf.data_pagamento ||
+            fechamentoPdf.data_vencimento
+        )
+      : '-'
+
     const despesasMes = movimentosMes.filter((item) =>
       ['DESPESA', 'PAGAMENTO_EMPRESTIMO'].includes(item.tipo)
     )
@@ -2238,7 +2272,7 @@ export default function FinanceiroPage() {
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Relatório financeiro completo - ${textoPdf(mesResultado)}</title>
+          <title>${textoPdf(somenteFechamento ? tipoFechamentoPdf : 'Relatório financeiro completo')} - ${textoPdf(mesResultado)}</title>
           <style>
             @page { size: A4 landscape; margin: 12mm; }
             body {
@@ -2359,13 +2393,18 @@ export default function FinanceiroPage() {
         <body>
           <div class="topo">
             <div>
-              <h1>Relatório financeiro mensal completo</h1>
+              <h1>${textoPdf(somenteFechamento ? tipoFechamentoPdf : 'Relatório financeiro mensal completo')}</h1>
               <p class="empresa">Couto e Otero Intermediação LTDA</p>
               <p class="empresa">Mês de referência: <strong>${textoPdf(mesResultado)}</strong></p>
+              ${
+                somenteFechamento
+                  ? `<p class="empresa">Fechamento registrado em: <strong>${textoPdf(dataFechamentoPdf)}</strong></p>`
+                  : ''
+              }
             </div>
             <div class="data">
               Gerado em: ${new Date().toLocaleString('pt-BR', { timeZone: FUSO_FINANCEIRO })}<br/>
-              Relatório financeiro interno
+              ${somenteFechamento ? 'Documento do fechamento financeiro' : 'Relatório financeiro interno'}
             </div>
           </div>
 
@@ -2672,12 +2711,16 @@ export default function FinanceiroPage() {
     setFiltroMesMovimento([mesResultado])
     setGerandoFechamento(false)
 
-    alert(
+    const mensagemFechamentoConcluido =
       fechamentoJaLancado
         ? 'Complemento do fechamento gerado com sucesso. A reserva foi constituída sem criar entrada de caixa.'
         : fechamentoParcial
           ? 'Fechamento parcial gerado. Os processos sem custo ficaram registrados para complemento posterior.'
           : 'Fechamento mensal gerado com sucesso. A reserva foi constituída como destinação do saldo existente, sem criar entrada de caixa.'
+
+    alert(
+      mensagemFechamentoConcluido +
+        '\n\nAgora você pode usar o botão "PDF do fechamento" para gerar o documento deste fechamento.'
     )
   }
 
@@ -6757,7 +6800,23 @@ export default function FinanceiroPage() {
 
                 <button
                   type="button"
-                  onClick={gerarPDFFechamentoMensal}
+                  onClick={() => gerarPDFFechamentoMensal(true)}
+                  disabled={
+                    loading ||
+                    loadingMovimentos ||
+                    !mesResultado ||
+                    !movimentacoes.some((item) =>
+                      ehFechamentoDoMes(item, mesResultado)
+                    )
+                  }
+                  className="whitespace-nowrap rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  PDF do fechamento
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => gerarPDFFechamentoMensal(false)}
                   disabled={loading || loadingMovimentos || !mesResultado}
                   className="whitespace-nowrap rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
