@@ -738,6 +738,44 @@ export default function FaturasPage() {
     )
   }
 
+  function faturaAgenteDoEmbarque(embarque: Embarque) {
+    if (!embarque) return null
+
+    const itemEmbarque: any = embarque
+
+    const chavesProcesso = [
+      itemEmbarque.awb,
+      itemEmbarque.referencia_cliente,
+      itemEmbarque.referencia_hc,
+    ]
+      .map((valor) => normalizarAwb(valor))
+      .filter(Boolean)
+
+    return (
+      faturas.find((fatura: any) => {
+        const tipo = String(fatura?.tipo_fatura || '').toUpperCase()
+
+        if (tipo !== 'AGENTE_CARGA') return false
+
+        if (
+          fatura?.embarque_id &&
+          String(fatura.embarque_id) === String(itemEmbarque.id || '')
+        ) {
+          return true
+        }
+
+        const processoFatura = normalizarAwb(
+          fatura?.dados_cliente_faturamento?.processo
+        )
+
+        return (
+          !!processoFatura &&
+          chavesProcesso.includes(processoFatura)
+        )
+      }) || null
+    )
+  }
+
   function financeiroDoEmbarque(embarque: Embarque) {
     if (!embarque) return null
 
@@ -1895,6 +1933,13 @@ export default function FaturasPage() {
 
     return embarques.filter((e) => {
       const fatura = faturaDoEmbarque(e.id)
+      const faturaAgente = faturaAgenteDoEmbarque(e)
+
+      const reciboPdfExibicao =
+        fatura?.recibo_pdf ||
+        faturaAgente?.recibo_pdf ||
+        null
+
       const financeiro = financeiroDoEmbarque(e)
       const pagamento = statusPagamentoFinanceiro(financeiro)
 
@@ -1920,8 +1965,8 @@ export default function FaturasPage() {
         filtroDocumento === 'TODOS' ||
         (filtroDocumento === 'COM_FATURA' && !!fatura?.arquivo_pdf) ||
         (filtroDocumento === 'SEM_FATURA' && !fatura?.arquivo_pdf) ||
-        (filtroDocumento === 'COM_RECIBO' && !!fatura?.recibo_pdf) ||
-        (filtroDocumento === 'SEM_RECIBO' && !!fatura?.arquivo_pdf && !fatura?.recibo_pdf) ||
+        (filtroDocumento === 'COM_RECIBO' && !!reciboPdfExibicao) ||
+        (filtroDocumento === 'SEM_RECIBO' && !!(fatura?.arquivo_pdf || faturaAgente?.arquivo_pdf) && !reciboPdfExibicao) ||
         (filtroDocumento === 'COM_COMPROVANTE' && !!fatura?.comprovante_pagamento) ||
         (filtroDocumento === 'SEM_COMPROVANTE' && !!fatura?.arquivo_pdf && !fatura?.comprovante_pagamento) ||
         (filtroDocumento === 'VISIVEL' && !!fatura?.visivel_cliente) ||
@@ -7114,6 +7159,15 @@ export default function FaturasPage() {
             <tbody>
               {embarquesFiltrados.map((embarque) => {
                 const fatura = faturaDoEmbarque(embarque.id)
+                const faturaAgente = faturaAgenteDoEmbarque(embarque)
+
+                const faturaReciboExibicao =
+                  fatura?.recibo_pdf
+                    ? fatura
+                    : faturaAgente?.recibo_pdf
+                      ? faturaAgente
+                      : null
+
                 const financeiro = financeiroDoEmbarque(embarque)
                 const pagamento = statusPagamentoFinanceiro(financeiro)
                 const comprovante = statusComprovanteFatura(fatura)
@@ -7331,10 +7385,10 @@ export default function FaturasPage() {
                         )}
                       </td>
                       <td>
-                        {fatura?.recibo_pdf ? (
+                        {faturaReciboExibicao?.recibo_pdf ? (
                           <div className="flex flex-col gap-2">
                             <Link
-                              href={fatura.recibo_pdf}
+                              href={faturaReciboExibicao.recibo_pdf}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-block rounded-lg bg-green-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-green-500"
@@ -7344,7 +7398,11 @@ export default function FaturasPage() {
 
                             <button
                               type="button"
-                              onClick={() => imprimirPdf(fatura.recibo_pdf)}
+                              onClick={() =>
+                                imprimirPdf(
+                                  faturaReciboExibicao.recibo_pdf
+                                )
+                              }
                               className="rounded-lg bg-slate-700 px-3 py-2 text-center text-xs font-black text-white hover:bg-slate-600"
                             >
                               Imprimir
@@ -7354,8 +7412,12 @@ export default function FaturasPage() {
                               type="button"
                               onClick={() =>
                                 salvarPdf(
-                                  fatura.recibo_pdf,
-                                  nomeArquivoPdf('Recibo', fatura.numero_fatura || embarque.awb)
+                                  faturaReciboExibicao.recibo_pdf,
+                                  nomeArquivoPdf(
+                                    'Recibo',
+                                    faturaReciboExibicao.numero_fatura ||
+                                      embarque.awb
+                                  )
                                 )
                               }
                               className="rounded-lg bg-emerald-700 px-3 py-2 text-center text-xs font-black text-white hover:bg-emerald-600"
@@ -7365,16 +7427,38 @@ export default function FaturasPage() {
 
                             <button
                               type="button"
-                              onClick={() => abrirEmissaoRecibo(embarque)}
+                              onClick={() => {
+                                if (
+                                  faturaAgente &&
+                                  faturaReciboExibicao.id === faturaAgente.id
+                                ) {
+                                  abrirReciboFaturaAgente(faturaAgente)
+                                  return
+                                }
+
+                                abrirEmissaoRecibo(embarque)
+                              }}
                               className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
                             >
                               Reemitir
                             </button>
                           </div>
+                        ) : faturaAgente?.arquivo_pdf ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              abrirReciboFaturaAgente(faturaAgente)
+                            }
+                            className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
+                          >
+                            Emitir
+                          </button>
                         ) : fatura?.arquivo_pdf ? (
                           <button
                             type="button"
-                            onClick={() => abrirEmissaoRecibo(embarque)}
+                            onClick={() =>
+                              abrirEmissaoRecibo(embarque)
+                            }
                             className="inline-flex rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white hover:bg-green-500"
                           >
                             Emitir
@@ -7382,7 +7466,9 @@ export default function FaturasPage() {
                         ) : (
                           <button
                             type="button"
-                            onClick={() => abrirEmissaoFaturaDireta(embarque)}
+                            onClick={() =>
+                              abrirEmissaoFaturaDireta(embarque)
+                            }
                             className="inline-flex rounded-lg bg-slate-700 px-3 py-2 text-xs font-black text-white hover:bg-slate-600"
                             title="Para emitir recibo, primeiro é necessário emitir a fatura deste AWB."
                           >
