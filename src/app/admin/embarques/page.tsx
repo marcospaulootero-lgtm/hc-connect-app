@@ -48,6 +48,31 @@ const ITENS_FINANCEIROS_EMBARQUE = [
   'COBERTA NÍVEL B',
 ]
 
+const CODIGOS_PAISES_EMBARQUES = [
+  'BR','CN','US','DE','GB','PT','ES','FR','IT','NL','BE','CH','AT','SE','NO','DK','FI','IE',
+  'JP','KR','TW','HK','SG','IN','ID','MY','TH','VN','AE','SA','TR','IL','CA','MX','AR','CL',
+  'CO','PE','UY','PY','BO','EC','AU','NZ','ZA','EG','MA','PL','CZ','SK','HU','RO','BG','GR',
+  'SI','HR','RS','RU','UA','QA','KW','KY','BH','OM','JO','LB','AF','AL','DZ','AD','AO','AG','AM',
+  'AZ','BS','BD','BB','BY','BZ','BJ','BT','BA','BW','BN','BF','BI','CV','KH','CM','CF','TD',
+  'KM','CG','CD','CR','CI','CU','CY','DJ','DM','DO','SV','ER','EE','ET','FJ','GA','GM','GE',
+  'GH','GD','GT','GN','GW','GY','HT','HN','IS','IQ','JM','KZ','KE','KG','LA','LV','LS','LR',
+  'LY','LI','LT','LU','MG','MW','MV','ML','MT','MR','MU','MD','MC','MN','ME','MZ','MM','NA',
+  'NP','NI','NE','NG','MK','PK','PA','PG','PH','RW','SN','SC','SL','SO','LK','SD','SR','TJ',
+  'TZ','TG','TN','TM','UG','UZ','VE','YE','ZM','ZW'
+] as const
+
+const displayPaisesEmbarques =
+  typeof Intl !== 'undefined' && (Intl as any).DisplayNames
+    ? new (Intl as any).DisplayNames(['pt-BR'], { type: 'region' })
+    : null
+
+const PAISES_EMBARQUES = CODIGOS_PAISES_EMBARQUES
+  .map((codigo) => {
+    const nome = displayPaisesEmbarques?.of?.(codigo) || codigo
+    return `${nome} (${codigo})`
+  })
+  .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
 export default function EmbarquesPage() {
   const [embarques, setEmbarques] = useState<any[]>([])
   const [usuarios, setUsuarios] = useState<any[]>([])
@@ -2131,11 +2156,51 @@ export default function EmbarquesPage() {
           </Campo>
 
           <Campo label="Origem">
-            <input value={form.origem} onChange={(e) => setForm({ ...form, origem: e.target.value })} />
+            <select
+              value={form.origem}
+              onChange={(e) =>
+                setForm({ ...form, origem: e.target.value })
+              }
+            >
+              <option value="">Selecione o país</option>
+
+              {form.origem &&
+                !PAISES_EMBARQUES.includes(form.origem as any) && (
+                  <option value={form.origem}>
+                    {form.origem} — valor existente
+                  </option>
+                )}
+
+              {PAISES_EMBARQUES.map((pais) => (
+                <option key={pais} value={pais}>
+                  {pais}
+                </option>
+              ))}
+            </select>
           </Campo>
 
           <Campo label="Destino">
-            <input value={form.destino} onChange={(e) => setForm({ ...form, destino: e.target.value })} />
+            <select
+              value={form.destino}
+              onChange={(e) =>
+                setForm({ ...form, destino: e.target.value })
+              }
+            >
+              <option value="">Selecione o país</option>
+
+              {form.destino &&
+                !PAISES_EMBARQUES.includes(form.destino as any) && (
+                  <option value={form.destino}>
+                    {form.destino} — valor existente
+                  </option>
+                )}
+
+              {PAISES_EMBARQUES.map((pais) => (
+                <option key={pais} value={pais}>
+                  {pais}
+                </option>
+              ))}
+            </select>
           </Campo>
 
           <Campo label="Peso real (kg)">
@@ -2651,11 +2716,57 @@ export default function EmbarquesPage() {
                     </Campo>
 
                     <Campo label="Origem">
-                      <input value={editForm.origem} onChange={(e) => setEditForm({ ...editForm, origem: e.target.value })} />
+                      <select
+                        value={editForm.origem}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            origem: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="">Selecione o país</option>
+
+                        {editForm.origem &&
+                          !PAISES_EMBARQUES.includes(editForm.origem as any) && (
+                            <option value={editForm.origem}>
+                              {editForm.origem} — valor existente
+                            </option>
+                          )}
+
+                        {PAISES_EMBARQUES.map((pais) => (
+                          <option key={pais} value={pais}>
+                            {pais}
+                          </option>
+                        ))}
+                      </select>
                     </Campo>
 
                     <Campo label="Destino">
-                      <input value={editForm.destino} onChange={(e) => setEditForm({ ...editForm, destino: e.target.value })} />
+                      <select
+                        value={editForm.destino}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            destino: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="">Selecione o país</option>
+
+                        {editForm.destino &&
+                          !PAISES_EMBARQUES.includes(editForm.destino as any) && (
+                            <option value={editForm.destino}>
+                              {editForm.destino} — valor existente
+                            </option>
+                          )}
+
+                        {PAISES_EMBARQUES.map((pais) => (
+                          <option key={pais} value={pais}>
+                            {pais}
+                          </option>
+                        ))}
+                      </select>
                     </Campo>
 
                     <Campo label="Peso real">

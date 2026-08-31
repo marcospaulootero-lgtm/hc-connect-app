@@ -197,7 +197,7 @@ const CODIGOS_PAISES_COTACAO = [
   'BR','CN','US','DE','GB','PT','ES','FR','IT','NL','BE','CH','AT','SE','NO','DK','FI','IE',
   'JP','KR','TW','HK','SG','IN','ID','MY','TH','VN','AE','SA','TR','IL','CA','MX','AR','CL',
   'CO','PE','UY','PY','BO','EC','AU','NZ','ZA','EG','MA','PL','CZ','SK','HU','RO','BG','GR',
-  'SI','HR','RS','RU','UA','QA','KW','BH','OM','JO','LB','AF','AL','DZ','AD','AO','AG','AM',
+  'SI','HR','RS','RU','UA','QA','KW','KY','BH','OM','JO','LB','AF','AL','DZ','AD','AO','AG','AM',
   'AZ','BS','BD','BB','BY','BZ','BJ','BT','BA','BW','BN','BF','BI','CV','KH','CM','CF','TD',
   'KM','CG','CD','CR','CI','CU','CY','DJ','DM','DO','SV','ER','EE','ET','FJ','GA','GM','GE',
   'GH','GD','GT','GN','GW','GY','HT','HN','IS','IQ','JM','KZ','KE','KG','LA','LV','LS','LR',
