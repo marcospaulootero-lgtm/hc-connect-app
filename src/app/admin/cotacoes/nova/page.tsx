@@ -8,7 +8,61 @@ import { AEROPORTOS_BRASIL } from '@/lib/aeroportos-brasil'
 import { useSearchParams } from 'next/navigation'
 import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
-type ModeloCotacao = 'DHL_IMPORTACAO_FORMAL' | 'DHL_IMPORTACAO_COURIER' | 'FEDEX_EXPORTACAO' | 'AGENTE_CARGA_FORMAL'
+type ModeloCotacao = 'DHL' | 'FEDEX' | 'UPS' | 'AGENTE_CARGA'
+
+const SERVICOS_TRANSPORTADORAS_COTACAO = [
+  'IMPORTAÇÃO FORMAL',
+  'IMPORTAÇÃO COURIER',
+  'EXPORTAÇÃO FORMAL',
+  'EXPORTAÇÃO COURIER',
+]
+
+const SERVICOS_MODELO_AGENTE = [
+  'IMPORTAÇÃO FORMAL',
+  'MARÍTIMO',
+]
+
+const AGENTES_CARGA_COTACAO = [
+  'KPM',
+  'CLIPPER',
+  'CRONOS LOGISTICS',
+]
+
+function normalizarModeloCotacao(valor: any): ModeloCotacao {
+  const texto = String(valor || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  if (
+    texto.includes('AGENTE') ||
+    texto.includes('CARGA') ||
+    texto.includes('KPM') ||
+    texto.includes('CLIPPER') ||
+    texto.includes('CRONOS')
+  ) {
+    return 'AGENTE_CARGA'
+  }
+
+  if (texto.includes('UPS')) return 'UPS'
+  if (texto.includes('FEDEX')) return 'FEDEX'
+  if (texto.includes('DHL')) return 'DHL'
+
+  // Sem informação, mantém DHL como padrão inicial.
+  if (!texto) return 'DHL'
+
+  // Qualquer outro nome de transportadora é tratado como agente de carga.
+  // Isso permite usar agentes digitados manualmente sem perder o modelo.
+  return 'AGENTE_CARGA'
+}
+
+function transportadoraDoModelo(modelo: ModeloCotacao) {
+  if (modelo === 'FEDEX') return 'FEDEX'
+  if (modelo === 'UPS') return 'UPS'
+  if (modelo === 'DHL') return 'DHL'
+  return ''
+}
 
 type VolumeCotacao = {
   quantidade: string
@@ -51,10 +105,10 @@ function kg(valor: any) {
 }
 
 function nomeModelo(modelo: ModeloCotacao) {
-  if (modelo === 'AGENTE_CARGA_FORMAL') return 'Agente de carga - Formal'
-  if (modelo === 'FEDEX_EXPORTACAO') return 'FedEx - Exportação'
-  if (modelo === 'DHL_IMPORTACAO_COURIER') return 'DHL - Importação Courier'
-  return 'DHL - Importação Formal'
+  if (modelo === 'AGENTE_CARGA') return 'Agente de carga'
+  if (modelo === 'FEDEX') return 'FedEx'
+  if (modelo === 'UPS') return 'UPS'
+  return 'DHL'
 }
 
 async function imagemBase64(url: string) {
@@ -316,7 +370,7 @@ export default function NovaCotacaoManualPage() {
   const searchParams = useSearchParams()
   const cotacaoEditandoId = searchParams.get('editar')
   const [salvando, setSalvando] = useState(false)
-  const [modelo, setModelo] = useState<ModeloCotacao>('DHL_IMPORTACAO_FORMAL')
+  const [modelo, setModelo] = useState<ModeloCotacao>('DHL')
   const [dadosEmissorBase, setDadosEmissorBase] = useState<any>({})
 
   const [form, setForm] = useState({
@@ -371,7 +425,7 @@ export default function NovaCotacaoManualPage() {
     novoItemServicoEnvioCotacao(),
   ])
 
-  const usarCamposAgente = modelo === 'AGENTE_CARGA_FORMAL'
+  const usarCamposAgente = modelo === 'AGENTE_CARGA'
   const divisorPesoDimensional = usarCamposAgente ? 6000 : 5000
   const seguroFedexAtivo = String(form.transportadora || '')
     .trim()
@@ -429,7 +483,7 @@ export default function NovaCotacaoManualPage() {
               observacao: String(item.observacao || ''),
             }))
           )
-        } else if (dadosEmissor.modelo !== 'AGENTE_CARGA_FORMAL') {
+        } else if (normalizarModeloCotacao(dadosEmissor.modelo) !== 'AGENTE_CARGA') {
           setItensEnvio(itensEnvioCotacaoLegados(dadosEmissor.form))
         }
 
@@ -450,7 +504,7 @@ export default function NovaCotacaoManualPage() {
         }
 
         if (dadosEmissor.modelo) {
-          setModelo(dadosEmissor.modelo as ModeloCotacao)
+          setModelo(normalizarModeloCotacao(dadosEmissor.modelo))
         }
 
         return
@@ -499,15 +553,7 @@ export default function NovaCotacaoManualPage() {
 
       const servico = String(data.servico || data.tipo_operacao || '').toUpperCase()
 
-      if (transportadora.includes('FEDEX') || servico.includes('EXPORT')) {
-        setModelo('FEDEX_EXPORTACAO')
-      } else if (transportadora.includes('AGENTE')) {
-        setModelo('AGENTE_CARGA_FORMAL')
-      } else if (servico.includes('COURIER')) {
-        setModelo('DHL_IMPORTACAO_COURIER')
-      } else {
-        setModelo('DHL_IMPORTACAO_FORMAL')
-      }
+      setModelo(normalizarModeloCotacao(transportadora))
     }
 
     carregarCotacaoParaEdicao()
@@ -600,9 +646,9 @@ const valores = useMemo(() => {
       volumeExcedente,
       emissaoDue,
       impostosDestino,
-      total: modelo === 'FEDEX_EXPORTACAO' ? totalFedex : totalDhl,
+      total: seguro + totalServicosUsd,
     }
-  }, [form, modelo, itensEnvio, seguroFedexAtivo])
+  }, [form, itensEnvio, seguroFedexAtivo])
 
     const [itensAgente, setItensAgente] = useState(() =>
     SERVICOS_AGENTE_CARGA.map((servico) => ({
@@ -709,38 +755,34 @@ const totaisAgenteMoedaTela = useMemo(() => {
   function trocarModelo(novoModelo: ModeloCotacao) {
     setModelo(novoModelo)
 
-    if (novoModelo === 'AGENTE_CARGA_FORMAL') {
-      setForm((atual) => ({
-        ...atual,
-        servico: 'IMPORTAÇÃO FORMAL',
-        transportadora: 'AGENTE',
-      }))
-      return
-    }
+    setForm((atual) => {
+      if (novoModelo === 'AGENTE_CARGA') {
+        const agenteAtual = String(atual.transportadora || '').trim()
+        const transportadoraAtual = agenteAtual.toUpperCase()
 
-    if (novoModelo === 'FEDEX_EXPORTACAO') {
-      setForm((atual) => ({
-        ...atual,
-        servico: 'EXPORTAÇÃO',
-        transportadora: 'FEDEX',
-      }))
-      return
-    }
+        const manterAgente =
+          agenteAtual &&
+          !['DHL', 'FEDEX', 'UPS'].includes(transportadoraAtual)
 
-    if (novoModelo === 'DHL_IMPORTACAO_COURIER') {
-      setForm((atual) => ({
-        ...atual,
-        servico: 'IMPORTAÇÃO COURIER',
-        transportadora: 'DHL',
-      }))
-      return
-    }
+        return {
+          ...atual,
+          servico: SERVICOS_MODELO_AGENTE.includes(String(atual.servico))
+            ? atual.servico
+            : 'IMPORTAÇÃO FORMAL',
+          transportadora: manterAgente ? agenteAtual : '',
+        }
+      }
 
-    setForm((atual) => ({
-      ...atual,
-      servico: 'IMPORTAÇÃO FORMAL',
-      transportadora: 'DHL',
-    }))
+      return {
+        ...atual,
+        servico: SERVICOS_TRANSPORTADORAS_COTACAO.includes(
+          String(atual.servico)
+        )
+          ? atual.servico
+          : 'IMPORTAÇÃO FORMAL',
+        transportadora: transportadoraDoModelo(novoModelo),
+      }
+    })
   }
 
   function atualizarVolume(index: number, campo: keyof VolumeCotacao, valor: string) {
@@ -774,10 +816,18 @@ const totaisAgenteMoedaTela = useMemo(() => {
   }
 
   function nomeArquivoPdf(id?: string) {
-    const base = form.referencia_hc || form.referencia_cliente || id || 'cotacao-hc'
-    const sufixo = modelo === 'DHL_IMPORTACAO_FORMAL' ? 'dhl-importacao-formal' : 'fedex-exportacao'
+    const base =
+      form.referencia_hc ||
+      form.referencia_cliente ||
+      id ||
+      'cotacao-hc'
 
-    return `${base}-${sufixo}.pdf`
+    const sufixo =
+      modelo === 'AGENTE_CARGA'
+        ? 'agente-carga'
+        : modelo.toLowerCase()
+
+    return (base + '-' + sufixo + '.pdf')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-zA-Z0-9.-]/g, '_')
@@ -1238,11 +1288,15 @@ const totaisAgenteMoedaTela = useMemo(() => {
         </div>
 
         <div className="form-grid">
-          <CampoSelect label="Modelo da cotação" value={modelo} onChange={(v) => trocarModelo(v as ModeloCotacao)}>
-            <option value="DHL_IMPORTACAO_FORMAL">DHL - Importação Formal</option>
-            <option value="DHL_IMPORTACAO_COURIER">DHL - Importação Courier</option>
-            <option value="AGENTE_CARGA_FORMAL">Agente de carga - Formal</option>
-            <option value="FEDEX_EXPORTACAO">FedEx - Exportação</option>
+          <CampoSelect
+            label="Modelo da cotação"
+            value={modelo}
+            onChange={(v) => trocarModelo(v as ModeloCotacao)}
+          >
+            <option value="DHL">DHL</option>
+            <option value="FEDEX">FedEx</option>
+            <option value="UPS">UPS</option>
+            <option value="AGENTE_CARGA">Agente de carga</option>
           </CampoSelect>
 
           <Campo label="Referência HC" value={form.referencia_hc} onChange={() => {}} readOnly />
@@ -1257,32 +1311,74 @@ const totaisAgenteMoedaTela = useMemo(() => {
         <h2 className="mb-6 text-2xl font-black">Operação</h2>
 
         <div className="form-grid">
-          <CampoSelect label="Serviço" value={form.servico} onChange={(v) => atualizarCampo('servico', v)}>
-            <option value="IMPORTAÇÃO FORMAL">Importação formal</option>
-            <option value="IMPORTAÇÃO COURIER">Importação courier</option>
-            <option value="EXPORTAÇÃO FORMAL">Exportação formal</option>
-            <option value="EXPORTAÇÃO COURIER">Exportação courier</option>
-            <option value="EXPORTAÇÃO TEMPORÁRIA">Exportação temporária</option>
-            <option value="NACIONAL">Nacional</option>
+          <CampoSelect
+            label="Serviço"
+            value={form.servico}
+            onChange={(v) => atualizarCampo('servico', v)}
+          >
+            {(() => {
+              const servicosDisponiveis = usarCamposAgente
+                ? SERVICOS_MODELO_AGENTE
+                : SERVICOS_TRANSPORTADORAS_COTACAO
+
+              const servicoAtual = String(form.servico || '')
+
+              return (
+                <>
+                  {servicoAtual &&
+                    !servicosDisponiveis.includes(servicoAtual) && (
+                      <option value={servicoAtual}>
+                        {servicoAtual} — valor existente
+                      </option>
+                    )}
+
+                  {servicosDisponiveis.map((servico) => (
+                    <option key={servico} value={servico}>
+                      {servico
+                        .toLocaleLowerCase('pt-BR')
+                        .replace(/^./, (letra) => letra.toLocaleUpperCase('pt-BR'))}
+                    </option>
+                  ))}
+                </>
+              )
+            })()}
           </CampoSelect>
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-slate-400">Transportadora</span>
-            <input
-              list="transportadoras-cotacao-manual"
+
+          {usarCamposAgente ? (
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-400">
+                Agente de carga
+              </span>
+
+              <input
+                list="agentes-carga-cotacao"
+                value={form.transportadora}
+                onChange={(e) =>
+                  atualizarCampo('transportadora', e.target.value)
+                }
+                placeholder="Selecione ou digite o agente"
+                autoComplete="off"
+              />
+
+              <datalist id="agentes-carga-cotacao">
+                {AGENTES_CARGA_COTACAO.map((agente) => (
+                  <option key={agente} value={agente} />
+                ))}
+              </datalist>
+
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Selecione um agente da lista ou digite outro manualmente.
+              </p>
+            </label>
+          ) : (
+            <Campo
+              label="Transportadora"
               value={form.transportadora}
-              onChange={(e) => atualizarCampo('transportadora', e.target.value)}
-              placeholder="Selecione ou digite a transportadora"
-              autoComplete="off"
+              onChange={() => {}}
+              readOnly
             />
-            <datalist id="transportadoras-cotacao-manual">
-              {TRANSPORTADORAS_COTACAO.map((transportadora) => (
-                <option key={transportadora} value={transportadora} />
-              ))}
-            </datalist>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
-              Selecione uma opção da lista ou digite outra transportadora manualmente.
-            </p>
-          </label>
+          )}
+
           <CampoSelect label="Origem" value={form.origem || ''} onChange={(v) => atualizarCampo('origem', v)}>
             <option value="">Selecione o país</option>
             {PAISES_COTACAO.map((pais) => (
