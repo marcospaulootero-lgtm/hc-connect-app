@@ -427,10 +427,15 @@ export default function NovaCotacaoManualPage() {
 
   const usarCamposAgente = modelo === 'AGENTE_CARGA'
   const divisorPesoDimensional = usarCamposAgente ? 6000 : 5000
-  const seguroFedexAtivo = String(form.transportadora || '')
+  const transportadoraSeguro = String(form.transportadora || '')
     .trim()
     .toUpperCase()
-    .includes('FEDEX')
+
+  const seguroFedexUpsAtivo =
+    transportadoraSeguro.includes('FEDEX') ||
+    transportadoraSeguro.includes('UPS')
+
+  const seguroAgenteManual = modelo === 'AGENTE_CARGA'
 
 
   useEffect(() => {
@@ -605,15 +610,20 @@ const valores = useMemo(() => {
     const seguroMinimo = numero(form.seguroMinimo)
     const seguroManual = numero(form.seguroManual)
 
-    const seguroAutomatico = seguroFedexAtivo
+    const seguroAutomatico = seguroFedexUpsAtivo
       ? (valorMercadoria / 100) * 1.30
-      : Math.max(valorMercadoria * (percentualSeguro / 100), seguroMinimo)
+      : Math.max(
+          valorMercadoria * (percentualSeguro / 100),
+          seguroMinimo
+        )
 
     const seguro = form.semSeguro
       ? 0
-      : form.usarSeguroManual
+      : seguroAgenteManual
         ? seguroManual
-        : seguroAutomatico
+        : form.usarSeguroManual
+          ? seguroManual
+          : seguroAutomatico
 
     const frete = numero(form.frete)
     const sobretaxa = numero(form.sobretaxa)
@@ -648,7 +658,7 @@ const valores = useMemo(() => {
       impostosDestino,
       total: seguro + totalServicosUsd,
     }
-  }, [form, itensEnvio, seguroFedexAtivo])
+  }, [form, itensEnvio, seguroFedexUpsAtivo, seguroAgenteManual])
 
     const [itensAgente, setItensAgente] = useState(() =>
     SERVICOS_AGENTE_CARGA.map((servico) => ({
@@ -1467,21 +1477,41 @@ const totaisAgenteMoedaTela = useMemo(() => {
         <h2 className="mb-6 text-2xl font-black">Seguro</h2>
 
         <div className="mb-5 rounded-2xl border border-blue-900 bg-[#020817] p-4">
-          {seguroFedexAtivo ? (
+          {seguroAgenteManual ? (
             <>
-              <p className="text-sm font-black text-purple-300">Cálculo automático FedEx</p>
+              <p className="text-sm font-black text-amber-300">
+                Seguro manual — Agente de carga
+              </p>
+
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Para agente de carga, informe manualmente o valor do seguro.
+                Nenhuma regra automática de DHL, FedEx ou UPS será aplicada.
+              </p>
+            </>
+          ) : seguroFedexUpsAtivo ? (
+            <>
+              <p className="text-sm font-black text-purple-300">
+                Cálculo automático FedEx / UPS
+              </p>
+
               <p className="mt-1 text-sm font-semibold text-slate-300">
                 Valor da mercadoria / 100 × 1,30
               </p>
+
               <p className="mt-1 text-xs font-semibold text-slate-500">
-                Para FedEx, o percentual e o mínimo DHL abaixo não entram no cálculo automático.
+                Para FedEx e UPS, o percentual e o mínimo DHL abaixo não entram
+                no cálculo automático.
               </p>
             </>
           ) : (
             <>
-              <p className="text-sm font-black text-blue-300">Cálculo automático DHL / padrão</p>
+              <p className="text-sm font-black text-blue-300">
+                Cálculo automático DHL
+              </p>
+
               <p className="mt-1 text-xs font-semibold text-slate-500">
-                Mantém a regra atual: maior valor entre o percentual informado e o mínimo de seguro.
+                Utiliza o maior valor entre o percentual informado e o mínimo
+                de seguro.
               </p>
             </>
           )}
@@ -1493,7 +1523,16 @@ const totaisAgenteMoedaTela = useMemo(() => {
           <Campo label="Seguro manual USD" type="money" value={form.seguroManual} onChange={(v) => atualizarCampo('seguroManual', v)} />
           <Checkbox label="Usar seguro manual" checked={form.usarSeguroManual} onChange={(v) => atualizarCampo('usarSeguroManual', v)} />
           <Checkbox label="Sem seguro" checked={form.semSeguro} onChange={(v) => atualizarCampo('semSeguro', v)} />
-          <Resumo titulo={seguroFedexAtivo ? 'Seguro final FedEx' : 'Seguro final'} valor={dinheiro(valores.seguro)} />
+          <Resumo
+            titulo={
+              seguroAgenteManual
+                ? 'Seguro final - Manual'
+                : seguroFedexUpsAtivo
+                  ? 'Seguro final FedEx / UPS'
+                  : 'Seguro final DHL'
+            }
+            valor={dinheiro(valores.seguro)}
+          />
         </div>
       </section>
 
