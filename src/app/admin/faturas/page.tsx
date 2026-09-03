@@ -1734,6 +1734,59 @@ export default function FaturasPage() {
   }
 
 
+  function statusPagamentoExibicao(
+    financeiro: FinanceiroProcesso | null,
+    fatura?: Fatura | null,
+    faturaAgente?: Fatura | null
+  ): StatusPagamentoFinanceiro {
+    const statusFinanceiro = statusPagamentoFinanceiro(financeiro)
+
+    const candidatas = [fatura, faturaAgente].filter(Boolean) as Fatura[]
+
+    const faturaComPagamento = candidatas.find((item) => {
+      const statusFatura = String(item?.status_pagamento || '')
+        .trim()
+        .toUpperCase()
+
+      return (
+        !!item?.recibo_pdf ||
+        !!normalizarData(item?.data_pagamento) ||
+        statusFatura === 'PAGO'
+      )
+    })
+
+    if (!faturaComPagamento) {
+      return statusFinanceiro
+    }
+
+    const dataPagamento =
+      normalizarData(faturaComPagamento.data_pagamento) ||
+      normalizarData(faturaComPagamento.recibo_emitido_em)
+
+    const valorRegistrado =
+      numero(faturaComPagamento.valor_pago) ||
+      numero(faturaComPagamento.valor_total)
+
+    const detalhe =
+      financeiro
+        ? statusFinanceiro.detalhe
+        : valorRegistrado > 0
+          ? moeda(valorRegistrado)
+          : 'Recibo registrado'
+
+    return {
+      status: 'PAGO',
+      label: dataPagamento
+        ? `Pago em ${dataBR(dataPagamento)}`
+        : faturaComPagamento.recibo_pdf
+          ? 'Pago - recibo emitido'
+          : 'Pago',
+      detalhe,
+      classe: 'border-green-500 bg-green-600/20 text-green-300',
+    }
+  }
+
+
   function statusComprovanteFatura(fatura?: Fatura | null) {
     if (!fatura?.arquivo_pdf) {
       return {
@@ -1941,7 +1994,12 @@ export default function FaturasPage() {
         null
 
       const financeiro = financeiroDoEmbarque(e)
-      const pagamento = statusPagamentoFinanceiro(financeiro)
+
+      const pagamento = statusPagamentoExibicao(
+        financeiro,
+        fatura,
+        faturaAgente
+      )
 
       const texto = `
         ${e.awb || ''}
@@ -2030,12 +2088,18 @@ export default function FaturasPage() {
     const faturasAtivas = faturas.filter((f) => !f.arquivado_admin)
     const pagamentosFinanceiros = embarques.map((e) => {
       const financeiro = financeiroDoEmbarque(e)
+      const fatura = faturaDoEmbarque(e.id)
+      const faturaAgente = faturaAgenteDoEmbarque(e)
 
       return {
         embarque: e,
-        fatura: faturaDoEmbarque(e.id),
+        fatura,
         financeiro,
-        pagamento: statusPagamentoFinanceiro(financeiro),
+        pagamento: statusPagamentoExibicao(
+          financeiro,
+          fatura,
+          faturaAgente
+        ),
       }
     })
 
@@ -3107,9 +3171,13 @@ export default function FaturasPage() {
     if (!fatura?.arquivo_pdf) return false
     if (!fatura.recibo_pdf) return false
 
-    const pagamento = statusPagamentoFinanceiro(financeiro || null)
+    const pagamento = statusPagamentoExibicao(
+      financeiro || null,
+      fatura,
+      null
+    )
 
-    return pagamento.status === 'PAGO' || String(fatura.status_pagamento || '').toUpperCase() === 'PAGO'
+    return pagamento.status === 'PAGO'
   }
 
   async function alternarArquivamentoFaturamento(embarque: Embarque, fatura: Fatura | null | undefined) {
@@ -7169,7 +7237,13 @@ export default function FaturasPage() {
                       : null
 
                 const financeiro = financeiroDoEmbarque(embarque)
-                const pagamento = statusPagamentoFinanceiro(financeiro)
+
+                const pagamento = statusPagamentoExibicao(
+                  financeiro,
+                  fatura,
+                  faturaAgente
+                )
+
                 const comprovante = statusComprovanteFatura(fatura)
                 const documentos = documentosDoEmbarque(embarque.id)
                 const cotacoes = cotacoesDoEmbarque(embarque.id)
@@ -7623,7 +7697,14 @@ export default function FaturasPage() {
                                 <InfoPacote label="Taxa conversão" valor={embarque.taxa_conversao || '-'} />
                                 <InfoPacote label="Spread" valor={embarque.spread ? `${embarque.spread}%` : '-'} />
                                 <InfoPacote label="Vencimento financeiro" valor={dataBR(normalizarData(vencimentoFinanceiro(financeiro)))} />
-                                <InfoPacote label="Recebimento" valor={dataBR(normalizarData(recebimentoFinanceiro(financeiro)))} />
+                                <InfoPacote
+                                  label="Recebimento"
+                                  valor={dataBR(
+                                    normalizarData(recebimentoFinanceiro(financeiro)) ||
+                                    normalizarData(faturaReciboExibicao?.data_pagamento) ||
+                                    normalizarData(faturaReciboExibicao?.recibo_emitido_em)
+                                  )}
+                                />
                                 <InfoPacote
                                   label="Ligação financeira"
                                   valor={financeiro ? 'Encontrado em Processos Faturados' : `Não encontrado para AWB ${embarque.awb || '-'}`}

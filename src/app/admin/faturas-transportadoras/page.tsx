@@ -270,13 +270,30 @@ export default function FaturasTransportadorasPage() {
 
     const vencimento = String(item.vencimento || '').slice(0, 10)
     const dias = diasAteVencimento(item)
+    const status = situacaoAutomatica(item)
 
     if (filtroPrazo === 'SEM_DATA') return !vencimento
+
     if (dias === null) return false
+
+    if (filtroPrazo === 'VENCIDAS') {
+      return status === 'VENCIDA'
+    }
+
+    const podeVencer =
+      status !== 'PAGA' &&
+      status !== 'VENCIDA' &&
+      status !== 'CONTESTADA' &&
+      status !== 'FATURA CANCELADA'
+
+    if (!podeVencer) return false
+
     if (filtroPrazo === 'HOJE') return dias === 0
     if (filtroPrazo === 'AMANHA') return dias === 1
-    if (filtroPrazo === 'PROXIMOS_7_DIAS') return dias >= 0 && dias <= 7
-    if (filtroPrazo === 'VENCIDAS') return dias < 0
+
+    if (filtroPrazo === 'PROXIMOS_7_DIAS') {
+      return dias >= 0 && dias <= 7
+    }
 
     return true
   }
@@ -1658,6 +1675,13 @@ export default function FaturasTransportadorasPage() {
       setFiltroPrazo('')
     }
 
+    if (tipo === 'VENCENDO_HOJE') {
+      setFiltroTransportadoras([])
+      setFiltroSituacoes([])
+      setFiltroArquivadas('ATIVAS')
+      setFiltroPrazo('HOJE')
+    }
+
     if (tipo === 'VENCIDAS') {
       setFiltroTransportadoras([])
       setFiltroSituacoes(['VENCIDA'])
@@ -1849,6 +1873,19 @@ export default function FaturasTransportadorasPage() {
     const ativas = faturas.filter((item) => !item.arquivada)
     const dhl = ativas.filter((item) => item.transportadora === 'DHL')
     const fedex = ativas.filter((item) => item.transportadora === 'FedEx')
+
+    const vencendoHoje = ativas.filter((item) => {
+      const status = situacaoAutomatica(item)
+
+      const podeVencer =
+        status !== 'PAGA' &&
+        status !== 'VENCIDA' &&
+        status !== 'CONTESTADA' &&
+        status !== 'FATURA CANCELADA'
+
+      return podeVencer && diasAteVencimento(item) === 0
+    })
+
     const vencidas = ativas.filter((item) => situacaoAutomatica(item) === 'VENCIDA')
     const abertas = ativas.filter((item) => situacaoAutomatica(item) === 'EM ABERTO')
     const arquivadas = faturas.filter((item) => item.arquivada)
@@ -1866,6 +1903,10 @@ export default function FaturasTransportadorasPage() {
     return {
       dhl: { qtd: dhl.length, saldo: somarSaldo(dhl), total: somarTotal(dhl) },
       fedex: { qtd: fedex.length, saldo: somarSaldo(fedex), total: somarTotal(fedex) },
+      vencendoHoje: {
+        qtd: vencendoHoje.length,
+        saldo: somarSaldo(vencendoHoje),
+      },
       vencidas: { qtd: vencidas.length, saldo: somarSaldo(vencidas) },
       abertas: { qtd: abertas.length, saldo: somarSaldo(abertas) },
       arquivadas: { qtd: arquivadas.length, saldo: somarSaldo(arquivadas) },
@@ -1971,9 +2012,10 @@ export default function FaturasTransportadorasPage() {
         </section>
       )}
 
-      <section className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-8 gap-5 mb-8">
+      <section className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-9 gap-5 mb-8">
         <KpiCard titulo="DHL" valor={totais.dhl.qtd} detalhe={`Saldo ${moeda(totais.dhl.saldo)}`} icone="🟡" onClick={() => filtroRapido('DHL')} />
         <KpiCard titulo="FedEx" valor={totais.fedex.qtd} detalhe={`Saldo ${moeda(totais.fedex.saldo)}`} icone="🟣" onClick={() => filtroRapido('FEDEX')} />
+        <KpiCard titulo="Vencendo hoje" valor={totais.vencendoHoje.qtd} detalhe={`Saldo ${moeda(totais.vencendoHoje.saldo)}`} icone="📅" onClick={() => filtroRapido('VENCENDO_HOJE')} />
         <KpiCard titulo="Vencidas" valor={totais.vencidas.qtd} detalhe={`Saldo ${moeda(totais.vencidas.saldo)}`} icone="🚨" onClick={() => filtroRapido('VENCIDAS')} />
         <KpiCard titulo="Em aberto" valor={totais.abertas.qtd} detalhe={`Saldo ${moeda(totais.abertas.saldo)}`} icone="⏳" onClick={() => filtroRapido('ABERTAS')} />
         <KpiCard titulo="Prontas para pagar" valor={totais.prontasPagar.qtd} detalhe="Todos os AWBs recebidos" icone="✅" onClick={() => filtroRapido('PRONTAS_PAGAR')} />
@@ -2214,6 +2256,18 @@ export default function FaturasTransportadorasPage() {
               <option value="ATIVAS">Ativas</option>
               <option value="ARQUIVADAS">Arquivadas</option>
               <option value="TODAS">Todas</option>
+            </select>
+
+            <select
+              value={filtroPrazo}
+              onChange={(e) => setFiltroPrazo(e.target.value)}
+            >
+              <option value="">Vencimento: todos</option>
+              <option value="HOJE">Vencendo hoje</option>
+              <option value="AMANHA">Vencendo amanhã</option>
+              <option value="PROXIMOS_7_DIAS">Próximos 7 dias</option>
+              <option value="VENCIDAS">Vencidas</option>
+              <option value="SEM_DATA">Sem vencimento</option>
             </select>
 
             <select
