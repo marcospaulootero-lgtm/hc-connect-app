@@ -265,6 +265,13 @@ export default function FaturasPage() {
   const [carregandoCambioEmissor, setCarregandoCambioEmissor] = useState(false)
   const [emissorAvisoCambio, setEmissorAvisoCambio] = useState('')
   const [salvandoEmissao, setSalvandoEmissao] = useState(false)
+
+  const [reemissaoFaturaId, setReemissaoFaturaId] = useState('')
+  const [reemissaoValorBase, setReemissaoValorBase] = useState('')
+  const [reemissaoVencimentoOriginal, setReemissaoVencimentoOriginal] = useState('')
+  const [reemissaoMulta, setReemissaoMulta] = useState('2')
+  const [reemissaoJurosMensal, setReemissaoJurosMensal] = useState('3')
+
   const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
 
   const [agenteProcesso, setAgenteProcesso] = useState('')
@@ -1330,6 +1337,14 @@ export default function FaturasPage() {
       return 'Recibo complementar'
     }
     if (normalizado.includes('RECIBO')) return 'Recibo'
+
+    if (
+      normalizado.includes('FATURA') &&
+      normalizado.includes('ANTERIOR')
+    ) {
+      return 'Fatura anterior'
+    }
+
     if (normalizado.includes('FATURA') && normalizado.includes('EXTRA')) return 'PDF faturamento'
     if (normalizado.includes('COMPLEMENTAR')) return 'Fatura complementar'
     if (normalizado.includes('FATURA')) return 'Fatura'
@@ -3817,6 +3832,239 @@ export default function FaturasPage() {
       : null
   }
 
+  function limparReemissao() {
+    setReemissaoFaturaId('')
+    setReemissaoValorBase('')
+    setReemissaoVencimentoOriginal('')
+    setReemissaoMulta('2')
+    setReemissaoJurosMensal('3')
+  }
+
+  function adicionarDiasIso(dataIso: string, dias: number) {
+    const base = normalizarData(dataIso)
+
+    if (!base) return ''
+
+    const [ano, mes, dia] = base.split('-').map(Number)
+
+    const data = new Date(
+      Date.UTC(ano, mes - 1, dia)
+    )
+
+    data.setUTCDate(
+      data.getUTCDate() + dias
+    )
+
+    return data
+      .toISOString()
+      .slice(0, 10)
+  }
+
+  function diferencaDiasIso(
+    dataInicial: string,
+    dataFinal: string
+  ) {
+    const inicial = normalizarData(dataInicial)
+    const final = normalizarData(dataFinal)
+
+    if (!inicial || !final) return 0
+
+    const paraUtc = (valor: string) => {
+      const [ano, mes, dia] =
+        valor.split('-').map(Number)
+
+      return Date.UTC(
+        ano,
+        mes - 1,
+        dia
+      )
+    }
+
+    return Math.max(
+      0,
+      Math.floor(
+        (
+          paraUtc(final) -
+          paraUtc(inicial)
+        ) / 86400000
+      )
+    )
+  }
+
+  function calculoReemissaoAtual() {
+    const valorBase = Math.max(
+      0,
+      numero(reemissaoValorBase)
+    )
+
+    const multaPercentual = Math.max(
+      0,
+      numero(reemissaoMulta)
+    )
+
+    const jurosMensalPercentual = Math.max(
+      0,
+      numero(reemissaoJurosMensal)
+    )
+
+    /*
+      Os juros correm somente até HOJE.
+      O novo vencimento não gera juros futuros antecipados.
+    */
+    const diasAtraso =
+      diferencaDiasIso(
+        reemissaoVencimentoOriginal,
+        hojeISO()
+      )
+
+    const valorMulta = Number(
+      (
+        valorBase *
+        (multaPercentual / 100)
+      ).toFixed(2)
+    )
+
+    const valorJuros = Number(
+      (
+        valorBase *
+        (jurosMensalPercentual / 100) *
+        (diasAtraso / 30)
+      ).toFixed(2)
+    )
+
+    const total = Number(
+      (
+        valorBase +
+        valorMulta +
+        valorJuros
+      ).toFixed(2)
+    )
+
+    return {
+      valorBase,
+      multaPercentual,
+      jurosMensalPercentual,
+      diasAtraso,
+      valorMulta,
+      valorJuros,
+      total,
+    }
+  }
+
+  function abrirReemissaoComJuros(
+    embarque: Embarque,
+    fatura: Fatura,
+    financeiro: FinanceiroProcesso | null
+  ) {
+    const pagamento =
+      statusPagamentoExibicao(
+        financeiro,
+        fatura,
+        null
+      )
+
+    if (pagamento.status !== 'ATRASADO') {
+      alert(
+        'Somente faturas vencidas e ainda não pagas podem ser reemitidas com juros.'
+      )
+      return
+    }
+
+    if (!fatura.id || !fatura.arquivo_pdf) {
+      alert(
+        'A fatura precisa possuir um PDF principal para ser reemitida.'
+      )
+      return
+    }
+
+    const vencimentoOriginal =
+      normalizarData(fatura.vencimento) ||
+      normalizarData(
+        vencimentoFinanceiro(financeiro)
+      )
+
+    const valorBase =
+      numero(fatura.valor_total) ||
+      valorFinanceiro(financeiro)
+
+    if (!vencimentoOriginal) {
+      alert(
+        'Não foi possível localizar o vencimento original.'
+      )
+      return
+    }
+
+    if (valorBase <= 0) {
+      alert(
+        'Não foi possível localizar o valor atual da fatura.'
+      )
+      return
+    }
+
+    limparReemissao()
+
+    setReemissaoFaturaId(
+      fatura.id
+    )
+
+    setReemissaoValorBase(
+      formatarNumeroInput(valorBase)
+    )
+
+    setReemissaoVencimentoOriginal(
+      vencimentoOriginal
+    )
+
+    setReemissaoMulta('2')
+    setReemissaoJurosMensal('3')
+
+    setAbaAtiva('EMISSOR')
+
+    setBuscaEmissorAwb(
+      String(
+        embarque.awb ||
+        embarque.cliente_final ||
+        embarque.importador ||
+        ''
+      )
+    )
+
+    selecionarEmbarqueEmissor(
+      embarque.id,
+      true
+    )
+
+    setTimeout(() => {
+      setEmissorTipoFatura('FRETE')
+
+      /*
+        Mantém o mesmo número da fatura.
+      */
+      setEmissorNumeroFatura(
+        fatura.numero_fatura ||
+        gerarNumeroFaturaSugerido(embarque)
+      )
+
+      /*
+        Sugestão inicial: novo vencimento em 7 dias.
+        Continua editável.
+      */
+      setEmissorVencimento(
+        adicionarDiasIso(
+          hojeISO(),
+          7
+        )
+      )
+
+      document
+        .getElementById('emissor_fatura')
+        ?.scrollIntoView({
+          behavior: 'smooth',
+        })
+    }, 150)
+  }
+
+
   function selecionarClienteFaturamentoEmissor(clienteId: string) {
     setEmissorClienteId(clienteId)
 
@@ -3827,7 +4075,14 @@ export default function FaturasPage() {
     setEmissorVencimento(vencimentoPadraoCliente(cliente))
   }
 
-  function selecionarEmbarqueEmissor(embarqueId: string) {
+  function selecionarEmbarqueEmissor(
+    embarqueId: string,
+    preservarReemissao = false
+  ) {
+    if (!preservarReemissao) {
+      limparReemissao()
+    }
+
     setEmissorEmbarqueId(embarqueId)
 
     const embarque = embarques.find((item) => item.id === embarqueId) || null
@@ -4003,6 +4258,8 @@ export default function FaturasPage() {
   }
 
   function limparEmissor() {
+    limparReemissao()
+
     setBuscaEmissorAwb('')
     setFiltroStatusEmissor('TODOS')
     setBuscaClienteEmissor('')
@@ -4045,8 +4302,78 @@ export default function FaturasPage() {
   async function salvarFinanceiroDaFatura(arquivoPdfUrl: string) {
     if (!emissorEmbarqueSelecionado || !emissorClienteSelecionado) return
 
-    const financeiroAtual = financeiroDoEmbarque(emissorEmbarqueSelecionado)
-    const itensSelecionados = itensSelecionadosFatura()
+    const financeiroAtual =
+      financeiroDoEmbarque(
+        emissorEmbarqueSelecionado
+      )
+
+    /*
+      REEMISSÃO:
+      muda somente a dívida do cliente.
+      Não toca em valor_compra, DOC/DTA,
+      débito terceiro ou demais custos.
+    */
+    if (reemissaoFaturaId) {
+      if (!financeiroAtual?.id) {
+        throw new Error(
+          'Não foi localizado o processo em Financeiro > Processos Faturados.'
+        )
+      }
+
+      const calculo =
+        calculoReemissaoAtual()
+
+      const historico =
+        `Reemissão da fatura ${emissorNumeroFatura || financeiroAtual.fatura || '-'} em ${dataBR(new Date().toISOString())}. ` +
+        `Vencimento original: ${dataBR(reemissaoVencimentoOriginal)}. ` +
+        `Novo vencimento: ${dataBR(emissorVencimento)}. ` +
+        `Valor anterior: ${moeda(calculo.valorBase)}. ` +
+        `Multa ${formatarValorSimples(calculo.multaPercentual)}%: ${moeda(calculo.valorMulta)}. ` +
+        `Juros ${formatarValorSimples(calculo.jurosMensalPercentual)}% a.m. por ${calculo.diasAtraso} dia(s): ${moeda(calculo.valorJuros)}. ` +
+        `Novo total: ${moeda(calculo.total)}. ` +
+        `PDF: ${arquivoPdfUrl}.`
+
+      const { error } =
+        await supabase
+          .from('financeiro_embarques')
+          .update({
+            valor_cobranca:
+              calculo.total,
+
+            vencimento_cobranca:
+              emissorVencimento ||
+              null,
+
+            recebimento:
+              null,
+
+            observacoes: [
+              financeiroAtual.observacoes || '',
+              historico,
+              emissorObservacoes
+                ? `Obs: ${emissorObservacoes}`
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' | '),
+          })
+          .eq(
+            'id',
+            financeiroAtual.id
+          )
+
+      if (error) {
+        throw new Error(
+          'Erro ao atualizar Processos Faturados: ' +
+          error.message
+        )
+      }
+
+      return
+    }
+
+    const itensSelecionados =
+      itensSelecionadosFatura()
 
     const itensResumo = itensSelecionados
       .map((item) => `${item.descricao}: ${moeda(item.valor_brl)}`)
@@ -4215,18 +4542,84 @@ export default function FaturasPage() {
     if (!emissorClienteSelecionado) return alert('Selecione o cliente de faturamento.')
     if (!emissorNumeroFatura.trim()) return alert('Informe o número da fatura.')
     if (!emissorDataEmbarque) return alert('Informe a data do embarque.')
-    if (!emissorVencimento) return alert('Informe o vencimento da fatura.')
+    if (!emissorVencimento) {
+      return alert(
+        'Informe o vencimento da fatura.'
+      )
+    }
 
-    const embarqueEhDhl = normalizarTexto(emissorEmbarqueSelecionado.transportadora || '').includes('DHL')
-    if (embarqueEhDhl && numero(emissorTaxaConversao) <= 0) {
+    const ehReemissaoJuros =
+      !!reemissaoFaturaId
+
+    const faturaReemissao =
+      ehReemissaoJuros
+        ? faturas.find(
+            (item) =>
+              item.id ===
+              reemissaoFaturaId
+          ) || null
+        : null
+
+    const calculoReemissao =
+      calculoReemissaoAtual()
+
+    if (ehReemissaoJuros) {
+      if (!faturaReemissao?.arquivo_pdf) {
+        return alert(
+          'Não foi possível localizar o PDF original.'
+        )
+      }
+
+      if (
+        calculoReemissao.valorBase <= 0
+      ) {
+        return alert(
+          'O valor base da reemissão é inválido.'
+        )
+      }
+
+      const novoVencimento =
+        normalizarData(
+          emissorVencimento
+        )
+
+      if (
+        novoVencimento &&
+        novoVencimento < hojeISO()
+      ) {
+        return alert(
+          'O novo vencimento não pode estar no passado.'
+        )
+      }
+    }
+
+    const embarqueEhDhl =
+      normalizarTexto(
+        emissorEmbarqueSelecionado.transportadora || ''
+      ).includes('DHL')
+    if (
+      !ehReemissaoJuros &&
+      embarqueEhDhl &&
+      numero(emissorTaxaConversao) <= 0
+    ) {
       return alert('Informe a data do embarque e aguarde a busca da PTAX DHL antes de emitir a fatura.')
     }
 
-    if (itensSelecionadosFatura().length === 0 || totaisEmissor.totalBRL <= 0) {
-      return alert('Selecione pelo menos um serviço com valor para emitir a fatura.')
+    if (
+      !ehReemissaoJuros &&
+      (
+        itensSelecionadosFatura().length === 0 ||
+        totaisEmissor.totalBRL <= 0
+      )
+    ) {
+      return alert(
+        'Selecione pelo menos um serviço com valor para emitir a fatura.'
+      )
     }
 
-    const ehFaturaImpostos = emissorTipoFatura === 'IMPOSTOS'
+    const ehFaturaImpostos =
+      !ehReemissaoJuros &&
+      emissorTipoFatura === 'IMPOSTOS'
 
     setSalvandoEmissao(true)
 
@@ -4242,9 +4635,68 @@ export default function FaturasPage() {
       }
 
       const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
-      const itensClientePdf = itensSelecionadosFatura().filter((item) => {
-        return !normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
-      })
+      const itensClientePdf =
+        ehReemissaoJuros
+          ? [
+              {
+                descricao:
+                  'SALDO DA FATURA ORIGINAL',
+
+                observacao:
+                  `Fatura ${faturaReemissao?.numero_fatura || emissorNumeroFatura || '-'} • vencimento original ${dataBR(reemissaoVencimentoOriginal)}`,
+
+                valor_usd: 0,
+
+                valor_brl:
+                  calculoReemissao.valorBase,
+              },
+
+              ...(
+                calculoReemissao.valorMulta > 0
+                  ? [
+                      {
+                        descricao:
+                          'MULTA POR ATRASO',
+
+                        observacao:
+                          `${formatarValorSimples(calculoReemissao.multaPercentual)}% sobre o valor original`,
+
+                        valor_usd: 0,
+
+                        valor_brl:
+                          calculoReemissao.valorMulta,
+                      },
+                    ]
+                  : []
+              ),
+
+              ...(
+                calculoReemissao.valorJuros > 0
+                  ? [
+                      {
+                        descricao:
+                          'JUROS DE MORA',
+
+                        observacao:
+                          `${formatarValorSimples(calculoReemissao.jurosMensalPercentual)}% a.m. • ${calculoReemissao.diasAtraso} dia(s) em atraso`,
+
+                        valor_usd: 0,
+
+                        valor_brl:
+                          calculoReemissao.valorJuros,
+                      },
+                    ]
+                  : []
+              ),
+            ]
+          : itensSelecionadosFatura()
+              .filter((item) => {
+                return !normalizarTexto(
+                  item.descricao
+                ).includes(
+                  'VALOR DE COMPRA'
+                )
+              })
 
       const totalClientePdfUSD = itensClientePdf.reduce((total, item) => {
         return total + numero(item.valor_usd)
@@ -4264,7 +4716,7 @@ export default function FaturasPage() {
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 32
       const larguraPagina = pdf.internal.pageSize.getWidth()
-      const itens = itensSelecionadosFatura()
+      const itens = itensClientePdf
       const dadosCliente = dadosClienteFiscal(emissorClienteSelecionado)
 
       const codigoClientePdf = String(emissorClienteSelecionado.codigo_hc || '-').trim() || '-'
@@ -4272,7 +4724,15 @@ export default function FaturasPage() {
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(11)
-      pdf.text(ehFaturaImpostos ? 'FATURA COMPLEMENTAR - IMPOSTOS' : 'FATURA DE SERVIÇO', margem, 34)
+      pdf.text(
+        ehReemissaoJuros
+          ? 'FATURA REEMITIDA - ENCARGOS POR ATRASO'
+          : ehFaturaImpostos
+            ? 'FATURA COMPLEMENTAR - IMPOSTOS'
+            : 'FATURA DE SERVIÇO',
+        margem,
+        34
+      )
       pdf.text(`CÓDIGO CLIENTE: ${codigoClientePdf}`, 210, 34)
       pdf.text(`FATURA Nº: ${numeroFaturaPdf}`, larguraPagina - margem, 34, { align: 'right' })
 
@@ -4387,9 +4847,23 @@ export default function FaturasPage() {
       pdf.setFontSize(8)
       pdf.text('TOTAL', margem + 6, yFinal + 12)
       pdf.text('USD', 390, yFinal + 12)
-      pdf.text(formatarValorSimples(totaisEmissor.totalUSD), 435, yFinal + 12, { align: 'right' })
+      pdf.text(
+        formatarValorSimples(
+          totalClientePdfUSD
+        ),
+        435,
+        yFinal + 12,
+        { align: 'right' }
+      )
       pdf.text('R$', 470, yFinal + 12)
-      pdf.text(moeda(totaisEmissor.totalBRL).replace('R$', '').trim(), larguraPagina - margem - 6, yFinal + 12, { align: 'right' })
+      pdf.text(
+        moeda(totalClientePdfBRL)
+          .replace('R$', '')
+          .trim(),
+        larguraPagina - margem - 6,
+        yFinal + 12,
+        { align: 'right' }
+      )
 
       const yExtenso = yFinal + 42
       pdf.setDrawColor(0, 0, 0)
@@ -4397,14 +4871,41 @@ export default function FaturasPage() {
       pdf.setFont('helvetica', 'bold')
       pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(valorPorExtensoBRL(totaisEmissor.totalBRL), 230, yExtenso)
+      pdf.text(
+        valorPorExtensoBRL(
+          totalClientePdfBRL
+        ),
+        230,
+        yExtenso
+      )
 
       const yTaxa = yExtenso + 36
       pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
-      pdf.text(`SPREAD ${emissorSpread || '0'}%`, 240, yTaxa)
-      pdf.text(`R$ ${taxaConversaoFinalFormatada()}`, larguraPagina - margem - 6, yTaxa, { align: 'right' })
+      pdf.text(
+        ehReemissaoJuros
+          ? 'REEMISSÃO EM BRL:'
+          : 'TAXA DE CONVERSÃO:',
+        margem + 8,
+        yTaxa
+      )
+
+      pdf.text(
+        ehReemissaoJuros
+          ? 'ENCARGOS POR ATRASO'
+          : `SPREAD ${emissorSpread || '0'}%`,
+        240,
+        yTaxa
+      )
+
+      pdf.text(
+        ehReemissaoJuros
+          ? 'SEM NOVA CONVERSÃO'
+          : `R$ ${taxaConversaoFinalFormatada()}`,
+        larguraPagina - margem - 6,
+        yTaxa,
+        { align: 'right' }
+      )
 
       const yBanco = yTaxa + 30
       pdf.setFillColor(45, 119, 183)
@@ -4488,10 +4989,85 @@ export default function FaturasPage() {
       const urlPdf = urlData.publicUrl
       const faturaPrincipal = faturaDoEmbarque(emissorEmbarqueSelecionado.id)
       const faturaExistente = ehFaturaImpostos ? null : faturaPrincipal
-      const caminhoAntigo = ehFaturaImpostos ? null : extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
+      const caminhoAntigo =
+        ehFaturaImpostos
+          ? null
+          : extrairCaminhoStorage(
+              faturaExistente?.arquivo_pdf
+            )
 
-      if (caminhoAntigo) {
-        await supabase.storage.from('faturas').remove([caminhoAntigo])
+      /*
+        Na reemissão o PDF antigo NÃO é apagado.
+        Ele vira documento interno do histórico.
+      */
+      if (
+        ehReemissaoJuros &&
+        faturaExistente?.id &&
+        faturaExistente.arquivo_pdf
+      ) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        const {
+          error: erroHistorico,
+        } = await supabase
+          .from('fatura_arquivos')
+          .insert([
+            {
+              fatura_id:
+                faturaExistente.id,
+
+              embarque_id:
+                emissorEmbarqueSelecionado.id,
+
+              usuario_id:
+                emissorUsuarioId ||
+                emissorEmbarqueSelecionado.usuario_id ||
+                null,
+
+              tipo:
+                'FATURA_ANTERIOR_REEMISSAO',
+
+              nome:
+                `Fatura anterior ${faturaExistente.numero_fatura || emissorNumeroFatura || ''} - substituída por reemissão`.trim(),
+
+              url:
+                faturaExistente.arquivo_pdf,
+
+              caminho:
+                caminhoAntigo ||
+                null,
+
+              visivel_cliente:
+                false,
+
+              criado_por:
+                user?.id ||
+                null,
+            },
+          ])
+
+        if (erroHistorico) {
+          throw new Error(
+            'Não foi possível preservar a fatura anterior: ' +
+            erroHistorico.message
+          )
+        }
+      }
+
+      /*
+        Emissão normal mantém o comportamento atual.
+      */
+      if (
+        caminhoAntigo &&
+        !ehReemissaoJuros
+      ) {
+        await supabase.storage
+          .from('faturas')
+          .remove([
+            caminhoAntigo,
+          ])
       }
 
       const payloadFatura: any = {
@@ -4500,14 +5076,47 @@ export default function FaturasPage() {
         numero_fatura: emissorNumeroFatura || null,
         arquivo_pdf: urlPdf,
         visivel_cliente: emissorVisivelCliente,
-        observacoes: emissorObservacoes || null,
+        observacoes: [
+          ehReemissaoJuros
+            ? faturaExistente?.observacoes || ''
+            : '',
+
+          emissorObservacoes || '',
+
+          ehReemissaoJuros
+            ? (
+                `Reemissão por atraso. ` +
+                `Vencimento original: ${dataBR(reemissaoVencimentoOriginal)}. ` +
+                `Novo vencimento: ${dataBR(emissorVencimento)}. ` +
+                `Valor anterior: ${moeda(calculoReemissao.valorBase)}. ` +
+                `Multa: ${formatarValorSimples(calculoReemissao.multaPercentual)}%. ` +
+                `Juros: ${formatarValorSimples(calculoReemissao.jurosMensalPercentual)}% a.m. ` +
+                `Dias em atraso: ${calculoReemissao.diasAtraso}. ` +
+                `Novo total: ${moeda(totalClientePdfBRL)}.`
+              )
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' | ') ||
+          null,
         cliente_faturamento_id: emissorClienteSelecionado.id,
         dados_cliente_faturamento: dadosCliente,
         itens_fatura: itensClientePdf,
         valor_total: totalClientePdfBRL,
         valor_usd: totalClientePdfUSD,
-        taxa_conversao: taxaConversaoFinal(),
-        spread: numero(emissorSpread),
+        taxa_conversao:
+          ehReemissaoJuros
+            ? numero(
+                faturaExistente?.taxa_conversao
+              )
+            : taxaConversaoFinal(),
+
+        spread:
+          ehReemissaoJuros
+            ? numero(
+                faturaExistente?.spread
+              )
+            : numero(emissorSpread),
         vencimento: emissorVencimento || null,
         tipo_fatura: ehFaturaImpostos ? 'IMPOSTOS' : 'FRETE',
         fatura_complementar: ehFaturaImpostos,
@@ -4545,7 +5154,10 @@ export default function FaturasPage() {
       await enviarEmailClienteFatura({
         tipo: 'FATURA_DISPONIVEL',
         fatura: payloadFatura,
-        mensagem: 'Nova fatura disponível no Portal HC Connect.',
+        mensagem:
+          ehReemissaoJuros
+            ? 'Fatura reemitida com encargos por atraso e novo vencimento disponível no Portal HC Connect.'
+            : 'Nova fatura disponível no Portal HC Connect.',
         dados: {
           Documento: ehFaturaImpostos ? 'Fatura de impostos/taxas' : 'Fatura',
           Vencimento: dataBR(emissorVencimento),
@@ -6350,10 +6962,139 @@ export default function FaturasPage() {
     const cliente = emissorClienteSelecionado
     const financeiro = embarque ? financeiroDoEmbarque(embarque) : null
     const dadosCliente = cliente ? dadosClienteFiscal(cliente) : null
-    const usuarioPortal = emissorUsuarioSelecionado
+    const usuarioPortal =
+      emissorUsuarioSelecionado
+
+    const calculoReemissao =
+      calculoReemissaoAtual()
 
     return (
       <section id="emissor_fatura" className="space-y-6">
+
+      {reemissaoFaturaId ? (
+        <div className="rounded-3xl border-2 border-orange-600 bg-orange-950/20 p-6">
+          <p className="text-xs font-black uppercase tracking-widest text-orange-300">
+            Reemissão de fatura vencida
+          </p>
+
+          <h3 className="mt-2 text-2xl font-black">
+            Aplicar multa e juros
+          </h3>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <InfoPacote
+              label="Valor original"
+              valor={
+                moeda(
+                  calculoReemissao.valorBase
+                )
+              }
+              destaque
+            />
+
+            <InfoPacote
+              label="Vencimento original"
+              valor={
+                dataBR(
+                  reemissaoVencimentoOriginal
+                )
+              }
+            />
+
+            <InfoPacote
+              label="Dias em atraso"
+              valor={
+                `${calculoReemissao.diasAtraso} dia(s)`
+              }
+            />
+
+            <InfoPacote
+              label="Novo total"
+              valor={
+                moeda(
+                  calculoReemissao.total
+                )
+              }
+              destaque
+            />
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <label className="text-sm font-black text-orange-100">
+              Multa %
+              <input
+                value={reemissaoMulta}
+                inputMode="decimal"
+                onChange={(e) =>
+                  setReemissaoMulta(
+                    formatarEntradaTaxaBR(
+                      e.target.value
+                    )
+                  )
+                }
+                className="mt-2 w-full"
+              />
+            </label>
+
+            <label className="text-sm font-black text-orange-100">
+              Juros ao mês %
+              <input
+                value={reemissaoJurosMensal}
+                inputMode="decimal"
+                onChange={(e) =>
+                  setReemissaoJurosMensal(
+                    formatarEntradaTaxaBR(
+                      e.target.value
+                    )
+                  )
+                }
+                className="mt-2 w-full"
+              />
+            </label>
+
+            <label className="text-sm font-black text-orange-100">
+              Novo vencimento
+              <input
+                type="date"
+                value={emissorVencimento}
+                onChange={(e) =>
+                  setEmissorVencimento(
+                    e.target.value
+                  )
+                }
+                className="mt-2 w-full"
+              />
+            </label>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <InfoPacote
+              label="Multa"
+              valor={
+                moeda(
+                  calculoReemissao.valorMulta
+                )
+              }
+            />
+
+            <InfoPacote
+              label="Juros de mora"
+              valor={
+                moeda(
+                  calculoReemissao.valorJuros
+                )
+              }
+            />
+          </div>
+
+          <p className="mt-4 rounded-xl border border-orange-800 bg-[#020817] p-3 text-xs font-bold text-orange-200">
+            Juros simples pró-rata:
+            valor original × juros mensal × dias em atraso ÷ 30.
+            Os juros são calculados somente até hoje.
+            O novo vencimento não gera juros futuros antecipados.
+          </p>
+        </div>
+      ) : null}
 
       <div data-tipo-fatura-emissor="true" className="mb-6 rounded-3xl border border-yellow-700 bg-yellow-950/20 p-5">
         <p className="text-sm font-black uppercase tracking-widest text-yellow-300">
@@ -6900,17 +7641,55 @@ export default function FaturasPage() {
             </div>
 
             <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
-              <p className="text-slate-400 text-sm font-black">Resumo final</p>
-              <h3 className="mt-2 text-4xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</h3>
-              <p className="mt-2 text-sm text-slate-400">{valorPorExtensoBRL(totaisEmissor.totalBRL)}</p>
+              <p className="text-slate-400 text-sm font-black">
+                {reemissaoFaturaId
+                  ? 'Resumo da reemissão'
+                  : 'Resumo final'}
+              </p>
+
+              <h3 className="mt-2 text-4xl font-black text-green-300">
+                {moeda(
+                  reemissaoFaturaId
+                    ? calculoReemissao.total
+                    : totaisEmissor.totalBRL
+                )}
+              </h3>
+
+              <p className="mt-2 text-sm text-slate-400">
+                {valorPorExtensoBRL(
+                  reemissaoFaturaId
+                    ? calculoReemissao.total
+                    : totaisEmissor.totalBRL
+                )}
+              </p>
 
               <button
                 type="button"
                 onClick={gerarPdfFaturaHC}
-                disabled={salvandoEmissao}
-                className="mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60"
+                disabled={
+                  salvandoEmissao ||
+                  (
+                    !!reemissaoFaturaId &&
+                    calculoReemissao.total <= 0
+                  )
+                }
+                className={
+                  reemissaoFaturaId
+                    ? 'mt-5 w-full rounded-2xl bg-orange-600 px-5 py-4 font-black hover:bg-orange-500 disabled:opacity-60'
+                    : 'mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60'
+                }
               >
-                {salvandoEmissao ? 'Gerando e salvando...' : 'Gerar PDF e lançar fatura'}
+                {salvandoEmissao
+                  ? (
+                      reemissaoFaturaId
+                        ? 'Reemitindo...'
+                        : 'Gerando e salvando...'
+                    )
+                  : (
+                      reemissaoFaturaId
+                        ? 'Gerar reemissão com juros'
+                        : 'Gerar PDF e lançar fatura'
+                    )}
               </button>
             </div>
           </div>
@@ -7324,6 +8103,23 @@ export default function FaturasPage() {
                             >
                               Salvar PDF
                             </button>
+
+                            {pagamento.status === 'ATRASADO' &&
+                            !fatura.arquivado_admin ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  abrirReemissaoComJuros(
+                                    embarque,
+                                    fatura,
+                                    financeiro
+                                  )
+                                }
+                                className="rounded-lg bg-orange-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-orange-500"
+                              >
+                                Reemitir c/ juros
+                              </button>
+                            ) : null}
 
                             <label className="inline-block cursor-pointer rounded-lg bg-purple-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-500">
                               {enviandoArquivoExtra === `${fatura.id}-FATURA_EXTRA` ? 'Enviando...' : 'Anexar PDF'}
