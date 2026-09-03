@@ -4724,16 +4724,32 @@ export default function FaturasPage() {
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(11)
+
       pdf.text(
         ehReemissaoJuros
-          ? 'FATURA REEMITIDA - ENCARGOS POR ATRASO'
+          ? 'FATURA REEMITIDA'
           : ehFaturaImpostos
             ? 'FATURA COMPLEMENTAR - IMPOSTOS'
             : 'FATURA DE SERVIÇO',
         margem,
         34
       )
-      pdf.text(`CÓDIGO CLIENTE: ${codigoClientePdf}`, 210, 34)
+
+      if (ehReemissaoJuros) {
+        pdf.setFontSize(7.5)
+        pdf.text(
+          'ENCARGOS POR ATRASO',
+          margem,
+          47
+        )
+        pdf.setFontSize(11)
+      }
+
+      pdf.text(
+        `CÓDIGO CLIENTE: ${codigoClientePdf}`,
+        220,
+        34
+      )
       pdf.text(`FATURA Nº: ${numeroFaturaPdf}`, larguraPagina - margem, 34, { align: 'right' })
 
       pdf.setFontSize(10)
