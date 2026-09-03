@@ -271,6 +271,7 @@ export default function FaturasPage() {
   const [reemissaoVencimentoOriginal, setReemissaoVencimentoOriginal] = useState('')
   const [reemissaoMulta, setReemissaoMulta] = useState('2')
   const [reemissaoJurosMensal, setReemissaoJurosMensal] = useState('3')
+  const [regeracaoPdfFaturaId, setRegeracaoPdfFaturaId] = useState('')
 
   const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
 
@@ -3840,6 +3841,10 @@ export default function FaturasPage() {
     setReemissaoJurosMensal('3')
   }
 
+  function limparRegeracaoPdf() {
+    setRegeracaoPdfFaturaId('')
+  }
+
   function adicionarDiasIso(dataIso: string, dias: number) {
     const base = normalizarData(dataIso)
 
@@ -4065,6 +4070,88 @@ export default function FaturasPage() {
   }
 
 
+  function abrirRegeracaoPdf(
+    embarque: Embarque,
+    fatura: Fatura
+  ) {
+    if (!fatura?.id || !fatura?.arquivo_pdf) {
+      alert(
+        'Esta fatura não possui PDF principal para regenerar.'
+      )
+      return
+    }
+
+    limparReemissao()
+    limparRegeracaoPdf()
+
+    setRegeracaoPdfFaturaId(
+      fatura.id
+    )
+
+    setAbaAtiva('EMISSOR')
+
+    setBuscaEmissorAwb(
+      String(
+        embarque.awb ||
+        embarque.cliente_final ||
+        embarque.importador ||
+        ''
+      )
+    )
+
+    selecionarEmbarqueEmissor(
+      embarque.id,
+      true
+    )
+
+    if (fatura.cliente_faturamento_id) {
+      setEmissorClienteId(
+        String(
+          fatura.cliente_faturamento_id
+        )
+      )
+    }
+
+    setEmissorUsuarioId(
+      fatura.usuario_id ||
+      embarque.usuario_id ||
+      ''
+    )
+
+    setEmissorVisivelCliente(
+      fatura.visivel_cliente !== false
+    )
+
+    setEmissorObservacoes('')
+
+    setTimeout(() => {
+      setEmissorTipoFatura('FRETE')
+
+      setEmissorNumeroFatura(
+        fatura.numero_fatura ||
+        gerarNumeroFaturaSugerido(
+          embarque
+        )
+      )
+
+      setEmissorVencimento(
+        normalizarData(
+          fatura.vencimento
+        ) ||
+        ''
+      )
+
+      document
+        .getElementById(
+          'emissor_fatura'
+        )
+        ?.scrollIntoView({
+          behavior: 'smooth',
+        })
+    }, 150)
+  }
+
+
   function selecionarClienteFaturamentoEmissor(clienteId: string) {
     setEmissorClienteId(clienteId)
 
@@ -4081,6 +4168,7 @@ export default function FaturasPage() {
   ) {
     if (!preservarReemissao) {
       limparReemissao()
+      limparRegeracaoPdf()
     }
 
     setEmissorEmbarqueId(embarqueId)
@@ -4259,6 +4347,7 @@ export default function FaturasPage() {
 
   function limparEmissor() {
     limparReemissao()
+    limparRegeracaoPdf()
 
     setBuscaEmissorAwb('')
     setFiltroStatusEmissor('TODOS')
@@ -4539,7 +4628,14 @@ export default function FaturasPage() {
 
   async function gerarPdfFaturaHC() {
     if (!emissorEmbarqueSelecionado) return alert('Selecione o embarque/AWB primeiro.')
-    if (!emissorClienteSelecionado) return alert('Selecione o cliente de faturamento.')
+    if (
+      !emissorClienteSelecionado &&
+      !regeracaoPdfFaturaId
+    ) {
+      return alert(
+        'Selecione o cliente de faturamento.'
+      )
+    }
     if (!emissorNumeroFatura.trim()) return alert('Informe o número da fatura.')
     if (!emissorDataEmbarque) return alert('Informe a data do embarque.')
     if (!emissorVencimento) {
@@ -4550,6 +4646,48 @@ export default function FaturasPage() {
 
     const ehReemissaoJuros =
       !!reemissaoFaturaId
+
+    const ehRegeracaoPdf =
+      !!regeracaoPdfFaturaId
+
+    const faturaRegeracao =
+      ehRegeracaoPdf
+        ? faturas.find(
+            (item) =>
+              item.id ===
+              regeracaoPdfFaturaId
+          ) || null
+        : null
+
+    const faturaRegeracaoEhReemissao =
+      Array.isArray(
+        faturaRegeracao?.itens_fatura
+      ) &&
+      faturaRegeracao.itens_fatura.some(
+        (item: any) => {
+          const descricao =
+            normalizarTexto(
+              item?.descricao ||
+              ''
+            )
+
+          return (
+            descricao.includes(
+              'MULTA POR ATRASO'
+            ) ||
+            descricao.includes(
+              'JUROS DE MORA'
+            )
+          )
+        }
+      )
+
+    const ehDocumentoComEncargos =
+      ehReemissaoJuros ||
+      (
+        ehRegeracaoPdf &&
+        faturaRegeracaoEhReemissao
+      )
 
     const faturaReemissao =
       ehReemissaoJuros
@@ -4599,6 +4737,7 @@ export default function FaturasPage() {
       ).includes('DHL')
     if (
       !ehReemissaoJuros &&
+      !ehRegeracaoPdf &&
       embarqueEhDhl &&
       numero(emissorTaxaConversao) <= 0
     ) {
@@ -4607,6 +4746,7 @@ export default function FaturasPage() {
 
     if (
       !ehReemissaoJuros &&
+      !ehRegeracaoPdf &&
       (
         itensSelecionadosFatura().length === 0 ||
         totaisEmissor.totalBRL <= 0
@@ -4619,6 +4759,7 @@ export default function FaturasPage() {
 
     const ehFaturaImpostos =
       !ehReemissaoJuros &&
+      !ehRegeracaoPdf &&
       emissorTipoFatura === 'IMPOSTOS'
 
     setSalvandoEmissao(true)
@@ -4636,8 +4777,43 @@ export default function FaturasPage() {
 
       const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
       const itensClientePdf =
-        ehReemissaoJuros
-          ? [
+        ehRegeracaoPdf
+          ? (
+              Array.isArray(
+                faturaRegeracao?.itens_fatura
+              )
+                ? faturaRegeracao.itens_fatura
+                : []
+            )
+              .filter((item: any) => {
+                return !normalizarTexto(
+                  item?.descricao || ''
+                ).includes(
+                  'VALOR DE COMPRA'
+                )
+              })
+              .map((item: any) => ({
+                descricao:
+                  String(
+                    item?.descricao || ''
+                  ),
+
+                observacao:
+                  item?.observacao ||
+                  null,
+
+                valor_usd:
+                  numero(
+                    item?.valor_usd
+                  ),
+
+                valor_brl:
+                  numero(
+                    item?.valor_brl
+                  ),
+              }))
+          : ehReemissaoJuros
+            ? [
               {
                 descricao:
                   'SALDO DA FATURA ORIGINAL',
@@ -4717,16 +4893,38 @@ export default function FaturasPage() {
       const margem = 32
       const larguraPagina = pdf.internal.pageSize.getWidth()
       const itens = itensClientePdf
-      const dadosCliente = dadosClienteFiscal(emissorClienteSelecionado)
+      const dadosCliente =
+        ehRegeracaoPdf &&
+        faturaRegeracao?.dados_cliente_faturamento
+          ? faturaRegeracao.dados_cliente_faturamento
+          : emissorClienteSelecionado
+            ? dadosClienteFiscal(
+                emissorClienteSelecionado
+              )
+            : {
+                nome: '-',
+                documento: '-',
+                endereco: '-',
+                cidade: '-',
+                estado: '-',
+                cep: '-',
+                inscricao_estadual: '-',
+                inscricao_municipal: '-',
+              }
 
-      const codigoClientePdf = String(emissorClienteSelecionado.codigo_hc || '-').trim() || '-'
+      const codigoClientePdf =
+        String(
+          emissorClienteSelecionado?.codigo_hc ||
+          '-'
+        ).trim() ||
+        '-'
       const numeroFaturaPdf = String(emissorNumeroFatura || '-').trim() || '-'
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(11)
 
       pdf.text(
-        ehReemissaoJuros
+        ehDocumentoComEncargos
           ? 'FATURA REEMITIDA'
           : ehFaturaImpostos
             ? 'FATURA COMPLEMENTAR - IMPOSTOS'
@@ -4735,7 +4933,7 @@ export default function FaturasPage() {
         34
       )
 
-      if (ehReemissaoJuros) {
+      if (ehDocumentoComEncargos) {
         pdf.setFontSize(7.5)
         pdf.text(
           'ENCARGOS POR ATRASO',
@@ -4899,7 +5097,7 @@ export default function FaturasPage() {
       pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
       pdf.setFont('helvetica', 'bold')
       pdf.text(
-        ehReemissaoJuros
+        ehDocumentoComEncargos
           ? 'REEMISSÃO EM BRL:'
           : 'TAXA DE CONVERSÃO:',
         margem + 8,
@@ -4907,17 +5105,36 @@ export default function FaturasPage() {
       )
 
       pdf.text(
-        ehReemissaoJuros
+        ehDocumentoComEncargos
           ? 'ENCARGOS POR ATRASO'
-          : `SPREAD ${emissorSpread || '0'}%`,
+          : ehRegeracaoPdf
+            ? `SPREAD ${faturaRegeracao?.spread || 0}%`
+            : `SPREAD ${emissorSpread || '0'}%`,
         240,
         yTaxa
       )
 
+      const taxaRegeracao =
+        numero(
+          faturaRegeracao?.taxa_conversao
+        )
+
       pdf.text(
-        ehReemissaoJuros
+        ehDocumentoComEncargos
           ? 'SEM NOVA CONVERSÃO'
-          : `R$ ${taxaConversaoFinalFormatada()}`,
+          : ehRegeracaoPdf
+            ? (
+                taxaRegeracao > 0
+                  ? `R$ ${taxaRegeracao.toLocaleString(
+                      'pt-BR',
+                      {
+                        minimumFractionDigits: 4,
+                        maximumFractionDigits: 4,
+                      }
+                    )}`
+                  : '-'
+              )
+            : `R$ ${taxaConversaoFinalFormatada()}`,
         larguraPagina - margem - 6,
         yTaxa,
         { align: 'right' }
@@ -5088,12 +5305,30 @@ export default function FaturasPage() {
 
       const payloadFatura: any = {
         embarque_id: emissorEmbarqueSelecionado.id,
-        usuario_id: emissorUsuarioId || emissorEmbarqueSelecionado.usuario_id || null,
-        numero_fatura: emissorNumeroFatura || null,
+
+        usuario_id:
+          emissorUsuarioId ||
+          (
+            ehRegeracaoPdf
+              ? faturaExistente?.usuario_id
+              : null
+          ) ||
+          emissorEmbarqueSelecionado.usuario_id ||
+          null,
+
+        numero_fatura:
+          emissorNumeroFatura ||
+          null,
         arquivo_pdf: urlPdf,
-        visivel_cliente: emissorVisivelCliente,
+        visivel_cliente:
+          ehRegeracaoPdf
+            ? faturaExistente?.visivel_cliente !== false
+            : emissorVisivelCliente,
         observacoes: [
-          ehReemissaoJuros
+          (
+            ehReemissaoJuros ||
+            ehRegeracaoPdf
+          )
             ? faturaExistente?.observacoes || ''
             : '',
 
@@ -5115,20 +5350,33 @@ export default function FaturasPage() {
           .filter(Boolean)
           .join(' | ') ||
           null,
-        cliente_faturamento_id: emissorClienteSelecionado.id,
+        cliente_faturamento_id:
+          emissorClienteSelecionado?.id ||
+          (
+            ehRegeracaoPdf
+              ? faturaExistente?.cliente_faturamento_id
+              : null
+          ) ||
+          null,
         dados_cliente_faturamento: dadosCliente,
         itens_fatura: itensClientePdf,
         valor_total: totalClientePdfBRL,
         valor_usd: totalClientePdfUSD,
         taxa_conversao:
-          ehReemissaoJuros
+          (
+            ehReemissaoJuros ||
+            ehRegeracaoPdf
+          )
             ? numero(
                 faturaExistente?.taxa_conversao
               )
             : taxaConversaoFinal(),
 
         spread:
-          ehReemissaoJuros
+          (
+            ehReemissaoJuros ||
+            ehRegeracaoPdf
+          )
             ? numero(
                 faturaExistente?.spread
               )
@@ -5164,10 +5412,11 @@ export default function FaturasPage() {
         if (error) throw new Error(error.message)
       }
 
-      await garantirLoginVinculadoAoEmbarque()
-      await salvarFinanceiroDaFatura(urlPdf)
+      if (!ehRegeracaoPdf) {
+        await garantirLoginVinculadoAoEmbarque()
+        await salvarFinanceiroDaFatura(urlPdf)
 
-      await enviarEmailClienteFatura({
+        await enviarEmailClienteFatura({
         tipo: 'FATURA_DISPONIVEL',
         fatura: payloadFatura,
         mensagem:
@@ -5179,10 +5428,14 @@ export default function FaturasPage() {
           Vencimento: dataBR(emissorVencimento),
           Valor: moeda(payloadFatura.valor_total),
         },
-      })
+        })
+      }
 
-      const mensagemSucesso = ehFaturaImpostos
-        ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
+      const mensagemSucesso =
+        ehRegeracaoPdf
+          ? 'PDF regenerado com sucesso. Valores, vencimento e Financeiro foram mantidos sem alteração.'
+          : ehFaturaImpostos
+            ? 'Fatura complementar de impostos emitida como anexo extra. O PDF principal não foi substituído e o valor foi somado ao processo.'
         : emissorUsuarioId
           ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
           : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
@@ -6984,6 +7237,20 @@ export default function FaturasPage() {
     const calculoReemissao =
       calculoReemissaoAtual()
 
+    const faturaRegeracaoTela =
+      regeracaoPdfFaturaId
+        ? faturas.find(
+            (item) =>
+              item.id ===
+              regeracaoPdfFaturaId
+          ) || null
+        : null
+
+    const valorRegeracaoTela =
+      numero(
+        faturaRegeracaoTela?.valor_total
+      )
+
     return (
       <section id="emissor_fatura" className="space-y-6">
 
@@ -7109,6 +7376,54 @@ export default function FaturasPage() {
             Os juros são calculados somente até hoje.
             O novo vencimento não gera juros futuros antecipados.
           </p>
+        </div>
+      ) : null}
+
+      {regeracaoPdfFaturaId ? (
+        <div className="rounded-3xl border-2 border-cyan-600 bg-cyan-950/20 p-6">
+          <p className="text-xs font-black uppercase tracking-widest text-cyan-300">
+            Regeneração de PDF
+          </p>
+
+          <h3 className="mt-2 text-2xl font-black">
+            Gerar novamente sem alterar a cobrança
+          </h3>
+
+          <p className="mt-3 text-sm font-bold text-cyan-100">
+            Nenhum novo juro será calculado.
+            O Financeiro não será alterado.
+            O sistema apenas substituirá o PDF atual
+            por uma nova versão com o layout vigente.
+          </p>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <InfoPacote
+              label="Fatura"
+              valor={
+                faturaRegeracaoTela?.numero_fatura ||
+                '-'
+              }
+            />
+
+            <InfoPacote
+              label="Valor mantido"
+              valor={
+                moeda(
+                  valorRegeracaoTela
+                )
+              }
+              destaque
+            />
+
+            <InfoPacote
+              label="Vencimento mantido"
+              valor={
+                dataBR(
+                  faturaRegeracaoTela?.vencimento
+                )
+              }
+            />
+          </div>
         </div>
       ) : null}
 
@@ -7658,24 +7973,30 @@ export default function FaturasPage() {
 
             <div className="rounded-2xl border border-green-900 bg-green-950/20 p-5">
               <p className="text-slate-400 text-sm font-black">
-                {reemissaoFaturaId
-                  ? 'Resumo da reemissão'
-                  : 'Resumo final'}
+                {regeracaoPdfFaturaId
+                  ? 'Regeneração do PDF'
+                  : reemissaoFaturaId
+                    ? 'Resumo da reemissão'
+                    : 'Resumo final'}
               </p>
 
               <h3 className="mt-2 text-4xl font-black text-green-300">
                 {moeda(
-                  reemissaoFaturaId
-                    ? calculoReemissao.total
-                    : totaisEmissor.totalBRL
+                  regeracaoPdfFaturaId
+                    ? valorRegeracaoTela
+                    : reemissaoFaturaId
+                      ? calculoReemissao.total
+                      : totaisEmissor.totalBRL
                 )}
               </h3>
 
               <p className="mt-2 text-sm text-slate-400">
                 {valorPorExtensoBRL(
-                  reemissaoFaturaId
-                    ? calculoReemissao.total
-                    : totaisEmissor.totalBRL
+                  regeracaoPdfFaturaId
+                    ? valorRegeracaoTela
+                    : reemissaoFaturaId
+                      ? calculoReemissao.total
+                      : totaisEmissor.totalBRL
                 )}
               </p>
 
@@ -7687,24 +8008,34 @@ export default function FaturasPage() {
                   (
                     !!reemissaoFaturaId &&
                     calculoReemissao.total <= 0
+                  ) ||
+                  (
+                    !!regeracaoPdfFaturaId &&
+                    valorRegeracaoTela <= 0
                   )
                 }
                 className={
-                  reemissaoFaturaId
-                    ? 'mt-5 w-full rounded-2xl bg-orange-600 px-5 py-4 font-black hover:bg-orange-500 disabled:opacity-60'
-                    : 'mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60'
+                  regeracaoPdfFaturaId
+                    ? 'mt-5 w-full rounded-2xl bg-cyan-600 px-5 py-4 font-black hover:bg-cyan-500 disabled:opacity-60'
+                    : reemissaoFaturaId
+                      ? 'mt-5 w-full rounded-2xl bg-orange-600 px-5 py-4 font-black hover:bg-orange-500 disabled:opacity-60'
+                      : 'mt-5 w-full rounded-2xl bg-blue-600 px-5 py-4 font-black hover:bg-blue-500 disabled:opacity-60'
                 }
               >
                 {salvandoEmissao
                   ? (
-                      reemissaoFaturaId
-                        ? 'Reemitindo...'
-                        : 'Gerando e salvando...'
+                      regeracaoPdfFaturaId
+                        ? 'Regenerando PDF...'
+                        : reemissaoFaturaId
+                          ? 'Reemitindo...'
+                          : 'Gerando e salvando...'
                     )
                   : (
-                      reemissaoFaturaId
-                        ? 'Gerar reemissão com juros'
-                        : 'Gerar PDF e lançar fatura'
+                      regeracaoPdfFaturaId
+                        ? 'Regenerar PDF sem alterar Financeiro'
+                        : reemissaoFaturaId
+                          ? 'Gerar reemissão com juros'
+                          : 'Gerar PDF e lançar fatura'
                     )}
               </button>
             </div>
@@ -8134,6 +8465,21 @@ export default function FaturasPage() {
                                 className="rounded-lg bg-orange-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-orange-500"
                               >
                                 Reemitir c/ juros
+                              </button>
+                            ) : null}
+
+                            {!fatura.arquivado_admin ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  abrirRegeracaoPdf(
+                                    embarque,
+                                    fatura
+                                  )
+                                }
+                                className="rounded-lg bg-cyan-600 px-3 py-2 text-center text-xs font-black text-white hover:bg-cyan-500"
+                              >
+                                Regerar PDF
                               </button>
                             ) : null}
 
