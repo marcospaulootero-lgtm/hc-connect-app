@@ -1472,24 +1472,24 @@ async function executarFerramenta(
   }
 }
 
-async function chamarOpenAI(
+async function chamarIA(
   input: any[]
 ) {
   const apiKey =
-    process.env.OPENAI_API_KEY
+    process.env.OPENROUTER_API_KEY
 
   if (!apiKey) {
     throw new Error(
-      'OPENAI_API_KEY não configurada na Vercel.'
+      'OPENROUTER_API_KEY não configurada na Vercel.'
     )
   }
 
   const model =
-    process.env.OPENAI_MODEL ||
-    'gpt-5.6-luna'
+    process.env.OPENROUTER_MODEL ||
+    'openrouter/free'
 
   const resposta = await fetch(
-    'https://api.openai.com/v1/responses',
+    'https://openrouter.ai/api/v1/responses',
     {
       method: 'POST',
 
@@ -1498,6 +1498,11 @@ async function chamarOpenAI(
           `Bearer ${apiKey}`,
         'Content-Type':
           'application/json',
+        'HTTP-Referer':
+          process.env.NEXT_PUBLIC_SITE_URL ||
+          'https://portal.hcbhz.com',
+        'X-Title':
+          'HC Connect - IA HC',
       },
 
       body: JSON.stringify({
@@ -1513,6 +1518,11 @@ async function chamarOpenAI(
         tool_choice: 'auto',
 
         max_output_tokens: 2200,
+
+        provider: {
+          data_collection: 'deny',
+          require_parameters: true,
+        },
       }),
     }
   )
@@ -1528,8 +1538,16 @@ async function chamarOpenAI(
       dados?.message ||
       `Erro HTTP ${resposta.status}`
 
+    if (
+      resposta.status === 429
+    ) {
+      throw new Error(
+        'Limite gratuito diário da IA HC atingido no OpenRouter. Tente novamente mais tarde.'
+      )
+    }
+
     throw new Error(
-      `OpenAI: ${mensagem}`
+      `OpenRouter: ${mensagem}`
     )
   }
 
@@ -1650,7 +1668,7 @@ export async function POST(
       )
 
     let resposta =
-      await chamarOpenAI(input)
+      await chamarIA(input)
 
     for (
       let rodada = 0;
@@ -1675,8 +1693,8 @@ export async function POST(
             texto ||
             'Não consegui gerar uma resposta textual.',
           modelo:
-            process.env.OPENAI_MODEL ||
-            'gpt-5.6-luna',
+            process.env.OPENROUTER_MODEL ||
+            'openrouter/free',
           modo:
             'LEITURA',
         })
@@ -1727,7 +1745,7 @@ export async function POST(
       }
 
       resposta =
-        await chamarOpenAI(input)
+        await chamarIA(input)
     }
 
     return NextResponse.json(
