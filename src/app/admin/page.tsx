@@ -867,7 +867,36 @@ export default function DashboardPage() {
       (item) => item.prontaParaPagar && faturaTransportadoraAtiva(item.fatura)
     )
 
-    const pagasComPendencia = resumos.filter((item) => item.pagaComPendencia)
+    /*
+      Risco de capital de giro:
+      considerar somente faturas cujo vencimento pertence
+      ao ano corrente. Faturas de anos anteriores não devem
+      contaminar o indicador "Pagas antes de receber".
+    */
+    const anoAtualConciliacao = String(
+      new Date().getFullYear()
+    )
+
+    const pagasComPendencia = resumos.filter(
+      (item) => {
+        if (!item.pagaComPendencia) {
+          return false
+        }
+
+        const vencimento =
+          vencimentoFaturaTransportadora(
+            item.fatura
+          )
+
+        if (!vencimento) {
+          return false
+        }
+
+        return vencimento.startsWith(
+          anoAtualConciliacao
+        )
+      }
+    )
 
     const awbsPendentesPagos = pagasComPendencia.reduce(
       (acc, item) => acc + item.pendentes + item.naoLocalizados,
