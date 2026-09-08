@@ -15,6 +15,9 @@ export default function UsuariosPage() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroDashboard, setFiltroDashboard] = useState('')
   const [perfilExpandido, setPerfilExpandido] = useState<string | null>(null)
+  const [usuarioEditando, setUsuarioEditando] = useState<any | null>(null)
+  const [formEdicao, setFormEdicao] = useState<any>({})
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
 
   useEffect(() => {
     aplicarFiltrosDaDashboard()
@@ -64,6 +67,111 @@ export default function UsuariosPage() {
 
     setUsuarios(data || [])
     setCarregando(false)
+  }
+
+  function campoPerfilExistente(usuario: any, campos: string[]) {
+    return campos.find((campo) =>
+      Object.prototype.hasOwnProperty.call(usuario || {}, campo)
+    ) || ''
+  }
+
+  function abrirEdicaoUsuario(usuario: any) {
+    setUsuarioEditando(usuario)
+
+    setFormEdicao({
+      nome: String(usuario?.nome || ''),
+      empresa: valorPerfilUsuario(usuario, [
+        'empresa_nome',
+        'nome_empresa',
+        'empresa',
+        'razao_social',
+        'nome_fantasia',
+      ]),
+      contato_responsavel: valorPerfilUsuario(usuario, [
+        'contato_responsavel',
+        'responsavel',
+      ]),
+      telefone: valorPerfilUsuario(usuario, ['telefone', 'celular', 'phone']),
+      whatsapp: valorPerfilUsuario(usuario, ['whatsapp']),
+      email_contato: valorPerfilUsuario(usuario, ['email_contato']),
+      endereco: valorPerfilUsuario(usuario, ['endereco', 'logradouro']),
+      numero: valorPerfilUsuario(usuario, ['numero']),
+      complemento: valorPerfilUsuario(usuario, ['complemento']),
+      bairro: valorPerfilUsuario(usuario, ['bairro']),
+      cidade: valorPerfilUsuario(usuario, ['cidade']),
+      estado: valorPerfilUsuario(usuario, ['estado', 'uf']),
+      cep: valorPerfilUsuario(usuario, ['cep']),
+      tipo_acesso: usuario?.tipo_acesso || 'cliente',
+      ativo: usuario?.ativo !== false,
+    })
+  }
+
+  function fecharEdicaoUsuario() {
+    if (salvandoEdicao) return
+    setUsuarioEditando(null)
+    setFormEdicao({})
+  }
+
+  async function salvarEdicaoUsuario() {
+    if (!usuarioEditando?.id) return
+
+    const nome = String(formEdicao.nome || '').trim()
+
+    if (!nome) {
+      alert('Informe o nome do usuário.')
+      return
+    }
+
+    setSalvandoEdicao(true)
+
+    const atualizacao: any = {
+      nome,
+      tipo_acesso: formEdicao.tipo_acesso || 'cliente',
+      ativo: formEdicao.ativo !== false,
+    }
+
+    function incluirSeExiste(campos: string[], valor: any) {
+      const campo = campoPerfilExistente(usuarioEditando, campos)
+      if (!campo) return
+      atualizacao[campo] = String(valor || '').trim()
+    }
+
+    incluirSeExiste(
+      ['empresa_nome', 'nome_empresa', 'empresa', 'razao_social', 'nome_fantasia'],
+      formEdicao.empresa
+    )
+    incluirSeExiste(
+      ['contato_responsavel', 'responsavel'],
+      formEdicao.contato_responsavel
+    )
+    incluirSeExiste(['telefone', 'celular', 'phone'], formEdicao.telefone)
+    incluirSeExiste(['whatsapp'], formEdicao.whatsapp)
+    incluirSeExiste(['email_contato'], formEdicao.email_contato)
+    incluirSeExiste(['endereco', 'logradouro'], formEdicao.endereco)
+    incluirSeExiste(['numero'], formEdicao.numero)
+    incluirSeExiste(['complemento'], formEdicao.complemento)
+    incluirSeExiste(['bairro'], formEdicao.bairro)
+    incluirSeExiste(['cidade'], formEdicao.cidade)
+    incluirSeExiste(['estado', 'uf'], formEdicao.estado)
+    incluirSeExiste(['cep'], formEdicao.cep)
+
+    const { error } = await supabase
+      .from('perfis')
+      .update(atualizacao)
+      .eq('id', usuarioEditando.id)
+
+    setSalvandoEdicao(false)
+
+    if (error) {
+      alert('Erro ao salvar o perfil do usuário: ' + error.message)
+      console.log(error)
+      return
+    }
+
+    setUsuarioEditando(null)
+    setFormEdicao({})
+    await carregarUsuarios()
+    alert('Perfil atualizado com sucesso.')
   }
 
   async function alterarStatus(usuario: any) {
@@ -555,6 +663,14 @@ export default function UsuariosPage() {
                       <td>
                         <div className="flex flex-wrap gap-2">
                           <button
+                            type="button"
+                            onClick={() => abrirEdicaoUsuario(usuario)}
+                            className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl font-bold"
+                          >
+                            Editar
+                          </button>
+
+                          <button
                             onClick={() => alterarStatus(usuario)}
                             className={
                               ativo
@@ -596,6 +712,184 @@ export default function UsuariosPage() {
           </div>
         )}
       </section>
+
+      {usuarioEditando && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) fecharEdicaoUsuario()
+          }}
+        >
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-blue-800 bg-[#071225] p-6 shadow-2xl md:p-8">
+            <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-300">
+                  Cadastro do usuário
+                </p>
+                <h2 className="mt-2 text-3xl font-black text-white">
+                  Editar perfil
+                </h2>
+                <p className="mt-2 text-sm font-bold text-slate-400">
+                  E-mail de login: {usuarioEditando.email || '-'}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  O e-mail de login não é alterado nesta tela.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={fecharEdicaoUsuario}
+                disabled={salvandoEdicao}
+                className="rounded-xl bg-slate-700 px-4 py-3 font-black text-white hover:bg-slate-600 disabled:opacity-50"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <CampoEdicao
+                label="Nome"
+                value={formEdicao.nome || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, nome: valor }))}
+                placeholder="Ex.: Hérica Couto"
+              />
+
+              <CampoEdicao
+                label="Empresa"
+                value={formEdicao.empresa || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, empresa: valor }))}
+                placeholder="Ex.: HC Consultoria"
+              />
+
+              <CampoEdicao
+                label="Responsável / contato"
+                value={formEdicao.contato_responsavel || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, contato_responsavel: valor }))}
+              />
+
+              <CampoEdicao
+                label="E-mail de contato"
+                type="email"
+                value={formEdicao.email_contato || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, email_contato: valor }))}
+              />
+
+              <CampoEdicao
+                label="Telefone"
+                value={formEdicao.telefone || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, telefone: valor }))}
+              />
+
+              <CampoEdicao
+                label="WhatsApp"
+                value={formEdicao.whatsapp || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, whatsapp: valor }))}
+              />
+
+              <CampoEdicao
+                label="Endereço"
+                value={formEdicao.endereco || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, endereco: valor }))}
+              />
+
+              <CampoEdicao
+                label="Número"
+                value={formEdicao.numero || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, numero: valor }))}
+              />
+
+              <CampoEdicao
+                label="Complemento"
+                value={formEdicao.complemento || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, complemento: valor }))}
+              />
+
+              <CampoEdicao
+                label="Bairro"
+                value={formEdicao.bairro || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, bairro: valor }))}
+              />
+
+              <CampoEdicao
+                label="Cidade"
+                value={formEdicao.cidade || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, cidade: valor }))}
+              />
+
+              <CampoEdicao
+                label="Estado / UF"
+                value={formEdicao.estado || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, estado: valor }))}
+              />
+
+              <CampoEdicao
+                label="CEP"
+                value={formEdicao.cep || ''}
+                onChange={(valor) => setFormEdicao((atual: any) => ({ ...atual, cep: valor }))}
+              />
+
+              <label className="block">
+                <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">
+                  Tipo de acesso
+                </span>
+                <select
+                  value={formEdicao.tipo_acesso || 'cliente'}
+                  onChange={(e) =>
+                    setFormEdicao((atual: any) => ({
+                      ...atual,
+                      tipo_acesso: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white outline-none focus:border-blue-500"
+                >
+                  <option value="cliente">CLIENTE</option>
+                  <option value="admin">ADMIN</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">
+                  Status
+                </span>
+                <select
+                  value={formEdicao.ativo === false ? 'inativo' : 'ativo'}
+                  onChange={(e) =>
+                    setFormEdicao((atual: any) => ({
+                      ...atual,
+                      ativo: e.target.value === 'ativo',
+                    }))
+                  }
+                  className="w-full rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white outline-none focus:border-blue-500"
+                >
+                  <option value="ativo">ATIVO</option>
+                  <option value="inativo">INATIVO</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={fecharEdicaoUsuario}
+                disabled={salvandoEdicao}
+                className="rounded-xl bg-slate-700 px-6 py-3 font-black text-white hover:bg-slate-600 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={salvarEdicaoUsuario}
+                disabled={salvandoEdicao}
+                className="rounded-xl bg-blue-600 px-6 py-3 font-black text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {salvandoEdicao ? 'Salvando...' : 'Salvar alterações'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
@@ -626,5 +920,35 @@ function MiniInfoUsuario({ titulo, valor }: { titulo: string; valor: any }) {
         {valor || '-'}
       </p>
     </div>
+  )
+}
+
+function CampoEdicao({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  placeholder = '',
+}: {
+  label: string
+  value: string
+  onChange: (valor: string) => void
+  type?: string
+  placeholder?: string
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">
+        {label}
+      </span>
+
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white outline-none placeholder:text-slate-600 focus:border-blue-500"
+      />
+    </label>
   )
 }
