@@ -549,6 +549,13 @@ function MenuContent({
           icon="🚨"
           pathname={pathname}
         />
+        <MenuItem
+          href="/admin/ia-hc"
+          label="IA HC"
+          descricao="Assistente inteligente"
+          icon="✨"
+          pathname={pathname}
+        />
 <MenuItem
           href="/admin/prospeccao"
           label="Prospecção IA"
