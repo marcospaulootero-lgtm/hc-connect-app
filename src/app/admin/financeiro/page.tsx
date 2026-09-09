@@ -1333,6 +1333,43 @@ export default function FinanceiroPage() {
     ).trim()
   }
 
+  function ehLinhaInformativaSaldoOfx(
+    nome: any,
+    memo: any
+  ) {
+    const texto =
+      normalizarBusca(
+        [
+          nome,
+          memo,
+        ]
+          .filter(Boolean)
+          .join(' ')
+      )
+
+    if (!texto) {
+      return false
+    }
+
+    const padroes = [
+      'saldo total disponivel dia',
+      'saldo total disponivel',
+      'saldo disponivel dia',
+      'saldo do dia',
+      'saldo anterior',
+      'saldo atual',
+      'saldo final',
+    ]
+
+    return padroes.some(
+      (padrao) =>
+        texto === padrao ||
+        texto.startsWith(
+          padrao + ' '
+        )
+    )
+  }
+
   function parsearExtratoOfx(
     textoOriginal: string
   ) {
@@ -1387,6 +1424,15 @@ export default function FinanceiroPage() {
           bloco,
           'MEMO'
         )
+
+      if (
+        ehLinhaInformativaSaldoOfx(
+          nome,
+          memo
+        )
+      ) {
+        continue
+      }
 
       movimentos.push({
         fitid:
