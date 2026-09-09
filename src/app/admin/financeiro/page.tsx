@@ -1107,6 +1107,260 @@ export default function FinanceiroPage() {
     setLoadingCompromissosCaixa(false)
   }
 
+  let conciliacaoEntradasAutomaticaEmExecucao = false
+
+  function centavosConciliacaoEntrada(valor: any) {
+    return Math.round(
+      Math.abs(numero(valor || 0)) * 100
+    )
+  }
+
+  async function conciliarEntradasAutomaticamente(
+    movimentosFonte: any[] = []
+  ) {
+    if (conciliacaoEntradasAutomaticaEmExecucao) {
+      return
+    }
+
+    const movimentos = movimentosFonte.filter(
+      (mov: any) =>
+        String(mov.natureza || '').toUpperCase() === 'ENTRADA' &&
+        String(mov.status || '').toUpperCase() === 'A_CONCILIAR' &&
+        centavosConciliacaoEntrada(mov.valor) > 0
+    )
+
+    if (movimentos.length === 0) {
+      return
+    }
+
+    conciliacaoEntradasAutomaticaEmExecucao = true
+
+    try {
+      const datas = movimentos
+        .map((mov: any) => normalizarData(mov.data_movimento))
+        .filter(Boolean)
+        .sort()
+
+      const dataInicial = datas[0] || ''
+      const dataFinal = datas[datas.length - 1] || ''
+
+      let consultaProcessos = supabase
+        .from('financeiro_embarques')
+        .select(
+          'id,cliente,awb,fatura,valor_cobranca,recebimento'
+        )
+        .not('recebimento', 'is', null)
+
+      if (dataInicial) {
+        consultaProcessos =
+          consultaProcessos.gte('recebimento', dataInicial)
+      }
+
+      if (dataFinal) {
+        consultaProcessos =
+          consultaProcessos.lte('recebimento', dataFinal)
+      }
+
+      const {
+        data: processos,
+        error: erroProcessos,
+      } = await consultaProcessos
+
+      if (erroProcessos) {
+        throw erroProcessos
+      }
+
+      const {
+        data: vinculos,
+        error: erroVinculos,
+      } = await supabase
+        .from('financeiro_extrato_conciliacoes')
+        .select('movimento_id,tipo_alvo,alvo_id')
+        .eq('tipo_alvo', 'FINANCEIRO_EMBARQUE')
+
+      if (erroVinculos) {
+        throw erroVinculos
+      }
+
+      const processosJaUsados = new Set(
+        (vinculos || [])
+          .map((item: any) => String(item.alvo_id || ''))
+          .filter(Boolean)
+      )
+
+      const movimentosJaUsados = new Set(
+        (vinculos || [])
+          .map((item: any) => String(item.movimento_id || ''))
+          .filter(Boolean)
+      )
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const idsConciliados = new Set<string>()
+      let totalConciliado = 0
+      let ambiguos = 0
+
+      for (const mov of movimentos) {
+        const movimentoId = String(mov.id || '')
+
+        if (
+          !movimentoId ||
+          movimentosJaUsados.has(movimentoId)
+        ) {
+          continue
+        }
+
+        const dataBanco =
+          normalizarData(mov.data_movimento)
+
+        const valorBanco =
+          centavosConciliacaoEntrada(mov.valor)
+
+        if (!dataBanco || valorBanco <= 0) {
+          continue
+        }
+
+        const candidatos = (processos || []).filter(
+          (processo: any) => {
+            const processoId = String(processo.id || '')
+
+            if (
+              !processoId ||
+              processosJaUsados.has(processoId)
+            ) {
+              return false
+            }
+
+            if (
+              normalizarData(processo.recebimento) !== dataBanco
+            ) {
+              return false
+            }
+
+            return (
+              centavosConciliacaoEntrada(
+                processo.valor_cobranca
+              ) === valorBanco
+            )
+          }
+        )
+
+        if (candidatos.length !== 1) {
+          if (candidatos.length > 1) {
+            ambiguos++
+          }
+
+          continue
+        }
+
+        const processo = candidatos[0]
+        const processoId = String(processo.id)
+
+        const descricao = [
+          'AUTO 4A',
+          'valor e data exatos',
+          processo.cliente
+            ? 'Cliente: ' + processo.cliente
+            : '',
+          processo.awb
+            ? 'AWB: ' + processo.awb
+            : '',
+          processo.fatura
+            ? 'Fatura: ' + processo.fatura
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' | ')
+
+        const {
+          error: erroInsert,
+        } = await supabase
+          .from('financeiro_extrato_conciliacoes')
+          .insert({
+            movimento_id: mov.id,
+            tipo_alvo: 'FINANCEIRO_EMBARQUE',
+            alvo_id: processoId,
+            valor_conciliado: Math.abs(numero(mov.valor || 0)),
+            descricao,
+            confirmado_por: user?.id || null,
+            confirmado_email: user?.email || null,
+          })
+
+        if (erroInsert) {
+          console.error(
+            'Falha ao criar vinculo da conciliacao:',
+            erroInsert
+          )
+          continue
+        }
+
+        const {
+          data: atualizado,
+          error: erroStatus,
+        } = await supabase
+          .from('financeiro_extrato_movimentos')
+          .update({
+            status: 'CONCILIADO',
+          })
+          .eq('id', mov.id)
+          .eq('status', 'A_CONCILIAR')
+          .select('id')
+
+        if (
+          erroStatus ||
+          !atualizado ||
+          atualizado.length === 0
+        ) {
+          await supabase
+            .from('financeiro_extrato_conciliacoes')
+            .delete()
+            .eq('movimento_id', mov.id)
+            .eq('tipo_alvo', 'FINANCEIRO_EMBARQUE')
+            .eq('alvo_id', processoId)
+
+          continue
+        }
+
+        processosJaUsados.add(processoId)
+        movimentosJaUsados.add(movimentoId)
+        idsConciliados.add(movimentoId)
+
+        totalConciliado++
+      }
+
+      if (idsConciliados.size > 0) {
+        setExtratoBancario((atual: any[]) =>
+          atual.map((mov: any) =>
+            idsConciliados.has(String(mov.id))
+              ? {
+                  ...mov,
+                  status: 'CONCILIADO',
+                }
+              : mov
+          )
+        )
+      }
+
+      console.info(
+        'Conciliação automática 4A:',
+        {
+          analisadas: movimentos.length,
+          conciliadas: totalConciliado,
+          ambiguas: ambiguos,
+        }
+      )
+    } catch (error) {
+      console.error(
+        'Erro na conciliação automática 4A:',
+        error
+      )
+    } finally {
+      conciliacaoEntradasAutomaticaEmExecucao = false
+    }
+  }
+
   async function carregarExtratoBancario() {
     setLoadingExtratoBancario(true)
     setErroExtratoBancario('')
@@ -1131,6 +1385,10 @@ export default function FinanceiroPage() {
     }
 
     setExtratoBancario(data || [])
+
+    void conciliarEntradasAutomaticamente(
+      data || []
+    )
     setLoadingExtratoBancario(false)
   }
 
