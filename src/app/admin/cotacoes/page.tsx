@@ -10,6 +10,9 @@ export default function CotacoesAdminPage() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroArquivamento, setFiltroArquivamento] = useState<'ATIVAS' | 'ARQUIVADAS' | 'TODAS'>('ATIVAS')
   const [awbsPorEmbarque, setAwbsPorEmbarque] = useState<Record<string, string>>({})
+  const [cotacaoVinculo, setCotacaoVinculo] = useState<any>(null)
+  const [usuarioVinculoId, setUsuarioVinculoId] = useState('')
+  const [salvandoVinculo, setSalvandoVinculo] = useState(false)
 
   useEffect(() => {
     carregar()
@@ -81,6 +84,174 @@ export default function CotacoesAdminPage() {
   function emailUsuario(usuarioId: string) {
     const usuario = usuarios.find((item) => item.id === usuarioId)
     return usuario?.email || '-'
+  }
+
+  function usuariosClientesDisponiveis() {
+    return usuarios.filter((item) => {
+      const tipo = String(
+        item?.tipo_acesso ||
+        item?.tipo_usuario ||
+        ''
+      )
+        .trim()
+        .toLowerCase()
+
+      if (tipo !== 'cliente') return false
+      if (item?.ativo === false) return false
+
+      return true
+    })
+  }
+
+  function abrirVinculoLogin(item: any) {
+    setCotacaoVinculo(item)
+    setUsuarioVinculoId(
+      String(item?.usuario_id || '')
+    )
+  }
+
+  function fecharVinculoLogin() {
+    if (salvandoVinculo) return
+
+    setCotacaoVinculo(null)
+    setUsuarioVinculoId('')
+  }
+
+  async function salvarVinculoLogin() {
+    if (!cotacaoVinculo) return
+
+    if (!usuarioVinculoId) {
+      alert('Selecione um login de cliente.')
+      return
+    }
+
+    const usuarioSelecionado =
+      usuariosClientesDisponiveis().find(
+        (item) =>
+          String(item.id) ===
+          String(usuarioVinculoId)
+      )
+
+    if (!usuarioSelecionado) {
+      alert(
+        'O login selecionado não foi localizado ou não está ativo como cliente.'
+      )
+      return
+    }
+
+    const nome =
+      usuarioSelecionado.nome ||
+      usuarioSelecionado.email ||
+      'Cliente'
+
+    const email =
+      usuarioSelecionado.email || '-'
+
+    const referencia =
+      cotacaoVinculo.referencia_hc ||
+      cotacaoVinculo.referencia_cliente ||
+      cotacaoVinculo.id
+
+    const confirmar = confirm(
+      'Vincular esta cotação ao login selecionado?\n\n' +
+      'Cotação: ' + referencia + '\n' +
+      'Login: ' + nome + '\n' +
+      'E-mail: ' + email + '\n\n' +
+      'A cotação passará a aparecer em Minhas cotações deste usuário.\n\n' +
+      'Nenhum valor, PDF, status ou dado financeiro será alterado.'
+    )
+
+    if (!confirmar) return
+
+    setSalvandoVinculo(true)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        usuario_id: usuarioSelecionado.id,
+      })
+      .eq('id', cotacaoVinculo.id)
+
+    setSalvandoVinculo(false)
+
+    if (error) {
+      console.error(
+        'Erro ao vincular cotação ao login:',
+        error
+      )
+
+      alert(
+        'Erro ao vincular cotação: ' +
+        error.message
+      )
+
+      return
+    }
+
+    setCotacaoVinculo(null)
+    setUsuarioVinculoId('')
+
+    await carregar()
+
+    alert(
+      'Cotação vinculada com sucesso.\n\n' +
+      'Ela já ficará disponível em Minhas cotações do login selecionado.'
+    )
+  }
+
+  async function removerVinculoLogin() {
+    if (!cotacaoVinculo?.usuario_id) return
+
+    const referencia =
+      cotacaoVinculo.referencia_hc ||
+      cotacaoVinculo.referencia_cliente ||
+      cotacaoVinculo.id
+
+    const confirmar = confirm(
+      'Remover o vínculo desta cotação com o login atual?\n\n' +
+      'Cotação: ' + referencia + '\n' +
+      'Login atual: ' +
+      nomeUsuario(cotacaoVinculo.usuario_id) +
+      '\n\n' +
+      'A cotação deixará de aparecer em Minhas cotações desse usuário.\n' +
+      'A cotação não será excluída.'
+    )
+
+    if (!confirmar) return
+
+    setSalvandoVinculo(true)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        usuario_id: null,
+      })
+      .eq('id', cotacaoVinculo.id)
+
+    setSalvandoVinculo(false)
+
+    if (error) {
+      console.error(
+        'Erro ao remover vínculo da cotação:',
+        error
+      )
+
+      alert(
+        'Erro ao remover vínculo: ' +
+        error.message
+      )
+
+      return
+    }
+
+    setCotacaoVinculo(null)
+    setUsuarioVinculoId('')
+
+    await carregar()
+
+    alert(
+      'Vínculo removido com sucesso.'
+    )
   }
 
   function dataHoraBR(data?: string | null) {
@@ -574,6 +745,23 @@ export default function CotacoesAdminPage() {
                       </a>
 
                       <button
+                        type="button"
+                        onClick={() => abrirVinculoLogin(item)}
+                        className={
+                          item.usuario_id
+                            ? 'bg-violet-700 hover:bg-violet-600 px-4 py-2 rounded-xl text-white font-bold'
+                            : 'bg-cyan-700 hover:bg-cyan-600 px-4 py-2 rounded-xl text-white font-bold'
+                        }
+                        title={
+                          item.usuario_id
+                            ? `Login atual: ${nomeUsuario(item.usuario_id)}`
+                            : 'Vincular esta cotação a um login do portal'
+                        }
+                      >
+                        {item.usuario_id ? 'Alterar login' : 'Vincular login'}
+                      </button>
+
+                      <button
                         onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
                         className="bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-xl font-bold"
                       >
@@ -651,6 +839,165 @@ export default function CotacoesAdminPage() {
           )}
         </div>
       </section>
+
+      {cotacaoVinculo ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl border border-violet-700/60 bg-[#071225] p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-violet-300">
+                  Acesso do cliente
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black text-white">
+                  Vincular cotação a login
+                </h2>
+
+                <p className="mt-2 text-sm font-semibold text-slate-400">
+                  A cotação aparecerá em Minhas cotações do usuário selecionado.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={salvandoVinculo}
+                onClick={fecharVinculoLogin}
+                className="rounded-xl border border-blue-900 bg-[#020817] px-4 py-2 font-black text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-blue-950 bg-[#020817] p-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-black uppercase text-slate-500">
+                    Cotação
+                  </p>
+
+                  <p className="mt-1 font-black text-blue-300">
+                    {cotacaoVinculo.referencia_hc ||
+                      cotacaoVinculo.referencia_cliente ||
+                      cotacaoVinculo.id}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-black uppercase text-slate-500">
+                    Cliente final
+                  </p>
+
+                  <p className="mt-1 font-black text-white">
+                    {cotacaoVinculo.cliente_final || '-'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {cotacaoVinculo.usuario_id ? (
+              <div className="mt-4 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-violet-300">
+                  Login atualmente vinculado
+                </p>
+
+                <p className="mt-2 font-black text-white">
+                  {nomeUsuario(cotacaoVinculo.usuario_id)}
+                </p>
+
+                <p className="mt-1 text-sm font-semibold text-slate-400">
+                  {emailUsuario(cotacaoVinculo.usuario_id)}
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <p className="font-black text-amber-300">
+                  Esta cotação ainda não possui login vinculado.
+                </p>
+
+                <p className="mt-1 text-sm font-semibold text-amber-100/60">
+                  Ela não aparece em Minhas cotações de nenhum usuário.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-6">
+              <label className="text-sm font-black text-slate-300">
+                Login do cliente
+              </label>
+
+              <select
+                value={usuarioVinculoId}
+                disabled={salvandoVinculo}
+                onChange={(event) =>
+                  setUsuarioVinculoId(event.target.value)
+                }
+                className="mt-2 w-full rounded-2xl border border-blue-900 bg-[#020817] px-4 py-4 font-bold text-white outline-none focus:border-violet-500 disabled:opacity-50"
+              >
+                <option value="">
+                  Selecione um login...
+                </option>
+
+                {usuariosClientesDisponiveis().map((usuario) => (
+                  <option key={usuario.id} value={usuario.id}>
+                    {usuario.nome || usuario.email || 'Cliente'}
+                    {usuario.email
+                      ? ` — ${usuario.email}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs font-semibold text-slate-500">
+                Somente logins ativos com perfil de cliente aparecem nesta lista.
+              </p>
+            </div>
+
+            {cotacaoVinculo.embarque_id ? (
+              <div className="mt-4 rounded-2xl border border-amber-600/30 bg-amber-600/10 p-4 text-sm font-semibold text-amber-200">
+                ⚠️ Esta cotação já possui embarque vinculado. Esta ação altera somente o acesso à cotação; o vínculo do embarque não será modificado.
+              </div>
+            ) : null}
+
+            <div className="mt-7 flex flex-wrap justify-end gap-3">
+              {cotacaoVinculo.usuario_id ? (
+                <button
+                  type="button"
+                  disabled={salvandoVinculo}
+                  onClick={removerVinculoLogin}
+                  className="mr-auto rounded-xl bg-red-800 px-5 py-3 font-black text-white hover:bg-red-700 disabled:opacity-40"
+                >
+                  Remover vínculo
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                disabled={salvandoVinculo}
+                onClick={fecharVinculoLogin}
+                className="rounded-xl bg-slate-700 px-5 py-3 font-black text-white hover:bg-slate-600 disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={
+                  salvandoVinculo ||
+                  !usuarioVinculoId
+                }
+                onClick={salvarVinculoLogin}
+                className="rounded-xl bg-violet-600 px-5 py-3 font-black text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {salvandoVinculo
+                  ? 'Salvando...'
+                  : cotacaoVinculo.usuario_id
+                    ? 'Alterar vínculo'
+                    : 'Vincular cotação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }
