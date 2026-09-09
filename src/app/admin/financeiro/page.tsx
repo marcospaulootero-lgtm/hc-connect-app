@@ -1362,11 +1362,17 @@ export default function FinanceiroPage() {
     ]
 
     return padroes.some(
-      (padrao) =>
-        texto === padrao ||
-        texto.startsWith(
-          padrao + ' '
+      (padrao) => {
+        const padraoNormalizado =
+          normalizarBusca(padrao)
+
+        return (
+          texto === padraoNormalizado ||
+          texto.startsWith(
+            padraoNormalizado + ' '
+          )
         )
+      }
     )
   }
 
