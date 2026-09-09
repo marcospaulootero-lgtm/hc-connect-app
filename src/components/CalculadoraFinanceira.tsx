@@ -1113,14 +1113,14 @@ export default function CalculadoraFinanceira() {
             (valor) => !valor
           )
         }
-        className="fixed bottom-5 right-[132px] z-[84] rounded-xl border border-amber-300/40 bg-[#2b2b2b] px-4 py-3 text-sm font-black text-amber-200 shadow-2xl hover:bg-[#3a3a3a]"
+        className="fixed bottom-[68px] right-5 z-[84] rounded-xl border border-amber-300/40 bg-[#2b2b2b] px-4 py-3 text-sm font-black text-amber-200 shadow-2xl hover:bg-[#3a3a3a]"
         title="Calculadora financeira HP 12C"
       >
         🧮 HP 12C
       </button>
 
       {aberta ? (
-        <div className="fixed bottom-20 right-5 z-[85] w-[min(590px,calc(100vw-24px))] overflow-hidden rounded-[12px] border-4 border-[#343434] bg-[#bcb39c] shadow-[0_25px_90px_rgba(0,0,0,.65)]">
+        <div className="fixed bottom-[124px] right-5 z-[85] w-[min(590px,calc(100vw-24px))] overflow-hidden rounded-[12px] border-4 border-[#343434] bg-[#bcb39c] shadow-[0_25px_90px_rgba(0,0,0,.65)]">
           <div className="flex items-center justify-between bg-[#3b3935] px-3 py-2 text-white">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[.18em] text-amber-300">
