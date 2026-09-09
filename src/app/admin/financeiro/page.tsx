@@ -247,6 +247,11 @@ export default function FinanceiroPage() {
   const [editandoContaBancariaId, setEditandoContaBancariaId] = useState<string | null>(null)
   const [erroContasBancarias, setErroContasBancarias] = useState('')
   const [formContaBancaria, setFormContaBancaria] = useState({ banco: '', nome_conta: '', saldo_atual: '' })
+  const [extratoBancario, setExtratoBancario] = useState<any[]>([])
+  const [loadingExtratoBancario, setLoadingExtratoBancario] = useState(false)
+  const [erroExtratoBancario, setErroExtratoBancario] = useState('')
+  const [filtroContaExtratoBancario, setFiltroContaExtratoBancario] = useState('')
+  const [importandoExtratoContaId, setImportandoExtratoContaId] = useState<string | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [loadingMovimentos, setLoadingMovimentos] = useState(false)
@@ -975,6 +980,7 @@ export default function FinanceiroPage() {
       carregarFinanceiro(),
       carregarMovimentacoes(),
       carregarContasBancarias(),
+      carregarExtratoBancario(),
       carregarCompromissosCaixa(),
     ])
   }
@@ -1101,6 +1107,33 @@ export default function FinanceiroPage() {
     setLoadingCompromissosCaixa(false)
   }
 
+  async function carregarExtratoBancario() {
+    setLoadingExtratoBancario(true)
+    setErroExtratoBancario('')
+
+    const { data, error } = await supabase
+      .from('financeiro_extrato_movimentos')
+      .select('*')
+      .order('data_movimento', { ascending: false })
+      .order('criado_em', { ascending: false })
+      .limit(1000)
+
+    if (error) {
+      console.error(
+        'Erro ao carregar movimentos bancarios:',
+        error
+      )
+
+      setExtratoBancario([])
+      setErroExtratoBancario(error.message)
+      setLoadingExtratoBancario(false)
+      return
+    }
+
+    setExtratoBancario(data || [])
+    setLoadingExtratoBancario(false)
+  }
+
   function limparFormContaBancaria() {
     setFormContaBancaria({ banco: '', nome_conta: '', saldo_atual: '' })
     setEditandoContaBancariaId(null)
@@ -1173,6 +1206,837 @@ export default function FinanceiroPage() {
 
     if (editandoContaBancariaId === item.id) limparFormContaBancaria()
     await carregarContasBancarias()
+  }
+
+  async function hashSha256Extrato(
+    valor: ArrayBuffer | string
+  ) {
+    const dados =
+      typeof valor === 'string'
+        ? new TextEncoder().encode(valor)
+        : valor
+
+    const hash =
+      await crypto.subtle.digest(
+        'SHA-256',
+        dados
+      )
+
+    return Array.from(
+      new Uint8Array(hash)
+    )
+      .map((byte) =>
+        byte
+          .toString(16)
+          .padStart(2, '0')
+      )
+      .join('')
+  }
+
+  function numeroOfx(
+    valor: any
+  ) {
+    if (
+      valor === null ||
+      valor === undefined ||
+      valor === ''
+    ) {
+      return 0
+    }
+
+    if (typeof valor === 'number') {
+      return Number.isFinite(valor)
+        ? valor
+        : 0
+    }
+
+    let texto =
+      String(valor)
+        .trim()
+        .replace(/R\$/gi, '')
+        .replace(/BRL/gi, '')
+        .replace(/\s/g, '')
+
+    if (
+      texto.includes('.') &&
+      texto.includes(',')
+    ) {
+      if (
+        texto.lastIndexOf(',') >
+        texto.lastIndexOf('.')
+      ) {
+        texto =
+          texto
+            .replace(/\./g, '')
+            .replace(',', '.')
+      } else {
+        texto =
+          texto.replace(/,/g, '')
+      }
+    } else if (
+      texto.includes(',')
+    ) {
+      texto =
+        texto.replace(',', '.')
+    }
+
+    const resultado =
+      Number(texto)
+
+    return Number.isFinite(resultado)
+      ? resultado
+      : 0
+  }
+
+  function dataOfxIso(
+    valor: any
+  ) {
+    const texto =
+      String(valor || '')
+        .trim()
+
+    const match =
+      texto.match(
+        /^(\d{4})(\d{2})(\d{2})/
+      )
+
+    if (!match) {
+      return null
+    }
+
+    return (
+      match[1] +
+      '-' +
+      match[2] +
+      '-' +
+      match[3]
+    )
+  }
+
+  function tagOfx(
+    bloco: string,
+    tag: string
+  ) {
+    const regex =
+      new RegExp(
+        '<' +
+        tag +
+        '>\\s*([^<\\r\\n]+)',
+        'i'
+      )
+
+    const resultado =
+      bloco.match(regex)
+
+    return String(
+      resultado?.[1] || ''
+    ).trim()
+  }
+
+  function parsearExtratoOfx(
+    textoOriginal: string
+  ) {
+    const texto =
+      String(textoOriginal || '')
+
+    const movimentos: any[] = []
+
+    const regexMovimento =
+      /<STMTTRN>([\s\S]*?)(?=<STMTTRN>|<\/BANKTRANLIST>|$)/gi
+
+    let match
+
+    while (
+      (match =
+        regexMovimento.exec(texto))
+    ) {
+      const bloco =
+        match[1] || ''
+
+      const valorOriginal =
+        numeroOfx(
+          tagOfx(
+            bloco,
+            'TRNAMT'
+          )
+        )
+
+      const data =
+        dataOfxIso(
+          tagOfx(
+            bloco,
+            'DTPOSTED'
+          )
+        )
+
+      if (
+        !data ||
+        valorOriginal === 0
+      ) {
+        continue
+      }
+
+      const nome =
+        tagOfx(
+          bloco,
+          'NAME'
+        )
+
+      const memo =
+        tagOfx(
+          bloco,
+          'MEMO'
+        )
+
+      movimentos.push({
+        fitid:
+          tagOfx(
+            bloco,
+            'FITID'
+          ) || null,
+
+        data_movimento:
+          data,
+
+        data_hora:
+          null,
+
+        natureza:
+          valorOriginal > 0
+            ? 'ENTRADA'
+            : 'SAIDA',
+
+        valor:
+          Math.abs(
+            valorOriginal
+          ),
+
+        descricao:
+          nome ||
+          memo ||
+          'Movimento bancário',
+
+        memo:
+          memo || null,
+
+        documento:
+          tagOfx(
+            bloco,
+            'CHECKNUM'
+          ) || null,
+
+        tipo_banco:
+          tagOfx(
+            bloco,
+            'TRNTYPE'
+          ) || null,
+
+        saldo_apos:
+          null,
+
+        status:
+          'A_CONCILIAR',
+      })
+    }
+
+    const ledger =
+      texto.match(
+        /<LEDGERBAL>([\s\S]*?)(?=<AVAILBAL>|<\/LEDGERBAL>|<\/STMTRS>|$)/i
+      )?.[1] || ''
+
+    const saldoTexto =
+      tagOfx(
+        ledger,
+        'BALAMT'
+      )
+
+    const dataSaldoTexto =
+      tagOfx(
+        ledger,
+        'DTASOF'
+      )
+
+    const saldoFinal =
+      saldoTexto !== ''
+        ? numeroOfx(
+            saldoTexto
+          )
+        : null
+
+    const dataSaldoFinal =
+      dataOfxIso(
+        dataSaldoTexto
+      ) ||
+      movimentos
+        .map(
+          (item) =>
+            item.data_movimento
+        )
+        .filter(Boolean)
+        .sort()
+        .pop() ||
+      null
+
+    return {
+      movimentos,
+      saldoFinal,
+      dataSaldoFinal,
+    }
+  }
+
+  async function adicionarHashesOfx(
+    contaId: string,
+    movimentos: any[]
+  ) {
+    const ocorrencias =
+      new Map<string, number>()
+
+    const resultado: any[] = []
+
+    for (const movimento of movimentos) {
+      const fitid =
+        String(
+          movimento.fitid || ''
+        ).trim()
+
+      let base = ''
+
+      if (fitid) {
+        base =
+          'OFX|CONTA:' +
+          contaId +
+          '|FITID:' +
+          fitid
+      } else {
+        const baseNatural =
+          [
+            contaId,
+            movimento.data_movimento,
+            movimento.natureza,
+            Number(
+              movimento.valor || 0
+            ).toFixed(2),
+            normalizarBusca(
+              movimento.descricao || ''
+            ),
+            normalizarBusca(
+              movimento.memo || ''
+            ),
+            movimento.documento || '',
+          ].join('|')
+
+        const ocorrencia =
+          (
+            ocorrencias.get(
+              baseNatural
+            ) || 0
+          ) + 1
+
+        ocorrencias.set(
+          baseNatural,
+          ocorrencia
+        )
+
+        base =
+          'OFX|' +
+          baseNatural +
+          '|OCORRENCIA:' +
+          ocorrencia
+      }
+
+      resultado.push({
+        ...movimento,
+
+        hash_movimento:
+          await hashSha256Extrato(
+            base
+          ),
+      })
+    }
+
+    return resultado
+  }
+
+  async function importarExtratoOfx(
+    event: any,
+    conta: any
+  ) {
+    const arquivo =
+      event.target.files?.[0]
+
+    if (!arquivo) {
+      return
+    }
+
+    const extensao =
+      String(
+        arquivo.name
+          .split('.')
+          .pop() || ''
+      ).toLowerCase()
+
+    if (
+      extensao !== 'ofx' &&
+      extensao !== 'qfx'
+    ) {
+      alert(
+        'Nesta etapa use um arquivo OFX ou QFX.'
+      )
+
+      event.target.value = ''
+      return
+    }
+
+    const confirmar =
+      confirm(
+        'IMPORTAR EXTRATO OFX\n\n' +
+        conta.banco +
+        ' · ' +
+        conta.nome_conta +
+        '\n\nArquivo: ' +
+        arquivo.name +
+        '\n\n' +
+        'Os movimentos serão importados como A CONCILIAR.\n' +
+        'Nenhuma fatura, processo ou despesa será baixada automaticamente.'
+      )
+
+    if (!confirmar) {
+      event.target.value = ''
+      return
+    }
+
+    setImportandoExtratoContaId(
+      conta.id
+    )
+
+    try {
+      const buffer =
+        await arquivo.arrayBuffer()
+
+      const hashArquivo =
+        await hashSha256Extrato(
+          buffer
+        )
+
+      const {
+        data:
+          importacaoExistente,
+        error:
+          erroImportacaoExistente,
+      } = await supabase
+        .from(
+          'financeiro_extratos_importacoes'
+        )
+        .select('id')
+        .eq(
+          'conta_bancaria_id',
+          conta.id
+        )
+        .eq(
+          'hash_arquivo',
+          hashArquivo
+        )
+        .maybeSingle()
+
+      if (
+        erroImportacaoExistente
+      ) {
+        throw erroImportacaoExistente
+      }
+
+      if (importacaoExistente) {
+        alert(
+          'Este mesmo arquivo já foi importado para esta conta. Nenhum registro foi duplicado.'
+        )
+        return
+      }
+
+      let texto = ''
+
+      try {
+        texto =
+          new TextDecoder(
+            'windows-1252'
+          ).decode(buffer)
+      } catch {
+        texto =
+          new TextDecoder()
+            .decode(buffer)
+      }
+
+      const leitura =
+        parsearExtratoOfx(
+          texto
+        )
+
+      if (
+        !leitura.movimentos.length
+      ) {
+        throw new Error(
+          'Nenhuma movimentação OFX válida foi encontrada.'
+        )
+      }
+
+      const movimentos =
+        await adicionarHashesOfx(
+          conta.id,
+          leitura.movimentos
+        )
+
+      const hashes =
+        movimentos.map(
+          (item: any) =>
+            item.hash_movimento
+        )
+
+      const hashesExistentes =
+        new Set<string>()
+
+      for (
+        let inicio = 0;
+        inicio < hashes.length;
+        inicio += 100
+      ) {
+        const lote =
+          hashes.slice(
+            inicio,
+            inicio + 100
+          )
+
+        const {
+          data,
+          error,
+        } = await supabase
+          .from(
+            'financeiro_extrato_movimentos'
+          )
+          .select(
+            'hash_movimento'
+          )
+          .eq(
+            'conta_bancaria_id',
+            conta.id
+          )
+          .in(
+            'hash_movimento',
+            lote
+          )
+
+        if (error) {
+          throw error
+        }
+
+        ;(data || [])
+          .forEach(
+            (item: any) => {
+              hashesExistentes.add(
+                item.hash_movimento
+              )
+            }
+          )
+      }
+
+      const novos =
+        movimentos.filter(
+          (item: any) =>
+            !hashesExistentes.has(
+              item.hash_movimento
+            )
+        )
+
+      const duplicados =
+        movimentos.length -
+        novos.length
+
+      const datas =
+        movimentos
+          .map(
+            (item: any) =>
+              item.data_movimento
+          )
+          .filter(Boolean)
+          .sort()
+
+      const {
+        data: {
+          user,
+        },
+      } =
+        await supabase.auth.getUser()
+
+      const {
+        data: importacao,
+        error: erroImportacao,
+      } = await supabase
+        .from(
+          'financeiro_extratos_importacoes'
+        )
+        .insert({
+          conta_bancaria_id:
+            conta.id,
+
+          nome_arquivo:
+            arquivo.name,
+
+          formato:
+            'OFX',
+
+          hash_arquivo:
+            hashArquivo,
+
+          data_inicio:
+            datas[0] ||
+            null,
+
+          data_fim:
+            datas[
+              datas.length - 1
+            ] || null,
+
+          saldo_final:
+            leitura.saldoFinal,
+
+          data_saldo_final:
+            leitura.dataSaldoFinal,
+
+          total_registros:
+            movimentos.length,
+
+          novos_registros:
+            novos.length,
+
+          duplicados_ignorados:
+            duplicados,
+
+          usuario_id:
+            user?.id ||
+            null,
+
+          usuario_email:
+            user?.email ||
+            null,
+        })
+        .select('id')
+        .single()
+
+      if (
+        erroImportacao ||
+        !importacao
+      ) {
+        throw (
+          erroImportacao ||
+          new Error(
+            'Não foi possível registrar a importação.'
+          )
+        )
+      }
+
+      try {
+        for (
+          let inicio = 0;
+          inicio < novos.length;
+          inicio += 250
+        ) {
+          const lote =
+            novos
+              .slice(
+                inicio,
+                inicio + 250
+              )
+              .map(
+                (movimento: any) => ({
+                  ...movimento,
+
+                  conta_bancaria_id:
+                    conta.id,
+
+                  importacao_id:
+                    importacao.id,
+                })
+              )
+
+          if (!lote.length) {
+            continue
+          }
+
+          const {
+            error,
+          } = await supabase
+            .from(
+              'financeiro_extrato_movimentos'
+            )
+            .insert(lote)
+
+          if (error) {
+            throw error
+          }
+        }
+      } catch (erroMovimentos) {
+        await supabase
+          .from(
+            'financeiro_extratos_importacoes'
+          )
+          .delete()
+          .eq(
+            'id',
+            importacao.id
+          )
+
+        throw erroMovimentos
+      }
+
+      let saldoAtualizado =
+        false
+
+      let saldoExtratoAntigo =
+        false
+
+      let erroAtualizarSaldo =
+        ''
+
+      if (
+        leitura.saldoFinal !==
+          null &&
+        leitura.saldoFinal !==
+          undefined &&
+        leitura.dataSaldoFinal
+      ) {
+        const referenciaAtual =
+          normalizarData(
+            conta.data_referencia
+          )
+
+        if (
+          !referenciaAtual ||
+          leitura.dataSaldoFinal >=
+            referenciaAtual
+        ) {
+          const {
+            error,
+          } = await supabase
+            .from(
+              'financeiro_contas_bancarias'
+            )
+            .update({
+              saldo_atual:
+                Number(
+                  leitura.saldoFinal
+                ),
+
+              data_referencia:
+                leitura.dataSaldoFinal,
+
+              saldo_origem:
+                'EXTRATO',
+
+              ultimo_extrato_em:
+                new Date()
+                  .toISOString(),
+
+              ultimo_extrato_data:
+                leitura.dataSaldoFinal,
+
+              ultimo_extrato_arquivo:
+                arquivo.name,
+            })
+            .eq(
+              'id',
+              conta.id
+            )
+
+          if (error) {
+            erroAtualizarSaldo =
+              error.message
+          } else {
+            saldoAtualizado =
+              true
+          }
+        } else {
+          saldoExtratoAntigo =
+            true
+        }
+      }
+
+      await Promise.all([
+        carregarContasBancarias(),
+        carregarExtratoBancario(),
+      ])
+
+      setFiltroContaExtratoBancario(
+        conta.id
+      )
+
+      setTimeout(() => {
+        document
+          .getElementById(
+            'conciliacao-extrato-bancario'
+          )
+          ?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          })
+      }, 100)
+
+      let mensagem =
+        'EXTRATO IMPORTADO COM SUCESSO\n\n' +
+        'Movimentos no arquivo: ' +
+        movimentos.length +
+        '\nNovos movimentos: ' +
+        novos.length +
+        '\nDuplicados ignorados: ' +
+        duplicados
+
+      if (saldoAtualizado) {
+        mensagem +=
+          '\n\nSaldo da conta atualizado para ' +
+          moeda(
+            Number(
+              leitura.saldoFinal
+            )
+          ) +
+          ' em ' +
+          leitura.dataSaldoFinal +
+          '.'
+      } else if (
+        saldoExtratoAntigo
+      ) {
+        mensagem +=
+          '\n\nO extrato é anterior ao saldo já registrado. Os movimentos foram importados, mas o saldo atual não foi sobrescrito.'
+      } else if (
+        erroAtualizarSaldo
+      ) {
+        mensagem +=
+          '\n\nOs movimentos foram importados, mas o saldo da conta não pôde ser atualizado: ' +
+          erroAtualizarSaldo
+      } else {
+        mensagem +=
+          '\n\nO OFX não informou saldo final confiável. O saldo atual foi preservado.'
+      }
+
+      mensagem +=
+        '\n\nNenhuma baixa financeira foi realizada.'
+
+      alert(mensagem)
+    } catch (error: any) {
+      console.error(
+        'Erro ao importar OFX:',
+        error
+      )
+
+      alert(
+        'Erro ao importar OFX: ' +
+        (
+          error?.message ||
+          'erro desconhecido'
+        )
+      )
+    } finally {
+      setImportandoExtratoContaId(
+        null
+      )
+
+      event.target.value = ''
+    }
   }
 
   function montarPayload() {
@@ -6586,10 +7450,68 @@ export default function FinanceiroPage() {
                             Referência {normalizarData(item.data_referencia) || '-'}
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                           <p className="text-xl font-black text-slate-950">{moeda(item.saldo_atual)}</p>
-                          <button type="button" onClick={() => editarContaBancaria(item)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">Editar</button>
-                          <button type="button" onClick={() => arquivarContaBancaria(item)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-50">Remover</button>
+
+                          <label
+                            className={
+                              importandoExtratoContaId === item.id
+                                ? 'cursor-not-allowed rounded-lg bg-slate-300 px-3 py-2 text-xs font-black text-slate-600'
+                                : 'cursor-pointer rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-700'
+                            }
+                          >
+                            {importandoExtratoContaId === item.id
+                              ? 'Importando...'
+                              : '📥 Importar OFX'}
+
+                            <input
+                              type="file"
+                              accept=".ofx,.qfx"
+                              disabled={!!importandoExtratoContaId}
+                              onChange={(event) =>
+                                importarExtratoOfx(
+                                  event,
+                                  item
+                                )
+                              }
+                              className="hidden"
+                            />
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFiltroContaExtratoBancario(item.id)
+
+                              setTimeout(() => {
+                                document
+                                  .getElementById('conciliacao-extrato-bancario')
+                                  ?.scrollIntoView({
+                                    behavior: 'smooth',
+                                    block: 'start',
+                                  })
+                              }, 50)
+                            }}
+                            className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-700 hover:bg-cyan-100"
+                          >
+                            🔎 Ver extrato
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => editarContaBancaria(item)}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50"
+                          >
+                            Editar
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => arquivarContaBancaria(item)}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-50"
+                          >
+                            Remover
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -6615,6 +7537,240 @@ export default function FinanceiroPage() {
                   </div>
                 </div>
               )}
+            </section>
+
+            <section
+              id="conciliacao-extrato-bancario"
+              className="rounded-[24px] border border-cyan-200 bg-white p-6 shadow-sm"
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-600">
+                    Conciliação bancária
+                  </p>
+
+                  <h3 className="mt-1 text-xl font-black text-slate-950">
+                    Movimentações reais dos bancos
+                  </h3>
+
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    O extrato representa o que efetivamente entrou e saiu das contas da HC.
+                  </p>
+                </div>
+
+                <select
+                  value={filtroContaExtratoBancario}
+                  onChange={(event) =>
+                    setFiltroContaExtratoBancario(
+                      event.target.value
+                    )
+                  }
+                  className="rounded-xl border border-cyan-200 bg-white px-4 py-3 text-sm font-black text-slate-800 outline-none"
+                >
+                  <option value="">
+                    Todas as contas
+                  </option>
+
+                  {contasBancarias.map((conta) => (
+                    <option
+                      key={conta.id}
+                      value={conta.id}
+                    >
+                      {conta.banco} · {conta.nome_conta}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {erroExtratoBancario ? (
+                <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                  Erro ao carregar extrato: {erroExtratoBancario}
+                </div>
+              ) : null}
+
+              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-slate-400">
+                    Movimentos
+                  </p>
+
+                  <p className="mt-1 text-xl font-black text-slate-950">
+                    {extratoBancario.filter(
+                      (mov) =>
+                        !filtroContaExtratoBancario ||
+                        mov.conta_bancaria_id === filtroContaExtratoBancario
+                    ).length}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-emerald-600">
+                    Entradas
+                  </p>
+
+                  <p className="mt-1 text-xl font-black text-emerald-700">
+                    {extratoBancario.filter(
+                      (mov) =>
+                        (!filtroContaExtratoBancario ||
+                          mov.conta_bancaria_id === filtroContaExtratoBancario) &&
+                        mov.natureza === 'ENTRADA'
+                    ).length}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-red-600">
+                    Saídas
+                  </p>
+
+                  <p className="mt-1 text-xl font-black text-red-700">
+                    {extratoBancario.filter(
+                      (mov) =>
+                        (!filtroContaExtratoBancario ||
+                          mov.conta_bancaria_id === filtroContaExtratoBancario) &&
+                        mov.natureza === 'SAIDA'
+                    ).length}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-amber-600">
+                    A conciliar
+                  </p>
+
+                  <p className="mt-1 text-xl font-black text-amber-700">
+                    {extratoBancario.filter(
+                      (mov) =>
+                        (!filtroContaExtratoBancario ||
+                          mov.conta_bancaria_id === filtroContaExtratoBancario) &&
+                        mov.status === 'A_CONCILIAR'
+                    ).length}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+                {loadingExtratoBancario ? (
+                  <div className="p-6 text-sm font-bold text-slate-500">
+                    Carregando movimentações bancárias...
+                  </div>
+                ) : extratoBancario.filter(
+                    (mov) =>
+                      !filtroContaExtratoBancario ||
+                      mov.conta_bancaria_id === filtroContaExtratoBancario
+                  ).length === 0 ? (
+                  <div className="p-6">
+                    <p className="font-black text-slate-800">
+                      Nenhum movimento bancário importado.
+                    </p>
+
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                      Na próxima etapa habilitaremos a importação OFX, XLSX, XLS e CSV em cada conta.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
+                    {extratoBancario
+                      .filter(
+                        (mov) =>
+                          !filtroContaExtratoBancario ||
+                          mov.conta_bancaria_id === filtroContaExtratoBancario
+                      )
+                      .slice(0, 100)
+                      .map((mov) => {
+                        const conta =
+                          contasBancarias.find(
+                            (item) =>
+                              item.id ===
+                              mov.conta_bancaria_id
+                          )
+
+                        return (
+                          <div
+                            key={mov.id}
+                            className="grid grid-cols-1 gap-3 p-4 lg:grid-cols-[125px_1fr_160px_140px]"
+                          >
+                            <div>
+                              <p className="text-sm font-black text-slate-900">
+                                {normalizarData(
+                                  mov.data_movimento
+                                ) || '-'}
+                              </p>
+
+                              <p className="mt-1 text-[10px] font-bold text-slate-400">
+                                {conta
+                                  ? `${conta.banco} · ${conta.nome_conta}`
+                                  : 'Conta bancária'}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-sm font-black text-slate-900">
+                                {mov.descricao ||
+                                  'Movimento bancário'}
+                              </p>
+
+                              {mov.memo ? (
+                                <p className="mt-1 text-xs font-semibold text-slate-500">
+                                  {mov.memo}
+                                </p>
+                              ) : null}
+
+                              {mov.fitid ? (
+                                <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                                  FITID: {mov.fitid}
+                                </p>
+                              ) : null}
+                            </div>
+
+                            <div className="lg:text-right">
+                              <p
+                                className={
+                                  mov.natureza === 'ENTRADA'
+                                    ? 'font-black text-emerald-700'
+                                    : 'font-black text-red-700'
+                                }
+                              >
+                                {mov.natureza === 'ENTRADA'
+                                  ? '+ '
+                                  : '- '}
+                                {moeda(mov.valor)}
+                              </p>
+
+                              <p className="mt-1 text-[10px] font-black uppercase text-slate-400">
+                                {mov.natureza}
+                              </p>
+                            </div>
+
+                            <div className="lg:text-right">
+                              <span
+                                className={
+                                  mov.status === 'CONCILIADO'
+                                    ? 'inline-block rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black text-emerald-700'
+                                    : mov.status === 'IGNORADO'
+                                      ? 'inline-block rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-black text-slate-600'
+                                      : 'inline-block rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black text-amber-700'
+                                }
+                              >
+                                {String(
+                                  mov.status ||
+                                  'A_CONCILIAR'
+                                ).replaceAll(
+                                  '_',
+                                  ' '
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                )}
+              </div>
+
+              <p className="mt-4 text-xs font-semibold text-slate-500">
+                Estes registros são apenas o extrato bancário. Eles não dão baixa nem criam receitas ou despesas automaticamente.
+              </p>
             </section>
 
             <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
