@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import AdminFloatingNotes from '@/components/AdminFloatingNotes'
+import CalculadoraFinanceira from '@/components/CalculadoraFinanceira'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
@@ -520,6 +521,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <OnlinePresence area="admin" />
         {children}
       <AdminFloatingNotes />
+      <CalculadoraFinanceira />
       </main>
     </div>
   )
