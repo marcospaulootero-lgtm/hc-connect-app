@@ -1109,6 +1109,37 @@ export default function FinanceiroPage() {
 
   let conciliacaoEntradasAutomaticaEmExecucao = false
 
+  function ehLancamentoInformativoBanco(
+    movimento: any
+  ) {
+    const texto = normalizarBusca(
+      [
+        movimento?.descricao,
+        movimento?.nome,
+        movimento?.memo,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    )
+
+    const padroesInformativos = [
+      'SALDO TOTAL DISPONIVEL DIA',
+      'SALDO TOTAL DISPONIVEL',
+      'SALDO DISPONIVEL DIA',
+      'SALDO DO DIA',
+      'SALDO ANTERIOR',
+      'SALDO FINAL',
+    ]
+
+    return padroesInformativos.some(
+      (padrao) =>
+        texto === padrao ||
+        texto.startsWith(
+          padrao + ' '
+        )
+    )
+  }
+
   function centavosConciliacaoEntrada(valor: any) {
     return Math.round(
       Math.abs(numero(valor || 0)) * 100
@@ -1124,6 +1155,7 @@ export default function FinanceiroPage() {
 
     const movimentos = movimentosFonte.filter(
       (mov: any) =>
+        !ehLancamentoInformativoBanco(mov) &&
         String(mov.natureza || '').toUpperCase() === 'ENTRADA' &&
         String(mov.status || '').toUpperCase() === 'A_CONCILIAR' &&
         centavosConciliacaoEntrada(mov.valor) > 0
@@ -1384,10 +1416,62 @@ export default function FinanceiroPage() {
       return
     }
 
-    setExtratoBancario(data || [])
+    const movimentosCarregados =
+      data || []
+
+    const movimentosInformativos =
+      movimentosCarregados.filter(
+        ehLancamentoInformativoBanco
+      )
+
+    if (
+      movimentosInformativos.length > 0
+    ) {
+      const idsInformativos =
+        movimentosInformativos
+          .map((mov: any) => mov.id)
+          .filter(Boolean)
+
+      if (idsInformativos.length > 0) {
+        const {
+          error: erroIgnorarInformativos,
+        } = await supabase
+          .from(
+            'financeiro_extrato_movimentos'
+          )
+          .update({
+            status: 'IGNORADO',
+          })
+          .in(
+            'id',
+            idsInformativos
+          )
+          .neq(
+            'status',
+            'IGNORADO'
+          )
+
+        if (erroIgnorarInformativos) {
+          console.error(
+            'Erro ao ignorar lançamentos informativos:',
+            erroIgnorarInformativos
+          )
+        }
+      }
+    }
+
+    const movimentosOperacionais =
+      movimentosCarregados.filter(
+        (mov: any) =>
+          !ehLancamentoInformativoBanco(mov)
+      )
+
+    setExtratoBancario(
+      movimentosOperacionais
+    )
 
     void conciliarEntradasAutomaticamente(
-      data || []
+      movimentosOperacionais
     )
     setLoadingExtratoBancario(false)
   }
