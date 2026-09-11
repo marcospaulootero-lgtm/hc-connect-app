@@ -662,6 +662,19 @@ export default function UsuariosPage() {
 
                       <td>
                         <div className="flex flex-wrap gap-2">
+                          {(usuario.tipo_acesso || 'cliente') === 'cliente' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.location.href =
+                                  `/admin/usuarios/${usuario.id}/embarques`
+                              }}
+                              className="bg-cyan-700 hover:bg-cyan-600 px-4 py-2 rounded-xl font-bold"
+                            >
+                              Embarques
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => abrirEdicaoUsuario(usuario)}
