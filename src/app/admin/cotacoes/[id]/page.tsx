@@ -286,10 +286,17 @@ export default function DetalheCotacaoAdminPage() {
 
     const seguro = arredondarValorFinanceiro(numero(dadosEmissor?.valores?.seguro) || 0)
 
+    const moedaSeguro =
+      String(
+        formEmissor?.moeda ||
+        cotacao?.moeda ||
+        'USD'
+      ).toUpperCase()
+
     if (seguro > 0) {
       if (ehAgente) {
         if (!itens.some((item: any) => normalizarTexto(item.nome).includes('SEGURO'))) {
-          itens.push({ nome: 'SEGURO', valor: seguro, moeda: 'USD' })
+          itens.push({ nome: 'SEGURO', valor: seguro, moeda: moedaSeguro })
         }
       } else {
         const indiceSeguro = itens.findIndex(
@@ -301,14 +308,14 @@ export default function DetalheCotacaoAdminPage() {
             ...itens[indiceSeguro],
             nome: 'SEGURO',
             valor: seguro,
-            moeda: 'USD',
+            moeda: moedaSeguro,
           }
         } else {
           itens.push({
-            chave: 'SEGURO|USD',
+            chave: `SEGURO|${moedaSeguro}`,
             nome: 'SEGURO',
             valor: seguro,
-            moeda: 'USD',
+            moeda: moedaSeguro,
           })
         }
       }

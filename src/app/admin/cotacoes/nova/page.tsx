@@ -699,11 +699,22 @@ const totaisAgenteMoedaTela = useMemo(() => {
     }, {})
 
     if (valores.seguro > 0) {
-      totais.USD = (totais.USD || 0) + valores.seguro
+      const moedaSeguro =
+        String(
+          form.moeda || 'USD'
+        ).toUpperCase()
+
+      totais[moedaSeguro] =
+        (totais[moedaSeguro] || 0) +
+        valores.seguro
     }
 
     return totais
-  }, [itensEnvio, valores.seguro])
+  }, [
+    itensEnvio,
+    valores.seguro,
+    form.moeda,
+  ])
 
   function atualizarItemAgente(
     index: number,
@@ -1077,7 +1088,13 @@ const totaisAgenteMoedaTela = useMemo(() => {
     }
 
     if (valores.seguro > 0) {
-      info('Seguro', dinheiro(valores.seguro, 'USD'))
+      info(
+        'Seguro',
+        dinheiro(
+          valores.seguro,
+          String(form.moeda || 'USD').toUpperCase()
+        )
+      )
     }
 
     novaPagina(16)
@@ -1519,8 +1536,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
         <div className="form-grid">
           <Campo label="Percentual seguro %" type="decimal" value={form.percentualSeguro} onChange={(v) => atualizarCampo('percentualSeguro', v)} />
-          <Campo label="Mínimo seguro USD" type="money" value={form.seguroMinimo} onChange={(v) => atualizarCampo('seguroMinimo', v)} />
-          <Campo label="Seguro manual USD" type="money" value={form.seguroManual} onChange={(v) => atualizarCampo('seguroManual', v)} />
+          <Campo label={`Mínimo seguro ${String(form.moeda || 'USD').toUpperCase()}`} type="money" value={form.seguroMinimo} onChange={(v) => atualizarCampo('seguroMinimo', v)} />
+          <Campo label={`Seguro manual ${String(form.moeda || 'USD').toUpperCase()}`} type="money" value={form.seguroManual} onChange={(v) => atualizarCampo('seguroManual', v)} />
           <Checkbox label="Usar seguro manual" checked={form.usarSeguroManual} onChange={(v) => atualizarCampo('usarSeguroManual', v)} />
           <Checkbox label="Sem seguro" checked={form.semSeguro} onChange={(v) => atualizarCampo('semSeguro', v)} />
           <Resumo
@@ -1531,7 +1548,10 @@ const totaisAgenteMoedaTela = useMemo(() => {
                   ? 'Seguro final FedEx / UPS'
                   : 'Seguro final DHL'
             }
-            valor={dinheiro(valores.seguro)}
+            valor={dinheiro(
+              valores.seguro,
+              String(form.moeda || 'USD').toUpperCase()
+            )}
           />
         </div>
       </section>
