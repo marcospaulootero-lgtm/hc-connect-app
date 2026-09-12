@@ -4547,7 +4547,15 @@ export default function FaturasPage() {
       transportadora: emissorEmbarqueSelecionado.transportadora || null,
       servico: emissorEmbarqueSelecionado.servico || null,
       valor_cobranca: ehFaturaImpostos ? valorAnteriorCobranca + totalClienteEmissorBRL : totalClienteEmissorBRL,
-      doc_dta: ehFaturaImpostos ? valorAnteriorDocDta + totalClienteEmissorBRL : valorAnteriorDocDta,
+      /*
+        Fatura complementar aumenta o valor cobrado
+        do cliente, mas NAO altera o custo DOC/DTA.
+
+        O DOC/DTA representa o custo real já lançado
+        no processo e não pode receber novamente o
+        valor da fatura complementar.
+      */
+      doc_dta: valorAnteriorDocDta,
       debito_terceiro: debitoTerceiroAtualizado,
       valor_compra: valorCompraFinanceiroFinal,
       vencimento_cobranca: emissorVencimento || null,
