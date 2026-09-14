@@ -91,6 +91,17 @@ export default function EmbarquesPage() {
   const [filtroArquivamento, setFiltroArquivamento] = useState('ATIVOS')
   const [embarquesSelecionados, setEmbarquesSelecionados] = useState<string[]>([])
   const [arquivandoLote, setArquivandoLote] = useState(false)
+
+  const [
+    atualizandoTodosRastreios,
+    setAtualizandoTodosRastreios,
+  ] = useState(false)
+
+  const [
+    progressoTodosRastreios,
+    setProgressoTodosRastreios,
+  ] = useState('')
+
   const [abaTela, setAbaTela] = useState<'CADASTRO' | 'LISTAGEM'>('LISTAGEM')
   const [filtroDashboard, setFiltroDashboard] = useState('')
   const [buscaClientesVinculadosCadastro, setBuscaClientesVinculadosCadastro] = useState('')
@@ -432,6 +443,416 @@ export default function EmbarquesPage() {
     } catch (erro) {
       console.error('Erro ao atualizar rastreio inicial:', erro)
       return false
+    }
+  }
+
+  function aguardarRastreioLote(ms: number) {
+    return new Promise((resolve) =>
+      setTimeout(resolve, ms)
+    )
+  }
+
+  function textoRastreioNormalizado(valor: any) {
+    return String(valor || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toUpperCase()
+  }
+
+  function statusTerminalRastreio(valor: any) {
+    const status =
+      textoRastreioNormalizado(valor)
+
+    return [
+      'ENTREGUE',
+      'FINALIZADO',
+      'CANCELADO',
+    ].includes(status)
+  }
+
+  function transportadoraRastreavel(item: any) {
+    const transportadora =
+      textoRastreioNormalizado(
+        item?.transportadora
+      )
+
+    return (
+      transportadora.includes('DHL') ||
+      transportadora.includes('FEDEX') ||
+      transportadora.includes('FED EX')
+    )
+  }
+
+  function embarqueDhl(item: any) {
+    return textoRastreioNormalizado(
+      item?.transportadora
+    ).includes('DHL')
+  }
+
+  function ehRateLimitRastreio(mensagem: any) {
+    const texto =
+      String(mensagem || '')
+        .toLowerCase()
+
+    return (
+      texto.includes('429') ||
+      texto.includes('too many requests') ||
+      texto.includes('rate limit') ||
+      texto.includes('many requests') ||
+      texto.includes('defined time period')
+    )
+  }
+
+  async function atualizarTodosRastreiosAtivos() {
+    if (atualizandoTodosRastreios) {
+      return
+    }
+
+    const candidatos =
+      embarques
+        .filter((item) => {
+          if (item?.arquivado_admin === true) {
+            return false
+          }
+
+          if (
+            !awbValidoParaRastreio(
+              item?.awb
+            )
+          ) {
+            return false
+          }
+
+          if (
+            statusTerminalRastreio(
+              item?.status_operacional
+            )
+          ) {
+            return false
+          }
+
+          return transportadoraRastreavel(
+            item
+          )
+        })
+        .sort((a, b) => {
+          const aguardandoA =
+            textoRastreioNormalizado(
+              a?.status_operacional
+            ) === 'AGUARDANDO COLETA'
+              ? 0
+              : 1
+
+          const aguardandoB =
+            textoRastreioNormalizado(
+              b?.status_operacional
+            ) === 'AGUARDANDO COLETA'
+              ? 0
+              : 1
+
+          if (
+            aguardandoA !== aguardandoB
+          ) {
+            return aguardandoA - aguardandoB
+          }
+
+          const dataA =
+            new Date(
+              a?.ultima_atualizacao ||
+                0
+            ).getTime()
+
+          const dataB =
+            new Date(
+              b?.ultima_atualizacao ||
+                0
+            ).getTime()
+
+          return dataA - dataB
+        })
+
+    if (candidatos.length === 0) {
+      alert(
+        'Não existem embarques ativos DHL/FedEx com AWB válido para atualizar.'
+      )
+      return
+    }
+
+    const confirmar = confirm(
+      'O HC Connect vai consultar novamente ' +
+        candidatos.length +
+        ' embarque(s) ativos na DHL/FedEx.\n\n' +
+        'Aguardando coleta será priorizado.\n' +
+        'Arquivados, Entregues, Finalizados e Cancelados não serão consultados.\n\n' +
+        'Mantenha esta página aberta até o término.\n\n' +
+        'Deseja continuar?'
+    )
+
+    if (!confirmar) {
+      return
+    }
+
+    const {
+      data: {
+        session: sessaoInicial,
+      },
+    } =
+      await supabase.auth.getSession()
+
+    if (
+      !sessaoInicial?.access_token
+    ) {
+      alert(
+        'Sessão administrativa expirada. Entre novamente no HC Connect.'
+      )
+      return
+    }
+
+    setAtualizandoTodosRastreios(
+      true
+    )
+
+    let sucesso = 0
+    let erros = 0
+    let dhlProcessados = 0
+    let interrompidoPorDhl = false
+
+    try {
+      for (
+        let indice = 0;
+        indice < candidatos.length;
+        indice++
+      ) {
+        const item =
+          candidatos[indice]
+
+        const atual =
+          indice + 1
+
+        setProgressoTodosRastreios(
+          `${atual}/${candidatos.length} • ${item.awb}`
+        )
+
+        /*
+          Pega a sessão novamente a cada chamada.
+          Assim uma renovação automática de token
+          não quebra uma atualização longa.
+        */
+        const {
+          data: {
+            session: sessaoAtual,
+          },
+        } =
+          await supabase.auth.getSession()
+
+        const token =
+          sessaoAtual?.access_token
+
+        if (!token) {
+          throw new Error(
+            'Sessão administrativa expirada durante o rastreio.'
+          )
+        }
+
+        let tentativa = 0
+        let concluido = false
+
+        while (
+          tentativa < 2 &&
+          !concluido
+        ) {
+          tentativa++
+
+          const response =
+            await fetch(
+              '/api/rastreio',
+              {
+                method: 'POST',
+
+                headers: {
+                  'Content-Type':
+                    'application/json',
+
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+
+                body:
+                  JSON.stringify({
+                    embarque_id:
+                      item.id,
+                  }),
+
+                cache: 'no-store',
+              }
+            )
+
+          const resposta =
+            await response
+              .json()
+              .catch(() => ({}))
+
+          if (
+            response.ok &&
+            resposta?.sucesso === true
+          ) {
+            sucesso++
+            concluido = true
+
+            console.log(
+              '[RASTREIO TODOS]',
+              item.awb,
+              '=>',
+              resposta?.status ||
+                'Atualizado'
+            )
+
+            break
+          }
+
+          const mensagem =
+            resposta?.detalhes ||
+            resposta?.error ||
+            `HTTP ${response.status}`
+
+          /*
+            Se a DHL limitar as chamadas,
+            espera 2 minutos e tenta
+            exatamente o mesmo AWB mais uma vez.
+          */
+          if (
+            embarqueDhl(item) &&
+            ehRateLimitRastreio(
+              mensagem
+            ) &&
+            tentativa < 2
+          ) {
+            setProgressoTodosRastreios(
+              `DHL limitou chamadas • aguardando 120s • ${item.awb}`
+            )
+
+            await aguardarRastreioLote(
+              120000
+            )
+
+            continue
+          }
+
+          erros++
+
+          console.error(
+            '[RASTREIO TODOS]',
+            item.awb,
+            mensagem
+          )
+
+          /*
+            Se mesmo depois da espera
+            a DHL continuar em rate limit,
+            encerra com segurança.
+          */
+          if (
+            embarqueDhl(item) &&
+            ehRateLimitRastreio(
+              mensagem
+            )
+          ) {
+            interrompidoPorDhl =
+              true
+          }
+
+          concluido = true
+        }
+
+        if (interrompidoPorDhl) {
+          break
+        }
+
+        /*
+          Proteção da API DHL.
+        */
+        if (embarqueDhl(item)) {
+          dhlProcessados++
+
+          if (
+            dhlProcessados % 5 === 0 &&
+            atual < candidatos.length
+          ) {
+            setProgressoTodosRastreios(
+              `Pausa DHL • ${sucesso} atualizado(s) • 90s`
+            )
+
+            await aguardarRastreioLote(
+              90000
+            )
+          } else {
+            await aguardarRastreioLote(
+              3000
+            )
+          }
+        } else {
+          /*
+            FedEx pode seguir com uma
+            pausa menor.
+          */
+          await aguardarRastreioLote(
+            1000
+          )
+        }
+      }
+
+      setProgressoTodosRastreios(
+        'Atualizando tela...'
+      )
+
+      await carregar()
+
+      if (interrompidoPorDhl) {
+        alert(
+          'A DHL manteve o limite de requisições.\n\n' +
+            'Atualizados: ' +
+            sucesso +
+            '\nErros: ' +
+            erros +
+            '\n\n' +
+            'Tudo que já foi processado foi salvo. ' +
+            'Use o botão novamente mais tarde para continuar os restantes.'
+        )
+      } else {
+        alert(
+          'Atualização geral concluída.\n\n' +
+            'Atualizados: ' +
+            sucesso +
+            '\nErros: ' +
+            erros +
+            '\n\n' +
+            'Os status exibidos agora seguem o rastreio real da transportadora.'
+        )
+      }
+    } catch (erro: any) {
+      console.error(
+        'Erro na atualização geral:',
+        erro
+      )
+
+      alert(
+        'A atualização foi interrompida.\n\n' +
+          String(
+            erro?.message || erro
+          ) +
+          '\n\nOs embarques já processados permanecem atualizados.'
+      )
+
+      await carregar()
+    } finally {
+      setAtualizandoTodosRastreios(
+        false
+      )
+
+      setProgressoTodosRastreios(
+        ''
+      )
     }
   }
 
@@ -2591,6 +3012,22 @@ export default function EmbarquesPage() {
           <h2 className="text-2xl font-black">Embarques cadastrados</h2>
 
           <div className="flex flex-wrap gap-3">
+
+            <button
+              type="button"
+              onClick={
+                atualizarTodosRastreiosAtivos
+              }
+              disabled={
+                atualizandoTodosRastreios
+              }
+              className="bg-purple-700 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 rounded-xl font-bold"
+            >
+              {atualizandoTodosRastreios
+                ? `🔄 ${progressoTodosRastreios || 'Atualizando...'}`
+                : '🔄 Atualizar todos os rastreios'}
+            </button>
+
             <button
               type="button"
               onClick={gerarRelatorioEmbarques}
