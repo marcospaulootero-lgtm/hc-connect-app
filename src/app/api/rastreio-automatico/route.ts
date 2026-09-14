@@ -91,16 +91,52 @@ async function registrarFalhaGeral(erro: any) {
   }
 }
 
-async function processarRastreios(origem: string, cronSecret: string) {
-  const { data: embarques, error } = await supabase
+async function processarRastreios(
+  origem: string,
+  cronSecret: string,
+  somenteAguardandoColeta = false
+) {
+  let consulta = supabase
     .from('embarques')
-    .select('id, awb, transportadora, status_operacional, proxima_tentativa_rastreio, ultima_atualizacao')
+    .select(
+      'id, awb, transportadora, status_operacional, proxima_tentativa_rastreio, ultima_atualizacao'
+    )
     .not('awb', 'is', null)
     .not('awb', 'ilike', 'AGUARDANDO AWB%')
-    .not('status_operacional', 'eq', 'Entregue')
-    .not('status_operacional', 'eq', 'Finalizado')
-    .not('status_operacional', 'eq', 'Cancelado')
-    .order('ultima_atualizacao', { ascending: true })
+    .or(
+      'arquivado_admin.is.null,arquivado_admin.eq.false'
+    )
+    .not(
+      'status_operacional',
+      'eq',
+      'Entregue'
+    )
+    .not(
+      'status_operacional',
+      'eq',
+      'Finalizado'
+    )
+    .not(
+      'status_operacional',
+      'eq',
+      'Cancelado'
+    )
+    .order(
+      'ultima_atualizacao',
+      { ascending: true }
+    )
+
+  if (somenteAguardandoColeta) {
+    consulta = consulta.eq(
+      'status_operacional',
+      'Aguardando coleta'
+    )
+  }
+
+  const {
+    data: embarques,
+    error,
+  } = await consulta
 
   if (error) {
     throw new Error(`Erro ao buscar embarques: ${error.message}`)
@@ -258,6 +294,9 @@ async function processarRastreios(origem: string, cronSecret: string) {
 
   console.log('Rastreio automático concluído.', {
     motor: '/api/rastreio',
+    modo: somenteAguardandoColeta
+      ? 'RECUPERACAO_AGUARDANDO_COLETA'
+      : 'NORMAL',
     dhl_selecionados: filaDhl.length,
     fedex_selecionados: filaFedEx.length,
     total_processado: resultados.length,
@@ -275,14 +314,22 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
     }
 
-    const origem = new URL(req.url).origin
+    const url = new URL(req.url)
+    const origem = url.origin
+
+    const somenteAguardandoColeta =
+      url.searchParams.get('recuperar') === '1'
 
     // O Supabase pg_net aceita no máximo 5 s de timeout.
     // Respondemos imediatamente e mantemos o lote vivo com after(),
     // que é a API oficial do Next.js para trabalho pós-resposta.
     after(async () => {
       try {
-        await processarRastreios(origem, cronSecret)
+        await processarRastreios(
+          origem,
+          cronSecret,
+          somenteAguardandoColeta
+        )
       } catch (erro: any) {
         console.error('Erro no processamento do rastreio automático:', erro)
         await registrarFalhaGeral(erro)
@@ -294,7 +341,12 @@ export async function GET(req: Request) {
         sucesso: true,
         aceito: true,
         motor: '/api/rastreio',
-        mensagem: 'Rastreio automático iniciado em segundo plano.',
+        modo: somenteAguardandoColeta
+          ? 'RECUPERACAO_AGUARDANDO_COLETA'
+          : 'NORMAL',
+        mensagem: somenteAguardandoColeta
+          ? 'Recuperação dos embarques em Aguardando coleta iniciada em segundo plano.'
+          : 'Rastreio automático iniciado em segundo plano.',
       },
       { status: 202 }
     )
