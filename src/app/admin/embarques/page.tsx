@@ -561,6 +561,23 @@ export default function EmbarquesPage() {
       return { chave: 'SEGURO', nome: 'SEGURO' }
     }
 
+    if (
+      base === 'IMPOSTOS NO DESTINO' ||
+      base === 'IMPOSTOS DESTINO' ||
+      base === 'DESTINATION TAXES' ||
+      base === 'DESTINATION TAX'
+    ) {
+      return { chave: 'IMPOSTOS', nome: 'IMPOSTOS' }
+    }
+
+    if (
+      base === 'EMISSAO DE DUE' ||
+      base === 'DUE' ||
+      base === 'DUE / DRE'
+    ) {
+      return { chave: 'DUE / DRE', nome: 'DUE / DRE' }
+    }
+
     return { chave: base, nome: nomeExibicao }
   }
 
@@ -627,26 +644,109 @@ export default function EmbarquesPage() {
     )
   }
 
-  function atualizarItemFinanceiro(lista: any, nome: string, marcado: boolean) {
+  function moedaItemFinanceiroPorNome(
+    lista: any,
+    nome: string,
+    moedaPadrao = 'USD'
+  ) {
+    const chave = chaveServicoFinanceiro(nome).chave
+
+    const encontrado = servicosFinanceirosLista(lista).find(
+      (item) =>
+        chaveServicoFinanceiro(item.nome).chave === chave
+    )
+
+    return (
+      moedaItemFinanceiro(
+        encontrado,
+        moedaPadrao
+      ) ||
+      String(moedaPadrao || 'USD').toUpperCase()
+    )
+  }
+
+  function atualizarItemFinanceiro(
+    lista: any,
+    nome: string,
+    marcado: boolean,
+    moedaPadrao = 'USD'
+  ) {
     const atual = servicosFinanceirosLista(lista)
     const chave = chaveServicoFinanceiro(nome).chave
 
     if (marcado) {
-      if (atual.some((item) => chaveServicoFinanceiro(item.nome).chave === chave)) return atual
-      return [...atual, { nome, valor: '' }]
+      if (
+        atual.some(
+          (item) =>
+            chaveServicoFinanceiro(item.nome).chave === chave
+        )
+      ) {
+        return atual
+      }
+
+      return [
+        ...atual,
+        {
+          nome,
+          valor: '',
+          moeda: String(
+            moedaPadrao || 'USD'
+          ).toUpperCase(),
+        },
+      ]
     }
 
-    return atual.filter((item) => chaveServicoFinanceiro(item.nome).chave !== chave)
+    return atual.filter(
+      (item) =>
+        chaveServicoFinanceiro(item.nome).chave !== chave
+    )
   }
 
-  function alterarValorItemFinanceiro(lista: any, nome: string, valor: string) {
-    const valorFormatado = formatarEntradaValorBR(valor)
-    const chave = chaveServicoFinanceiro(nome).chave
+  function alterarValorItemFinanceiro(
+    lista: any,
+    nome: string,
+    valor: string
+  ) {
+    const valorFormatado =
+      formatarEntradaValorBR(valor)
 
-    return servicosFinanceirosLista(lista).map((item) =>
-      chaveServicoFinanceiro(item.nome).chave === chave
-        ? { ...item, nome, valor: valorFormatado }
-        : item
+    const chave =
+      chaveServicoFinanceiro(nome).chave
+
+    return servicosFinanceirosLista(lista).map(
+      (item) =>
+        chaveServicoFinanceiro(item.nome).chave === chave
+          ? {
+              ...item,
+              nome,
+              valor: valorFormatado,
+            }
+          : item
+    )
+  }
+
+  function alterarMoedaItemFinanceiro(
+    lista: any,
+    nome: string,
+    novaMoeda: string
+  ) {
+    const chave =
+      chaveServicoFinanceiro(nome).chave
+
+    const moedaNova =
+      String(novaMoeda || 'USD')
+        .trim()
+        .toUpperCase()
+
+    return servicosFinanceirosLista(lista).map(
+      (item) =>
+        chaveServicoFinanceiro(item.nome).chave === chave
+          ? {
+              ...item,
+              nome,
+              moeda: moedaNova,
+            }
+          : item
     )
   }
 
@@ -2337,7 +2437,7 @@ export default function EmbarquesPage() {
             </p>
           </div>
 
-          <Campo label="Moeda principal / padrão">
+          <Campo label="Moeda padrão para novos itens">
             <select
               value={form.moeda_cobranca}
               onChange={(e) => setForm({ ...form, moeda_cobranca: e.target.value })}
@@ -2366,7 +2466,8 @@ export default function EmbarquesPage() {
                       servicos_financeiros: atualizarItemFinanceiro(
                         form.servicos_financeiros,
                         item,
-                        !selecionado
+                        !selecionado,
+                        form.moeda_cobranca || 'USD'
                       ),
                     })
                   }}
@@ -2378,7 +2479,8 @@ export default function EmbarquesPage() {
                       servicos_financeiros: atualizarItemFinanceiro(
                         form.servicos_financeiros,
                         item,
-                        !selecionado
+                        !selecionado,
+                        form.moeda_cobranca || 'USD'
                       ),
                     })
                   }}
@@ -2407,22 +2509,55 @@ export default function EmbarquesPage() {
                   </label>
 
                   {selecionado && (
-                    <input
-                      value={valorItemFinanceiro(form.servicos_financeiros, item)}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          servicos_financeiros: alterarValorItemFinanceiro(
-                            form.servicos_financeiros,
-                            item,
-                            e.target.value
-                          ),
-                        })
-                      }
-                      placeholder={item === 'DESCONTO' ? 'Valor do desconto' : 'Valor'}
-                      inputMode="decimal"
-                      className="mt-3"
-                    />
+                    <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 mt-3">
+                      <input
+                        value={valorItemFinanceiro(
+                          form.servicos_financeiros,
+                          item
+                        )}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            servicos_financeiros:
+                              alterarValorItemFinanceiro(
+                                form.servicos_financeiros,
+                                item,
+                                e.target.value
+                              ),
+                          })
+                        }
+                        placeholder={
+                          item === 'DESCONTO'
+                            ? 'Valor do desconto'
+                            : 'Valor'
+                        }
+                        inputMode="decimal"
+                      />
+
+                      <select
+                        value={moedaItemFinanceiroPorNome(
+                          form.servicos_financeiros,
+                          item,
+                          form.moeda_cobranca || 'USD'
+                        )}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            servicos_financeiros:
+                              alterarMoedaItemFinanceiro(
+                                form.servicos_financeiros,
+                                item,
+                                e.target.value
+                              ),
+                          })
+                        }
+                        title="Moeda deste serviço"
+                      >
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="BRL">BRL</option>
+                      </select>
+                    </div>
                   )}
                 </div>
               )
@@ -2852,7 +2987,7 @@ export default function EmbarquesPage() {
                       </p>
                     </div>
 
-                    <Campo label="Moeda principal / padrão">
+                    <Campo label="Moeda padrão para novos itens">
                       <select
                         value={editForm.moeda_cobranca}
                         onChange={(e) =>
@@ -2886,7 +3021,8 @@ export default function EmbarquesPage() {
                                 servicos_financeiros: atualizarItemFinanceiro(
                                   editForm.servicos_financeiros,
                                   item,
-                                  !selecionado
+                                  !selecionado,
+                                  editForm.moeda_cobranca || 'USD'
                                 ),
                               })
                             }}
@@ -2898,7 +3034,8 @@ export default function EmbarquesPage() {
                                 servicos_financeiros: atualizarItemFinanceiro(
                                   editForm.servicos_financeiros,
                                   item,
-                                  !selecionado
+                                  !selecionado,
+                                  editForm.moeda_cobranca || 'USD'
                                 ),
                               })
                             }}
@@ -2927,22 +3064,55 @@ export default function EmbarquesPage() {
                             </label>
 
                             {selecionado && (
-                              <input
-                                value={valorItemFinanceiro(editForm.servicos_financeiros, item)}
-                                onChange={(e) =>
-                                  setEditForm({
-                                    ...editForm,
-                                    servicos_financeiros: alterarValorItemFinanceiro(
-                                      editForm.servicos_financeiros,
-                                      item,
-                                      e.target.value
-                                    ),
-                                  })
-                                }
-                                placeholder={item === 'DESCONTO' ? 'Valor do desconto' : 'Valor'}
-                                inputMode="decimal"
-                                className="mt-3"
-                              />
+                              <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 mt-3">
+                                <input
+                                  value={valorItemFinanceiro(
+                                    editForm.servicos_financeiros,
+                                    item
+                                  )}
+                                  onChange={(e) =>
+                                    setEditForm({
+                                      ...editForm,
+                                      servicos_financeiros:
+                                        alterarValorItemFinanceiro(
+                                          editForm.servicos_financeiros,
+                                          item,
+                                          e.target.value
+                                        ),
+                                    })
+                                  }
+                                  placeholder={
+                                    item === 'DESCONTO'
+                                      ? 'Valor do desconto'
+                                      : 'Valor'
+                                  }
+                                  inputMode="decimal"
+                                />
+
+                                <select
+                                  value={moedaItemFinanceiroPorNome(
+                                    editForm.servicos_financeiros,
+                                    item,
+                                    editForm.moeda_cobranca || 'USD'
+                                  )}
+                                  onChange={(e) =>
+                                    setEditForm({
+                                      ...editForm,
+                                      servicos_financeiros:
+                                        alterarMoedaItemFinanceiro(
+                                          editForm.servicos_financeiros,
+                                          item,
+                                          e.target.value
+                                        ),
+                                    })
+                                  }
+                                  title="Moeda deste serviço"
+                                >
+                                  <option value="USD">USD</option>
+                                  <option value="EUR">EUR</option>
+                                  <option value="BRL">BRL</option>
+                                </select>
+                              </div>
                             )}
                           </div>
                         )
