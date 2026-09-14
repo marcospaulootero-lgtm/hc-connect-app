@@ -149,7 +149,16 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
     )
   }
 
-  const shipment = data?.shipments?.[0]
+  const shipmentsDhl =
+    Array.isArray(data?.shipments)
+      ? data.shipments
+      : []
+
+  const shipment =
+    selecionarShipmentDhlPorEmbarque(
+      shipmentsDhl,
+      embarque
+    )
 
   if (!shipment) {
     return NextResponse.json(
@@ -467,6 +476,247 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
 
 function normalizarAwb(valor: any) {
   return String(valor || '').replace(/\D/g, '')
+}
+
+function timestampDhlSeguro(
+  valor: any
+) {
+  if (!valor) {
+    return null
+  }
+
+  const timestamp =
+    new Date(valor).getTime()
+
+  return Number.isFinite(timestamp)
+    ? timestamp
+    : null
+}
+
+function intervaloShipmentDhl(
+  shipment: any
+) {
+  const eventos =
+    Array.isArray(
+      shipment?.events
+    )
+      ? shipment.events
+      : []
+
+  const timestamps =
+    [
+      shipment?.status?.timestamp,
+
+      ...eventos.map(
+        (evento: any) =>
+          evento?.timestamp
+      ),
+    ]
+      .map(timestampDhlSeguro)
+      .filter(
+        (
+          valor
+        ): valor is number =>
+          typeof valor === 'number'
+      )
+
+  if (
+    timestamps.length === 0
+  ) {
+    return {
+      inicio: null,
+      fim: null,
+    }
+  }
+
+  return {
+    inicio: Math.min(
+      ...timestamps
+    ),
+
+    fim: Math.max(
+      ...timestamps
+    ),
+  }
+}
+
+function selecionarShipmentDhlPorEmbarque(
+  shipments: any[],
+  embarque: any
+) {
+  if (
+    !Array.isArray(shipments) ||
+    shipments.length === 0
+  ) {
+    return null
+  }
+
+  if (shipments.length === 1) {
+    return shipments[0]
+  }
+
+  /*
+    A DHL pode reutilizar um tracking number.
+
+    Portanto, nunca devemos assumir que
+    shipments[0] pertence ao processo atual.
+
+    Primeiro tentamos relacionar a remessa
+    com a data real do embarque no HC.
+  */
+  const referencia =
+    timestampDhlSeguro(
+      embarque?.data_envio
+    ) ??
+    timestampDhlSeguro(
+      embarque?.criado_em
+    ) ??
+    timestampDhlSeguro(
+      embarque?.created_at
+    )
+
+  const candidatos =
+    shipments.map(
+      (
+        shipment: any,
+        indice: number
+      ) => {
+        const intervalo =
+          intervaloShipmentDhl(
+            shipment
+          )
+
+        return {
+          shipment,
+          indice,
+
+          inicio:
+            intervalo.inicio,
+
+          fim:
+            intervalo.fim,
+        }
+      }
+    )
+
+  if (referencia !== null) {
+    const referenciaSegura: number =
+      referencia
+
+    function distancia(
+      candidato: any
+    ) {
+      if (
+        candidato.inicio === null ||
+        candidato.fim === null
+      ) {
+        return Number.MAX_SAFE_INTEGER
+      }
+
+      /*
+        A data do nosso embarque está dentro
+        da própria timeline DHL.
+      */
+      if (
+        referenciaSegura >= candidato.inicio &&
+        referenciaSegura <= candidato.fim
+      ) {
+        return 0
+      }
+
+      if (
+        referenciaSegura < candidato.inicio
+      ) {
+        return (
+          candidato.inicio - referenciaSegura
+        )
+      }
+
+      return (
+        referenciaSegura - candidato.fim
+      )
+    }
+
+    candidatos.sort(
+      (a: any, b: any) => {
+        const diferenca =
+          distancia(a) -
+          distancia(b)
+
+        if (diferenca !== 0) {
+          return diferenca
+        }
+
+        /*
+          Empate:
+          prefere a timeline mais recente.
+        */
+        return (
+          (b.fim || 0) -
+          (a.fim || 0)
+        )
+      }
+    )
+
+    const escolhido =
+      candidatos[0]
+
+    console.log(
+      'DHL shipment selecionado',
+      {
+        awb:
+          embarque?.awb ||
+          null,
+
+        quantidade_retornada:
+          shipments.length,
+
+        referencia_embarque:
+          embarque?.data_envio ||
+          embarque?.criado_em ||
+          embarque?.created_at ||
+          null,
+
+        shipment_indice:
+          escolhido?.indice,
+
+        inicio_timeline:
+          escolhido?.inicio
+            ? new Date(
+                escolhido.inicio
+              ).toISOString()
+            : null,
+
+        fim_timeline:
+          escolhido?.fim
+            ? new Date(
+                escolhido.fim
+              ).toISOString()
+            : null,
+      }
+    )
+
+    return (
+      escolhido?.shipment ||
+      shipments[0]
+    )
+  }
+
+  /*
+    Em processo antigo sem data de referência,
+    escolhe a remessa cuja timeline é mais recente.
+  */
+  candidatos.sort(
+    (a: any, b: any) =>
+      (b.fim || 0) -
+      (a.fim || 0)
+  )
+
+  return (
+    candidatos[0]
+      ?.shipment ||
+    shipments[0]
+  )
 }
 
 function eventoMaisRecenteDHL(eventos: any[]) {
