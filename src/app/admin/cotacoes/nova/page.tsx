@@ -391,6 +391,7 @@ export default function NovaCotacaoManualPage() {
     validade: '7 dias',
     moeda: 'USD',
     valor_mercadoria: '',
+    pesoTaxadoManualAgente: '',
     incoterm: 'EXW',
     percentualSeguro: '0.60',
     seguroMinimo: '13.20',
@@ -595,15 +596,52 @@ export default function NovaCotacaoManualPage() {
     const quantidadeVolumes = volumesCalculados.reduce((acc, item) => acc + item.quantidade, 0)
     const pesoReal = volumesCalculados.reduce((acc, item) => acc + item.pesoRealTotal, 0)
     const pesoDimensional = volumesCalculados.reduce((acc, item) => acc + item.pesoDimensionalTotal, 0)
-    const pesoTaxado = volumesCalculados.reduce((acc, item) => acc + item.maiorPesoTotal, 0)
+    const pesoTaxadoAutomaticoBruto = volumesCalculados.reduce((acc, item) => acc + item.maiorPesoTotal, 0)
+
+    const pesoTaxadoAutomatico =
+      arredondarMeioKg(
+        pesoTaxadoAutomaticoBruto
+      )
+
+    const pesoTaxadoManual =
+      usarCamposAgente
+        ? numero(
+            form.pesoTaxadoManualAgente
+          )
+        : 0
+
+    const pesoTaxadoFinal =
+      pesoTaxadoManual > 0
+        ? pesoTaxadoManual
+        : pesoTaxadoAutomatico
 
     return {
       quantidadeVolumes,
-      pesoReal: arredondarMeioKg(pesoReal),
-      pesoDimensional: arredondarMeioKg(pesoDimensional),
-      pesoTaxado: arredondarMeioKg(pesoTaxado),
+
+      pesoReal:
+        arredondarMeioKg(
+          pesoReal
+        ),
+
+      pesoDimensional:
+        arredondarMeioKg(
+          pesoDimensional
+        ),
+
+      pesoTaxado:
+        pesoTaxadoFinal,
+
+      pesoTaxadoAutomatico,
+
+      pesoTaxadoManualAtivo:
+        usarCamposAgente &&
+        pesoTaxadoManual > 0,
     }
-  }, [volumesCalculados])
+  }, [
+    volumesCalculados,
+    usarCamposAgente,
+    form.pesoTaxadoManualAgente,
+  ])
 const valores = useMemo(() => {
     const valorMercadoria = numero(form.valor_mercadoria)
     const percentualSeguro = numero(form.percentualSeguro)
@@ -1466,6 +1504,54 @@ const totaisAgenteMoedaTela = useMemo(() => {
           <Resumo titulo="Peso real" valor={kg(resumo.pesoReal)} />
           <Resumo titulo="Peso dimensional" valor={kg(resumo.pesoDimensional)} />
           <Resumo titulo="Peso taxado" valor={kg(resumo.pesoTaxado)} />
+
+          {usarCamposAgente && (
+            <div className="rounded-2xl border border-amber-700/70 bg-amber-950/10 p-4">
+              <label className="block">
+                <span className="block text-xs font-black uppercase tracking-widest text-amber-300">
+                  Peso taxado manual
+                </span>
+
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={
+                      form.pesoTaxadoManualAgente
+                    }
+                    onChange={(e) =>
+                      atualizarCampo(
+                        'pesoTaxadoManualAgente',
+                        e.target.value
+                      )
+                    }
+                    placeholder={
+                      String(
+                        resumo.pesoTaxadoAutomatico
+                      )
+                    }
+                    className="w-full"
+                  />
+
+                  <span className="font-black text-slate-300">
+                    kg
+                  </span>
+                </div>
+
+                <p className="mt-2 text-xs font-semibold text-slate-500">
+                  Automático: {kg(resumo.pesoTaxadoAutomatico)}.
+                  Deixe em branco para usar o cálculo automático.
+                </p>
+
+                {resumo.pesoTaxadoManualAtivo && (
+                  <p className="mt-1 text-xs font-black text-amber-300">
+                    Peso manual aplicado nesta cotação.
+                  </p>
+                )}
+              </label>
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
