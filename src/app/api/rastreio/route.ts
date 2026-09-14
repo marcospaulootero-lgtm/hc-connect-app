@@ -181,9 +181,32 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
     eventoAtual?.timestamp ||
     new Date().toISOString()
 
-  // O status operacional deve refletir o estado ATUAL da transportadora.
-  // O histórico completo continua sendo usado apenas para localizar a coleta física.
+  /*
+    Entregue é status terminal.
+
+    Para os demais estados usamos o status ATUAL da DHL,
+    evitando que eventos antigos de fiscalização/liberação
+    contaminem o estado operacional atual.
+
+    Porém, se existir uma entrega confirmada no histórico,
+    ela não pode ser ignorada mesmo que o resumo atual da
+    API não traga a descrição de entrega.
+  */
+  const eventoEntregaDhl = eventos.find((evento: any) => {
+    const texto = removerAcentos(
+      `${evento?.description || ''} ${evento?.status || ''} ${evento?.statusCode || ''} ${evento?.typeCode || ''}`
+    )
+
+    return ehEntregue(texto)
+  })
+
+  const entregaConfirmadaDhl =
+    Boolean(eventoEntregaDhl)
+
   const textosStatus = [
+    entregaConfirmadaDhl
+      ? 'delivered'
+      : null,
     shipment?.status?.description,
     shipment?.status?.status,
     shipment?.status?.statusCode,
@@ -195,10 +218,27 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
     embarque,
     awb,
     transportadora: 'DHL',
-    status: textosStatus.filter(Boolean).join(' | ') || descricao,
-    descricao,
-    local,
-    dataEvento,
+    status:
+      textosStatus.filter(Boolean).join(' | ') ||
+      descricao,
+
+    descricao:
+      entregaConfirmadaDhl
+        ? 'Envio entregue'
+        : descricao,
+
+    local:
+      entregaConfirmadaDhl
+        ? eventoEntregaDhl?.location?.address?.addressLocality ||
+          local
+        : local,
+
+    dataEvento:
+      entregaConfirmadaDhl
+        ? eventoEntregaDhl?.timestamp ||
+          dataEvento
+        : dataEvento,
+
     dataColeta,
     avisoValidacao,
   })
@@ -208,9 +248,24 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
     transportadora: 'DHL',
     awb,
     status: statusNormalizado,
-    descricao,
-    local,
-    data_evento: dataEvento,
+
+    descricao:
+      entregaConfirmadaDhl
+        ? 'Envio entregue'
+        : descricao,
+
+    local:
+      entregaConfirmadaDhl
+        ? eventoEntregaDhl?.location?.address?.addressLocality ||
+          local
+        : local,
+
+    data_evento:
+      entregaConfirmadaDhl
+        ? eventoEntregaDhl?.timestamp ||
+          dataEvento
+        : dataEvento,
+
     data_coleta: dataColeta,
     aviso: avisoValidacao || null,
   })
@@ -321,9 +376,26 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
     resultado?.dateAndTimes?.[0]?.dateTime ||
     new Date().toISOString()
 
-  // Não misturar eventos antigos na decisão do status atual.
-  // O histórico continua disponível para detectar a coleta física.
+  /*
+    Mesma proteção terminal usada na DHL:
+    eventos antigos não definem o status atual,
+    exceto quando comprovam ENTREGA.
+  */
+  const eventoEntregaFedEx = eventos.find((evento: any) => {
+    const texto = removerAcentos(
+      `${evento?.eventDescription || ''} ${evento?.eventType || ''} ${evento?.derivedStatus || ''}`
+    )
+
+    return ehEntregue(texto)
+  })
+
+  const entregaConfirmadaFedEx =
+    Boolean(eventoEntregaFedEx)
+
   const textosStatus = [
+    entregaConfirmadaFedEx
+      ? 'delivered'
+      : null,
     resultado?.latestStatusDetail?.description,
     resultado?.latestStatusDetail?.code,
     resultado?.latestStatusDetail?.ancillaryDetails?.[0]?.reason,
@@ -339,10 +411,28 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
     embarque,
     awb,
     transportadora: 'FEDEX',
-    status: textosStatus.filter(Boolean).join(' | ') || descricao,
-    descricao,
-    local,
-    dataEvento,
+
+    status:
+      textosStatus.filter(Boolean).join(' | ') ||
+      descricao,
+
+    descricao:
+      entregaConfirmadaFedEx
+        ? 'Envio entregue'
+        : descricao,
+
+    local:
+      entregaConfirmadaFedEx
+        ? eventoEntregaFedEx?.scanLocation?.city ||
+          local
+        : local,
+
+    dataEvento:
+      entregaConfirmadaFedEx
+        ? eventoEntregaFedEx?.date ||
+          dataEvento
+        : dataEvento,
+
     dataColeta,
     avisoValidacao,
   })
@@ -352,9 +442,24 @@ async function rastrearFedEx(embarque: any, awb: string, avisoValidacao = '') {
     transportadora: 'FEDEX',
     awb,
     status: statusNormalizado,
-    descricao,
-    local,
-    data_evento: dataEvento,
+
+    descricao:
+      entregaConfirmadaFedEx
+        ? 'Envio entregue'
+        : descricao,
+
+    local:
+      entregaConfirmadaFedEx
+        ? eventoEntregaFedEx?.scanLocation?.city ||
+          local
+        : local,
+
+    data_evento:
+      entregaConfirmadaFedEx
+        ? eventoEntregaFedEx?.date ||
+          dataEvento
+        : dataEvento,
+
     data_coleta: dataColeta,
     aviso: avisoValidacao || null,
   })
