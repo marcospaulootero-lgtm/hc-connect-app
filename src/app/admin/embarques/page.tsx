@@ -9,6 +9,7 @@ import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 type ServicoFinanceiroEmbarque = {
   nome: string
   valor: string
+  moeda?: string
 }
 
 const SERVICOS_OPERACIONAIS = [
@@ -563,24 +564,47 @@ export default function EmbarquesPage() {
     return { chave: base, nome: nomeExibicao }
   }
 
+  function moedaItemFinanceiro(item: any, moedaPadrao = '') {
+    const explicita = String(item?.moeda || '').trim().toUpperCase()
+    if (explicita) return explicita
+
+    const encontradaNoNome = String(item?.nome || '')
+      .trim()
+      .match(/\(([A-Z]{3})\)\s*$/i)?.[1]
+
+    return String(encontradaNoNome || moedaPadrao || '')
+      .trim()
+      .toUpperCase()
+  }
+
+  function nomeItemFinanceiro(item: any) {
+    return String(item?.nome || '')
+      .replace(/\s*\(([A-Z]{3})\)\s*$/i, '')
+      .trim()
+  }
+
   function servicosFinanceirosLista(lista: any): ServicoFinanceiroEmbarque[] {
     if (!Array.isArray(lista)) return []
 
     const itens = new Map<string, ServicoFinanceiroEmbarque>()
 
     for (const item of lista) {
-      const nomeOriginal = String(item?.nome || '')
-      if (!nomeOriginal.trim()) continue
+      const nomeOriginal = nomeItemFinanceiro(item)
+      if (!nomeOriginal) continue
 
       const canonico = chaveServicoFinanceiro(nomeOriginal)
-      if (!canonico.chave || itens.has(canonico.chave)) continue
+      const moedaItem = moedaItemFinanceiro(item)
+      const chaveItem = `${canonico.chave}|${moedaItem || 'PADRAO'}`
 
-      itens.set(canonico.chave, {
+      if (!canonico.chave || itens.has(chaveItem)) continue
+
+      itens.set(chaveItem, {
         nome: canonico.nome,
         valor:
           item?.valor === null || item?.valor === undefined || item?.valor === ''
             ? ''
             : formatarEntradaValorBR(item.valor),
+        ...(moedaItem ? { moeda: moedaItem } : {}),
       })
     }
 
@@ -634,12 +658,45 @@ export default function EmbarquesPage() {
     return valorServico || numeroFinanceiro(item?.valor_adicional_peso)
   }
 
-  function totalServicosFinanceiros(lista: any) {
-    return servicosFinanceirosLista(lista).reduce((acc, item) => {
+  function totaisServicosFinanceirosPorMoeda(
+    lista: any,
+    moedaPadrao = 'USD'
+  ) {
+    const totais: Record<string, number> = {}
+
+    for (const item of servicosFinanceirosLista(lista)) {
+      const moedaItem =
+        moedaItemFinanceiro(item, moedaPadrao) ||
+        String(moedaPadrao || 'USD').toUpperCase()
+
       const valor = numeroFinanceiro(item.valor)
       const sinal = item.nome === 'DESCONTO' ? -1 : 1
-      return acc + valor * sinal
-    }, 0)
+
+      totais[moedaItem] =
+        (totais[moedaItem] || 0) + valor * sinal
+    }
+
+    return totais
+  }
+
+  function totalServicosFinanceirosNaMoeda(
+    lista: any,
+    moedaPadrao = 'USD'
+  ) {
+    const moedaAlvo = String(moedaPadrao || 'USD').toUpperCase()
+    return totaisServicosFinanceirosPorMoeda(lista, moedaAlvo)[moedaAlvo] || 0
+  }
+
+  function resumoTotaisServicosFinanceiros(
+    lista: any,
+    moedaPadrao = 'USD'
+  ) {
+    const totais = totaisServicosFinanceirosPorMoeda(lista, moedaPadrao)
+
+    return Object.entries(totais)
+      .filter(([, total]) => Math.abs(Number(total || 0)) > 0.0001)
+      .map(([codigo, total]) => moeda(total, codigo))
+      .join(' + ')
   }
 
   function quantidadeServicosFinanceiros(lista: any) {
@@ -979,7 +1036,10 @@ export default function EmbarquesPage() {
         (usuario) => String(usuario.id) === String(primeiroClienteId)
       )
       const servicosFinanceiros = servicosFinanceirosLista(item.servicos_financeiros)
-      const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
+      const totalFinanceiro = totalServicosFinanceirosNaMoeda(
+        servicosFinanceiros,
+        item.moeda_cobranca || 'USD'
+      )
       const agora = new Date().toISOString()
 
       const payloadNovoEmbarque: any = {
@@ -1127,7 +1187,10 @@ export default function EmbarquesPage() {
 
       const responsavelId = form.responsavel_id || user.id
       const servicosFinanceiros = servicosFinanceirosLista(form.servicos_financeiros)
-      const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
+      const totalFinanceiro = totalServicosFinanceirosNaMoeda(
+        servicosFinanceiros,
+        form.moeda_cobranca || 'USD'
+      )
 
       const { data, error } = await supabase
         .from('embarques')
@@ -1293,7 +1356,10 @@ export default function EmbarquesPage() {
     )
 
     const servicosFinanceiros = servicosFinanceirosLista(editForm.servicos_financeiros)
-    const totalFinanceiro = totalServicosFinanceiros(servicosFinanceiros)
+    const totalFinanceiro = totalServicosFinanceirosNaMoeda(
+      servicosFinanceiros,
+      editForm.moeda_cobranca || 'USD'
+    )
     const awbNovoValido = awbValidoParaRastreio(editForm.awb)
     const awbOriginalPendente = awbPendente(editForm.awb_original)
     const awbSalvar =
@@ -2271,7 +2337,7 @@ export default function EmbarquesPage() {
             </p>
           </div>
 
-          <Campo label="Moeda dos serviços">
+          <Campo label="Moeda principal / padrão">
             <select
               value={form.moeda_cobranca}
               onChange={(e) => setForm({ ...form, moeda_cobranca: e.target.value })}
@@ -2366,7 +2432,7 @@ export default function EmbarquesPage() {
           <div className="md:col-span-5 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
             <p className="text-slate-400 text-sm font-bold">Total cobrado do cliente</p>
             <h3 className="text-3xl font-black text-green-400 mt-2">
-              {moeda(totalServicosFinanceiros(form.servicos_financeiros), form.moeda_cobranca || 'USD')}
+              {resumoTotaisServicosFinanceiros(form.servicos_financeiros, form.moeda_cobranca || 'USD') || moeda(0, form.moeda_cobranca || 'USD')}
             </h3>
             <p className="text-slate-500 text-xs mt-1">
               {quantidadeServicosFinanceiros(form.servicos_financeiros)} item(ns) selecionado(s). Desconto entra abatendo do total.
@@ -2786,7 +2852,7 @@ export default function EmbarquesPage() {
                       </p>
                     </div>
 
-                    <Campo label="Moeda dos serviços">
+                    <Campo label="Moeda principal / padrão">
                       <select
                         value={editForm.moeda_cobranca}
                         onChange={(e) =>
@@ -2886,7 +2952,7 @@ export default function EmbarquesPage() {
                     <div className="md:col-span-3 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
                       <p className="text-slate-400 text-sm font-bold">Total cobrado do cliente</p>
                       <h3 className="text-3xl font-black text-green-400 mt-2">
-                        {moeda(totalServicosFinanceiros(editForm.servicos_financeiros), editForm.moeda_cobranca || 'USD')}
+                        {resumoTotaisServicosFinanceiros(editForm.servicos_financeiros, editForm.moeda_cobranca || 'USD') || moeda(0, editForm.moeda_cobranca || 'USD')}
                       </h3>
                     </div>
 

@@ -9,6 +9,7 @@ import { numeroValorBR } from '@/lib/valorContabil'
 type ServicoFinanceiroEmbarque = {
   nome: string
   valor: string
+  moeda?: string
 }
 
 function awbPendente(valor: any) {
@@ -461,34 +462,86 @@ export default function DetalheEmbarquePage() {
     return { chave: base, nome: base }
   }
 
+  function moedaItemFinanceiro(item: any, moedaPadrao = '') {
+    const explicita = String(item?.moeda || '').trim().toUpperCase()
+    if (explicita) return explicita
+
+    const encontradaNoNome = String(item?.nome || '')
+      .trim()
+      .match(/\(([A-Z]{3})\)\s*$/i)?.[1]
+
+    return String(encontradaNoNome || moedaPadrao || '')
+      .trim()
+      .toUpperCase()
+  }
+
+  function nomeItemFinanceiro(item: any) {
+    return String(item?.nome || '')
+      .replace(/\s*\(([A-Z]{3})\)\s*$/i, '')
+      .trim()
+  }
+
   function servicosFinanceirosLista(lista: any): ServicoFinanceiroEmbarque[] {
     if (!Array.isArray(lista)) return []
 
     const itens = new Map<string, ServicoFinanceiroEmbarque>()
 
     for (const item of lista) {
-      const nomeOriginal = String(item?.nome || '')
-      if (!nomeOriginal.trim()) continue
+      const nomeOriginal = nomeItemFinanceiro(item)
+      if (!nomeOriginal) continue
 
       const canonico = chaveServicoFinanceiro(nomeOriginal)
-      if (!canonico.chave || itens.has(canonico.chave)) continue
+      const moedaItem = moedaItemFinanceiro(item)
+      const chaveItem = `${canonico.chave}|${moedaItem || 'PADRAO'}`
 
-      const valor = Math.round((numeroFinanceiro(item?.valor) + Number.EPSILON) * 100) / 100
-      itens.set(canonico.chave, {
+      if (!canonico.chave || itens.has(chaveItem)) continue
+
+      const valor =
+        Math.round(
+          (numeroFinanceiro(item?.valor) + Number.EPSILON) * 100
+        ) / 100
+
+      itens.set(chaveItem, {
         nome: canonico.nome,
         valor: String(valor),
+        ...(moedaItem ? { moeda: moedaItem } : {}),
       })
     }
 
     return Array.from(itens.values())
   }
 
-  function totalServicosFinanceiros(lista: any) {
-    return servicosFinanceirosLista(lista).reduce((acc, item) => {
+  function totaisServicosFinanceirosPorMoeda(
+    lista: any,
+    moedaPadrao = 'USD'
+  ) {
+    const totais: Record<string, number> = {}
+
+    for (const item of servicosFinanceirosLista(lista)) {
+      const moedaItem =
+        moedaItemFinanceiro(item, moedaPadrao) ||
+        String(moedaPadrao || 'USD').toUpperCase()
+
       const valor = numeroFinanceiro(item.valor)
       const sinal = item.nome === 'DESCONTO' ? -1 : 1
-      return acc + valor * sinal
-    }, 0)
+
+      totais[moedaItem] =
+        (totais[moedaItem] || 0) + valor * sinal
+    }
+
+    return totais
+  }
+
+  function resumoTotaisServicosFinanceiros(
+    lista: any,
+    moedaPadrao = 'USD'
+  ) {
+    return Object.entries(
+      totaisServicosFinanceirosPorMoeda(lista, moedaPadrao)
+    )
+      .filter(([, total]) => Math.abs(Number(total || 0)) > 0.0001)
+      .map(([codigo, total]) => moeda(total, codigo))
+      .join(' + ')
   }
 
   function quantidadeServicosFinanceiros(lista: any) {
@@ -763,11 +816,14 @@ export default function DetalheEmbarquePage() {
           <div className="border border-green-600/60 bg-green-600/10 rounded-3xl p-5 min-w-[260px]">
             <p className="text-slate-400 text-sm font-bold">Total do embarque</p>
             <h3 className="text-3xl font-black text-green-400 mt-2">
-              {moeda(
-                totalServicosFinanceiros(embarque.servicos_financeiros) ||
-                  embarque.valor_cobrado_cliente,
+              {resumoTotaisServicosFinanceiros(
+                embarque.servicos_financeiros,
                 embarque.moeda_cobranca || 'USD'
-              )}
+              ) ||
+                moeda(
+                  embarque.valor_cobrado_cliente,
+                  embarque.moeda_cobranca || 'USD'
+                )}
             </h3>
             <p className="text-slate-500 text-xs mt-1">
               {quantidadeServicosFinanceiros(embarque.servicos_financeiros)} item(ns) financeiro(s)
@@ -792,7 +848,7 @@ export default function DetalheEmbarquePage() {
 
               return (
                 <div
-                  key={item.nome}
+                  key={`${item.nome}-${item.moeda || embarque.moeda_cobranca || 'USD'}`}
                   className={`border rounded-2xl p-4 ${classeItemFinanceiro(item.nome)}`}
                 >
                   <p className="text-xs font-black uppercase tracking-wide opacity-80">
@@ -801,7 +857,7 @@ export default function DetalheEmbarquePage() {
                   <h4 className="font-black text-white mt-2 break-words">{item.nome}</h4>
                   <p className={desconto ? 'text-red-300 text-2xl font-black mt-3' : 'text-green-300 text-2xl font-black mt-3'}>
                     {desconto ? '- ' : '+ '}
-                    {moeda(valor, embarque.moeda_cobranca || 'USD')}
+                    {moeda(valor, item.moeda || embarque.moeda_cobranca || 'USD')}
                   </p>
                 </div>
               )

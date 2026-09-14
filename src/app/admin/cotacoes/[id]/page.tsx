@@ -286,12 +286,27 @@ export default function DetalheCotacaoAdminPage() {
 
     const seguro = arredondarValorFinanceiro(numero(dadosEmissor?.valores?.seguro) || 0)
 
-    const moedaSeguro =
-      String(
-        formEmissor?.moeda ||
-        cotacao?.moeda ||
-        'USD'
-      ).toUpperCase()
+    const moedaSeguroExistente = itens.find(
+      (item: any) =>
+        servicoFinanceiroCanonico(item.nome).chave === 'SEGURO' &&
+        item.moeda
+    )?.moeda
+
+    const moedaFreteReferencia = itens.find(
+      (item: any) =>
+        servicoFinanceiroCanonico(item.nome).chave === 'FRETE' &&
+        item.moeda
+    )?.moeda
+
+    const moedaSeguro = String(
+      moedaSeguroExistente ||
+      moedaFreteReferencia ||
+      formEmissor?.moeda ||
+      cotacao?.moeda ||
+      'USD'
+    )
+      .trim()
+      .toUpperCase()
 
     if (seguro > 0) {
       if (ehAgente) {
@@ -325,11 +340,6 @@ export default function DetalheCotacaoAdminPage() {
       new Set(itens.map((item: any) => item.moeda).filter(Boolean))
     )
 
-    const moedaPrincipal =
-      moedas.length === 1
-        ? moedas[0]
-        : String(formEmissor?.moeda || cotacao?.moeda || 'USD').toUpperCase()
-
     const totaisPorMoeda = itens.reduce<Record<string, number>>((acc, item: any) => {
       acc[item.moeda] = arredondarValorFinanceiro(
         (acc[item.moeda] || 0) + Number(item.valor || 0)
@@ -337,18 +347,43 @@ export default function DetalheCotacaoAdminPage() {
       return acc
     }, {})
 
-    const totalUnico = arredondarValorFinanceiro(
+    const totalInformado = arredondarValorFinanceiro(
+      numero(dadosEmissor?.valores?.total) || 0
+    )
+
+    const moedaDoTotalInformado = moedas.find((moedaAtual: any) =>
+      Math.abs(
+        Number(totaisPorMoeda[moedaAtual] || 0) - totalInformado
+      ) < 0.01
+    )
+
+    const moedaFretePrincipal = itens.find(
+      (item: any) =>
+        servicoFinanceiroCanonico(item.nome).chave === 'FRETE' &&
+        item.moeda
+    )?.moeda
+
+    const moedaPrincipal = String(
       moedas.length === 1
-        ? totaisPorMoeda[moedas[0]] || 0
-        : numero(dadosEmissor?.valores?.total) || 0
+        ? moedas[0]
+        : moedaDoTotalInformado ||
+          moedaFretePrincipal ||
+          moedas[0] ||
+          formEmissor?.moeda ||
+          cotacao?.moeda ||
+          'USD'
+    ).toUpperCase()
+
+    const totalUnico = arredondarValorFinanceiro(
+      Number(totaisPorMoeda[moedaPrincipal] || 0) ||
+        totalInformado ||
+        0
     )
 
     const servicosFinanceiros = itens.map((item: any) => ({
-      nome:
-        moedas.length > 1
-          ? `${normalizarTexto(item.nome)} (${item.moeda})`
-          : normalizarTexto(item.nome),
+      nome: normalizarTexto(item.nome),
       valor: String(arredondarValorFinanceiro(Number(item.valor || 0))),
+      moeda: String(item.moeda || moedaPrincipal || 'USD').toUpperCase(),
     }))
 
     const resumoMoedas = Object.entries(totaisPorMoeda)
