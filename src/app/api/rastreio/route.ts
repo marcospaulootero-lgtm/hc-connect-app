@@ -119,6 +119,237 @@ export async function POST(req: Request) {
   }
 }
 
+async function rastrearDhlPelaTimelineSalva(
+  embarque: any,
+  awb: string,
+  avisoValidacao = ''
+) {
+  /*
+    Nao consulta a DHL.
+
+    Usa somente a timeline da transportadora
+    ja armazenada em rastreios_embarques.
+  */
+
+  const {
+    data: eventosSalvos,
+    error: erroTimeline,
+  } = await supabase
+    .from('rastreios_embarques')
+    .select(
+      'id, awb, transportadora, status, descricao, localizacao, data_evento'
+    )
+    .eq(
+      'embarque_id',
+      embarque.id
+    )
+
+  if (erroTimeline) {
+    console.log(
+      'ERRO AO LER TIMELINE DHL SALVA:',
+      erroTimeline
+    )
+
+    return null
+  }
+
+  const eventos =
+    Array.isArray(eventosSalvos)
+      ? eventosSalvos
+          .filter((evento: any) => {
+            const transportadora =
+              removerAcentos(
+                String(
+                  evento?.transportadora || ''
+                )
+              ).toUpperCase()
+
+            return (
+              !transportadora ||
+              transportadora.includes('DHL')
+            )
+          })
+          .sort((a: any, b: any) => {
+            const dataA =
+              new Date(
+                a?.data_evento || 0
+              ).getTime()
+
+            const dataB =
+              new Date(
+                b?.data_evento || 0
+              ).getTime()
+
+            return dataB - dataA
+          })
+      : []
+
+  if (eventos.length === 0) {
+    console.log(
+      'DHL FALLBACK: nenhuma timeline salva para',
+      awb
+    )
+
+    return null
+  }
+
+  function textoDoEvento(evento: any) {
+    return (
+      String(evento?.status || '') +
+      ' | ' +
+      String(evento?.descricao || '')
+    )
+  }
+
+  /*
+    Entregue e terminal.
+
+    Mesmo se o campo status estiver errado,
+    a descricao pode provar a entrega.
+
+    Exemplo real:
+      status = Aguardando coleta
+      descricao = Envio entregue
+  */
+  const eventoEntrega =
+    eventos.find((evento: any) => {
+      return (
+        normalizarStatus(
+          textoDoEvento(evento)
+        ) === 'Entregue'
+      )
+    })
+
+  const eventoEscolhido =
+    eventoEntrega ||
+    eventos[0]
+
+  if (!eventoEscolhido) {
+    return null
+  }
+
+  const textoEvento =
+    textoDoEvento(
+      eventoEscolhido
+    )
+
+  const statusInferido =
+    normalizarStatus(
+      textoEvento
+    )
+
+  /*
+    Corrige tambem o evento contraditorio
+    ja salvo na timeline.
+  */
+  if (
+    eventoEscolhido?.id &&
+    String(
+      eventoEscolhido?.status || ''
+    ) !== statusInferido
+  ) {
+    const {
+      error: erroCorrigirEvento,
+    } = await supabase
+      .from('rastreios_embarques')
+      .update({
+        status: statusInferido,
+      })
+      .eq(
+        'id',
+        eventoEscolhido.id
+      )
+
+    if (erroCorrigirEvento) {
+      console.log(
+        'AVISO AO CORRIGIR EVENTO DA TIMELINE:',
+        erroCorrigirEvento
+      )
+    }
+  }
+
+  /*
+    Passa pelo mesmo salvamento normal.
+    Assim embarques, datas e timeline
+    continuam seguindo as regras existentes.
+  */
+  const statusNormalizado =
+    await salvarRastreio({
+      embarque,
+      awb,
+      transportadora: 'DHL',
+
+      status:
+        textoEvento,
+
+      descricao:
+        eventoEscolhido?.descricao ||
+        eventoEscolhido?.status ||
+        'Evento recuperado da timeline DHL salva',
+
+      local:
+        eventoEscolhido?.localizacao ||
+        null,
+
+      dataEvento:
+        eventoEscolhido?.data_evento ||
+        new Date().toISOString(),
+
+      dataColeta:
+        embarque?.data_coleta ||
+        null,
+
+      avisoValidacao:
+        [
+          avisoValidacao,
+          'DHL limitada. Status recuperado da timeline salva no HC Connect.',
+        ]
+          .filter(Boolean)
+          .join(' '),
+    })
+
+  console.log(
+    'DHL FALLBACK TIMELINE SALVA:',
+    {
+      awb,
+      statusNormalizado,
+      eventosEncontrados:
+        eventos.length,
+      entregaEncontrada:
+        Boolean(eventoEntrega),
+      dataEvento:
+        eventoEscolhido?.data_evento ||
+        null,
+    }
+  )
+
+  return NextResponse.json({
+    sucesso: true,
+    transportadora: 'DHL',
+    awb,
+    status: statusNormalizado,
+
+    descricao:
+      eventoEscolhido?.descricao ||
+      eventoEscolhido?.status ||
+      'Timeline DHL salva',
+
+    local:
+      eventoEscolhido?.localizacao ||
+      null,
+
+    data_evento:
+      eventoEscolhido?.data_evento ||
+      null,
+
+    fallback_timeline: true,
+    origem_status:
+      'TIMELINE_DHL_SALVA',
+
+    aviso:
+      'A DHL limitou novas consultas. O HC Connect utilizou a timeline DHL ja armazenada.',
+  })
+}
 async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
   const dhlApiKey = process.env.DHL_API_KEY
 
@@ -137,13 +368,80 @@ async function rastrearDHL(embarque: any, awb: string, avisoValidacao = '') {
     cache: 'no-store',
   })
 
-  const data = await response.json()
+  const corpoRespostaDhl =
+    await response.text()
+
+  let data: any = {}
+
+  try {
+    data = corpoRespostaDhl
+      ? JSON.parse(corpoRespostaDhl)
+      : {}
+  } catch {
+    data = {
+      raw: corpoRespostaDhl,
+    }
+  }
 
   if (!response.ok) {
+    const textoErroDhl =
+      removerAcentos(
+        String(response.status) +
+        ' ' +
+        corpoRespostaDhl +
+        ' ' +
+        JSON.stringify(data || {})
+      ).toLowerCase()
+
+    const bloqueioTemporarioDhl =
+      response.status === 429 ||
+      textoErroDhl.includes(
+        'too many requests'
+      ) ||
+      textoErroDhl.includes(
+        'rate limit'
+      ) ||
+      textoErroDhl.includes(
+        'request limit'
+      ) ||
+      textoErroDhl.includes(
+        'defined time period'
+      ) ||
+      textoErroDhl.includes(
+        'exceeded'
+      ) ||
+      textoErroDhl.includes(
+        'excesso de requisicoes'
+      )
+
+    if (bloqueioTemporarioDhl) {
+      console.log(
+        'DHL LIMITADA - USANDO TIMELINE SALVA:',
+        awb
+      )
+
+      const fallback =
+        await rastrearDhlPelaTimelineSalva(
+          embarque,
+          awb,
+          avisoValidacao
+        )
+
+      if (fallback) {
+        return fallback
+      }
+    }
+
     return NextResponse.json(
       {
-        error: 'Não foi possível consultar o rastreio DHL.',
-        detalhes: JSON.stringify(data),
+        error:
+          bloqueioTemporarioDhl
+            ? 'A DHL limitou novas consultas e nao existe timeline salva suficiente para determinar o status.'
+            : 'Não foi possível consultar o rastreio DHL.',
+
+        detalhes:
+          corpoRespostaDhl ||
+          JSON.stringify(data),
       },
       { status: response.status }
     )
