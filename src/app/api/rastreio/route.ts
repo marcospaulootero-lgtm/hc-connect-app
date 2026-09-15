@@ -234,8 +234,15 @@ async function rastrearDhlPelaTimelineSalva(
     )
 
   const statusInferido =
+    normalizarStatusPelaDescricao(
+      eventoEscolhido?.descricao,
+      'DHL'
+    ) ||
     normalizarStatus(
-      textoEvento
+      String(
+        eventoEscolhido?.status ||
+        textoEvento
+      )
     )
 
   /*
@@ -1390,6 +1397,106 @@ function ehMovimentoFisicoConfirmado(s: string) {
   )
 }
 
+
+/*
+  REGRA CENTRAL DO RASTREIO HC
+
+  A descricao real do evento da transportadora
+  e a fonte primaria do status operacional.
+
+  O campo tecnico "status" fica apenas como fallback
+  quando a descricao nao puder ser classificada.
+
+  Isso impede contradicoes como:
+
+    status:    Aguardando coleta
+    descricao: Envio entregue
+
+  que obrigatoriamente deve resultar em:
+
+    Entregue
+*/
+function normalizarStatusPelaDescricao(
+  descricao: any,
+  transportadora?: any
+) {
+  const texto =
+    removerAcentos(
+      String(
+        descricao || ''
+      ).trim()
+    )
+
+  if (!texto) {
+    return null
+  }
+
+  const transportadoraNormalizada =
+    String(
+      transportadora || ''
+    )
+      .trim()
+      .toUpperCase()
+
+  /*
+    Na DHL existem descricoes como:
+
+    "A remessa sera liberada e entregue
+     pelo despachante aduaneiro"
+
+    Isso NAO significa entrega final.
+
+    Por isso a regra de broker/liberacao
+    precisa vir antes da regra de entrega.
+  */
+  if (
+    transportadoraNormalizada.includes('DHL') &&
+    ehBrokerOuLiberado(texto)
+  ) {
+    return 'Liberado'
+  }
+
+  /*
+    Entrega real tem prioridade absoluta.
+  */
+  if (ehEntregue(texto)) {
+    return 'Entregue'
+  }
+
+  if (
+    ehSaiuParaEntrega(texto) ||
+    ehBrokerOuLiberado(texto)
+  ) {
+    return 'Liberado'
+  }
+
+  if (ehFiscalizacao(texto)) {
+    return 'Fiscalização'
+  }
+
+  if (ehTransito(texto)) {
+    return 'Em trânsito'
+  }
+
+  if (ehColetado(texto)) {
+    return 'Coletado'
+  }
+
+  if (ehEtiquetaGerada(texto)) {
+    return 'Aguardando coleta'
+  }
+
+  /*
+    Descricao existente, mas ainda desconhecida.
+
+    Nao inventamos um status.
+
+    O chamador podera usar o campo tecnico
+    da transportadora como fallback.
+  */
+  return null
+}
+
 async function salvarRastreio({
   embarque,
   awb,
@@ -1401,8 +1508,34 @@ async function salvarRastreio({
   dataColeta,
   avisoValidacao,
 }: any) {
-  let statusDetectado = normalizarStatus(status)
-  const statusAtualAntes = normalizarStatus(embarque.status_operacional || '')
+  const statusPelaDescricao =
+    normalizarStatusPelaDescricao(
+      descricao,
+      transportadora
+    )
+
+  const statusPeloCampo =
+    normalizarStatus(
+      String(status || '')
+    )
+
+  /*
+    PRIORIDADE:
+
+    1. descricao real da transportadora;
+    2. campo tecnico status, somente como fallback.
+  */
+  let statusDetectado =
+    statusPelaDescricao ||
+    statusPeloCampo
+
+  const statusAtualAntes =
+    normalizarStatus(
+      String(
+        embarque.status_operacional ||
+        ''
+      )
+    )
 
   // Regra operacional HC:
   // etiqueta/pré-envio sem evidência física = Aguardando coleta.
@@ -1426,6 +1559,27 @@ async function salvarRastreio({
     statusAtualAntes !== 'Entregue'
   ) {
     statusNormalizado = 'Aguardando coleta'
+  }
+
+  /*
+  NAO REGRESSAO TERMINAL
+
+  Entregue e definitivo.
+
+  Se o processo ja estava Entregue,
+  nenhuma resposta posterior pode rebaixar
+  seu status.
+
+  Da mesma forma, se a descricao atual
+  comprovar entrega, nenhuma regra posterior
+  pode substituir Entregue.
+*/
+  if (
+    statusAtualAntes === 'Entregue' ||
+    statusDetectado === 'Entregue'
+  ) {
+    statusNormalizado =
+      'Entregue'
   }
 
   const mudouStatus = statusNormalizado !== statusAtualAntes
