@@ -1046,6 +1046,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
     if (String(form.solicitante_email || '').trim()) {
       info('E-mail do cliente', form.solicitante_email)
     }
+    info('Operação', form.servico || '-')
     info('Origem', form.origem || '-')
     info('Destino', form.destino || '-')
     info('Incoterm', form.incoterm || '-')
