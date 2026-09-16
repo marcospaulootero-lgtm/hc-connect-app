@@ -3,6 +3,31 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
+async function registrarVisualizacaoFatura(
+  faturaId?: string | null
+) {
+  const id = String(
+    faturaId || ''
+  ).trim()
+
+  if (!id) return
+
+  const { error } =
+    await supabase.rpc(
+      'registrar_visualizacao_fatura',
+      {
+        p_fatura_id: id,
+      }
+    )
+
+  if (error) {
+    console.log(
+      'ERRO REGISTRAR VISUALIZACAO DA FATURA:',
+      error
+    )
+  }
+}
+
 type FiltroArquivamento = 'ATIVAS' | 'ARQUIVADAS'
 
 export default function FaturasClientePage() {
@@ -792,6 +817,18 @@ export default function FaturasClientePage() {
                             href={documento.url}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={() => {
+                              if (
+                                String(
+                                  documento.tipo || ''
+                                ).toUpperCase() ===
+                                'FATURA'
+                              ) {
+                                void registrarVisualizacaoFatura(
+                                  fatura.id
+                                )
+                              }
+                            }}
                             className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-500"
                           >
                             Baixar {documento.label}
@@ -879,6 +916,11 @@ export default function FaturasClientePage() {
                             href={fatura.arquivo_pdf}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={() => {
+                              void registrarVisualizacaoFatura(
+                                fatura.id
+                              )
+                            }}
                             className="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl text-white font-bold text-center"
                           >
                             Baixar fatura

@@ -180,6 +180,24 @@ type PerfilCliente = {
   ativo?: boolean | null
 }
 
+type VinculoEmbarqueCliente = {
+  embarque_id: string
+  cliente_id: string
+}
+
+type VinculoFaturaCliente = {
+  fatura_id: string
+  cliente_id: string
+}
+
+type VisualizacaoFatura = {
+  fatura_id: string
+  cliente_id: string
+  primeira_visualizacao_em?: string | null
+  ultima_visualizacao_em?: string | null
+  visualizacoes?: number | string | null
+}
+
 type ItemFaturaServico = {
   id: string
   descricao: string
@@ -241,6 +259,12 @@ export default function FaturasPage() {
   const [buscaRecibo, setBuscaRecibo] = useState('')
   const [clientesFaturamento, setClientesFaturamento] = useState<ClienteFaturamento[]>([])
   const [usuariosPortal, setUsuariosPortal] = useState<PerfilCliente[]>([])
+  const [vinculosEmbarquesClientes, setVinculosEmbarquesClientes] =
+    useState<VinculoEmbarqueCliente[]>([])
+  const [vinculosFaturasClientes, setVinculosFaturasClientes] =
+    useState<VinculoFaturaCliente[]>([])
+  const [visualizacoesFaturas, setVisualizacoesFaturas] =
+    useState<VisualizacaoFatura[]>([])
   const [buscaEmissorAwb, setBuscaEmissorAwb] = useState('')
   const [filtroStatusEmissor, setFiltroStatusEmissor] = useState('TODOS')
   const [buscaClienteEmissor, setBuscaClienteEmissor] = useState('')
@@ -511,6 +535,70 @@ export default function FaturasPage() {
     let arquivosFaturasData: FaturaArquivo[] = []
     const idsFaturas = ((faturasData as Fatura[]) || []).map((item) => item.id).filter(Boolean)
 
+    let vinculosEmbarquesData: VinculoEmbarqueCliente[] = []
+    let vinculosFaturasData: VinculoFaturaCliente[] = []
+    let visualizacoesData: VisualizacaoFatura[] = []
+
+    if (idsEmbarques.length > 0) {
+      const {
+        data: vinculosData,
+        error: erroVinculos,
+      } = await supabase
+        .from('embarque_clientes')
+        .select('embarque_id, cliente_id')
+        .in('embarque_id', idsEmbarques)
+
+      if (erroVinculos) {
+        console.log(
+          'ERRO VINCULOS EMBARQUES/CLIENTES:',
+          erroVinculos
+        )
+      } else {
+        vinculosEmbarquesData =
+          (vinculosData as VinculoEmbarqueCliente[]) || []
+      }
+    }
+
+    if (idsFaturas.length > 0) {
+      const {
+        data: vinculosDiretosData,
+        error: erroVinculosDiretos,
+      } = await supabase
+        .from('fatura_clientes')
+        .select('fatura_id, cliente_id')
+        .in('fatura_id', idsFaturas)
+
+      if (erroVinculosDiretos) {
+        console.log(
+          'ERRO VINCULOS FATURAS/CLIENTES:',
+          erroVinculosDiretos
+        )
+      } else {
+        vinculosFaturasData =
+          (vinculosDiretosData as VinculoFaturaCliente[]) || []
+      }
+
+      const {
+        data: visualizacoesDataConsulta,
+        error: erroVisualizacoes,
+      } = await supabase
+        .from('fatura_visualizacoes')
+        .select(
+          'fatura_id, cliente_id, primeira_visualizacao_em, ultima_visualizacao_em, visualizacoes'
+        )
+        .in('fatura_id', idsFaturas)
+
+      if (erroVisualizacoes) {
+        console.log(
+          'ERRO VISUALIZACOES DAS FATURAS:',
+          erroVisualizacoes
+        )
+      } else {
+        visualizacoesData =
+          (visualizacoesDataConsulta as VisualizacaoFatura[]) || []
+      }
+    }
+
     if (idsFaturas.length > 0) {
       const { data: arquivosData, error: erroArquivosFaturas } = await supabase
         .from('fatura_arquivos')
@@ -530,6 +618,112 @@ export default function FaturasPage() {
     setArquivosFaturas(arquivosFaturasData)
     setFinanceiros((financeiroData as FinanceiroProcesso[]) || [])
     setDocumentosPorEmbarque(documentosAgrupados)
+    setVinculosEmbarquesClientes(vinculosEmbarquesData)
+    setVinculosFaturasClientes(vinculosFaturasData)
+    setVisualizacoesFaturas(visualizacoesData)
+  }
+
+
+  function dataHoraVisualizacaoAdmin(
+    data?: string | null
+  ) {
+    if (!data) return '-'
+
+    const valor = new Date(data)
+
+    if (Number.isNaN(valor.getTime())) {
+      return '-'
+    }
+
+    return valor.toLocaleString('pt-BR')
+  }
+
+
+  function usuariosVinculadosFatura(
+    embarque: Embarque,
+    fatura?: Fatura | null
+  ) {
+    const ids = new Set<string>()
+
+    if (embarque?.usuario_id) {
+      ids.add(
+        String(embarque.usuario_id)
+      )
+    }
+
+    if (fatura?.usuario_id) {
+      ids.add(
+        String(fatura.usuario_id)
+      )
+    }
+
+    vinculosEmbarquesClientes
+      .filter(
+        (item) =>
+          String(item.embarque_id) ===
+          String(embarque.id)
+      )
+      .forEach((item) => {
+        if (item.cliente_id) {
+          ids.add(
+            String(item.cliente_id)
+          )
+        }
+      })
+
+    if (fatura?.id) {
+      vinculosFaturasClientes
+        .filter(
+          (item) =>
+            String(item.fatura_id) ===
+            String(fatura.id)
+        )
+        .forEach((item) => {
+          if (item.cliente_id) {
+            ids.add(
+              String(item.cliente_id)
+            )
+          }
+        })
+    }
+
+    return Array.from(ids).map((id) => {
+      const perfil =
+        usuariosPortal.find(
+          (item) =>
+            String(item.id) === id
+        ) || null
+
+      return {
+        id,
+        nome:
+          perfil?.nome ||
+          'Login vinculado',
+        email:
+          perfil?.email ||
+          '',
+      }
+    })
+  }
+
+
+  function visualizacaoFaturaUsuario(
+    faturaId?: string | null,
+    usuarioId?: string | null
+  ) {
+    if (!faturaId || !usuarioId) {
+      return null
+    }
+
+    return (
+      visualizacoesFaturas.find(
+        (item) =>
+          String(item.fatura_id) ===
+            String(faturaId) &&
+          String(item.cliente_id) ===
+            String(usuarioId)
+      ) || null
+    )
   }
 
 
@@ -8338,7 +8532,7 @@ export default function FaturasPage() {
         </div>
 
         <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[1900px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
+          <table className="w-full min-w-[2300px] border-collapse text-xs lg:text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle">
             <thead>
               <tr>
                 <th>AWB</th>
@@ -8350,6 +8544,8 @@ export default function FaturasPage() {
                 <th>Nº Fatura</th>
                 <th>Vencimento</th>
                 <th>Visível</th>
+                <th>Vinculada a</th>
+                <th>Visualização</th>
                 <th>Fatura</th>
                 <th>Recibo</th>
                 <th>Comprovante</th>
@@ -8382,6 +8578,11 @@ export default function FaturasPage() {
                 const documentos = documentosDoEmbarque(embarque.id)
                 const cotacoes = cotacoesDoEmbarque(embarque.id)
                 const pacoteAberto = pacoteAbertoId === embarque.id
+                const usuariosVinculados =
+                  usuariosVinculadosFatura(
+                    embarque,
+                    fatura
+                  )
 
                 return (
                   <Fragment key={embarque.id}>
@@ -8426,6 +8627,105 @@ export default function FaturasPage() {
                       </td>
                       <td>{dataBR(normalizarData(vencimentoFinanceiro(financeiro)))}</td>
                       <td>{fatura?.visivel_cliente ? 'Sim' : 'Não'}</td>
+
+                      <td className="min-w-[230px]">
+                        {usuariosVinculados.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {usuariosVinculados.map((usuario) => (
+                              <div
+                                key={usuario.id}
+                                className="rounded-xl border border-blue-900 bg-[#020817] px-3 py-2"
+                              >
+                                <p className="font-black text-blue-300">
+                                  {usuario.nome}
+                                </p>
+
+                                {usuario.email ? (
+                                  <p className="mt-1 break-all text-[10px] text-slate-400">
+                                    {usuario.email}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="font-bold text-yellow-400">
+                            Sem login vinculado
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="min-w-[260px]">
+                        {!fatura?.id ? (
+                          <span className="text-slate-500">
+                            -
+                          </span>
+                        ) : usuariosVinculados.length === 0 ? (
+                          <span className="text-slate-500">
+                            Sem login para acompanhar
+                          </span>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            {usuariosVinculados.map((usuario) => {
+                              const visualizacao =
+                                visualizacaoFaturaUsuario(
+                                  fatura.id,
+                                  usuario.id
+                                )
+
+                              return (
+                                <div
+                                  key={
+                                    fatura.id +
+                                    '-' +
+                                    usuario.id
+                                  }
+                                  className={
+                                    visualizacao
+                                      ? 'rounded-xl border border-green-700 bg-green-950/20 px-3 py-2'
+                                      : 'rounded-xl border border-yellow-700 bg-yellow-950/20 px-3 py-2'
+                                  }
+                                >
+                                  <p
+                                    className={
+                                      visualizacao
+                                        ? 'font-black text-green-300'
+                                        : 'font-black text-yellow-300'
+                                    }
+                                  >
+                                    {visualizacao
+                                      ? '✅ Visualizada'
+                                      : '⏳ Ainda não visualizou'}
+                                  </p>
+
+                                  <p className="mt-1 text-[10px] text-slate-300">
+                                    {usuario.nome}
+                                  </p>
+
+                                  {visualizacao ? (
+                                    <>
+                                      <p className="mt-1 text-[10px] text-slate-400">
+                                        Última:{' '}
+                                        {dataHoraVisualizacaoAdmin(
+                                          visualizacao.ultima_visualizacao_em
+                                        )}
+                                      </p>
+
+                                      <p className="text-[10px] text-slate-500">
+                                        {Number(
+                                          visualizacao.visualizacoes || 0
+                                        )}{' '}
+                                        acesso(s)
+                                      </p>
+                                    </>
+                                  ) : null}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </td>
+
                       <td>
                         {fatura?.arquivo_pdf ? (
                           <div className="flex flex-col gap-2">

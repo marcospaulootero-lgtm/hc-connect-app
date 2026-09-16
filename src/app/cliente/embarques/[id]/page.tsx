@@ -2,6 +2,31 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+
+async function registrarVisualizacaoFatura(
+  faturaId?: string | null
+) {
+  const id = String(
+    faturaId || ''
+  ).trim()
+
+  if (!id) return
+
+  const { error } =
+    await supabase.rpc(
+      'registrar_visualizacao_fatura',
+      {
+        p_fatura_id: id,
+      }
+    )
+
+  if (error) {
+    console.log(
+      'ERRO REGISTRAR VISUALIZACAO DA FATURA:',
+      error
+    )
+  }
+}
 import { useParams } from 'next/navigation'
 import StatusBadge from '@/components/StatusBadge'
 
@@ -757,7 +782,17 @@ export default function DetalheCliente() {
 
                           <div className="flex gap-2 flex-wrap justify-end">
                             {fatura.arquivo_pdf ? (
-                              <a href={fatura.arquivo_pdf} target="_blank" rel="noopener noreferrer" className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap">
+                              <a
+                              href={fatura.arquivo_pdf}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => {
+                                void registrarVisualizacaoFatura(
+                                  fatura.id
+                                )
+                              }}
+                              className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white text-sm font-bold whitespace-nowrap"
+                            >
                                 Baixar fatura
                               </a>
                             ) : (
