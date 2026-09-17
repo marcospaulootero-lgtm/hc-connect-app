@@ -386,6 +386,46 @@ export default function EmbarquesPage() {
     return String(valor || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
   }
 
+  function transportadoraPorAwb(
+    valor: any
+  ): 'DHL' | 'FedEx' | 'UPS' | null {
+    const awb =
+      normalizarAwbRastreio(valor)
+
+    /*
+      UPS HC
+
+      A conta utilizada inicia por:
+      1Z280RR2
+
+      Exemplo:
+      1Z280RR20404427144
+    */
+    if (
+      awb.startsWith('1Z280RR2')
+    ) {
+      return 'UPS'
+    }
+
+    /*
+      DHL:
+      AWB numerico com 10 digitos
+    */
+    if (/^\d{10}$/.test(awb)) {
+      return 'DHL'
+    }
+
+    /*
+      FedEx:
+      AWB numerico com 12 digitos
+    */
+    if (/^\d{12}$/.test(awb)) {
+      return 'FedEx'
+    }
+
+    return null
+  }
+
   function awbPendente(valor: any) {
     return String(valor || '').trim().toUpperCase().startsWith('AGUARDANDO AWB')
   }
@@ -2708,7 +2748,31 @@ export default function EmbarquesPage() {
           </Campo>
 
           <Campo label="AWB">
-            <input value={form.awb} onChange={(e) => setForm({ ...form, awb: e.target.value })} />
+            <input
+              value={form.awb}
+              onChange={(e) => {
+                const awb =
+                  e.target.value
+
+                const transportadoraDetectada =
+                  transportadoraPorAwb(
+                    awb
+                  )
+
+                setForm((atual: any) => ({
+                  ...atual,
+
+                  awb,
+
+                  ...(transportadoraDetectada
+                    ? {
+                        transportadora:
+                          transportadoraDetectada,
+                      }
+                    : {}),
+                }))
+              }}
+            />
           </Campo>
 
           <Campo label="Master">
