@@ -146,6 +146,7 @@ type AbaFaturasAdmin = 'FATURAS' | 'EMISSOR' | 'AGENTE_CARGA' | 'RECIBO'
 type ServicoFinanceiroEmbarque = {
   nome?: string | null
   valor?: string | number | null
+  moeda?: string | null
 }
 
 
@@ -198,10 +199,14 @@ type VisualizacaoFatura = {
   visualizacoes?: number | string | null
 }
 
+type MoedaItemFatura = 'BRL' | 'USD' | 'EUR'
+
 type ItemFaturaServico = {
   id: string
   descricao: string
   selecionado: boolean
+  moeda?: MoedaItemFatura
+  // Nome legado: na tela multimoeda este campo guarda o valor ORIGINAL do item.
   valor_usd: string
   valor_brl: string
   observacao: string
@@ -279,6 +284,7 @@ export default function FaturasPage() {
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorDataEmbarque, setEmissorDataEmbarque] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
+  const [emissorTaxaBaseEur, setEmissorTaxaBaseEur] = useState('')
   const [emissorTipoCambio, setEmissorTipoCambio] = useState('DOLAR_VENDA_DIA')
   const [emissorDolarVendaDia, setEmissorDolarVendaDia] = useState('')
   const [emissorPtaxDhlMesAnterior, setEmissorPtaxDhlMesAnterior] = useState('')
@@ -3625,16 +3631,62 @@ export default function FaturasPage() {
     return filtrados
   }, [usuariosPortal, buscaUsuarioEmissor, emissorUsuarioId])
 
+  function normalizarMoedaItemFatura(
+    valor: any,
+    fallback: MoedaItemFatura = 'USD'
+  ): MoedaItemFatura {
+    const moedaNormalizada = normalizarTexto(valor || fallback)
+
+    if (moedaNormalizada === 'BRL' || moedaNormalizada === 'R$') return 'BRL'
+    if (moedaNormalizada === 'EUR' || moedaNormalizada === 'EURO') return 'EUR'
+    return 'USD'
+  }
+
+  function taxaConversaoItemFatura(
+    moedaItem: MoedaItemFatura,
+    baseUsd = emissorTaxaConversao,
+    baseEur = emissorTaxaBaseEur,
+    spreadValor = emissorSpread
+  ) {
+    if (moedaItem === 'BRL') return 1
+
+    const base = moedaItem === 'EUR' ? numero(baseEur) : numero(baseUsd)
+    if (base <= 0) return 0
+
+    return base * (1 + numero(spreadValor) / 100)
+  }
+
+  function taxaConversaoItemFaturaFormatada(moedaItem: MoedaItemFatura) {
+    const taxa = taxaConversaoItemFatura(moedaItem)
+    if (taxa <= 0) return '-'
+
+    return taxa.toLocaleString('pt-BR', {
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    })
+  }
+
   const totaisEmissor = useMemo(() => {
     return itensFatura.reduce(
       (acc, item) => {
         if (!item.selecionado) return acc
 
-        acc.totalUSD += numero(item.valor_usd)
+        const moedaItem = normalizarMoedaItemFatura(item.moeda)
+        const valorOriginal = numero(item.valor_usd)
+
+        if (moedaItem === 'USD') acc.totalUSD += valorOriginal
+        if (moedaItem === 'EUR') acc.totalEUR += valorOriginal
+        if (moedaItem === 'BRL') acc.totalBRLOriginal += valorOriginal
+
         acc.totalBRL += numero(item.valor_brl)
         return acc
       },
-      { totalUSD: 0, totalBRL: 0 }
+      {
+        totalUSD: 0,
+        totalEUR: 0,
+        totalBRLOriginal: 0,
+        totalBRL: 0,
+      }
     )
   }, [itensFatura])
 
@@ -3694,7 +3746,8 @@ export default function FaturasPage() {
     return lista
       .map((item) => ({
         nome: String(item?.nome || item?.descricao || item?.servico || '').trim(),
-        valor: item?.valor ?? item?.valor_usd ?? item?.valor_brl ?? '',
+        valor: item?.valor ?? item?.valor_original ?? item?.valor_usd ?? item?.valor_brl ?? '',
+        moeda: item?.moeda ? String(item.moeda).trim().toUpperCase() : null,
       }))
       .filter((item) => item.nome)
   }
@@ -3727,12 +3780,18 @@ export default function FaturasPage() {
     return ''
   }
 
-  function carregarItensSalvosDoEmbarque(embarque: Embarque, taxaFinal: number) {
+  function carregarItensSalvosDoEmbarque(
+    embarque: Embarque,
+    taxaFinalUsd: number,
+    taxaFinalEur = 0
+  ) {
     const servicosSalvos = servicosFinanceirosDoEmbarque((embarque as any).servicos_financeiros)
 
     if (servicosSalvos.length === 0) return false
 
-    const moedaBase = normalizarTexto(embarque.moeda_cobranca || embarque.moeda || 'USD')
+    const moedaBase = normalizarMoedaItemFatura(
+      embarque.moeda_cobranca || embarque.moeda || 'USD'
+    )
     const valoresPorServico = new Map<string, ServicoFinanceiroEmbarque>()
 
     servicosSalvos.forEach((servico) => {
@@ -3749,36 +3808,44 @@ export default function FaturasPage() {
           return {
             ...item,
             selecionado: false,
+            moeda: 'USD' as MoedaItemFatura,
             valor_usd: '',
             valor_brl: '',
             observacao: '',
           }
         }
 
-        let valor = numero(servicoSalvo.valor)
+        let valorOriginal = numero(servicoSalvo.valor)
 
         // No cadastro do embarque o desconto entra como abatimento.
         // Na fatura ele precisa entrar negativo para manter o total correto.
-        if (item.id === 'desconto' && valor > 0) valor = valor * -1
+        if (item.id === 'desconto' && valorOriginal > 0) valorOriginal = valorOriginal * -1
 
-        const valorUsd =
-          moedaBase === 'BRL' || moedaBase === 'R$'
-            ? taxaFinal > 0
-              ? valor / taxaFinal
-              : 0
-            : valor
+        const moedaItem = normalizarMoedaItemFatura(
+          servicoSalvo.moeda,
+          moedaBase
+        )
+
+        const taxaItem =
+          moedaItem === 'BRL'
+            ? 1
+            : moedaItem === 'EUR'
+              ? taxaFinalEur
+              : taxaFinalUsd
 
         const valorBrl =
-          moedaBase === 'BRL' || moedaBase === 'R$'
-            ? valor
-            : taxaFinal > 0
-              ? valor * taxaFinal
+          moedaItem === 'BRL'
+            ? valorOriginal
+            : taxaItem > 0
+              ? valorOriginal * taxaItem
               : 0
 
         return {
           ...item,
           selecionado: true,
-          valor_usd: valorUsd ? formatarNumeroInput(valorUsd) : '',
+          moeda: moedaItem,
+          // valor_usd mantém o nome legado no state, mas agora representa o valor original.
+          valor_usd: valorOriginal ? formatarNumeroInput(valorOriginal) : '',
           valor_brl: valorBrl ? formatarNumeroInput(valorBrl) : '',
           observacao: embarque.transportadora || '',
         }
@@ -4408,6 +4475,7 @@ export default function FaturasPage() {
     setEmissorVencimento(vencimento)
     setEmissorDataEmbarque(dataEmbarque)
     setEmissorTaxaConversao(taxaBaseInicial)
+    setEmissorTaxaBaseEur('')
     setEmissorTipoCambio(transportadoraDhl ? 'PTAX_DHL_MES_ANTERIOR' : 'DOLAR_VENDA_DIA')
     setEmissorDataPtaxDhlMesAnterior(transportadoraDhl && dataEmbarque ? ptaxDhlSugerido.data : '')
     setEmissorPtaxDhlMesAnterior('')
@@ -4417,16 +4485,30 @@ export default function FaturasPage() {
 
     const taxaFinal = taxaConversaoFinal(taxaBaseInicial, emissorSpread)
 
-    const carregouItensSalvos = carregarItensSalvosDoEmbarque(embarque, taxaFinal)
+    const carregouItensSalvos = carregarItensSalvosDoEmbarque(
+      embarque,
+      taxaFinal,
+      0
+    )
 
     if (!carregouItensSalvos) {
       setItensFatura((atuais) =>
         atuais.map((item) => {
-          if (item.id !== 'frete') return { ...item, selecionado: false, valor_usd: '', valor_brl: '', observacao: '' }
+          if (item.id !== 'frete') {
+            return {
+              ...item,
+              selecionado: false,
+              moeda: 'USD' as MoedaItemFatura,
+              valor_usd: '',
+              valor_brl: '',
+              observacao: '',
+            }
+          }
 
           return {
             ...item,
             selecionado: valor > 0,
+            moeda: 'USD' as MoedaItemFatura,
             valor_usd: taxaFinal > 0 && valor > 0 ? formatarNumeroInput(valor / taxaFinal) : '',
             valor_brl: valor > 0 ? formatarNumeroInput(valor) : '',
             observacao: embarque.transportadora || '',
@@ -4486,12 +4568,21 @@ export default function FaturasPage() {
           [campo]: valorTratado,
         } as ItemFaturaServico
 
-        if (campo === 'valor_usd') {
-          const taxa = taxaConversaoFinal()
-          const valorUsd = numero(valor)
-          if (taxa > 0 && valorUsd > 0) {
-            atualizado.valor_brl = formatarNumeroInput(valorUsd * taxa)
-          }
+        if (campo === 'moeda') {
+          atualizado.moeda = normalizarMoedaItemFatura(valor)
+        }
+
+        if (campo === 'valor_usd' || campo === 'moeda') {
+          const moedaItem = normalizarMoedaItemFatura(atualizado.moeda)
+          const valorOriginal = numero(atualizado.valor_usd)
+          const taxa = taxaConversaoItemFatura(moedaItem)
+
+          atualizado.valor_brl =
+            moedaItem === 'BRL'
+              ? (valorOriginal ? formatarNumeroInput(valorOriginal) : '')
+              : taxa > 0 && valorOriginal
+                ? formatarNumeroInput(valorOriginal * taxa)
+                : ''
         }
 
         return atualizado
@@ -4503,17 +4594,49 @@ export default function FaturasPage() {
     const taxaFormatada = formatarEntradaTaxaBR(novaTaxa)
     setEmissorTaxaConversao(taxaFormatada)
 
-    const taxa = taxaConversaoFinal(taxaFormatada, emissorSpread)
-    if (taxa <= 0) return
+    const taxa = taxaConversaoItemFatura(
+      'USD',
+      taxaFormatada,
+      emissorTaxaBaseEur,
+      emissorSpread
+    )
 
     setItensFatura((atuais) =>
       atuais.map((item) => {
-        const valorUsd = numero(item.valor_usd)
-        if (!item.selecionado || valorUsd <= 0) return item
+        if (normalizarMoedaItemFatura(item.moeda) !== 'USD') return item
+
+        const valorOriginal = numero(item.valor_usd)
+        if (!item.selecionado || valorOriginal === 0) return item
 
         return {
           ...item,
-          valor_brl: formatarNumeroInput(valorUsd * taxa),
+          valor_brl: taxa > 0 ? formatarNumeroInput(valorOriginal * taxa) : '',
+        }
+      })
+    )
+  }
+
+  function recalcularItensPorTaxaEur(novaTaxa: string) {
+    const taxaFormatada = formatarEntradaTaxaBR(novaTaxa)
+    setEmissorTaxaBaseEur(taxaFormatada)
+
+    const taxa = taxaConversaoItemFatura(
+      'EUR',
+      emissorTaxaConversao,
+      taxaFormatada,
+      emissorSpread
+    )
+
+    setItensFatura((atuais) =>
+      atuais.map((item) => {
+        if (normalizarMoedaItemFatura(item.moeda) !== 'EUR') return item
+
+        const valorOriginal = numero(item.valor_usd)
+        if (!item.selecionado || valorOriginal === 0) return item
+
+        return {
+          ...item,
+          valor_brl: taxa > 0 ? formatarNumeroInput(valorOriginal * taxa) : '',
         }
       })
     )
@@ -4523,17 +4646,31 @@ export default function FaturasPage() {
     const spreadFormatado = formatarEntradaTaxaBR(novoSpread)
     setEmissorSpread(spreadFormatado)
 
-    const taxa = taxaConversaoFinal(emissorTaxaConversao, spreadFormatado)
-    if (taxa <= 0) return
-
     setItensFatura((atuais) =>
       atuais.map((item) => {
-        const valorUsd = numero(item.valor_usd)
-        if (!item.selecionado || valorUsd <= 0) return item
+        if (!item.selecionado) return item
+
+        const moedaItem = normalizarMoedaItemFatura(item.moeda)
+        const valorOriginal = numero(item.valor_usd)
+        if (valorOriginal === 0) return item
+
+        if (moedaItem === 'BRL') {
+          return {
+            ...item,
+            valor_brl: formatarNumeroInput(valorOriginal),
+          }
+        }
+
+        const taxa = taxaConversaoItemFatura(
+          moedaItem,
+          emissorTaxaConversao,
+          emissorTaxaBaseEur,
+          spreadFormatado
+        )
 
         return {
           ...item,
-          valor_brl: formatarNumeroInput(valorUsd * taxa),
+          valor_brl: taxa > 0 ? formatarNumeroInput(valorOriginal * taxa) : '',
         }
       })
     )
@@ -4556,6 +4693,7 @@ export default function FaturasPage() {
     setEmissorVencimento('')
     setEmissorDataEmbarque('')
     setEmissorTaxaConversao('')
+    setEmissorTaxaBaseEur('')
     setEmissorTipoCambio('DOLAR_VENDA_DIA')
     setEmissorDolarVendaDia('')
     setEmissorPtaxDhlMesAnterior('')
@@ -4573,13 +4711,22 @@ export default function FaturasPage() {
 
   function itensSelecionadosFatura() {
     return itensFatura
-      .filter((item) => item.selecionado && (numero(item.valor_usd) > 0 || numero(item.valor_brl) > 0 || item.observacao.trim()))
-      .map((item) => ({
-        descricao: item.descricao,
-        valor_usd: numero(item.valor_usd),
-        valor_brl: numero(item.valor_brl),
-        observacao: item.observacao || null,
-      }))
+      .filter((item) => item.selecionado && (numero(item.valor_usd) !== 0 || numero(item.valor_brl) !== 0 || item.observacao.trim()))
+      .map((item) => {
+        const moedaItem = normalizarMoedaItemFatura(item.moeda)
+        const valorOriginal = numero(item.valor_usd)
+
+        return {
+          descricao: item.descricao,
+          moeda: moedaItem,
+          valor_original: valorOriginal,
+          // Compatibilidade: valor_usd só contém USD real nos novos registros.
+          valor_usd: moedaItem === 'USD' ? valorOriginal : 0,
+          valor_brl: numero(item.valor_brl),
+          taxa_conversao: taxaConversaoItemFatura(moedaItem),
+          observacao: item.observacao || null,
+        }
+      })
   }
 
   async function salvarFinanceiroDaFatura(arquivoPdfUrl: string) {
@@ -4659,7 +4806,11 @@ export default function FaturasPage() {
       itensSelecionadosFatura()
 
     const itensResumo = itensSelecionados
-      .map((item) => `${item.descricao}: ${moeda(item.valor_brl)}`)
+      .map((item) => {
+        const moedaItem = normalizarMoedaItemFatura(item.moeda)
+        const valorOriginal = numero(item.valor_original)
+        return `${item.descricao}: ${moedaItem} ${formatarValorSimples(valorOriginal)} (${moeda(item.valor_brl)})`
+      })
       .join(' | ')
 
     // Regra HC:
@@ -4677,14 +4828,24 @@ export default function FaturasPage() {
     const handlingComSpread = itensHandling.reduce((total, item) => total + numero(item.valor_brl), 0)
 
     const handlingSemSpread = itensHandling.reduce((total, item) => {
-      const valorUsd = numero(item.valor_usd)
+      const moedaItem = normalizarMoedaItemFatura(item.moeda)
+      const valorOriginal = numero(item.valor_original)
       const valorBrl = numero(item.valor_brl)
 
-      if (valorUsd > 0 && ptaxBase > 0) {
-        return total + valorUsd * ptaxBase
+      if (moedaItem === 'BRL') {
+        return total + valorOriginal
       }
 
-      if (valorBrl > 0 && fatorSpread > 0) {
+      if (moedaItem === 'USD' && valorOriginal !== 0 && ptaxBase > 0) {
+        return total + valorOriginal * ptaxBase
+      }
+
+      const baseEur = numero(emissorTaxaBaseEur)
+      if (moedaItem === 'EUR' && valorOriginal !== 0 && baseEur > 0) {
+        return total + valorOriginal * baseEur
+      }
+
+      if (valorBrl !== 0 && fatorSpread > 0) {
         return total + valorBrl / fatorSpread
       }
 
@@ -4715,21 +4876,11 @@ export default function FaturasPage() {
       ? `Fatura complementar de impostos/DOC/DTA lançada em ${dataBR(new Date().toISOString())}: ${moeda(totaisEmissor.totalBRL)}.`
       : 'Fatura principal de frete/serviços emitida pelo HC Connect.'
 
-    const itensValorCompraEmissor = itensSelecionados.filter((item) => {
-      return normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
-    })
-
-    const valorCompraManualEmissor = itensValorCompraEmissor.reduce((total, item) => {
-      const valorBrl = numero(item.valor_brl)
-      const valorUsd = numero(item.valor_usd)
-
-      if (valorBrl > 0) return total + valorBrl
-      if (valorUsd > 0 && ptaxBase > 0) return total + valorUsd * ptaxBase
-
-      return total
-    }, 0)
-
-    const totalClienteEmissorBRL = Math.max(0, numero(totaisEmissor.totalBRL) - valorCompraManualEmissor)
+    const totalClienteEmissorBRL = itensSelecionados
+      .filter((item) => {
+        return !normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
+      })
+      .reduce((total, item) => total + numero(item.valor_brl), 0)
 
     const valorCompraFinanceiroFinal = numero(financeiroAtual?.valor_compra)
 
@@ -4937,25 +5088,51 @@ export default function FaturasPage() {
       normalizarTexto(
         emissorEmbarqueSelecionado.transportadora || ''
       ).includes('DHL')
+
+    const itensSelecionadosAtuais = itensSelecionadosFatura()
+    const itensClienteAtuais = itensSelecionadosAtuais.filter((item) => {
+      return !normalizarTexto(item.descricao).includes('VALOR DE COMPRA')
+    })
+
+    const possuiUsdCliente = itensClienteAtuais.some(
+      (item) => normalizarMoedaItemFatura(item.moeda) === 'USD' && numero(item.valor_original) !== 0
+    )
+    const possuiEurCliente = itensClienteAtuais.some(
+      (item) => normalizarMoedaItemFatura(item.moeda) === 'EUR' && numero(item.valor_original) !== 0
+    )
+
     if (
       !ehReemissaoJuros &&
       !ehRegeracaoPdf &&
-      embarqueEhDhl &&
+      possuiUsdCliente &&
       numero(emissorTaxaConversao) <= 0
     ) {
-      return alert('Informe a data do embarque e aguarde a busca da PTAX DHL antes de emitir a fatura.')
+      return alert(
+        embarqueEhDhl
+          ? 'Existem serviços em USD. Informe a data do embarque e aguarde a PTAX DHL antes de emitir a fatura.'
+          : 'Existem serviços em USD. Informe a taxa base USD antes de emitir a fatura.'
+      )
+    }
+
+    if (
+      !ehReemissaoJuros &&
+      !ehRegeracaoPdf &&
+      possuiEurCliente &&
+      numero(emissorTaxaBaseEur) <= 0
+    ) {
+      return alert('Existem serviços em EUR. Informe a taxa base EUR antes de emitir a fatura.')
     }
 
     if (
       !ehReemissaoJuros &&
       !ehRegeracaoPdf &&
       (
-        itensSelecionadosFatura().length === 0 ||
-        totaisEmissor.totalBRL <= 0
+        itensClienteAtuais.length === 0 ||
+        itensClienteAtuais.reduce((total, item) => total + numero(item.valor_brl), 0) <= 0
       )
     ) {
       return alert(
-        'Selecione pelo menos um serviço com valor para emitir a fatura.'
+        'Selecione pelo menos um serviço cobrado do cliente com valor válido.'
       )
     }
 
@@ -4994,80 +5171,84 @@ export default function FaturasPage() {
                   'VALOR DE COMPRA'
                 )
               })
-              .map((item: any) => ({
-                descricao:
-                  String(
-                    item?.descricao || ''
-                  ),
+              .map((item: any) => {
+                const moedaInferida = normalizarMoedaItemFatura(
+                  item?.moeda,
+                  numero(item?.valor_usd) !== 0 ? 'USD' : 'BRL'
+                )
 
-                observacao:
-                  item?.observacao ||
-                  null,
+                const valorOriginal =
+                  numero(item?.valor_original) ||
+                  (moedaInferida === 'USD'
+                    ? numero(item?.valor_usd)
+                    : moedaInferida === 'BRL'
+                      ? numero(item?.valor_brl)
+                      : numero(item?.valor_usd))
 
-                valor_usd:
-                  numero(
-                    item?.valor_usd
-                  ),
+                const valorBrl = numero(item?.valor_brl)
+                const taxaSalva =
+                  numero(item?.taxa_conversao) ||
+                  (
+                    moedaInferida === 'BRL'
+                      ? 1
+                      : valorOriginal !== 0 && valorBrl !== 0
+                        ? valorBrl / valorOriginal
+                        : 0
+                  )
 
-                valor_brl:
-                  numero(
-                    item?.valor_brl
-                  ),
-              }))
+                return {
+                  descricao: String(item?.descricao || ''),
+                  observacao: item?.observacao || null,
+                  moeda: moedaInferida,
+                  valor_original: valorOriginal,
+                  valor_usd: moedaInferida === 'USD' ? valorOriginal : 0,
+                  valor_brl: valorBrl,
+                  taxa_conversao: taxaSalva,
+                }
+              })
           : ehReemissaoJuros
             ? [
               {
-                descricao:
-                  'SALDO DA FATURA ORIGINAL',
-
-                observacao:
-                  `Fatura ${faturaReemissao?.numero_fatura || emissorNumeroFatura || '-'} • vencimento original ${dataBR(reemissaoVencimentoOriginal)}`,
-
+                descricao: 'SALDO DA FATURA ORIGINAL',
+                observacao: `Fatura ${faturaReemissao?.numero_fatura || emissorNumeroFatura || '-'} • vencimento original ${dataBR(reemissaoVencimentoOriginal)}`,
+                moeda: 'BRL' as MoedaItemFatura,
+                valor_original: calculoReemissao.valorBase,
                 valor_usd: 0,
-
-                valor_brl:
-                  calculoReemissao.valorBase,
+                valor_brl: calculoReemissao.valorBase,
+                taxa_conversao: 1,
               },
-
               ...(
                 calculoReemissao.valorMulta > 0
                   ? [
                       {
-                        descricao:
-                          'MULTA POR ATRASO',
-
-                        observacao:
-                          `${formatarValorSimples(calculoReemissao.multaPercentual)}% sobre o valor original`,
-
+                        descricao: 'MULTA POR ATRASO',
+                        observacao: `${formatarValorSimples(calculoReemissao.multaPercentual)}% sobre o valor original`,
+                        moeda: 'BRL' as MoedaItemFatura,
+                        valor_original: calculoReemissao.valorMulta,
                         valor_usd: 0,
-
-                        valor_brl:
-                          calculoReemissao.valorMulta,
+                        valor_brl: calculoReemissao.valorMulta,
+                        taxa_conversao: 1,
                       },
                     ]
                   : []
               ),
-
               ...(
                 calculoReemissao.valorJuros > 0
                   ? [
                       {
-                        descricao:
-                          'JUROS DE MORA',
-
-                        observacao:
-                          `${formatarValorSimples(calculoReemissao.jurosMensalPercentual)}% a.m. • ${calculoReemissao.diasAtraso} dia(s) em atraso`,
-
+                        descricao: 'JUROS DE MORA',
+                        observacao: `${formatarValorSimples(calculoReemissao.jurosMensalPercentual)}% a.m. • ${calculoReemissao.diasAtraso} dia(s) em atraso`,
+                        moeda: 'BRL' as MoedaItemFatura,
+                        valor_original: calculoReemissao.valorJuros,
                         valor_usd: 0,
-
-                        valor_brl:
-                          calculoReemissao.valorJuros,
+                        valor_brl: calculoReemissao.valorJuros,
+                        taxa_conversao: 1,
                       },
                     ]
                   : []
               ),
             ]
-          : itensSelecionadosFatura()
+          : itensSelecionadosAtuais
               .filter((item) => {
                 return !normalizarTexto(
                   item.descricao
@@ -5077,7 +5258,21 @@ export default function FaturasPage() {
               })
 
       const totalClientePdfUSD = itensClientePdf.reduce((total, item) => {
-        return total + numero(item.valor_usd)
+        return normalizarMoedaItemFatura(item.moeda) === 'USD'
+          ? total + numero(item.valor_original)
+          : total
+      }, 0)
+
+      const totalClientePdfEUR = itensClientePdf.reduce((total, item) => {
+        return normalizarMoedaItemFatura(item.moeda) === 'EUR'
+          ? total + numero(item.valor_original)
+          : total
+      }, 0)
+
+      const totalClientePdfBRLOriginal = itensClientePdf.reduce((total, item) => {
+        return normalizarMoedaItemFatura(item.moeda) === 'BRL'
+          ? total + numero(item.valor_original)
+          : total
       }, 0)
 
       const totalClientePdfBRL = itensClientePdf.reduce((total, item) => {
@@ -5233,55 +5428,57 @@ export default function FaturasPage() {
       pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 264)
       pdf.text(`HAWB/AWB: ${emissorEmbarqueSelecionado.awb || '-'}`, 245, 264)
 
-      const linhas = itens.map((item) => [
-        item.descricao,
-        item.observacao || '',
-        item.valor_usd > 0 ? formatarValorSimples(item.valor_usd) : '-',
-        item.valor_brl > 0 ? moeda(item.valor_brl) : '-',
-      ])
+      const linhas = itens.map((item) => {
+        const moedaItem = normalizarMoedaItemFatura(item.moeda)
+        const valorOriginal = numero(item.valor_original)
+
+        return [
+          item.descricao,
+          item.observacao || '',
+          moedaItem,
+          valorOriginal !== 0 ? formatarValorSimples(valorOriginal) : '-',
+          numero(item.valor_brl) !== 0 ? moeda(item.valor_brl) : '-',
+        ]
+      })
 
       autoTable(pdf, {
         startY: 272,
-        head: [['SERVIÇO', 'OBSERVAÇÃO', 'VALOR USD', 'VALOR R$']],
+        head: [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
         body: linhas,
         theme: 'grid',
         margin: { left: margem, right: margem },
-        styles: { fontSize: 8, cellPadding: 4, lineColor: [25, 25, 25], lineWidth: 0.4 },
+        styles: { fontSize: 7.5, cellPadding: 4, lineColor: [25, 25, 25], lineWidth: 0.4 },
         headStyles: { fillColor: [230, 230, 230], textColor: [0, 0, 0], fontStyle: 'bold' },
         columnStyles: {
-          0: { cellWidth: 190 },
-          1: { cellWidth: 170 },
-          2: { cellWidth: 80, halign: 'right' },
-          3: { cellWidth: 90, halign: 'right' },
+          0: { cellWidth: 145 },
+          1: { cellWidth: 145 },
+          2: { cellWidth: 50, halign: 'center' },
+          3: { cellWidth: 85, halign: 'right' },
+          4: { cellWidth: 95, halign: 'right' },
         },
       })
 
       const yFinal = (pdf as any).lastAutoTable.finalY + 14
       pdf.setFillColor(190, 190, 190)
-      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 18, 'F')
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 34, 'F')
       pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(8)
-      pdf.text('TOTAL', margem + 6, yFinal + 12)
-      pdf.text('USD', 390, yFinal + 12)
+      pdf.setFontSize(7.5)
+      pdf.text('TOTAIS ORIGINAIS', margem + 6, yFinal + 12)
       pdf.text(
-        formatarValorSimples(
-          totalClientePdfUSD
-        ),
-        435,
-        yFinal + 12,
-        { align: 'right' }
+        `USD ${formatarValorSimples(totalClientePdfUSD)}  •  EUR ${formatarValorSimples(totalClientePdfEUR)}  •  BRL ${formatarValorSimples(totalClientePdfBRLOriginal)}`,
+        145,
+        yFinal + 12
       )
-      pdf.text('R$', 470, yFinal + 12)
+      pdf.setFontSize(8)
+      pdf.text('TOTAL CONVERTIDO EM BRL', margem + 6, yFinal + 28)
       pdf.text(
-        moeda(totalClientePdfBRL)
-          .replace('R$', '')
-          .trim(),
+        moeda(totalClientePdfBRL),
         larguraPagina - margem - 6,
-        yFinal + 12,
+        yFinal + 28,
         { align: 'right' }
       )
 
-      const yExtenso = yFinal + 42
+      const yExtenso = yFinal + 58
       pdf.setDrawColor(0, 0, 0)
       pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
       pdf.setFont('helvetica', 'bold')
@@ -5301,42 +5498,40 @@ export default function FaturasPage() {
       pdf.text(
         ehDocumentoComEncargos
           ? 'REEMISSÃO EM BRL:'
-          : 'TAXA DE CONVERSÃO:',
+          : 'CÂMBIO / SPREAD:',
         margem + 8,
         yTaxa
       )
 
+      const taxaPdfUSD =
+        itensClientePdf.find(
+          (item) => normalizarMoedaItemFatura(item.moeda) === 'USD'
+        )?.taxa_conversao || 0
+
+      const taxaPdfEUR =
+        itensClientePdf.find(
+          (item) => normalizarMoedaItemFatura(item.moeda) === 'EUR'
+        )?.taxa_conversao || 0
+
+      const spreadPdf =
+        ehRegeracaoPdf
+          ? numero(faturaRegeracao?.spread)
+          : numero(emissorSpread)
+
+      const partesCambioPdf = [
+        numero(taxaPdfUSD) > 0
+          ? `USD R$ ${numero(taxaPdfUSD).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+          : '',
+        numero(taxaPdfEUR) > 0
+          ? `EUR R$ ${numero(taxaPdfEUR).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+          : '',
+        `SPREAD ${formatarValorSimples(spreadPdf)}%`,
+      ].filter(Boolean)
+
       pdf.text(
         ehDocumentoComEncargos
-          ? 'ENCARGOS POR ATRASO'
-          : ehRegeracaoPdf
-            ? `SPREAD ${faturaRegeracao?.spread || 0}%`
-            : `SPREAD ${emissorSpread || '0'}%`,
-        240,
-        yTaxa
-      )
-
-      const taxaRegeracao =
-        numero(
-          faturaRegeracao?.taxa_conversao
-        )
-
-      pdf.text(
-        ehDocumentoComEncargos
-          ? 'SEM NOVA CONVERSÃO'
-          : ehRegeracaoPdf
-            ? (
-                taxaRegeracao > 0
-                  ? `R$ ${taxaRegeracao.toLocaleString(
-                      'pt-BR',
-                      {
-                        minimumFractionDigits: 4,
-                        maximumFractionDigits: 4,
-                      }
-                    )}`
-                  : '-'
-              )
-            : `R$ ${taxaConversaoFinalFormatada()}`,
+          ? 'ENCARGOS POR ATRASO • SEM NOVA CONVERSÃO'
+          : partesCambioPdf.join(' • '),
         larguraPagina - margem - 6,
         yTaxa,
         { align: 'right' }
@@ -7987,7 +8182,7 @@ export default function FaturasPage() {
                     </label>
 
                     <label className="text-sm font-bold text-slate-300">
-                      Taxa base usada na fatura
+                      Taxa base USD usada na fatura
                       <input
                         value={formatarEntradaTaxaBR(emissorTaxaConversao)}
                         inputMode="decimal"
@@ -7998,6 +8193,20 @@ export default function FaturasPage() {
                         placeholder="Ex.: 5,0569"
                         className="mt-2 w-full"
                       />
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
+                      Taxa base EUR usada na fatura
+                      <input
+                        value={formatarEntradaTaxaBR(emissorTaxaBaseEur)}
+                        inputMode="decimal"
+                        onChange={(e) => recalcularItensPorTaxaEur(e.target.value)}
+                        placeholder="Ex.: 6,1200"
+                        className="mt-2 w-full"
+                      />
+                      <span className="mt-2 block text-xs font-normal text-slate-500">
+                        Preencha quando houver serviço em EUR. O spread é aplicado sobre esta base.
+                      </span>
                     </label>
                   </div>
 
@@ -8057,14 +8266,19 @@ export default function FaturasPage() {
                 </label>
 
                 <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxa final com spread</p>
-                  <p className="mt-1 text-2xl font-black text-green-300">R$ {taxaConversaoFinalFormatada()}</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Base: {emissorTipoCambio === 'PTAX_DHL_MES_ANTERIOR'
-                      ? `PTAX DHL ${dataBRSimples(emissorDataPtaxDhlMesAnterior)}`
-                      : emissorTipoCambio === 'DOLAR_VENDA_DIA'
-                        ? 'dólar fechamento venda do dia'
-                        : 'taxa manual'} + spread.
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxas finais com spread</p>
+                  <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs font-black text-blue-300">USD → BRL</p>
+                      <p className="text-xl font-black text-green-300">R$ {taxaConversaoItemFaturaFormatada('USD')}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-blue-300">EUR → BRL</p>
+                      <p className="text-xl font-black text-green-300">R$ {taxaConversaoItemFaturaFormatada('EUR')}</p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-400">
+                    USD mantém a regra atual de câmbio/DHL. EUR usa a base EUR informada acima. BRL não sofre conversão.
                   </p>
                 </div>
 
@@ -8090,25 +8304,34 @@ export default function FaturasPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-right">
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 text-right">
               <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
                 <p className="text-xs text-slate-500 font-black">TOTAL USD</p>
-                <p className="text-2xl font-black text-blue-300">{formatarValorSimples(totaisEmissor.totalUSD)}</p>
+                <p className="text-xl font-black text-blue-300">USD {formatarValorSimples(totaisEmissor.totalUSD)}</p>
+              </div>
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL EUR</p>
+                <p className="text-xl font-black text-blue-300">EUR {formatarValorSimples(totaisEmissor.totalEUR)}</p>
+              </div>
+              <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL BRL ORIGINAL</p>
+                <p className="text-xl font-black text-blue-300">BRL {formatarValorSimples(totaisEmissor.totalBRLOriginal)}</p>
               </div>
               <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
-                <p className="text-xs text-slate-500 font-black">TOTAL R$</p>
-                <p className="text-2xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
+                <p className="text-xs text-slate-500 font-black">TOTAL FATURA R$</p>
+                <p className="text-xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
               </div>
             </div>
           </div>
 
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[980px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
+            <table className="w-full min-w-[1150px] border-collapse text-sm [&_th]:border-b [&_th]:border-blue-900 [&_th]:px-3 [&_th]:py-3 [&_th]:text-left [&_th]:font-black [&_th]:text-slate-300 [&_td]:border-b [&_td]:border-blue-900/50 [&_td]:px-3 [&_td]:py-3">
               <thead>
                 <tr>
                   <th className="w-[80px]">Usar</th>
                   <th>Serviço</th>
-                  <th className="w-[160px]">Valor USD</th>
+                  <th className="w-[120px]">Moeda</th>
+                  <th className="w-[170px]">Valor original</th>
                   <th className="w-[180px]">Valor R$</th>
                   <th>Observação</th>
                 </tr>
@@ -8124,6 +8347,17 @@ export default function FaturasPage() {
                       />
                     </td>
                     <td className="font-black text-slate-200">{item.descricao}</td>
+                    <td>
+                      <select
+                        value={normalizarMoedaItemFatura(item.moeda)}
+                        onChange={(e) => atualizarItemFatura(item.id, 'moeda', e.target.value)}
+                        className="w-full"
+                      >
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="BRL">BRL</option>
+                      </select>
+                    </td>
                     <td>
                       <input
                         value={formatarEntradaValorBR(item.valor_usd)}
