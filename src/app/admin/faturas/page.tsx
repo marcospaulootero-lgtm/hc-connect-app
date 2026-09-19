@@ -287,6 +287,8 @@ export default function FaturasPage() {
   const [emissorTaxaBaseEur, setEmissorTaxaBaseEur] = useState('')
   const [emissorTipoCambio, setEmissorTipoCambio] = useState('DOLAR_VENDA_DIA')
   const [emissorDolarVendaDia, setEmissorDolarVendaDia] = useState('')
+  const [emissorEuroVendaDia, setEmissorEuroVendaDia] = useState('')
+  const [emissorDataEuroVendaDia, setEmissorDataEuroVendaDia] = useState('')
   const [emissorPtaxDhlMesAnterior, setEmissorPtaxDhlMesAnterior] = useState('')
   const [emissorDataPtaxDhlMesAnterior, setEmissorDataPtaxDhlMesAnterior] = useState('')
   const [emissorSpread, setEmissorSpread] = useState('3')
@@ -3969,20 +3971,47 @@ export default function FaturasPage() {
 
       const dolarVenda = formatarTaxaCambioInput(retorno?.dolar_venda_dia?.valor)
       const dataDolarVenda = retorno?.dolar_venda_dia?.data || ''
+
+      const euroVenda = formatarTaxaCambioInput(
+        retorno?.euro_venda_dia?.valor
+      )
+
+      const dataEuroVenda =
+        retorno?.euro_venda_dia?.data || ''
+
       const ptaxDhl = formatarTaxaCambioInput(retorno?.ptax_dhl_mes_anterior?.valor)
       const dataPtaxDhl = retorno?.ptax_dhl_mes_anterior?.data || ''
+
+      setEmissorEuroVendaDia(
+        euroVenda
+      )
+
+      setEmissorDataEuroVendaDia(
+        dataEuroVenda
+      )
+
+      /*
+        Quando o BCB devolver EUR,
+        ele passa a ser automaticamente
+        a base dos itens em euro.
+      */
+      if (euroVenda) {
+        recalcularItensPorTaxaEur(
+          euroVenda
+        )
+      }
 
       if (usandoPtaxDhl) {
         setEmissorPtaxDhlMesAnterior(ptaxDhl)
         setEmissorDataPtaxDhlMesAnterior(dataPtaxDhl || sugestaoPtaxDhlMesAnterior(dataConsultaPtax).data)
 
         setEmissorAvisoCambio(
-          `DHL: embarque em ${dataBRSimples(dataConsultaPtax)}. PTAX aplicada: ${ptaxDhl || '-'} (${dataBRSimples(dataPtaxDhl)}), último valor válido do mês anterior.`
+          `DHL: embarque em ${dataBRSimples(dataConsultaPtax)}. PTAX aplicada: ${ptaxDhl || '-'} (${dataBRSimples(dataPtaxDhl)}), último valor válido do mês anterior. Euro venda do dia: ${euroVenda || '-'} (${dataBRSimples(dataEuroVenda)}).`
         )
       } else {
         setEmissorDolarVendaDia(dolarVenda)
         setEmissorAvisoCambio(
-          `Câmbio atualizado pelo Banco Central. Dólar venda: ${dolarVenda || '-'} (${dataBRSimples(dataDolarVenda)}).`
+          `Câmbio atualizado pelo Banco Central. Dólar venda: ${dolarVenda || '-'} (${dataBRSimples(dataDolarVenda)}). Euro venda: ${euroVenda || '-'} (${dataBRSimples(dataEuroVenda)}).`
         )
       }
 
@@ -4476,6 +4505,8 @@ export default function FaturasPage() {
     setEmissorDataEmbarque(dataEmbarque)
     setEmissorTaxaConversao(taxaBaseInicial)
     setEmissorTaxaBaseEur('')
+    setEmissorEuroVendaDia('')
+    setEmissorDataEuroVendaDia('')
     setEmissorTipoCambio(transportadoraDhl ? 'PTAX_DHL_MES_ANTERIOR' : 'DOLAR_VENDA_DIA')
     setEmissorDataPtaxDhlMesAnterior(transportadoraDhl && dataEmbarque ? ptaxDhlSugerido.data : '')
     setEmissorPtaxDhlMesAnterior('')
@@ -8161,6 +8192,36 @@ export default function FaturasPage() {
                     </label>
 
                     <label className="text-sm font-bold text-slate-300">
+                      Euro venda do dia (BCB)
+                      <input
+                        value={formatarEntradaTaxaBR(emissorEuroVendaDia)}
+                        inputMode="decimal"
+                        onChange={(e) => {
+                          const valorFormatado =
+                            formatarEntradaTaxaBR(
+                              e.target.value
+                            )
+
+                          setEmissorEuroVendaDia(
+                            valorFormatado
+                          )
+
+                          recalcularItensPorTaxaEur(
+                            valorFormatado
+                          )
+                        }}
+                        placeholder="Ex.: 6,1200"
+                        className="mt-2 w-full"
+                      />
+
+                      <span className="mt-2 block text-xs font-normal text-slate-500">
+                        {emissorDataEuroVendaDia
+                          ? `Banco Central: ${dataBRSimples(emissorDataEuroVendaDia)}`
+                          : 'Clique em Atualizar câmbio BCB para consultar o euro venda do dia.'}
+                      </span>
+                    </label>
+
+                    <label className="text-sm font-bold text-slate-300">
                       PTAX DHL mês anterior
                       <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] gap-2">
                         <input
@@ -8205,18 +8266,31 @@ export default function FaturasPage() {
                         className="mt-2 w-full"
                       />
                       <span className="mt-2 block text-xs font-normal text-slate-500">
-                        Preencha quando houver serviço em EUR. O spread é aplicado sobre esta base.
+                        Preenchida automaticamente pelo euro venda do dia do Banco Central. Continua editável; o spread é aplicado sobre esta base.
                       </span>
                     </label>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={() => aplicarTaxaCambio('DOLAR_VENDA_DIA', emissorDolarVendaDia)}
                       className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black hover:bg-blue-500"
                     >
                       Usar dólar venda dia
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        recalcularItensPorTaxaEur(
+                          emissorEuroVendaDia
+                        )
+                      }
+                      disabled={!emissorEuroVendaDia}
+                      className="rounded-xl bg-cyan-600 px-3 py-2 text-xs font-black hover:bg-cyan-500 disabled:opacity-60"
+                    >
+                      Usar euro venda dia
                     </button>
 
                     <button
@@ -8278,7 +8352,7 @@ export default function FaturasPage() {
                     </div>
                   </div>
                   <p className="mt-2 text-xs text-slate-400">
-                    USD mantém a regra atual de câmbio/DHL. EUR usa a base EUR informada acima. BRL não sofre conversão.
+                    USD mantém a regra atual de câmbio/DHL. EUR usa automaticamente o euro venda do dia do Banco Central, com possibilidade de ajuste manual. BRL não sofre conversão.
                   </p>
                 </div>
 

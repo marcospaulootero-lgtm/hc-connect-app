@@ -89,12 +89,117 @@ async function buscarUltimaCotacao(inicioISO: string, fimISO: string) {
   }
 }
 
+async function buscarUltimaCotacaoMoeda(
+  moeda: string,
+  inicioISO: string,
+  fimISO: string
+) {
+  const codigoMoeda = String(moeda || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+
+  if (!/^[A-Z]{3}$/.test(codigoMoeda)) {
+    throw new Error(
+      'Código de moeda inválido para consulta ao Banco Central.'
+    )
+  }
+
+  const url =
+    `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/` +
+    `CotacaoMoedaPeriodo(moeda=@moeda,dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)` +
+    `?@moeda='${codigoMoeda}'` +
+    `&@dataInicial='${formatarDataBacen(inicioISO)}'` +
+    `&@dataFinalCotacao='${formatarDataBacen(fimISO)}'` +
+    `&$top=1000&$format=json`
+
+  const resposta = await fetch(url, {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+    },
+  })
+
+  if (!resposta.ok) {
+    throw new Error(
+      `Banco Central retornou status ${resposta.status} para ${codigoMoeda}`
+    )
+  }
+
+  const json = await resposta.json()
+
+  const cotacoes =
+    Array.isArray(json?.value)
+      ? json.value
+      : []
+
+  const ordenadas = cotacoes
+    .filter(
+      (item: CotacaoBacen) =>
+        Number(item?.cotacaoVenda || 0) > 0
+    )
+    .sort(
+      (a: CotacaoBacen, b: CotacaoBacen) =>
+        String(
+          b.dataHoraCotacao || ''
+        ).localeCompare(
+          String(
+            a.dataHoraCotacao || ''
+          )
+        )
+    )
+
+  const ultima =
+    ordenadas[0]
+
+  if (!ultima) {
+    return null
+  }
+
+  return {
+    valor: Number(
+      ultima.cotacaoVenda || 0
+    ),
+    data: dataISODataHoraBacen(
+      ultima.dataHoraCotacao
+    ),
+    data_hora:
+      ultima.dataHoraCotacao || null,
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url)
     const dataBase = dataValidaISO(searchParams.get('data'))
 
     const dolarVendaDia = await buscarUltimaCotacao(addDias(dataBase, -10), dataBase)
+
+    /*
+      EUR sempre usa a cotação de venda mais recente
+      disponível no Banco Central, independentemente
+      da regra especial da PTAX DHL.
+    */
+    const hoje = isoHoje()
+    let euroVendaDia = null
+
+    try {
+      euroVendaDia =
+        await buscarUltimaCotacaoMoeda(
+          'EUR',
+          addDias(hoje, -10),
+          hoje
+        )
+    } catch (error) {
+      /*
+        Não derruba USD/PTAX caso a consulta do EUR
+        esteja temporariamente indisponível.
+      */
+      console.warn(
+        'Não foi possível consultar EUR no Banco Central:',
+        error
+      )
+    }
 
     const ptaxDhlMesAnterior = await buscarUltimaCotacao(
       inicioMesAnterior(dataBase),
@@ -119,6 +224,7 @@ export async function GET(req: Request) {
       ok: true,
       data_base: dataBase,
       dolar_venda_dia: dolarVendaDia,
+      euro_venda_dia: euroVendaDia,
       ptax_dhl_mes_anterior: ptaxDhlMesAnterior,
     })
   } catch (error: any) {
