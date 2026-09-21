@@ -9,6 +9,7 @@ export default function CotacoesAdminPage() {
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroArquivamento, setFiltroArquivamento] = useState<'ATIVAS' | 'ARQUIVADAS' | 'TODAS'>('ATIVAS')
+  const [filtroInteligencia, setFiltroInteligencia] = useState<'TODAS' | 'FOLLOWUP' | 'SEM_RETORNO' | 'PERDIDA'>('TODAS')
   const [awbsPorEmbarque, setAwbsPorEmbarque] = useState<Record<string, string>>({})
   const [cotacaoVinculo, setCotacaoVinculo] = useState<any>(null)
   const [usuarioVinculoId, setUsuarioVinculoId] = useState('')
@@ -305,6 +306,48 @@ export default function CotacoesAdminPage() {
     return dadosEmissorObjeto(item)?.arquivada_admin === true
   }
 
+  function dataReferenciaFollowUp(item: any) {
+    const dados = dadosEmissorObjeto(item)
+
+    return (
+      dados?.cotacao_disponivel_em ||
+      item?.atualizado_em ||
+      item?.criado_em ||
+      null
+    )
+  }
+
+  function horasSemRetornoCotacao(item: any) {
+    const data = dataReferenciaFollowUp(item)
+    if (!data) return 0
+
+    const inicio = new Date(data).getTime()
+    if (!Number.isFinite(inicio)) return 0
+
+    return Math.max(0, (Date.now() - inicio) / 3600000)
+  }
+
+  function cotacaoPrecisaFollowUp(item: any) {
+    if (!item) return false
+    if (cotacaoArquivada(item)) return false
+    if (item?.embarque_id) return false
+    if (item?.status !== 'COTAÇÃO DISPONÍVEL') return false
+
+    return horasSemRetornoCotacao(item) >= 48
+  }
+
+  function tempoSemRetornoCotacao(item: any) {
+    const horas = Math.floor(horasSemRetornoCotacao(item))
+    const dias = Math.floor(horas / 24)
+    const horasRestantes = horas % 24
+
+    if (dias > 0) {
+      return `${dias}d ${horasRestantes}h`
+    }
+
+    return `${horas}h`
+  }
+
   function awbCotacao(item: any) {
     if (!item?.embarque_id) return ''
 
@@ -355,10 +398,25 @@ export default function CotacoesAdminPage() {
 
   async function atualizarStatus(id: string, status: string) {
   const cotacao = cotacoes.find((c) => c.id === id)
+  const dadosAtuais = dadosEmissorObjeto(cotacao)
+
+  const atualizacao: any = {
+    status,
+  }
+
+  if (status === 'COTAÇÃO DISPONÍVEL') {
+    atualizacao.dados_emissor = {
+      ...dadosAtuais,
+      cotacao_disponivel_em: new Date().toISOString(),
+      resultado_comercial: null,
+      resultado_comercial_em: null,
+      resultado_comercial_por: null,
+    }
+  }
 
   const { error } = await supabase
     .from('cotacoes')
-    .update({ status })
+    .update(atualizacao)
     .eq('id', id)
 
   if (error) {
@@ -393,6 +451,55 @@ export default function CotacoesAdminPage() {
 
   carregar()
 }
+
+  async function marcarResultadoComercial(
+    item: any,
+    status: 'SEM RETORNO' | 'COTAÇÃO PERDIDA'
+  ) {
+    if (!item || item?.embarque_id) {
+      alert('Esta cotação já possui embarque e não pode ser encerrada como perdida ou sem retorno.')
+      return
+    }
+
+    const descricao =
+      status === 'SEM RETORNO'
+        ? 'sem retorno do cliente'
+        : 'cotação perdida'
+
+    const confirmar = confirm(
+      `Marcar esta cotação como ${descricao}?\n\n` +
+      'Ela continuará salva no sistema e poderá ser filtrada no painel comercial.'
+    )
+
+    if (!confirmar) return
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const dadosAtuais = dadosEmissorObjeto(item)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        status,
+        dados_emissor: {
+          ...dadosAtuais,
+          resultado_comercial: status,
+          resultado_comercial_em: new Date().toISOString(),
+          resultado_comercial_por: user?.id || null,
+        },
+      })
+      .eq('id', item.id)
+
+    if (error) {
+      console.error('Erro ao registrar resultado comercial da cotação:', error)
+      alert(error.message)
+      return
+    }
+
+    await carregar()
+  }
 
   async function excluirCotacao(id: string) {
     const confirmar = confirm('Deseja realmente excluir esta cotação?')
@@ -433,7 +540,18 @@ export default function CotacoesAdminPage() {
           filtroArquivamento === 'TODAS' ||
           (filtroArquivamento === 'ARQUIVADAS' ? arquivada : !arquivada)
 
-        return matchBusca && matchStatus && matchArquivamento
+        const matchInteligencia =
+          filtroInteligencia === 'TODAS' ||
+          (filtroInteligencia === 'FOLLOWUP' && cotacaoPrecisaFollowUp(item)) ||
+          (filtroInteligencia === 'SEM_RETORNO' && item.status === 'SEM RETORNO') ||
+          (filtroInteligencia === 'PERDIDA' && item.status === 'COTAÇÃO PERDIDA')
+
+        return (
+          matchBusca &&
+          matchStatus &&
+          matchArquivamento &&
+          matchInteligencia
+        )
       })
       .sort((a, b) => {
         const dataA = a.criado_em ? new Date(a.criado_em).getTime() : 0
@@ -441,7 +559,15 @@ export default function CotacoesAdminPage() {
 
         return dataA - dataB
       })
-  }, [cotacoes, usuarios, busca, filtroStatus, filtroArquivamento, awbsPorEmbarque])
+  }, [
+    cotacoes,
+    usuarios,
+    busca,
+    filtroStatus,
+    filtroArquivamento,
+    filtroInteligencia,
+    awbsPorEmbarque,
+  ])
 
   function corStatus(status: string) {
     if (status === 'AGUARDANDO ANÁLISE') return 'bg-yellow-400 text-black'
@@ -451,6 +577,8 @@ export default function CotacoesAdminPage() {
     if (status === 'APROVADA') return 'bg-green-700 text-white'
     if (status === 'AUTORIZADA') return 'bg-green-700 text-white'
     if (status === 'RECUSADA') return 'bg-red-600 text-white'
+    if (status === 'SEM RETORNO') return 'bg-orange-700 text-white'
+    if (status === 'COTAÇÃO PERDIDA') return 'bg-rose-800 text-white'
     if (status === 'CONVERTIDA EM EMBARQUE') return 'bg-slate-700 text-white'
     return 'bg-slate-600 text-white'
   }
@@ -461,6 +589,9 @@ export default function CotacoesAdminPage() {
   const totalDisponiveis = cotacoesAtivas.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
   const totalAprovadas = cotacoesAtivas.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
   const totalRecusadas = cotacoesAtivas.filter((c) => c.status === 'RECUSADA').length
+  const totalFollowUp = cotacoesAtivas.filter((c) => cotacaoPrecisaFollowUp(c)).length
+  const totalSemRetorno = cotacoesAtivas.filter((c) => c.status === 'SEM RETORNO').length
+  const totalPerdidas = cotacoesAtivas.filter((c) => c.status === 'COTAÇÃO PERDIDA').length
 
   const proximaCotacao = cotacoesFiltradas[0]
   const ultimaCotacao = cotacoesFiltradas[cotacoesFiltradas.length - 1]
@@ -502,6 +633,114 @@ export default function CotacoesAdminPage() {
         <Card titulo="Disponíveis" valor={totalDisponiveis} detalhe="Resposta enviada" icone="📄" />
         <Card titulo="Aprovadas" valor={totalAprovadas} detalhe="Cliente aprovou" icone="✅" />
         <Card titulo="Recusadas" valor={totalRecusadas} detalhe="Não aprovadas" icone="❌" />
+      </section>
+
+      <section className="border border-amber-700/50 rounded-3xl bg-[#071225] p-6 mb-8">
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5 mb-5">
+          <div>
+            <p className="text-amber-300 font-black mb-1">
+              Inteligência comercial
+            </p>
+
+            <h2 className="text-2xl font-black">
+              Follow-up e resultado das cotações
+            </h2>
+
+            <p className="text-slate-400 text-sm mt-1">
+              O alerta de follow-up considera cotações disponíveis há 48 horas ou mais, sem embarque e ainda sem encerramento comercial.
+            </p>
+          </div>
+
+          {filtroInteligencia !== 'TODAS' ? (
+            <button
+              type="button"
+              onClick={() => setFiltroInteligencia('TODAS')}
+              className="rounded-xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
+            >
+              Mostrar todas
+            </button>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <button
+            type="button"
+            onClick={() =>
+              setFiltroInteligencia(
+                filtroInteligencia === 'FOLLOWUP'
+                  ? 'TODAS'
+                  : 'FOLLOWUP'
+              )
+            }
+            className={
+              filtroInteligencia === 'FOLLOWUP'
+                ? 'rounded-2xl border border-amber-400 bg-amber-500/20 p-5 text-left'
+                : 'rounded-2xl border border-amber-700/60 bg-[#020817] p-5 text-left hover:bg-amber-950/30'
+            }
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-amber-300">
+              ⚠ Follow-up +2 dias
+            </p>
+            <p className="mt-2 text-3xl font-black text-white">
+              {totalFollowUp}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              Disponíveis há pelo menos 48h e ainda sem embarque.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setFiltroInteligencia(
+                filtroInteligencia === 'SEM_RETORNO'
+                  ? 'TODAS'
+                  : 'SEM_RETORNO'
+              )
+            }
+            className={
+              filtroInteligencia === 'SEM_RETORNO'
+                ? 'rounded-2xl border border-orange-400 bg-orange-500/20 p-5 text-left'
+                : 'rounded-2xl border border-orange-700/60 bg-[#020817] p-5 text-left hover:bg-orange-950/30'
+            }
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-orange-300">
+              📭 Sem retorno
+            </p>
+            <p className="mt-2 text-3xl font-black text-white">
+              {totalSemRetorno}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              Encerradas manualmente por falta de resposta.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setFiltroInteligencia(
+                filtroInteligencia === 'PERDIDA'
+                  ? 'TODAS'
+                  : 'PERDIDA'
+              )
+            }
+            className={
+              filtroInteligencia === 'PERDIDA'
+                ? 'rounded-2xl border border-rose-400 bg-rose-500/20 p-5 text-left'
+                : 'rounded-2xl border border-rose-700/60 bg-[#020817] p-5 text-left hover:bg-rose-950/30'
+            }
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-rose-300">
+              ❌ Cotações perdidas
+            </p>
+            <p className="mt-2 text-3xl font-black text-white">
+              {totalPerdidas}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              Negócios identificados como perdidos.
+            </p>
+          </button>
+        </div>
       </section>
 
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-6 mb-8">
@@ -553,6 +792,7 @@ export default function CotacoesAdminPage() {
               setBusca('')
               setFiltroStatus('')
               setFiltroArquivamento('ATIVAS')
+              setFiltroInteligencia('TODAS')
             }}
             className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold h-fit"
           >
@@ -576,6 +816,8 @@ export default function CotacoesAdminPage() {
             <option value="APROVADA">Aprovada</option>
             <option value="AUTORIZADA">Autorizada</option>
             <option value="RECUSADA">Recusada</option>
+            <option value="SEM RETORNO">Sem retorno</option>
+            <option value="COTAÇÃO PERDIDA">Cotação perdida</option>
             <option value="CONVERTIDA EM EMBARQUE">Convertida em embarque</option>
           </select>
 
@@ -718,6 +960,12 @@ export default function CotacoesAdminPage() {
                         {item.status || 'AGUARDANDO ANÁLISE'}
                       </span>
 
+                      {cotacaoPrecisaFollowUp(item) ? (
+                        <span className="rounded-full border border-amber-500/70 bg-amber-500/10 px-3 py-1 text-[10px] font-black uppercase text-amber-300">
+                          ⚠ Sem retorno há {tempoSemRetornoCotacao(item)}
+                        </span>
+                      ) : null}
+
                       {cotacaoArquivada(item) ? (
                         <span className="rounded-full border border-amber-600/60 bg-amber-600/10 px-3 py-1 text-[10px] font-black uppercase text-amber-300">
                           Arquivada
@@ -807,6 +1055,41 @@ export default function CotacoesAdminPage() {
                       >
                         Recusar
                       </button>
+
+                      {!item.embarque_id &&
+                        item.status !== 'CONVERTIDA EM EMBARQUE' &&
+                        item.status !== 'SEM RETORNO' &&
+                        item.status !== 'COTAÇÃO PERDIDA' ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              marcarResultadoComercial(
+                                item,
+                                'SEM RETORNO'
+                              )
+                            }
+                            className="bg-orange-700 hover:bg-orange-600 px-4 py-2 rounded-xl font-bold"
+                            title="Encerra comercialmente a cotação por falta de retorno do cliente."
+                          >
+                            Sem retorno
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              marcarResultadoComercial(
+                                item,
+                                'COTAÇÃO PERDIDA'
+                              )
+                            }
+                            className="bg-rose-800 hover:bg-rose-700 px-4 py-2 rounded-xl font-bold"
+                            title="Registra que a oportunidade comercial foi perdida."
+                          >
+                            Perdida
+                          </button>
+                        </>
+                      ) : null}
 
                       <button
                         onClick={() => alterarArquivamento(item, !cotacaoArquivada(item))}
