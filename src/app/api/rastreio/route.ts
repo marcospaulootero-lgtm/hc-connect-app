@@ -1295,6 +1295,8 @@ function ehFiscalizacao(s: string) {
 function ehTransito(s: string) {
   return (
     s.includes('on the way') ||
+    s.includes('shipment is on hold') ||
+    s.includes('on hold') ||
     s.includes('we have your package') ||
     s.includes('estamos com seu pacote') ||
     s.includes('delivery updated') ||
@@ -1550,15 +1552,41 @@ async function salvarRastreio({
 
   // O status operacional acompanha o estado ATUAL informado pela transportadora.
   // Fiscalização/Liberado podem naturalmente voltar para Em trânsito após o desembaraço.
-  // Apenas Entregue é terminal e nunca regride.
+  // Entregue continua terminal.
   let statusNormalizado = statusAtualAntes === 'Entregue' ? 'Entregue' : statusDetectado
 
-  if (
-    statusDetectado === 'Aguardando coleta' &&
-    !movimentoFisicoConfirmado &&
-    statusAtualAntes !== 'Entregue'
-  ) {
-    statusNormalizado = 'Aguardando coleta'
+  /*
+    NAO REGRESSAO PARA PRE-COLETA
+
+    Depois que existe evidência física de coleta/movimentação
+    OU o embarque já alcançou um status pós-coleta,
+    "Aguardando coleta" deixa de ser um estado possível.
+
+    Isso protege contra descrições novas/desconhecidas da transportadora,
+    por exemplo "Shipment is on hold", que jamais podem devolver
+    um volume já coletado para a etapa de pré-coleta.
+  */
+  const statusJaPosColeta = [
+    'Coletado',
+    'Em trânsito',
+    'Fiscalização',
+    'Liberado',
+    'Entregue',
+  ].includes(statusAtualAntes)
+
+  if (statusDetectado === 'Aguardando coleta') {
+    if (movimentoFisicoConfirmado) {
+      statusNormalizado =
+        statusJaPosColeta
+          ? statusAtualAntes
+          : 'Coletado'
+    } else if (statusJaPosColeta) {
+      statusNormalizado =
+        statusAtualAntes
+    } else {
+      statusNormalizado =
+        'Aguardando coleta'
+    }
   }
 
   /*
@@ -1600,8 +1628,13 @@ async function salvarRastreio({
   }
 
   // Data de envio = data da coleta física. Nunca usar data de etiqueta/status como substituta.
+  // A mesma evidência também é persistida em data_coleta para fortalecer
+  // a regra de não regressão e os fallbacks futuros.
   if (dataColeta) {
-    dadosAtualizar.data_envio = new Date(dataColeta).toISOString().split('T')[0]
+    const dataColetaISO = new Date(dataColeta).toISOString().split('T')[0]
+
+    dadosAtualizar.data_envio = dataColetaISO
+    dadosAtualizar.data_coleta = dataColetaISO
   }
 
   const { error: erroUpdate } = await supabase
