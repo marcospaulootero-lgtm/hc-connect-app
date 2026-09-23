@@ -169,8 +169,8 @@ function extrairDhl(textoOriginal: string) {
   const texto = limparTexto(bruto)
 
   const numeroCompleto =
-    texto.match(/Fatura:\s*(BHZIR[0-9A-Z]+)/i)?.[1]?.trim().toUpperCase() ||
-    texto.match(/\b(BHZIR[0-9A-Z]+)\b/i)?.[1]?.trim().toUpperCase() ||
+    texto.match(/Fatura:\s*((?:BHZIR|BHZR)[0-9A-Z]+)/i)?.[1]?.trim().toUpperCase() ||
+    texto.match(/\b((?:BHZIR|BHZR)[0-9A-Z]+)\b/i)?.[1]?.trim().toUpperCase() ||
     ''
 
   const numeroFatura = normalizarNumeroFaturaParaSistema(numeroCompleto)
