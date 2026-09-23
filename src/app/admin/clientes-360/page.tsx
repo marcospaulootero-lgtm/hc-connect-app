@@ -145,8 +145,24 @@ function dataLinha(l: Linha) {
   )
 }
 
+function awbsLinha(l: Linha) {
+  return [
+    l.awb,
+    l.numero_awb,
+    l.hawb,
+    l.h_awb,
+    l.awb_original,
+    l.numero_embarque,
+    l.tracking_number,
+    l.tracking,
+    l.codigo_rastreio,
+  ]
+    .map(soAlfaNum)
+    .filter(Boolean)
+}
+
 function awbLinha(l: Linha) {
-  return primeiro(l.awb, l.numero_awb, l.tracking_number, l.tracking, l.codigo_rastreio)
+  return awbsLinha(l)[0] || ''
 }
 
 function refHcLinha(l: Linha) {
@@ -159,13 +175,16 @@ function refClienteLinha(l: Linha) {
 
 function clienteNomeLinha(l: Linha) {
   return primeiro(
+    l.cliente,
+    l.cliente_final,
     l.cliente_nome,
     l.nome_cliente,
-    l.cliente,
+    l.importador,
+    l.tomador,
+    l.pagador,
     l.empresa,
     l.razao_social,
-    l.nome_fantasia,
-    l.cliente_final
+    l.nome_fantasia
   )
 }
 
@@ -488,38 +507,102 @@ export default function Clientes360Page() {
 
   const clientes = useMemo(() => {
     const mapa = new Map<string, Cliente360>()
+    const embarquesPorId = new Map<string, Linha>()
+    const embarquesPorAwb = new Map<string, Linha>()
 
-    const fontesBase = [...dados.clientes, ...dados.perfis, ...dados.embarques]
+    dados.embarques.forEach((embarque) => {
+      if (embarque.id) embarquesPorId.set(String(embarque.id), embarque)
 
-    fontesBase.forEach((l, index) => {
-      const id = clienteIdLinha(l)
-      const usuario = usuarioLinha(l)
-      const doc = documentoLinha(l)
-      const email = emailLinha(l)
-      const codigo = codigoClienteLinha(l)
-      const nome = clienteNomeLinha(l)
+      awbsLinha(embarque).forEach((awb) => {
+        if (!embarquesPorAwb.has(awb)) embarquesPorAwb.set(awb, embarque)
+      })
+    })
 
-      const key =
-        chaveForte('id', id) ||
-        chaveForte('usuario', usuario) ||
-        chaveForte('doc', doc) ||
-        chaveForte('codigo', codigo) ||
-        chaveForte('email', email) ||
-        chaveForte('nome', nome) ||
-        `registro:${index}`
+    function embarqueDoFinanceiro(financeiro: Linha) {
+      const embarqueId = texto(embarqueIdLinha(financeiro))
+
+      if (embarqueId && embarquesPorId.has(embarqueId)) {
+        return embarquesPorId.get(embarqueId) || null
+      }
+
+      for (const awb of awbsLinha(financeiro)) {
+        if (embarquesPorAwb.has(awb)) return embarquesPorAwb.get(awb) || null
+      }
+
+      return null
+    }
+
+    dados.financeiro.forEach((financeiro, index) => {
+      const embarque = embarqueDoFinanceiro(financeiro)
+
+      // Mesma prioridade usada pela lógica financeira/ranking:
+      // cliente -> cliente_final -> importador -> tomador -> pagador.
+      // Se o financeiro antigo não tiver nome, recupera pelo embarque vinculado.
+      const nome = primeiro(
+        financeiro.cliente,
+        financeiro.cliente_final,
+        financeiro.importador,
+        financeiro.tomador,
+        financeiro.pagador,
+        embarque?.cliente,
+        embarque?.cliente_final,
+        embarque?.importador,
+        embarque?.tomador,
+        embarque?.pagador,
+        embarque?.razao_social,
+        embarque?.nome_fantasia
+      )
+
+      if (!nome || normalizar(nome) === 'cliente nao identificado') return
+
+      // Agrupamento por nome exato normalizado, como a página de Ranking de Clientes.
+      // Isso também preserva registros históricos que não possuem IDs modernos.
+      const key = `financeiro:${normalizar(nome)}`
+
+      const doc = primeiro(documentoLinha(financeiro), documentoLinha(embarque || {}))
+      const email = primeiro(emailLinha(financeiro), emailLinha(embarque || {}))
+      const codigo = primeiro(codigoClienteLinha(financeiro), codigoClienteLinha(embarque || {}))
+      const usuario = primeiro(usuarioLinha(financeiro), usuarioLinha(embarque || {}))
+      const id = primeiro(clienteIdLinha(financeiro), clienteIdLinha(embarque || {}))
 
       if (!mapa.has(key)) {
         mapa.set(key, {
           key,
-          nome: primeiro(l.nome_fantasia, l.nome, nome, l.razao_social, email, codigo, 'Cliente'),
-          razaoSocial: primeiro(l.razao_social, l.empresa, nome),
-          fantasia: primeiro(l.nome_fantasia, l.fantasia, l.nome),
+          nome,
+          razaoSocial: primeiro(
+            financeiro.razao_social,
+            embarque?.razao_social,
+            nome
+          ),
+          fantasia: primeiro(
+            financeiro.nome_fantasia,
+            embarque?.nome_fantasia,
+            nome
+          ),
           documento: doc,
           email,
-          telefone: primeiro(l.telefone, l.celular, l.whatsapp),
+          telefone: primeiro(
+            financeiro.telefone,
+            financeiro.celular,
+            financeiro.whatsapp,
+            embarque?.telefone,
+            embarque?.celular,
+            embarque?.whatsapp
+          ),
           codigo,
-          login: primeiro(l.login, l.email, l.usuario_email),
-          criadoEm: primeiro(l.criado_em, l.created_at) || null,
+          login: primeiro(
+            financeiro.login,
+            financeiro.usuario_email,
+            embarque?.login,
+            embarque?.usuario_email,
+            email
+          ),
+          criadoEm: primeiro(
+            financeiro.criado_em,
+            financeiro.created_at,
+            embarque?.criado_em,
+            embarque?.created_at
+          ) || null,
           chaves: new Set<string>(),
           emails: new Set<string>(),
           documentos: new Set<string>(),
@@ -531,29 +614,87 @@ export default function Clientes360Page() {
         })
       }
 
-      adicionarChavesCliente(mapa.get(key)!, l)
+      const cliente = mapa.get(key)!
+
+      // O nome financeiro é a identidade histórica principal.
+      cliente.nomes.add(normalizar(nome))
+      cliente.chaves.add(chaveForte('nome', nome))
+
+      if (id) cliente.chaves.add(chaveForte('id', id))
+      if (usuario) {
+        cliente.usuarios.add(normalizar(usuario))
+        cliente.chaves.add(chaveForte('usuario', usuario))
+      }
+      if (doc) {
+        cliente.documentos.add(soDigitos(doc))
+        cliente.chaves.add(chaveForte('doc', doc))
+      }
+      if (email) {
+        cliente.emails.add(normalizar(email))
+        cliente.chaves.add(chaveForte('email', email))
+      }
+      if (codigo) {
+        cliente.codigos.add(normalizar(codigo))
+        cliente.chaves.add(chaveForte('codigo', codigo))
+      }
+
+      adicionarChavesCliente(cliente, financeiro)
+      if (embarque) adicionarChavesCliente(cliente, embarque)
+
+      // Garante que todos os AWBs do registro financeiro e do embarque
+      // participem da pesquisa e dos vínculos posteriores.
+      ;[...awbsLinha(financeiro), ...awbsLinha(embarque || {})].forEach((awb) => {
+        cliente.awbs.add(awb)
+        cliente.chaves.add(chaveForte('awb', awb))
+      })
     })
 
-    for (const c of mapa.values()) {
-      dados.embarques.forEach((e) => {
-        const nome = normalizar(clienteNomeLinha(e))
-        const doc = soDigitos(documentoLinha(e))
-        const email = normalizar(emailLinha(e))
-        const codigo = normalizar(codigoClienteLinha(e))
+    // Cadastro e perfil NÃO criam clientes na lista.
+    // Servem somente para completar dados de empresas já encontradas no financeiro.
+    const fontesCadastro = [...dados.clientes, ...dados.perfis]
 
-        if (
-          (nome && c.nomes.has(nome)) ||
-          (doc && c.documentos.has(doc)) ||
-          (email && c.emails.has(email)) ||
-          (codigo && c.codigos.has(codigo))
-        ) {
-          adicionarChavesCliente(c, e)
+    for (const cliente of mapa.values()) {
+      fontesCadastro.forEach((cadastro) => {
+        const nome = normalizar(clienteNomeLinha(cadastro))
+        const doc = soDigitos(documentoLinha(cadastro))
+        const email = normalizar(emailLinha(cadastro))
+        const codigo = normalizar(codigoClienteLinha(cadastro))
+        const usuario = normalizar(usuarioLinha(cadastro))
+
+        const corresponde =
+          (doc && cliente.documentos.has(doc)) ||
+          (email && cliente.emails.has(email)) ||
+          (codigo && cliente.codigos.has(codigo)) ||
+          (usuario && cliente.usuarios.has(usuario)) ||
+          (nome && cliente.nomes.has(nome))
+
+        if (!corresponde) return
+
+        adicionarChavesCliente(cliente, cadastro)
+
+        if (!cliente.documento) cliente.documento = documentoLinha(cadastro)
+        if (!cliente.email) cliente.email = emailLinha(cadastro)
+        if (!cliente.telefone) {
+          cliente.telefone = primeiro(cadastro.telefone, cadastro.celular, cadastro.whatsapp)
+        }
+        if (!cliente.codigo) cliente.codigo = codigoClienteLinha(cadastro)
+        if (!cliente.login) {
+          cliente.login = primeiro(cadastro.login, cadastro.usuario_email, cadastro.email)
+        }
+        if (!cliente.razaoSocial) {
+          cliente.razaoSocial = primeiro(cadastro.razao_social, cadastro.empresa, cliente.nome)
+        }
+        if (!cliente.fantasia) {
+          cliente.fantasia = primeiro(cadastro.nome_fantasia, cadastro.fantasia, cadastro.nome)
+        }
+        if (!cliente.criadoEm) {
+          cliente.criadoEm = primeiro(cadastro.criado_em, cadastro.created_at) || null
         }
       })
     }
 
     return Array.from(mapa.values())
-      .filter((c) => c.nome && c.nome !== 'Cliente')
+      .filter((cliente) => cliente.nome)
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }, [dados])
 
@@ -604,17 +745,63 @@ export default function Clientes360Page() {
       }
     }
 
-    const embInicial = dados.embarques.filter((e) => linhaPertenceCliente(e, cliente, new Set()))
-    const embIds = new Set(embInicial.map((e) => texto(e.id)).filter(Boolean))
+    // 1. Identifica primeiro os registros faturados desse cliente.
+    const financeiroDireto = dados.financeiro.filter((financeiro) =>
+      linhaPertenceCliente(financeiro, cliente, new Set())
+    )
 
-    const filtra = (arr: Linha[]) => arr.filter((l) => linhaPertenceCliente(l, cliente, embIds))
+    // 2. Dos registros financeiros, extrai embarque_id e todos os AWBs históricos.
+    const embarqueIdsFinanceiro = new Set(
+      financeiroDireto
+        .map((financeiro) => texto(embarqueIdLinha(financeiro)))
+        .filter(Boolean)
+    )
+
+    const awbsFinanceiro = new Set(
+      financeiroDireto.flatMap((financeiro) => awbsLinha(financeiro))
+    )
+
+    // 3. Busca os processos/embarques por vínculo direto OU AWB,
+    // além dos vínculos cadastrais já conhecidos do cliente.
+    const embarquesCliente = dados.embarques.filter((embarque) => {
+      const id = texto(embarque.id)
+
+      if (id && embarqueIdsFinanceiro.has(id)) return true
+      if (awbsLinha(embarque).some((awb) => awbsFinanceiro.has(awb))) return true
+
+      return linhaPertenceCliente(embarque, cliente, new Set())
+    })
+
+    const embarqueIds = new Set(
+      embarquesCliente.map((embarque) => texto(embarque.id)).filter(Boolean)
+    )
+
+    // 4. Repassa os vínculos de embarque para capturar registros históricos
+    // que tenham embarque_id, mesmo quando o nome do cliente veio vazio.
+    const financeiroCliente = dados.financeiro.filter((financeiro) => {
+      if (linhaPertenceCliente(financeiro, cliente, embarqueIds)) return true
+
+      return awbsLinha(financeiro).some((awb) =>
+        embarquesCliente.some((embarque) => awbsLinha(embarque).includes(awb))
+      )
+    })
+
+    const filtraRelacionado = (arr: Linha[]) =>
+      arr.filter((linha) => {
+        if (linhaPertenceCliente(linha, cliente, embarqueIds)) return true
+
+        return awbsLinha(linha).some((awb) =>
+          awbsFinanceiro.has(awb) ||
+          embarquesCliente.some((embarque) => awbsLinha(embarque).includes(awb))
+        )
+      })
 
     return {
-      embarques: embInicial,
-      financeiro: filtra(dados.financeiro),
-      cotacoes: filtra(dados.cotacoes),
-      faturas: filtra(dados.faturas),
-      suporte: filtra(dados.suporte),
+      embarques: embarquesCliente,
+      financeiro: financeiroCliente,
+      cotacoes: filtraRelacionado(dados.cotacoes),
+      faturas: filtraRelacionado(dados.faturas),
+      suporte: filtraRelacionado(dados.suporte),
     }
   }, [cliente, dados])
 
