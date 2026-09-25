@@ -2055,7 +2055,65 @@ export default function FaturasPage() {
   }
 
 
-  async function carregarImagemBase64(caminhos: string[]) {
+
+async function otimizarImagemBase64Pdf(dataUrl: string, larguraMax = 480) {
+  try {
+    return await new Promise<string>((resolve) => {
+      const img = new Image()
+
+      img.onload = () => {
+        const larguraOriginal = img.naturalWidth || img.width
+        const alturaOriginal = img.naturalHeight || img.height
+
+        if (
+          !larguraOriginal ||
+          !alturaOriginal ||
+          larguraOriginal <= larguraMax
+        ) {
+          resolve(dataUrl)
+          return
+        }
+
+        const escala = larguraMax / larguraOriginal
+        const largura = Math.max(1, Math.round(larguraOriginal * escala))
+        const altura = Math.max(1, Math.round(alturaOriginal * escala))
+
+        const canvas = document.createElement('canvas')
+        canvas.width = largura
+        canvas.height = altura
+
+        const ctx = canvas.getContext('2d')
+
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
+
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.clearRect(0, 0, largura, altura)
+        ctx.drawImage(img, 0, 0, largura, altura)
+
+        resolve(canvas.toDataURL('image/png'))
+      }
+
+      img.onerror = () => resolve(dataUrl)
+      img.src = dataUrl
+    })
+  } catch {
+    return dataUrl
+  }
+}
+
+async function carregarImagemBase64Pdf(caminhos: string[]) {
+  const imagem = await carregarImagemBase64(caminhos)
+
+  if (!imagem) return null
+
+  return otimizarImagemBase64Pdf(imagem, 480)
+}
+
+async function carregarImagemBase64(caminhos: string[]) {
     for (const caminho of caminhos) {
       try {
         const url = caminho.startsWith('http') ? caminho : `${window.location.origin}${caminho}`
@@ -2918,7 +2976,7 @@ export default function FaturasPage() {
         throw new Error('Biblioteca de PDF não carregou corretamente. Rode npm install jspdf e publique novamente.')
       }
 
-      const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const logoBase64 = await carregarImagemBase64Pdf(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 44
       const larguraPagina = pdf.internal.pageSize.getWidth()
@@ -5185,7 +5243,7 @@ export default function FaturasPage() {
         throw new Error('Biblioteca de PDF não carregou corretamente. Rode npm install jspdf jspdf-autotable e publique novamente.')
       }
 
-      const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const logoBase64 = await carregarImagemBase64Pdf(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
       const itensClientePdf =
         ehRegeracaoPdf
           ? (
@@ -5495,8 +5553,20 @@ export default function FaturasPage() {
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(7.5)
       pdf.text('TOTAIS ORIGINAIS', margem + 6, yFinal + 12)
+      const partesTotaisOriginaisPdf = [
+        numero(totalClientePdfUSD) > 0
+          ? `USD ${formatarValorSimples(totalClientePdfUSD)}`
+          : '',
+        numero(totalClientePdfEUR) > 0
+          ? `EUR ${formatarValorSimples(totalClientePdfEUR)}`
+          : '',
+        numero(totalClientePdfBRLOriginal) > 0
+          ? `BRL ${formatarValorSimples(totalClientePdfBRLOriginal)}`
+          : '',
+      ].filter(Boolean)
+
       pdf.text(
-        `USD ${formatarValorSimples(totalClientePdfUSD)}  •  EUR ${formatarValorSimples(totalClientePdfEUR)}  •  BRL ${formatarValorSimples(totalClientePdfBRLOriginal)}`,
+        partesTotaisOriginaisPdf.join('  •  '),
         145,
         yFinal + 12
       )
@@ -6693,7 +6763,7 @@ export default function FaturasPage() {
       const larguraPagina = pdf.internal.pageSize.getWidth()
       const alturaPagina = pdf.internal.pageSize.getHeight()
       const dadosCliente = dadosClienteFiscal(agenteClienteSelecionado)
-      const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const logoBase64 = await carregarImagemBase64Pdf(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
       const qrPixBase64 = await gerarQrCodePixBase64(totaisFaturaAgente.totalBrl, agenteNumeroFatura)
 
       pdf.setDrawColor(0, 0, 0)
@@ -7076,7 +7146,7 @@ export default function FaturasPage() {
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 42
       const larguraPagina = pdf.internal.pageSize.getWidth()
-      const logoBase64 = await carregarImagemBase64(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
+      const logoBase64 = await carregarImagemBase64Pdf(['/HC-CONSULTORIA-TRANSPARENTE.png', '/logo.png', '/logo-hc.png', '/hc-logo.png', '/icon-512.png', '/icon-192.png'])
 
       pdf.setDrawColor(25, 25, 25)
       pdf.setLineWidth(1)

@@ -111,6 +111,64 @@ function nomeModelo(modelo: ModeloCotacao) {
   return 'DHL'
 }
 
+
+async function otimizarImagemBase64Pdf(dataUrl: string, larguraMax = 480) {
+  try {
+    return await new Promise<string>((resolve) => {
+      const img = new Image()
+
+      img.onload = () => {
+        const larguraOriginal = img.naturalWidth || img.width
+        const alturaOriginal = img.naturalHeight || img.height
+
+        if (
+          !larguraOriginal ||
+          !alturaOriginal ||
+          larguraOriginal <= larguraMax
+        ) {
+          resolve(dataUrl)
+          return
+        }
+
+        const escala = larguraMax / larguraOriginal
+        const largura = Math.max(1, Math.round(larguraOriginal * escala))
+        const altura = Math.max(1, Math.round(alturaOriginal * escala))
+
+        const canvas = document.createElement('canvas')
+        canvas.width = largura
+        canvas.height = altura
+
+        const ctx = canvas.getContext('2d')
+
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
+
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.clearRect(0, 0, largura, altura)
+        ctx.drawImage(img, 0, 0, largura, altura)
+
+        resolve(canvas.toDataURL('image/png'))
+      }
+
+      img.onerror = () => resolve(dataUrl)
+      img.src = dataUrl
+    })
+  } catch {
+    return dataUrl
+  }
+}
+
+async function buscarLogoHCPdf() {
+  const imagem = await buscarLogoHC()
+
+  if (!imagem) return null
+
+  return otimizarImagemBase64Pdf(imagem, 480)
+}
+
 async function imagemBase64(url: string) {
   try {
     const resposta = await fetch(url)
@@ -980,7 +1038,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
     doc.setFillColor(2, 8, 23)
     doc.rect(0, 0, 210, 28, 'F')
 
-    const logoHC = await buscarLogoHC()
+    const logoHC = await buscarLogoHCPdf()
 
     async function inserirMarcaDaguaLogoDados() {
       if (!logoHC) return
