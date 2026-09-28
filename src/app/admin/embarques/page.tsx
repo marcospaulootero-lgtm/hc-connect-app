@@ -49,6 +49,19 @@ const ITENS_FINANCEIROS_EMBARQUE = [
   'COBERTA NÍVEL B',
 ]
 
+const SERVICOS_AGENTE_CARGA = [
+  'Frete Internacional', 'Insurance', 'Export Log Fee', 'Airport Transfer',
+  'Teste Magnético', 'Ad Valorem', 'Serviços de seguro de carga',
+  'Delivery Fee', 'Taxa Origem', 'Desembaraço Aduaneiro', 'DESCONTO',
+  'Coleta', 'Pick Up', 'DTA - Trânsito Aduaneiro', 'Documentation Fee',
+  'Local Charges', 'X-Ray Charge', 'Handling', 'EXW Charges',
+  'Desconsolidação', 'Customs Clearance', 'IOF', 'Armazenagem Aérea',
+  'THC Aéreo', 'SAF', 'DGR Fee', 'Administration Fee', 'Ex Works',
+  'Destination Charges', 'FCA Charges', 'AMS-AWB', 'Adicional DTA',
+  'Fuel', 'Airline Docs Release', 'Collect Fee', 'Handling Destino',
+  'AWB Fee', 'Seguro',
+]
+
 const CODIGOS_PAISES_EMBARQUES = [
   'BR','CN','US','DE','GB','PT','ES','FR','IT','NL','BE','CH','AT','SE','NO','DK','FI','IE',
   'JP','KR','TW','HK','SG','IN','ID','MY','TH','VN','AE','SA','TR','IL','CA','MX','AR','CL',
@@ -1061,6 +1074,45 @@ export default function EmbarquesPage() {
       .trim()
   }
 
+  function ehFinanceiroAgenteCarga(item: any) {
+    const transportadora = String(item?.transportadora || '').trim().toUpperCase()
+    const servico = String(item?.servico || '').trim().toUpperCase()
+    const nomes = Array.isArray(item?.servicos_financeiros)
+      ? item.servicos_financeiros.map((s: any) => String(s?.nome || '').toUpperCase())
+      : []
+
+    return nomes.some((nome: string) => [
+      'X-RAY CHARGE', 'DESCONSOLIDAÇÃO', 'DESCONSOLIDACAO',
+      'THC AÉREO', 'THC AEREO', 'ADMINISTRATION FEE', 'EX WORKS',
+      'COLLECT FEE', 'EXPORT LOG FEE', 'AIRPORT TRANSFER',
+    ].includes(nome)) || (
+      servico.includes('FORMAL') &&
+      !!transportadora &&
+      !['DHL', 'FEDEX', 'UPS'].includes(transportadora)
+    )
+  }
+
+  function listaAgentePreservada(lista: any): ServicoFinanceiroEmbarque[] {
+    if (!Array.isArray(lista)) return []
+    return lista.filter((item: any) => String(item?.nome || '').trim()).map((item: any) => ({
+      nome: String(item.nome).trim(),
+      valor: item.valor === null || item.valor === undefined || item.valor === ''
+        ? '' : formatarEntradaValorBR(item.valor),
+      moeda: moedaItemFinanceiro(item, 'USD'),
+    }))
+  }
+
+  function totalAgenteNaMoeda(lista: any, moedaAlvo: string) {
+    return listaAgentePreservada(lista).reduce((total, item) =>
+      total + (item.moeda === moedaAlvo ? numeroFinanceiro(item.valor) *
+        (chaveServicoFinanceiro(item.nome).chave === 'DESCONTO' ? -1 : 1) : 0), 0)
+  }
+
+  function resumoAgente(lista: any) {
+    const moedas = Array.from(new Set(listaAgentePreservada(lista).map((item) => item.moeda || 'USD')))
+    return moedas.map((codigo) => moeda(totalAgenteNaMoeda(lista, codigo), codigo)).join(' + ')
+  }
+
   function servicosFinanceirosLista(lista: any): ServicoFinanceiroEmbarque[] {
     if (!Array.isArray(lista)) return []
 
@@ -1888,7 +1940,10 @@ export default function EmbarquesPage() {
         ? String(item.valor_cobrado_cliente)
         : '',
       moeda_cobranca: item.moeda_cobranca || 'USD',
-      servicos_financeiros: servicosFinanceirosLista(item.servicos_financeiros),
+      financeiro_agente_carga: ehFinanceiroAgenteCarga(item),
+      servicos_financeiros: ehFinanceiroAgenteCarga(item)
+        ? listaAgentePreservada(item.servicos_financeiros)
+        : servicosFinanceirosLista(item.servicos_financeiros),
 
       peso_inicial_taxado: item.peso_inicial_taxado
         ? String(item.peso_inicial_taxado)
@@ -1916,11 +1971,19 @@ export default function EmbarquesPage() {
       editForm.peso_final_taxado
     )
 
-    const servicosFinanceiros = servicosFinanceirosLista(editForm.servicos_financeiros)
-    const totalFinanceiro = totalServicosFinanceirosNaMoeda(
-      servicosFinanceiros,
-      editForm.moeda_cobranca || 'USD'
-    )
+    if (editForm.financeiro_agente_carga && editForm.servicos_financeiros.some(
+      (item: ServicoFinanceiroEmbarque) => !String(item.nome || '').trim()
+    )) {
+      alert('Preencha o nome de todos os serviços do agente de carga antes de salvar.')
+      return
+    }
+
+    const servicosFinanceiros = editForm.financeiro_agente_carga
+      ? listaAgentePreservada(editForm.servicos_financeiros)
+      : servicosFinanceirosLista(editForm.servicos_financeiros)
+    const totalFinanceiro = editForm.financeiro_agente_carga
+      ? totalAgenteNaMoeda(servicosFinanceiros, editForm.moeda_cobranca || 'USD')
+      : totalServicosFinanceirosNaMoeda(servicosFinanceiros, editForm.moeda_cobranca || 'USD')
     const awbNovoValido = awbValidoParaRastreio(editForm.awb)
     const awbOriginalPendente = awbPendente(editForm.awb_original)
     const awbSalvar =
@@ -3504,6 +3567,54 @@ export default function EmbarquesPage() {
                       </select>
                     </Campo>
 
+                    {editForm.financeiro_agente_carga ? (
+                      <div className="md:col-span-3 space-y-3 rounded-2xl border border-blue-900 p-4">
+                        <h4 className="font-black text-blue-300">Serviços do agente de carga</h4>
+                        <p className="text-xs text-slate-400">Valores carregados do embarque. Cada linha mantém seu nome, valor e moeda.</p>
+                        {(editForm.servicos_financeiros as ServicoFinanceiroEmbarque[]).map((item, index) => (
+                          <div key={index} className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_110px_auto] gap-2 items-center">
+                            <input aria-label={`Serviço ${index + 1}`} value={item.nome}
+                              onChange={(e) => setEditForm({ ...editForm,
+                                servicos_financeiros: editForm.servicos_financeiros.map((atual: ServicoFinanceiroEmbarque, i: number) =>
+                                  i === index ? { ...atual, nome: e.target.value } : atual),
+                              })} />
+                            <input aria-label={`Valor ${index + 1}`} inputMode="decimal" value={item.valor}
+                              onChange={(e) => setEditForm({ ...editForm,
+                                servicos_financeiros: editForm.servicos_financeiros.map((atual: ServicoFinanceiroEmbarque, i: number) =>
+                                  i === index ? { ...atual, valor: formatarEntradaValorBR(e.target.value) } : atual),
+                              })} />
+                            <select aria-label={`Moeda ${index + 1}`} value={item.moeda || 'USD'}
+                              onChange={(e) => setEditForm({ ...editForm,
+                                servicos_financeiros: editForm.servicos_financeiros.map((atual: ServicoFinanceiroEmbarque, i: number) =>
+                                  i === index ? { ...atual, moeda: e.target.value } : atual),
+                              })}>
+                              {['USD', 'EUR', 'BRL', 'GBP', 'CNY', 'HKD'].map((codigo) =>
+                                <option key={codigo} value={codigo}>{codigo}</option>)}
+                            </select>
+                            <button type="button" className="text-red-300 px-2 py-2" onClick={() =>
+                              setEditForm({ ...editForm, servicos_financeiros:
+                                editForm.servicos_financeiros.filter((_: ServicoFinanceiroEmbarque, i: number) => i !== index) })
+                            }>Remover</button>
+                          </div>
+                        ))}
+                        <div className="flex flex-wrap gap-2">
+                          <select id="novo-servico-agente" className="min-w-[220px]" defaultValue="">
+                            <option value="">Escolha um serviço</option>
+                            {SERVICOS_AGENTE_CARGA.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+                          </select>
+                          <button type="button" className="rounded-xl bg-blue-700 px-4 py-2 font-bold" onClick={() => {
+                            const campo = document.getElementById('novo-servico-agente') as HTMLSelectElement | null
+                            const nome = campo?.value || ''
+                            if (!nome) return
+                            setEditForm({ ...editForm, servicos_financeiros: [
+                              ...editForm.servicos_financeiros,
+                              { nome, valor: '', moeda: editForm.moeda_cobranca || 'USD' },
+                            ] })
+                            if (campo) campo.value = ''
+                          }}>Adicionar serviço</button>
+                        </div>
+                      </div>
+                    ) : (
                     <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                       {ITENS_FINANCEIROS_EMBARQUE.map((item) => {
                         const selecionado = itemFinanceiroSelecionado(editForm.servicos_financeiros, item)
@@ -3620,10 +3731,14 @@ export default function EmbarquesPage() {
                       })}
                     </div>
 
+                    )}
+
                     <div className="md:col-span-3 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
                       <p className="text-slate-400 text-sm font-bold">Total cobrado do cliente</p>
                       <h3 className="text-3xl font-black text-green-400 mt-2">
-                        {resumoTotaisServicosFinanceiros(editForm.servicos_financeiros, editForm.moeda_cobranca || 'USD') || moeda(0, editForm.moeda_cobranca || 'USD')}
+                        {editForm.financeiro_agente_carga
+                          ? resumoAgente(editForm.servicos_financeiros) || moeda(0, editForm.moeda_cobranca || 'USD')
+                          : resumoTotaisServicosFinanceiros(editForm.servicos_financeiros, editForm.moeda_cobranca || 'USD') || moeda(0, editForm.moeda_cobranca || 'USD')}
                       </h3>
                     </div>
 
