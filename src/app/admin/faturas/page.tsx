@@ -307,6 +307,7 @@ export default function FaturasPage() {
 
   const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
 
+  const [agenteEmbarqueId, setAgenteEmbarqueId] = useState('')
   const [agenteProcesso, setAgenteProcesso] = useState('')
   const [agenteClienteId, setAgenteClienteId] = useState('')
   const [agenteUsuarioIds, setAgenteUsuarioIds] = useState<string[]>([])
@@ -6502,6 +6503,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
   function limparFaturaAgente() {
     setFaturaAgenteEditando(null)
+    setAgenteEmbarqueId('')
     setAgenteProcesso('')
     setAgenteClienteId('')
     setAgenteUsuarioIds([])
@@ -6606,8 +6608,15 @@ async function carregarImagemBase64(caminhos: string[]) {
       )
     )
 
+    const embarquesDoProcesso = embarques.filter((item) =>
+      normalizarAwb(item.awb) === normalizarAwb(processo)
+    )
+    const embarqueDaFatura = fatura.embarque_id
+      ? embarques.find((item) => item.id === fatura.embarque_id)
+      : embarquesDoProcesso.length === 1 ? embarquesDoProcesso[0] : null
+    setAgenteEmbarqueId(embarqueDaFatura?.id || '')
     setFaturaAgenteEditando(fatura)
-    setAgenteProcesso(processo)
+    setAgenteProcesso(embarqueDaFatura?.awb || processo)
     setAgenteClienteId(clienteCorrespondente?.id || String(fatura.cliente_faturamento_id || ''))
     setAgenteUsuarioIds(clientesVinculados)
     setAgenteNumeroFatura(String(fatura.numero_fatura || ''))
@@ -6630,26 +6639,21 @@ async function carregarImagemBase64(caminhos: string[]) {
     }, 100)
   }
 
+  function localizarFinanceiroAgentePorAwb() {
+    const vinculados = financeiros.filter((item) => item.embarque_id === agenteEmbarqueId)
+    const candidatos = vinculados.length ? vinculados : financeiros.filter((item) =>
+      !item.embarque_id && awbsFinanceiro(item).includes(normalizarAwb(agenteProcesso))
+    )
+    if (candidatos.length > 1) {
+      throw new Error('Há mais de um lançamento financeiro para este AWB. Concilie os registros antes de emitir a fatura.')
+    }
+    return candidatos[0] || null
+  }
+
   async function salvarFinanceiroFaturaAgente(arquivoPdfUrl: string) {
     if (!agenteClienteSelecionado) return
 
-    const processoNormalizado = normalizarAwb(agenteProcesso)
-    const processoAnterior = normalizarAwb(
-      faturaAgenteEditando?.dados_cliente_faturamento?.processo
-    )
-    const numeroFaturaAnterior = normalizarTexto(faturaAgenteEditando?.numero_fatura)
-
-    const financeiroAtual = financeiros.find((item) => {
-      const awbs = awbsFinanceiro(item)
-
-      if (faturaAgenteEditando) {
-        if (processoAnterior && awbs.includes(processoAnterior)) return true
-
-        return numeroFaturaAnterior && normalizarTexto(item.fatura || item.numero_fatura) === numeroFaturaAnterior
-      }
-
-      return processoNormalizado && awbs.includes(processoNormalizado)
-    }) || null
+    const financeiroAtual = localizarFinanceiroAgentePorAwb()
 
     const itensResumo = itensFaturaAgente
       .filter((item) => item.descricao.trim() && numero(item.valor_brl) > 0)
@@ -6664,6 +6668,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     const payload: any = {
       cliente: agenteClienteSelecionado.nome_empresa || null,
+      embarque_id: agenteEmbarqueId,
       awb: agenteProcesso || null,
       fatura: agenteNumeroFatura || null,
       servico: 'AGENTE DE CARGA',
@@ -6721,7 +6726,21 @@ async function carregarImagemBase64(caminhos: string[]) {
   }
 
   async function gerarPdfFaturaAgenteCarga() {
-    if (!agenteProcesso.trim()) return alert('Informe o número do processo.')
+    const embarqueAgente = embarques.find((item) => item.id === agenteEmbarqueId)
+    if (!embarqueAgente?.awb || embarqueAgente.awb !== agenteProcesso) {
+      return alert('Selecione o AWB do embarque para vincular e conciliar a fatura.')
+    }
+    if (String(embarqueAgente.awb).toUpperCase().startsWith('AGUARDANDO AWB')) {
+      return alert('Cadastre o AWB definitivo no embarque antes de emitir a fatura.')
+    }
+    if (faturaAgenteEditando?.embarque_id && faturaAgenteEditando.embarque_id !== agenteEmbarqueId) {
+      return alert('Esta fatura já pertence a outro embarque. Mantenha o vínculo original na edição.')
+    }
+    try {
+      localizarFinanceiroAgentePorAwb()
+    } catch (erro: any) {
+      return alert(erro.message)
+    }
     if (!agenteClienteSelecionado) return alert('Selecione o cliente de faturamento.')
     if (!agenteNumeroFatura.trim()) return alert('Informe o número da fatura.')
     if (!agenteDataFatura) return alert('Informe a data da fatura.')
@@ -6934,7 +6953,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       }
 
       const payloadFatura: any = {
-        embarque_id: null,
+        embarque_id: agenteEmbarqueId,
         usuario_id: agenteUsuarioIds[0] || null,
         numero_fatura: agenteNumeroFatura,
         arquivo_pdf: urlPdf,
@@ -7418,13 +7437,24 @@ async function carregarImagemBase64(caminhos: string[]) {
 
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <label className="text-sm font-bold text-slate-300">
-              Processo
-              <input
-                value={agenteProcesso}
-                onChange={(e) => setAgenteProcesso(e.target.value)}
-                placeholder="Ex.: 080201/26"
+              AWB do embarque
+              <select
+                value={agenteEmbarqueId}
+                onChange={(e) => {
+                  const escolhido = embarques.find((item) => item.id === e.target.value)
+                  setAgenteEmbarqueId(escolhido?.id || '')
+                  setAgenteProcesso(escolhido?.awb || '')
+                }}
                 className="mt-2 w-full"
-              />
+              >
+                <option value="">Selecione o AWB do embarque</option>
+                {embarques.filter((item) => item.awb && !String(item.awb).toUpperCase().startsWith('AGUARDANDO AWB')).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.awb} — {item.cliente_final || item.importador || item.exportador || 'Sem cliente'} — {item.referencia_hc || item.id.slice(0, 8)}
+                  </option>
+                ))}
+              </select>
+              {agenteEmbarqueId && <span className="mt-2 block text-xs text-green-300">Fatura e financeiro vinculados ao embarque selecionado.</span>}
             </label>
 
             <label className="text-sm font-bold text-slate-300">
