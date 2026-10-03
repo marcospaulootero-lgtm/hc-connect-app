@@ -1510,7 +1510,7 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
+        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7 gap-4">
           <HeroCard
             titulo="A receber"
             valor={moeda(financeiroResumo.aReceber)}
@@ -1539,6 +1539,15 @@ export default function DashboardPage() {
             }
             icone="📈"
             cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'}
+            href="/admin/financeiro?aba=RESULTADO"
+          />
+
+          <HeroCard
+            titulo="Despesas da HC"
+            valor={moeda(financeiroResumo.despesasPagasMes)}
+            detalhe={`Pagas no mês • Empréstimos pagos: ${moeda(financeiroResumo.emprestimosPagosMes)}`}
+            icone="💸"
+            cor="orange"
             href="/admin/financeiro?aba=RESULTADO"
           />
 
