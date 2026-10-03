@@ -688,6 +688,53 @@ export default function DashboardPage() {
     }
   }, [financeiro, movimentacoes, mesAtual, anoAtual])
 
+  const metaHc = useMemo(() => {
+    const tiposRetirada = ['RETIRADA_SOCIO', 'PAGAMENTO_SOCIO', 'REEMBOLSO_SOCIO']
+    const tiposBase = ['DESPESA', 'PAGAMENTO_EMPRESTIMO', ...tiposRetirada]
+    const mesValido = (mes: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(mes)
+    const registros = movimentacoes.filter((item) =>
+      tiposBase.includes(item.tipo) &&
+      !['CANCELADO', 'CANCELADA', 'EXCLUIDO', 'EXCLUIDA'].includes(String(item.status || '').toUpperCase())
+    )
+    const somar = (lista: any[], tipos: string[]) => lista
+      .filter((item) => tipos.includes(item.tipo))
+      .reduce((total, item) => total + numero(item.valor), 0)
+    const meses = Array.from(new Set<string>(registros
+      .filter((item) => statusMovimento(item) === 'PAGO')
+      .map((item) => String(item.mes_referencia || ''))
+      .filter((mes) => mesValido(mes) && mes < mesAtual))).sort()
+    const anos = Array.from(new Set(meses.map((mes) => mes.slice(0, 4)))).sort().reverse()
+    const historico = anos.map((ano) => {
+      const mesesAno = meses.filter((mes) => mes.startsWith(ano + '-'))
+      const pagos = registros.filter((item) => mesesAno.includes(String(item.mes_referencia || '')) && statusMovimento(item) === 'PAGO')
+      const despesas = somar(pagos, ['DESPESA'])
+      const emprestimos = somar(pagos, ['PAGAMENTO_EMPRESTIMO'])
+      const retiradas = somar(pagos, tiposRetirada)
+      const profit = financeiro.filter((item) => {
+        const mes = item.mes_profit || mesDaData(item.recebimento) || mesDaData(item.vencimento_cobranca)
+        return mesesAno.includes(mes) && statusCobranca(item) === 'PAGO' && !aguardandoCustoProcesso(item)
+      }).reduce((total, item) => total + calcularProfit(item), 0)
+      return { ano, meses: mesesAno.length, despesas, emprestimos, retiradas, profit,
+        mediaDespesas: despesas / mesesAno.length,
+        mediaEmprestimos: emprestimos / mesesAno.length,
+        mediaRetiradas: retiradas / mesesAno.length }
+    })
+    // Usa o ano mais recente com meses anteriores registrados, sem incluir o mês em andamento.
+    const base = historico[0]
+    const atuais = registros.filter((item) => item.mes_referencia === mesAtual)
+    const despesas = Math.max(base?.mediaDespesas || 0, somar(atuais, ['DESPESA']))
+    const emprestimos = Math.max(base?.mediaEmprestimos || 0, somar(atuais, ['PAGAMENTO_EMPRESTIMO']))
+    const retiradas = Math.max(base?.mediaRetiradas || 0, somar(atuais, tiposRetirada))
+    // Regra já utilizada na dashboard: 50% do lucro operacional fica para reserva.
+    // Para cobrir R de retiradas com os outros 50%, é necessário gerar 2R após as despesas.
+    const reserva = retiradas
+    const meta = Math.ceil((despesas + emprestimos + retiradas + reserva) * 100) / 100
+    const realizado = financeiroResumo.profitBrutoProcessosMes
+    const falta = Math.max(0, meta - realizado)
+    const percentual = meta > 0 ? Math.max(0, realizado / meta * 100) : 0
+    return { historico, base, despesas, emprestimos, retiradas, reserva, meta, realizado, falta, percentual }
+  }, [movimentacoes, financeiro, financeiroResumo.profitBrutoProcessosMes, mesAtual])
+
   const faturasResumo = useMemo(() => {
     const limite = new Date(hojeIso() + 'T00:00:00')
     limite.setDate(limite.getDate() + DIAS_ALERTA_FATURAS)
@@ -1510,7 +1557,7 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7 gap-4">
+        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <HeroCard
             titulo="A receber"
             valor={moeda(financeiroResumo.aReceber)}
@@ -1541,6 +1588,21 @@ export default function DashboardPage() {
             cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'}
             href="/admin/financeiro?aba=RESULTADO"
           />
+
+          <a href="#detalhes-meta-hc" className="block h-full rounded-2xl border border-violet-500/40 bg-gradient-to-br from-violet-500/20 to-violet-900/10 p-4 text-violet-200 transition hover:border-violet-300">
+            <p className="text-xs font-black uppercase tracking-[0.18em]">Meta de profit HC</p>
+            <h2 className="mt-3 text-xl font-black text-white">{metaHc.meta > 0 ? moeda(metaHc.meta) : 'Sem base suficiente'}</h2>
+            <p className="mt-3 text-sm font-bold">
+              {metaHc.meta > 0 ? (metaHc.falta > 0 ? `Faltam ${moeda(metaHc.falta)}` : 'Meta atingida!') : 'Cadastre despesas e retiradas para gerar a sugestão.'}
+            </p>
+            {metaHc.meta > 0 && <>
+              <div role="progressbar" aria-label="Progresso da meta de profit" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, metaHc.percentual)} className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
+                <div className="h-full rounded-full bg-violet-400" style={{ width: `${Math.min(100, metaHc.percentual)}%` }} />
+              </div>
+              <p className="mt-2 text-xs">{metaHc.percentual.toFixed(1)}% atingido • Reserva planejada: {moeda(metaHc.reserva)}</p>
+            </>}
+            <p className="mt-2 text-xs opacity-80">Sugestão mensal • Ver cálculo abaixo</p>
+          </a>
 
           <HeroCard
             titulo="Despesas da HC"
@@ -1584,6 +1646,43 @@ export default function DashboardPage() {
             onClick={() => setModalFaturas(true)}
           />
         </section>
+
+        <details id="detalhes-meta-hc" className="mb-5 scroll-mt-6 rounded-2xl border border-violet-500/30 bg-[#071225] p-5 text-slate-200">
+          <summary className="cursor-pointer font-black text-violet-200">Como a meta foi calculada • Histórico por ano</summary>
+          <p className="mt-4 text-sm text-slate-400">
+            Mês da meta: {mesAtual.slice(5)}/{mesAtual.slice(0, 4)}. {metaHc.base
+              ? `Base: média de ${metaHc.base.meses} mês(es) com pagamentos registrados em ${metaHc.base.ano}, anteriores ao mês atual.`
+              : 'Sem histórico de meses anteriores: estimativa provisória pelos compromissos lançados no mês.'}
+            {' '}Para cada grupo, usamos o maior valor entre a média histórica e os lançamentos do mês, pagos ou pendentes.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-5">
+            <div>Despesas previstas<strong className="mt-1 block">{moeda(metaHc.despesas)}</strong></div>
+            <div>Empréstimos previstos<strong className="mt-1 block">{moeda(metaHc.emprestimos)}</strong></div>
+            <div>Retiradas previstas<strong className="mt-1 block">{moeda(metaHc.retiradas)}</strong></div>
+            <div>Reserva planejada<strong className="mt-1 block">{moeda(metaHc.reserva)}</strong></div>
+            <div>Meta de profit<strong className="mt-1 block text-violet-300">{moeda(metaHc.meta)}</strong></div>
+          </div>
+          <p className="mt-4 text-sm">Profit realizado: <strong>{moeda(metaHc.realizado)}</strong>. A reserva segue a regra existente de 50% do lucro operacional: a outra metade cobre as retiradas previstas.</p>
+          <p className="mt-2 text-xs text-amber-200">Estimativa baseada nos registros disponíveis. Meses sem pagamentos registrados não entram na média; meses incompletos podem reduzir a sugestão. Reserva planejada não representa saldo bancário nem transferência realizada.</p>
+          {financeiroResumo.processosPagosSemCusto.length > 0 && <p className="mt-2 text-xs text-amber-200">Há processos pagos sem custo informado. Eles não entram no profit realizado até a conciliação.</p>}
+          {metaHc.historico.length > 0 && <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <caption className="mb-3 text-left text-xs text-slate-400">Resumo gerencial dos meses da amostra. Valores pagos e classificados por mês de referência.</caption>
+              <thead className="text-slate-400"><tr>
+                {['Ano', 'Meses', 'Profit', 'Despesas', 'Empréstimos', 'Retiradas', 'Média mensal de saídas'].map((titulo) => <th key={titulo} className="whitespace-nowrap p-2">{titulo}</th>)}
+              </tr></thead>
+              <tbody>{metaHc.historico.map((ano) => <tr key={ano.ano} className="border-t border-slate-800">
+                <td className="p-2">{ano.ano}{ano.ano === metaHc.base?.ano ? ' (base)' : ''}</td>
+                <td className="p-2">{ano.meses}</td>
+                <td className="whitespace-nowrap p-2">{moeda(ano.profit)}</td>
+                <td className="whitespace-nowrap p-2">{moeda(ano.despesas)}</td>
+                <td className="whitespace-nowrap p-2">{moeda(ano.emprestimos)}</td>
+                <td className="whitespace-nowrap p-2">{moeda(ano.retiradas)}</td>
+                <td className="whitespace-nowrap p-2">{moeda(ano.mediaDespesas + ano.mediaEmprestimos + ano.mediaRetiradas)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+        </details>
 
         <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <a
