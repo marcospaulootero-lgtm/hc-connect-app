@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import ImportarFichaCnpjCliente from '@/components/admin/ImportarFichaCnpjCliente'
+import ImportarFichaCnpjCliente, { proximoCodigoHc } from '@/components/admin/ImportarFichaCnpjCliente'
 
 type ClienteFaturamento = {
   id: string
@@ -219,9 +219,27 @@ export default function ClientesFaturamentoPage() {
       return
     }
 
+    if (salvando) return
+
     setSalvando(true)
 
     const payload = montarPayload(form)
+
+    if (!editandoId && !payload.codigo_hc) {
+      try {
+        const codigoGerado = await proximoCodigoHc()
+        payload.codigo_hc = codigoGerado
+        setForm((atual) => ({ ...atual, codigo_hc: codigoGerado }))
+      } catch (error: unknown) {
+        setSalvando(false)
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Não foi possível gerar o ID HC. Tente novamente.'
+        )
+        return
+      }
+    }
 
     if (editandoId) {
       const { error } = await supabase
@@ -605,7 +623,7 @@ export default function ClientesFaturamentoPage() {
             <input
               value={form.codigo_hc}
               onChange={(e) => setForm({ ...form, codigo_hc: e.target.value })}
-              placeholder="Ex: HC0001"
+              placeholder="Automático ao cadastrar"
             />
           </Campo>
 

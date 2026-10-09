@@ -63,7 +63,7 @@ function preencher(label: string, valor?: string) {
   }
 }
 
-async function proximoCodigoHc() {
+export async function proximoCodigoHc() {
   const { data, error } = await supabase
     .from('clientes_faturamento')
     .select('codigo_hc')
