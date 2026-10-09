@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import BuscaCepCliente from '@/components/admin/BuscaCepCliente'
 import ImportarFichaCnpjCliente, { proximoCodigoHc } from '@/components/admin/ImportarFichaCnpjCliente'
 
 type ClienteFaturamento = {
@@ -690,10 +691,16 @@ export default function ClientesFaturamentoPage() {
           </Campo>
 
           <Campo label="CEP">
-            <input
+            <BuscaCepCliente
               value={form.cep}
-              onChange={(e) => setForm({ ...form, cep: formatarCep(e.target.value) })}
-              placeholder="00.000-000"
+              onChange={(cep) => setForm((atual) => ({ ...atual, cep }))}
+              onSelect={(endereco) => setForm((atual) => ({
+                ...atual,
+                cep: endereco.cep,
+                endereco: endereco.logradouro || atual.endereco,
+                cidade: endereco.cidade,
+                estado: endereco.uf,
+              }))}
             />
           </Campo>
 
