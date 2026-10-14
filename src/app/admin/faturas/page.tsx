@@ -1,5 +1,7 @@
 'use client'
 
+// HC_AGENTE_CNPJ_V1
+
 // HC_AGENTE_BUSCA_MANUAL_V1
 
 // HC_CUSTO_AWB_V1
@@ -318,6 +320,7 @@ export default function FaturasPage() {
   const [agenteProcessoManual, setAgenteProcessoManual] = useState(false)
   const [sugestoesAgenteAbertas, setSugestoesAgenteAbertas] = useState(false)
   const [agenteClienteId, setAgenteClienteId] = useState('')
+  const [avisoClienteAgente, setAvisoClienteAgente] = useState('')
   const [agenteUsuarioIds, setAgenteUsuarioIds] = useState<string[]>([])
   const [agenteNumeroFatura, setAgenteNumeroFatura] = useState('')
   const [agenteDataFatura, setAgenteDataFatura] = useState(() => new Date().toISOString().slice(0, 10))
@@ -6517,6 +6520,7 @@ async function carregarImagemBase64(caminhos: string[]) {
     setAgenteProcessoManual(false)
     setSugestoesAgenteAbertas(false)
     setAgenteClienteId('')
+    setAvisoClienteAgente('')
     setAgenteUsuarioIds([])
     setAgenteNumeroFatura('')
     setAgenteDataFatura(new Date().toISOString().slice(0, 10))
@@ -6627,6 +6631,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       : embarquesDoProcesso.length === 1 ? embarquesDoProcesso[0] : null
     setAgenteEmbarqueId(embarqueDaFatura?.id || '')
     setFaturaAgenteEditando(fatura)
+    setAvisoClienteAgente('')
     setAgenteProcesso(embarqueDaFatura?.awb || processo)
     setBuscaAgenteAwb(embarqueDaFatura?.awb || '')
     setAgenteProcessoManual(!embarqueDaFatura?.id)
@@ -7440,6 +7445,44 @@ async function carregarImagemBase64(caminhos: string[]) {
     }
   }
 
+  function documentoClienteAgente(cliente: ClienteFaturamento) {
+    const documento = documentoFiscalClienteRecibo(cliente)
+    const digitos = documento.replace(/\D/g, '')
+    if (digitos.length === 14) return 'CNPJ ' + digitos.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+    if (digitos.length === 11) return 'CPF ' + digitos.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+    return documento === '-' ? 'Sem CNPJ/CPF' : documento
+  }
+
+  function clienteFiscalAgenteDoEmbarque(embarque: any): ClienteFaturamento | null {
+    // Prioriza o vínculo fiscal explícito. Não adivinha entre importador e exportador.
+    const idPrincipal = String(embarque?.cliente_faturamento_id || '').trim()
+    if (idPrincipal) return clientesFaturamento.find((cliente) => String(cliente.id) === idPrincipal) || null
+    const ids = Array.from(new Set([
+      embarque?.importador_cliente_faturamento_id,
+      embarque?.exportador_cliente_faturamento_id,
+    ].map((id) => String(id || '').trim()).filter(Boolean)))
+    if (ids.length > 0) return ids.length === 1
+      ? clientesFaturamento.find((cliente) => String(cliente.id) === ids[0]) || null
+      : null
+    const nomes = [embarque?.cliente_final, embarque?.importador, embarque?.exportador]
+      .map(chaveClienteFaturamentoEmbarque).filter(Boolean)
+    const candidatos = clientesFaturamento.filter((cliente) =>
+      [cliente.nome_empresa, cliente.razao_social, cliente.nome]
+        .map(chaveClienteFaturamentoEmbarque).filter(Boolean)
+        .some((nome) => nomes.includes(nome))
+    )
+    return candidatos.length === 1 ? candidatos[0] : null
+  }
+
+  function preencherClienteAgenteDoEmbarque(embarque: Embarque) {
+    if (faturaAgenteEditando) return
+    const cliente = clienteFiscalAgenteDoEmbarque(embarque)
+    setAgenteClienteId(cliente?.id || '')
+    setAvisoClienteAgente(cliente
+      ? `Cliente fiscal selecionado pelo embarque: ${cliente.nome_empresa} — ${documentoClienteAgente(cliente)}.`
+      : 'Não foi possível identificar um único cliente fiscal para este embarque. Selecione o cadastro pelo CNPJ/CPF.')
+  }
+
   function renderAbaAgenteCarga() {
     const normalizarBusca = (valor: any) => String(valor || '').normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -7489,6 +7532,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                 }}
                 onChange={(e) => {
                   setAgenteEmbarqueId('')
+                  if (!faturaAgenteEditando) { setAgenteClienteId(''); setAvisoClienteAgente('') }
                   if (agenteProcessoManual) setAgenteProcesso(e.target.value)
                   else {
                     setBuscaAgenteAwb(e.target.value)
@@ -7503,6 +7547,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                     <button key={item.id} type="button" className="block w-full border-b border-slate-700 bg-transparent px-3 py-3 text-left hover:bg-blue-900 focus:bg-blue-900"
                       onClick={() => {
                         setAgenteEmbarqueId(item.id)
+                        preencherClienteAgenteDoEmbarque(item)
                         setAgenteProcesso(item.awb)
                         setBuscaAgenteAwb(item.awb)
                         setSugestoesAgenteAbertas(false)
@@ -7522,6 +7567,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                   onChange={(e) => {
                     const manual = e.target.checked
                     setAgenteProcessoManual(manual)
+                    if (!faturaAgenteEditando) { setAgenteClienteId(''); setAvisoClienteAgente('') }
                     setAgenteEmbarqueId('')
                     setAgenteProcesso(manual ? buscaAgenteAwb.trim() : '')
                     setSugestoesAgenteAbertas(false)
@@ -7568,14 +7614,16 @@ async function carregarImagemBase64(caminhos: string[]) {
           <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
             <label className="text-sm font-bold text-slate-300">
               Cliente de faturamento
-              <select value={agenteClienteId} onChange={(e) => setAgenteClienteId(e.target.value)} className="mt-2 w-full">
+              <select value={agenteClienteId} onChange={(e) => { setAgenteClienteId(e.target.value); setAvisoClienteAgente('') }} className="mt-2 w-full">
                 <option value="">Selecione o cliente fiscal</option>
                 {clientesFaturamento.map((cliente) => (
                   <option key={cliente.id} value={cliente.id}>
-                    {cliente.codigo_hc ? `${cliente.codigo_hc} - ` : ''}{cliente.nome_empresa}
+                    {cliente.codigo_hc ? `${cliente.codigo_hc} - ` : ''}{cliente.nome_empresa} — {documentoClienteAgente(cliente)}
                   </option>
                 ))}
               </select>
+              {avisoClienteAgente && <span role="status" className={`mt-2 block text-xs ${agenteClienteId ? 'text-green-300' : 'text-amber-200'}`}>{avisoClienteAgente}</span>}
+              {agenteClienteSelecionado && <span className="mt-2 block text-xs text-cyan-300">{documentoClienteAgente(agenteClienteSelecionado)}</span>}
             </label>
 
             <div className="text-sm font-bold text-slate-300">
