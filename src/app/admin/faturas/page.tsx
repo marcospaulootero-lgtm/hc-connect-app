@@ -1,9 +1,12 @@
 'use client'
 
+// HC_CUSTO_AWB_V1
+
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
+import CustoTransportadoraAwb from '@/components/admin/CustoTransportadoraAwb'
 import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 const LOTE_SUPABASE = 1000
@@ -7434,6 +7437,7 @@ async function carregarImagemBase64(caminhos: string[]) {
           <p className="text-cyan-400 text-sm font-black uppercase tracking-wide">Emissão multimoeda</p>
           <h2 className="mt-2 text-3xl font-black">Fatura Agente de Carga</h2>
           <p className="mt-2 text-slate-400">Uma fatura por processo, com itens em BRL, USD ou EUR e conversão automática.</p>
+          <CustoTransportadoraAwb key={agenteEmbarqueId || agenteProcesso} awb={agenteProcesso} />
 
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <label className="text-sm font-bold text-slate-300">
@@ -8047,6 +8051,7 @@ async function carregarImagemBase64(caminhos: string[]) {
               {embarque ? (
                 <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
                   <InfoPacote label="AWB / HAWB" valor={embarque.awb || '-'} destaque />
+                  <CustoTransportadoraAwb key={embarque.id} awb={embarque.awb} />
                   <InfoPacote label="Cliente embarque" valor={embarque.cliente_final || embarque.importador || '-'} />
                   <InfoPacote label="Exportador" valor={embarque.exportador || '-'} />
                   <InfoPacote label="Importador" valor={embarque.importador || '-'} />
