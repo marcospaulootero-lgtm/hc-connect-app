@@ -1,5 +1,7 @@
 'use client'
 
+// HC_AGENTE_BUSCA_MANUAL_V1
+
 // HC_CUSTO_AWB_V1
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
@@ -312,6 +314,9 @@ export default function FaturasPage() {
 
   const [agenteEmbarqueId, setAgenteEmbarqueId] = useState('')
   const [agenteProcesso, setAgenteProcesso] = useState('')
+  const [buscaAgenteAwb, setBuscaAgenteAwb] = useState('')
+  const [agenteProcessoManual, setAgenteProcessoManual] = useState(false)
+  const [sugestoesAgenteAbertas, setSugestoesAgenteAbertas] = useState(false)
   const [agenteClienteId, setAgenteClienteId] = useState('')
   const [agenteUsuarioIds, setAgenteUsuarioIds] = useState<string[]>([])
   const [agenteNumeroFatura, setAgenteNumeroFatura] = useState('')
@@ -6508,6 +6513,9 @@ async function carregarImagemBase64(caminhos: string[]) {
     setFaturaAgenteEditando(null)
     setAgenteEmbarqueId('')
     setAgenteProcesso('')
+    setBuscaAgenteAwb('')
+    setAgenteProcessoManual(false)
+    setSugestoesAgenteAbertas(false)
     setAgenteClienteId('')
     setAgenteUsuarioIds([])
     setAgenteNumeroFatura('')
@@ -6620,6 +6628,9 @@ async function carregarImagemBase64(caminhos: string[]) {
     setAgenteEmbarqueId(embarqueDaFatura?.id || '')
     setFaturaAgenteEditando(fatura)
     setAgenteProcesso(embarqueDaFatura?.awb || processo)
+    setBuscaAgenteAwb(embarqueDaFatura?.awb || '')
+    setAgenteProcessoManual(!embarqueDaFatura?.id)
+    setSugestoesAgenteAbertas(false)
     setAgenteClienteId(clienteCorrespondente?.id || String(fatura.cliente_faturamento_id || ''))
     setAgenteUsuarioIds(clientesVinculados)
     setAgenteNumeroFatura(String(fatura.numero_fatura || ''))
@@ -6643,10 +6654,16 @@ async function carregarImagemBase64(caminhos: string[]) {
   }
 
   function localizarFinanceiroAgentePorAwb() {
-    const vinculados = financeiros.filter((item) => item.embarque_id === agenteEmbarqueId)
-    const candidatos = vinculados.length ? vinculados : financeiros.filter((item) =>
-      !item.embarque_id && awbsFinanceiro(item).includes(normalizarAwb(agenteProcesso))
-    )
+    const awb = normalizarAwb(agenteProcesso)
+    if (!awb) return null
+    const mesmoAwb = financeiros.filter((item) => awbsFinanceiro(item).includes(awb))
+    const vinculados = agenteEmbarqueId
+      ? financeiros.filter((item) => item.embarque_id === agenteEmbarqueId)
+      : []
+    if (!agenteEmbarqueId && mesmoAwb.some((item) => item.embarque_id)) {
+      throw new Error('Este processo já possui financeiro vinculado a um embarque. Selecione o embarque cadastrado para emitir.')
+    }
+    const candidatos = vinculados.length ? vinculados : mesmoAwb.filter((item) => !item.embarque_id)
     if (candidatos.length > 1) {
       throw new Error('Há mais de um lançamento financeiro para este AWB. Concilie os registros antes de emitir a fatura.')
     }
@@ -6671,8 +6688,8 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     const payload: any = {
       cliente: agenteClienteSelecionado.nome_empresa || null,
-      embarque_id: agenteEmbarqueId,
-      awb: agenteProcesso || null,
+      embarque_id: agenteEmbarqueId || null,
+      awb: agenteProcesso.trim() || null,
       fatura: agenteNumeroFatura || null,
       servico: 'AGENTE DE CARGA',
       valor_cobranca: totaisFaturaAgente.totalBrl,
@@ -6730,14 +6747,23 @@ async function carregarImagemBase64(caminhos: string[]) {
 
   async function gerarPdfFaturaAgenteCarga() {
     const embarqueAgente = embarques.find((item) => item.id === agenteEmbarqueId)
-    if (!embarqueAgente?.awb || embarqueAgente.awb !== agenteProcesso) {
-      return alert('Selecione o AWB do embarque para vincular e conciliar a fatura.')
+    const processoNormalizado = normalizarAwb(agenteProcesso)
+    if (!processoNormalizado || processoNormalizado.startsWith('AGUARDANDOAWB')) {
+      return alert('Informe um AWB ou número de processo válido.')
     }
-    if (String(embarqueAgente.awb).toUpperCase().startsWith('AGUARDANDO AWB')) {
-      return alert('Cadastre o AWB definitivo no embarque antes de emitir a fatura.')
+    if (agenteProcessoManual) {
+      if (embarques.some((item) => normalizarAwb(item.awb) === processoNormalizado)) {
+        return alert('Este AWB já está cadastrado. Desmarque a opção manual e selecione o embarque na busca.')
+      }
+    } else if (!embarqueAgente?.awb || embarqueAgente.awb !== agenteProcesso) {
+      return alert('Selecione um embarque nas sugestões ou marque a opção de processo manual.')
     }
     if (faturaAgenteEditando?.embarque_id && faturaAgenteEditando.embarque_id !== agenteEmbarqueId) {
       return alert('Esta fatura já pertence a outro embarque. Mantenha o vínculo original na edição.')
+    }
+    const processoOriginal = faturaAgenteEditando?.dados_cliente_faturamento?.processo
+    if (faturaAgenteEditando && processoOriginal && normalizarAwb(processoOriginal) !== processoNormalizado) {
+      return alert('Mantenha o processo original ao editar esta fatura. Para outro processo, emita uma nova fatura.')
     }
     try {
       localizarFinanceiroAgentePorAwb()
@@ -6956,7 +6982,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       }
 
       const payloadFatura: any = {
-        embarque_id: agenteEmbarqueId,
+        embarque_id: agenteEmbarqueId || null,
         usuario_id: agenteUsuarioIds[0] || null,
         numero_fatura: agenteNumeroFatura,
         arquivo_pdf: urlPdf,
@@ -7415,6 +7441,14 @@ async function carregarImagemBase64(caminhos: string[]) {
   }
 
   function renderAbaAgenteCarga() {
+    const normalizarBusca = (valor: any) => String(valor || '').normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+    const termo = normalizarBusca(buscaAgenteAwb)
+    const sugestoes = termo ? embarques.filter((item) =>
+      item.awb && !normalizarAwb(item.awb).startsWith('AGUARDANDOAWB') &&
+      [item.awb, item.referencia_hc, item.referencia_cliente, item.cliente_final, item.importador, item.exportador]
+        .some((valor) => normalizarBusca(valor).includes(termo))
+    ).sort((a, b) => Number(normalizarBusca(b.awb).startsWith(termo)) - Number(normalizarBusca(a.awb).startsWith(termo))) : []
     return (
       <section className="space-y-6">
         <div id="form_fatura_agente" className="rounded-3xl border border-cyan-800 bg-[#071225] p-6 lg:p-7">
@@ -7440,26 +7474,66 @@ async function carregarImagemBase64(caminhos: string[]) {
           <CustoTransportadoraAwb key={agenteEmbarqueId || agenteProcesso} awb={agenteProcesso} />
 
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <label className="text-sm font-bold text-slate-300">
-              AWB do embarque
-              <select
-                value={agenteEmbarqueId}
-                onChange={(e) => {
-                  const escolhido = embarques.find((item) => item.id === e.target.value)
-                  setAgenteEmbarqueId(escolhido?.id || '')
-                  setAgenteProcesso(escolhido?.awb || '')
+            <div className="relative text-sm font-bold text-slate-300"
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSugestoesAgenteAbertas(false)
+              }}>
+              <label htmlFor="busca-awb-agente">{agenteProcessoManual ? 'AWB / processo manual' : 'Buscar AWB / processo'}</label>
+              <input id="busca-awb-agente" autoComplete="off" className="mt-2 w-full"
+                value={agenteProcessoManual ? agenteProcesso : buscaAgenteAwb}
+                placeholder={agenteProcessoManual ? 'Informe o número completo do processo' : 'Digite AWB, referência ou cliente'}
+                onFocus={() => { if (!agenteProcessoManual) setSugestoesAgenteAbertas(true) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setSugestoesAgenteAbertas(false)
+                  if (e.key === 'Enter') e.preventDefault()
                 }}
-                className="mt-2 w-full"
-              >
-                <option value="">Selecione o AWB do embarque</option>
-                {embarques.filter((item) => item.awb && !String(item.awb).toUpperCase().startsWith('AGUARDANDO AWB')).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.awb} — {item.cliente_final || item.importador || item.exportador || 'Sem cliente'} — {item.referencia_hc || item.id.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
-              {agenteEmbarqueId && <span className="mt-2 block text-xs text-green-300">Fatura e financeiro vinculados ao embarque selecionado.</span>}
-            </label>
+                onChange={(e) => {
+                  setAgenteEmbarqueId('')
+                  if (agenteProcessoManual) setAgenteProcesso(e.target.value)
+                  else {
+                    setBuscaAgenteAwb(e.target.value)
+                    setAgenteProcesso('')
+                    setSugestoesAgenteAbertas(true)
+                  }
+                }} />
+              {!agenteProcessoManual && sugestoesAgenteAbertas && termo && (
+                <div className="absolute left-0 top-[76px] z-40 max-h-72 w-full min-w-[260px] overflow-y-auto rounded-xl border border-cyan-700 bg-[#08142c] shadow-2xl"
+                  aria-label="Sugestões de processos">
+                  {sugestoes.slice(0, 30).map((item) => (
+                    <button key={item.id} type="button" className="block w-full border-b border-slate-700 bg-transparent px-3 py-3 text-left hover:bg-blue-900 focus:bg-blue-900"
+                      onClick={() => {
+                        setAgenteEmbarqueId(item.id)
+                        setAgenteProcesso(item.awb)
+                        setBuscaAgenteAwb(item.awb)
+                        setSugestoesAgenteAbertas(false)
+                      }}>
+                      <span className="block font-black text-cyan-300">{item.awb}</span>
+                      <span className="mt-1 block text-xs text-white">{item.cliente_final || item.importador || item.exportador || 'Sem cliente'}</span>
+                      <span className="mt-1 block text-xs text-slate-400">{item.referencia_hc || item.referencia_cliente || 'Sem referência'} • {item.transportadora || 'Sem transportadora'}</span>
+                    </button>
+                  ))}
+                  {sugestoes.length === 0 && <p className="p-3 text-xs text-amber-200">Nenhum processo encontrado. Confira o número ou use a opção manual abaixo.</p>}
+                  {sugestoes.length > 30 && <p className="p-3 text-xs text-slate-400">Mostrando 30 de {sugestoes.length}. Digite mais caracteres para refinar.</p>}
+                </div>
+              )}
+              <label className="mt-3 flex items-start gap-2 text-xs font-semibold">
+                <input type="checkbox" className="mt-0.5" checked={agenteProcessoManual}
+                  disabled={!!faturaAgenteEditando?.embarque_id}
+                  onChange={(e) => {
+                    const manual = e.target.checked
+                    setAgenteProcessoManual(manual)
+                    setAgenteEmbarqueId('')
+                    setAgenteProcesso(manual ? buscaAgenteAwb.trim() : '')
+                    setSugestoesAgenteAbertas(false)
+                  }} />
+                Processo não cadastrado — informar manualmente
+              </label>
+              {agenteProcessoManual
+                ? <p className="mt-2 text-xs text-amber-200">A fatura será registrada pelo número informado, sem vínculo com embarque.</p>
+                : agenteEmbarqueId
+                  ? <p className="mt-2 text-xs text-green-300">AWB selecionado: {agenteProcesso}. Fatura vinculada ao embarque.</p>
+                  : <p className="mt-2 text-xs text-slate-400">Digite para buscar e clique no processo desejado.</p>}
+            </div>
 
             <label className="text-sm font-bold text-slate-300">
               Número da fatura
