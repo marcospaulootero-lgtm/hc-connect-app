@@ -1,5 +1,7 @@
 'use client'
 
+// HC_CARDS_CLAROS_V1
+
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -563,6 +565,7 @@ export default function DashboardPage() {
   const hoje = new Date()
   const anoAtual = String(hoje.getFullYear())
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
+  const periodoCards = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(hoje)
   const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
     ? ultimoRastreio.detalhes
     : []
@@ -1557,9 +1560,10 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <HeroCard
             titulo="A receber"
+            periodo="Em aberto • todos os períodos"
             valor={moeda(financeiroResumo.aReceber)}
             detalhe={`${financeiroResumo.emAberto.length} processos em aberto`}
             icone="💰"
@@ -1569,6 +1573,7 @@ export default function DashboardPage() {
 
           <HeroCard
             titulo="Recebido de clientes"
+            periodo={periodoCards}
             valor={moeda(financeiroResumo.valorRecebidoMes)}
             detalhe={`${financeiroResumo.pagosMes.length} processos pagos no mês`}
             icone="✅"
@@ -1578,6 +1583,7 @@ export default function DashboardPage() {
 
           <HeroCard
             titulo="Profit bruto"
+            periodo={periodoCards}
             valor={moeda(financeiroResumo.profitBrutoProcessosMes)}
             detalhe={
               financeiroResumo.processosPagosSemCusto.length > 0
@@ -1591,10 +1597,12 @@ export default function DashboardPage() {
 
           <a href="#detalhes-meta-hc" className="block h-full rounded-2xl border border-violet-500/40 bg-gradient-to-br from-violet-500/20 to-violet-900/10 p-4 text-violet-200 transition hover:border-violet-300">
             <p className="text-xs font-black uppercase tracking-[0.18em]">Meta de profit HC</p>
-            <h2 className="mt-3 text-xl font-black text-white">{metaHc.meta > 0 ? moeda(metaHc.meta) : 'Sem base suficiente'}</h2>
+            <p className="mt-2 text-xs capitalize opacity-80">{periodoCards}</p>
+            <h2 className="mt-3 text-2xl font-black text-white">{metaHc.meta > 0 ? moeda(metaHc.meta) : 'Sem base suficiente'}</h2>
             <p className="mt-3 text-sm font-bold">
               {metaHc.meta > 0 ? (metaHc.falta > 0 ? `Faltam ${moeda(metaHc.falta)}` : 'Meta atingida!') : 'Cadastre despesas e retiradas para gerar a sugestão.'}
             </p>
+            <p className="mt-2 text-sm">Atingido: <strong className="text-white">{moeda(metaHc.realizado)}</strong></p>
             {metaHc.meta > 0 && <>
               <div role="progressbar" aria-label="Progresso da meta de profit" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, metaHc.percentual)} className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
                 <div className="h-full rounded-full bg-violet-400" style={{ width: `${Math.min(100, metaHc.percentual)}%` }} />
@@ -1605,27 +1613,54 @@ export default function DashboardPage() {
           </a>
 
           <HeroCard
-            titulo="Despesas da HC"
-            valor={moeda(financeiroResumo.despesasPagasMes)}
-            detalhe={`Pagas no mês • Empréstimos pagos: ${moeda(financeiroResumo.emprestimosPagosMes)}`}
+            titulo="Saídas da HC"
+            periodo={periodoCards}
+            valor={moeda(financeiroResumo.despesasEemprestimosPagosMes)}
+            detalhe="Despesas e empréstimos pagos • sem retiradas"
+            linhas={[
+              { titulo: 'Despesas pagas', valor: moeda(financeiroResumo.despesasPagasMes) },
+              { titulo: 'Empréstimos pagos', valor: moeda(financeiroResumo.emprestimosPagosMes) },
+              { titulo: 'Ainda a pagar no mês', valor: moeda(financeiroResumo.despesasPendentesMes) },
+            ]}
             icone="💸"
             cor="orange"
             href="/admin/financeiro?aba=RESULTADO"
           />
 
           <HeroCard
-            titulo="Lucro operacional"
+            titulo="Resultado antes das retiradas"
+            periodo={periodoCards}
             valor={moeda(financeiroResumo.lucroOperacionalMes)}
-            detalhe="Profit bruto - despesas - empréstimos"
+            detalhe="Profit bruto menos despesas e empréstimos pagos"
             icone={financeiroResumo.lucroOperacionalMes >= 0 ? '🏦' : '📉'}
             cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'}
             href="/admin/financeiro?aba=EXTRATO"
           />
 
           <HeroCard
-            titulo="Após retiradas"
+            titulo="Retiradas dos sócios"
+            periodo={periodoCards}
+            valor={moeda(financeiroResumo.retiradasTotalMes)}
+            detalhe="Retiradas, pagamentos e reembolsos pagos"
+            linhas={[
+              { titulo: 'Marcos', valor: moeda(financeiroResumo.retiradasMarcosMes) },
+              { titulo: 'Hérica', valor: moeda(financeiroResumo.retiradasHericaMes) },
+            ]}
+            icone="👥"
+            cor="orange"
+            href="/admin/financeiro?aba=EXTRATO"
+          />
+
+          <HeroCard
+            titulo="Resultado após retiradas"
+            periodo={periodoCards}
             valor={moeda(financeiroResumo.resultadoAposRetiradasMes)}
-            detalhe={`Marcos ${moeda(financeiroResumo.retiradasMarcosMes)} • Hérica ${moeda(financeiroResumo.retiradasHericaMes)}`}
+            detalhe="Profit bruto menos saídas da HC e retiradas pagas"
+            linhas={[
+              { titulo: 'Profit bruto', valor: moeda(financeiroResumo.profitBrutoProcessosMes) },
+              { titulo: 'Saídas da HC', valor: moeda(financeiroResumo.despesasEemprestimosPagosMes) },
+              { titulo: 'Retiradas dos sócios', valor: moeda(financeiroResumo.retiradasTotalMes) },
+            ]}
             icone={financeiroResumo.resultadoAposRetiradasMes >= 0 ? '💵' : '🚨'}
             cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'}
             href="/admin/financeiro?aba=EXTRATO"
@@ -1633,6 +1668,7 @@ export default function DashboardPage() {
 
           <HeroCard
             titulo="Faturas DHL/FedEx em aberto"
+            periodo="Em aberto • todos os períodos"
             valor={moeda(faturasResumo.totalAbertas)}
             detalhe={`Hoje ${moeda(faturasResumo.totalHoje)} • Amanhã ${moeda(faturasResumo.totalAmanha)} • ${faturasResumo.abertas.length} abertas`}
             icone="🚨"
@@ -2543,7 +2579,7 @@ function barraCor(cor: string) {
   return 'bg-blue-600'
 }
 
-function HeroCard({ titulo, valor, detalhe, icone, cor, href, onClick }: any) {
+function HeroCard({ titulo, valor, detalhe, icone, cor, href, onClick, periodo, linhas }: any) {
   const classeCor =
     cor === 'green'
       ? 'from-emerald-500/20 to-emerald-900/10 border-emerald-500/40 text-emerald-300'
@@ -2558,18 +2594,29 @@ function HeroCard({ titulo, valor, detalhe, icone, cor, href, onClick }: any) {
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] opacity-80">{titulo}</p>
-          <h2 className="mt-3 text-xl xl:text-xl font-black tracking-tight text-white">{valor}</h2>
+          {periodo && <p className="mt-2 text-xs capitalize opacity-80">{periodo}</p>}
+          <h2 className="mt-3 text-2xl font-black tracking-tight text-white">{valor}</h2>
         </div>
 
         <span className="text-xl">{icone}</span>
       </div>
 
       <p className="text-sm font-bold opacity-80">{detalhe}</p>
+      {linhas?.length > 0 && (
+        <dl className="mt-4 space-y-2 border-t border-white/10 pt-3 text-sm">
+          {linhas.map((linha: { titulo: string; valor: string }) => (
+            <div key={linha.titulo} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <dt className="opacity-80">{linha.titulo}</dt>
+              <dd className="font-bold tabular-nums text-white">{linha.valor}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   )
 
   if (href) return <a href={href} className="block h-full transition hover:scale-[1.01]">{conteudo}</a>
-  if (onClick) return <button type="button" onClick={onClick} className="block h-full text-left transition hover:scale-[1.01]">{conteudo}</button>
+  if (onClick) return <button type="button" onClick={onClick} className="block h-full w-full bg-transparent p-0 text-left transition hover:scale-[1.01]">{conteudo}</button>
 
   return conteudo
 }
