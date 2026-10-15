@@ -25,6 +25,7 @@ export default function DetalheEmbarquePage() {
   const params = useParams()
 
   const [embarque, setEmbarque] = useState<any>(null)
+  const [erroCarregamento, setErroCarregamento] = useState('')
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [timeline, setTimeline] = useState<any[]>([])
   const [rastreioReal, setRastreioReal] = useState<any[]>([])
@@ -47,14 +48,28 @@ export default function DetalheEmbarquePage() {
   }, [])
 
   async function carregar() {
+    setErroCarregamento('')
+
     const { data, error } = await supabase
       .from('embarques')
       .select('*')
       .eq('id', params.id)
-      .single()
+      .maybeSingle()
 
     if (error) {
       console.log(error)
+      setEmbarque(null)
+      setErroCarregamento(
+        'Não foi possível consultar o embarque solicitado. Atualize a página e tente novamente.'
+      )
+      return
+    }
+
+    if (!data) {
+      setEmbarque(null)
+      setErroCarregamento(
+        'O ID informado não corresponde a um embarque disponível no cadastro atual.'
+      )
       return
     }
 
@@ -600,6 +615,29 @@ export default function DetalheEmbarquePage() {
 
   function etapaAtual(etapa: string) {
     return indiceEtapa(etapa) === indiceStatusAtual()
+  }
+
+  if (erroCarregamento) {
+    return (
+      <main className="w-full max-w-none p-8 text-white">
+        <section className="mx-auto max-w-3xl rounded-3xl border border-red-700 bg-[#071225] p-8">
+          <p className="text-sm font-black uppercase tracking-wide text-red-300">
+            Embarque não localizado
+          </p>
+          <h1 className="mt-2 text-3xl font-black">Não foi possível abrir este embarque</h1>
+          <p className="mt-4 font-semibold text-slate-300">{erroCarregamento}</p>
+          <p className="mt-3 break-all text-xs font-bold text-slate-500">
+            ID solicitado: {String(params.id || '-')}
+          </p>
+          <a
+            href="/admin/cotacoes"
+            className="mt-6 inline-flex rounded-xl bg-slate-700 px-5 py-3 font-black text-white hover:bg-slate-600"
+          >
+            Voltar para cotações
+          </a>
+        </section>
+      </main>
+    )
   }
 
   if (!embarque) {

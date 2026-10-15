@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
+type EmbarqueResumoCotacao = {
+  id: string
+  awb: string
+  transportadora: string
+}
+
 export default function CotacoesAdminPage() {
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [usuarios, setUsuarios] = useState<any[]>([])
@@ -10,7 +16,7 @@ export default function CotacoesAdminPage() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroArquivamento, setFiltroArquivamento] = useState<'ATIVAS' | 'ARQUIVADAS' | 'TODAS'>('ATIVAS')
   const [filtroInteligencia, setFiltroInteligencia] = useState<'TODAS' | 'FOLLOWUP' | 'SEM_RETORNO' | 'PERDIDA'>('TODAS')
-  const [awbsPorEmbarque, setAwbsPorEmbarque] = useState<Record<string, string>>({})
+  const [embarquesPorId, setEmbarquesPorId] = useState<Record<string, EmbarqueResumoCotacao>>({})
   const [cotacaoVinculo, setCotacaoVinculo] = useState<any>(null)
   const [usuarioVinculoId, setUsuarioVinculoId] = useState('')
   const [salvandoVinculo, setSalvandoVinculo] = useState(false)
@@ -43,26 +49,30 @@ export default function CotacoesAdminPage() {
     )
 
     if (idsEmbarques.length === 0) {
-      setAwbsPorEmbarque({})
+      setEmbarquesPorId({})
       return
     }
 
     const { data: embarquesData, error: erroEmbarques } = await supabase
       .from('embarques')
-      .select('id, awb')
+      .select('id, awb, transportadora')
       .in('id', idsEmbarques)
 
     if (erroEmbarques) {
-      console.error('Erro ao carregar AWBs das cotações convertidas:', erroEmbarques)
-      setAwbsPorEmbarque({})
+      console.error('Erro ao carregar embarques vinculados às cotações:', erroEmbarques)
+      setEmbarquesPorId({})
       return
     }
 
-    setAwbsPorEmbarque(
+    setEmbarquesPorId(
       Object.fromEntries(
         (embarquesData || []).map((item: any) => [
           String(item.id),
-          String(item.awb || ''),
+          {
+            id: String(item.id),
+            awb: String(item.awb || ''),
+            transportadora: String(item.transportadora || ''),
+          },
         ])
       )
     )
@@ -348,16 +358,31 @@ export default function CotacoesAdminPage() {
     return `${horas}h`
   }
 
+  function embarqueCotacao(item: any): EmbarqueResumoCotacao | null {
+    if (!item?.embarque_id) return null
+
+    return embarquesPorId[String(item.embarque_id)] || null
+  }
+
   function awbCotacao(item: any) {
-    if (!item?.embarque_id) return ''
+    const embarque = embarqueCotacao(item)
+    if (!embarque) return ''
 
-    const awb = awbsPorEmbarque[String(item.embarque_id)] || ''
+    const awb = String(embarque.awb || '').trim()
 
-    if (String(awb).trim().toUpperCase().startsWith('AGUARDANDO AWB')) {
+    if (awb.toUpperCase().startsWith('AGUARDANDO AWB')) {
       return 'AGUARDANDO AWB'
     }
 
     return awb
+  }
+
+  function transportadoraCotacao(item: any) {
+    return String(embarqueCotacao(item)?.transportadora || '').trim()
+  }
+
+  function vinculoEmbarqueQuebrado(item: any) {
+    return Boolean(item?.embarque_id) && !embarqueCotacao(item)
   }
 
   async function alterarArquivamento(item: any, arquivar: boolean) {
@@ -528,6 +553,7 @@ export default function CotacoesAdminPage() {
           ${item.referencia_hc}
           ${item.referencia_cliente}
           ${awbCotacao(item)}
+          ${transportadoraCotacao(item)}
           ${item.tipo_operacao}
           ${item.origem}
           ${item.destino}
@@ -566,7 +592,7 @@ export default function CotacoesAdminPage() {
     filtroStatus,
     filtroArquivamento,
     filtroInteligencia,
-    awbsPorEmbarque,
+    embarquesPorId,
   ])
 
   function corStatus(status: string) {
@@ -926,12 +952,32 @@ export default function CotacoesAdminPage() {
 
                   <td>
                     {item.embarque_id ? (
-                      <a
-                        href={`/admin/embarques/${item.embarque_id}`}
-                        className="inline-flex min-w-[145px] items-center justify-center rounded-xl border border-cyan-700 bg-cyan-950/40 px-3 py-2 text-xs font-black text-cyan-300 hover:bg-cyan-900/50"
-                      >
-                        {awbCotacao(item) || 'Abrir embarque'}
-                      </a>
+                      vinculoEmbarqueQuebrado(item) ? (
+                        <div
+                          className="min-w-[190px] rounded-xl border border-red-700 bg-red-950/30 px-3 py-2"
+                          title={`ID vinculado: ${item.embarque_id}`}
+                        >
+                          <p className="text-xs font-black text-red-300">
+                            ⚠ Vínculo não encontrado
+                          </p>
+                          <p className="mt-1 text-[10px] font-bold text-red-200/70">
+                            ID: {String(item.embarque_id).slice(0, 12)}…
+                          </p>
+                        </div>
+                      ) : (
+                        <a
+                          href={`/admin/embarques/${item.embarque_id}`}
+                          className="inline-flex min-w-[175px] flex-col items-start justify-center rounded-xl border border-cyan-700 bg-cyan-950/40 px-3 py-2 text-xs text-cyan-300 hover:bg-cyan-900/50"
+                          title="Abrir embarque vinculado"
+                        >
+                          <span className="font-black">
+                            {awbCotacao(item) || 'AWB não informado'}
+                          </span>
+                          <span className="mt-1 text-[10px] font-bold text-cyan-200/70">
+                            {transportadoraCotacao(item) || 'Transportadora não informada'}
+                          </span>
+                        </a>
+                      )
                     ) : (
                       <span className="text-slate-500">-</span>
                     )}

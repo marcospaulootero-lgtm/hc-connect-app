@@ -15,6 +15,8 @@ export default function DetalheCotacaoAdminPage() {
   const [emailEnviado, setEmailEnviado] = useState(false)
   const [enviandoEmail, setEnviandoEmail] = useState(false)
   const [convertendo, setConvertendo] = useState(false)
+  const [embarqueVinculado, setEmbarqueVinculado] = useState<any>(null)
+  const [erroEmbarqueVinculado, setErroEmbarqueVinculado] = useState('')
 
   useEffect(() => {
     carregar()
@@ -29,6 +31,29 @@ export default function DetalheCotacaoAdminPage() {
 
     setCotacao(data)
     setReferenciaHC(data?.referencia_hc || '')
+    setEmbarqueVinculado(null)
+    setErroEmbarqueVinculado('')
+
+    if (data?.embarque_id) {
+      const { data: embarqueAtual, error: erroEmbarque } = await supabase
+        .from('embarques')
+        .select('id, awb, transportadora, servico, referencia_hc, referencia_cliente')
+        .eq('id', data.embarque_id)
+        .maybeSingle()
+
+      if (erroEmbarque) {
+        console.error('Erro ao carregar embarque vinculado à cotação:', erroEmbarque)
+        setErroEmbarqueVinculado(
+          'Não foi possível consultar o embarque vinculado. Tente atualizar a página.'
+        )
+      } else if (!embarqueAtual) {
+        setErroEmbarqueVinculado(
+          'Esta cotação possui um ID de embarque salvo, mas esse embarque não foi localizado.'
+        )
+      } else {
+        setEmbarqueVinculado(embarqueAtual)
+      }
+    }
 
     const { data: docs, error: erroDocs } = await supabase
       .from('cotacao_documentos')
@@ -47,6 +72,16 @@ export default function DetalheCotacaoAdminPage() {
 
   function servicoCotacao() {
     return cotacao?.servico || cotacao?.tipo_operacao || '-'
+  }
+
+  function awbEmbarqueVinculado() {
+    const valor = String(embarqueVinculado?.awb || '').trim()
+
+    if (valor.toUpperCase().startsWith('AGUARDANDO AWB')) {
+      return 'AGUARDANDO AWB'
+    }
+
+    return valor || '-'
   }
 
   function transportadorasTexto() {
@@ -555,8 +590,16 @@ export default function DetalheCotacaoAdminPage() {
     if (!cotacao) return
 
     if (cotacao.embarque_id) {
+      if (!embarqueVinculado) {
+        alert(
+          'Esta cotação possui um vínculo de embarque salvo, mas o embarque não foi localizado.\n\n' +
+            'Por segurança, o portal não criará outro embarque nem tentará vincular por AWB ou referência automaticamente.'
+        )
+        return
+      }
+
       alert('Esta cotação já foi convertida em embarque.')
-      window.location.href = `/admin/embarques/${cotacao.embarque_id}`
+      window.location.href = `/admin/embarques/${embarqueVinculado.id}`
       return
     }
 
@@ -857,6 +900,70 @@ export default function DetalheCotacaoAdminPage() {
           </div>
         </div>
       </section>
+
+      {cotacao.embarque_id ? (
+        <section className="card mb-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+            <div>
+              <p className="text-cyan-400 font-bold mb-1">Vínculo do embarque</p>
+              <h2 className="text-2xl font-black">Embarque convertido</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                AWB e transportadora abaixo são lidos do embarque atual pelo ID estável salvo na cotação.
+              </p>
+            </div>
+
+            {embarqueVinculado ? (
+              <a
+                href={`/admin/embarques/${embarqueVinculado.id}`}
+                className="rounded-xl bg-cyan-700 px-5 py-3 font-black text-white hover:bg-cyan-600"
+              >
+                Abrir embarque
+              </a>
+            ) : null}
+          </div>
+
+          {embarqueVinculado ? (
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="rounded-2xl border border-cyan-800 bg-cyan-950/20 p-4">
+                <p className="text-xs font-black uppercase text-slate-500">AWB atual</p>
+                <p className="mt-2 text-xl font-black text-cyan-300">
+                  {awbEmbarqueVinculado()}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-cyan-800 bg-cyan-950/20 p-4">
+                <p className="text-xs font-black uppercase text-slate-500">
+                  Transportadora atual
+                </p>
+                <p className="mt-2 text-xl font-black text-white">
+                  {embarqueVinculado.transportadora || '-'}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-cyan-800 bg-cyan-950/20 p-4">
+                <p className="text-xs font-black uppercase text-slate-500">Serviço atual</p>
+                <p className="mt-2 text-xl font-black text-white">
+                  {embarqueVinculado.servico || '-'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-2xl border border-red-700 bg-red-950/30 p-5">
+              <p className="font-black text-red-300">⚠ Vínculo de embarque não encontrado</p>
+              <p className="mt-2 text-sm font-semibold text-red-100/80">
+                {erroEmbarqueVinculado ||
+                  'O embarque vinculado não foi localizado no cadastro atual.'}
+              </p>
+              <p className="mt-3 break-all text-xs font-bold text-slate-400">
+                ID salvo na cotação: {String(cotacao.embarque_id)}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-slate-500">
+                Nenhum vínculo será alterado automaticamente por AWB, transportadora ou referência.
+              </p>
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section className="card mb-8">
         <h2 className="text-2xl font-black mb-6">Dados da operação</h2>
