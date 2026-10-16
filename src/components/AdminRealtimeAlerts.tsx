@@ -28,6 +28,7 @@ const TABELAS_REALTIME = [
   'financeiro_embarques',
   'financeiro_movimentacoes',
   'faturas_transportadoras',
+  'faturas', // HC_AUTO_COMPROVANTE_V1
   'logs_rastreio',
 ]
 
@@ -293,7 +294,36 @@ export default function AdminRealtimeAlerts({
         },
         async (payload) => {
           const eventType = payload.eventType
-          const mensagem = getMensagemAlerta(table, eventType)
+          let mensagem = getMensagemAlerta(table, eventType)
+
+          if (table === 'faturas' && eventType === 'UPDATE') {
+            const novaFatura: any = (payload as any)?.new || {}
+            const statusPagamento = String(
+              novaFatura.status_pagamento || ''
+            ).toUpperCase()
+
+            if (
+              novaFatura.comprovante_pagamento &&
+              statusPagamento === 'COMPROVANTE ENVIADO'
+            ) {
+              mensagem = {
+                titulo: 'Novo comprovante recebido',
+                descricao:
+                  'Um cliente anexou um comprovante. O HC Connect iniciou a conferência automática.',
+                tocar: true,
+              }
+            } else if (
+              novaFatura.recibo_pdf &&
+              statusPagamento === 'PAGO'
+            ) {
+              mensagem = {
+                titulo: 'Comprovante aprovado',
+                descricao:
+                  'O pagamento foi conferido e o recibo foi emitido automaticamente.',
+                tocar: false,
+              }
+            }
+          }
 
           atualizarDashboardComDebounce()
 
@@ -303,6 +333,7 @@ export default function AdminRealtimeAlerts({
             table === 'financeiro_embarques' ||
             table === 'financeiro_movimentacoes' ||
             table === 'faturas_transportadoras' ||
+            table === 'faturas' ||
             table === 'logs_rastreio'
           ) {
             adicionarAlerta(

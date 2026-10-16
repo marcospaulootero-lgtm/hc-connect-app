@@ -8,6 +8,7 @@ import type { ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import OnlinePresence from '@/components/OnlinePresence'
+import AdminRealtimeAlerts from '@/components/AdminRealtimeAlerts' // HC_AUTO_COMPROVANTE_V1
 
 
 const STATUS_COTACOES_BADGE = [
@@ -519,6 +520,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       <main className="min-h-screen overflow-x-hidden pt-20 xl:pt-8 px-3 sm:px-5 xl:px-8 xl:ml-72">
         <OnlinePresence area="admin" />
+        <AdminRealtimeAlerts />
         {children}
       <AdminFloatingNotes />
       <CalculadoraFinanceira />

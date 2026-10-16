@@ -276,7 +276,56 @@ export default function FaturasClientePage() {
       return
     }
 
-    alert('Comprovante enviado com sucesso.')
+    // HC_AUTO_COMPROVANTE_V1
+    let mensagemComprovante =
+      'Comprovante enviado com sucesso. A validação automática ficará pendente se a leitura não for conclusiva.'
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (session?.access_token) {
+        const respostaAnalise = await fetch('/api/comprovantes/analisar', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ fatura_id: fatura.id }),
+        })
+
+        const analise = await respostaAnalise.json().catch(() => null)
+
+        if (respostaAnalise.ok && analise?.status === 'APROVADO') {
+          mensagemComprovante =
+            analise?.mensagem ||
+            'Comprovante validado e recibo emitido automaticamente.'
+        } else if (
+          respostaAnalise.ok &&
+          analise?.status === 'JA_PROCESSADO'
+        ) {
+          mensagemComprovante =
+            analise?.mensagem ||
+            'O pagamento desta fatura já estava registrado.'
+        } else if (
+          respostaAnalise.ok &&
+          analise?.status === 'REVISAO'
+        ) {
+          mensagemComprovante =
+            `Comprovante enviado. Conferência manual necessária: ${analise?.mensagem || 'a leitura automática não foi conclusiva.'}`
+        } else if (!respostaAnalise.ok) {
+          console.warn('Validação automática indisponível:', analise)
+        }
+      }
+    } catch (error) {
+      console.warn(
+        'Comprovante salvo, mas a validação automática não pôde ser concluída:',
+        error
+      )
+    }
+
+    alert(mensagemComprovante)
     setArquivoSelecionado((prev) => ({ ...prev, [fatura.id]: null }))
     await carregarFaturas(usuarioId)
 
