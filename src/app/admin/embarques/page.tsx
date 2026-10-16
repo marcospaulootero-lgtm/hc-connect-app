@@ -2343,7 +2343,26 @@ export default function EmbarquesPage() {
   }
 
   async function excluirEmbarque(id: string) {
-    const confirmar = confirm('Deseja realmente excluir este embarque?')
+    // HC_RECONVERSAO_EXCLUSAO_V1
+    const { data: cotacoesVinculadas, error: erroCotacoesVinculadas } = await supabase
+      .from('cotacoes')
+      .select('id, status, referencia_hc')
+      .eq('embarque_id', id)
+
+    if (erroCotacoesVinculadas) {
+      console.error('Erro ao verificar cotações vinculadas ao embarque:', erroCotacoesVinculadas)
+      alert(
+        'Não foi possível verificar se existem cotações vinculadas a este embarque. A exclusão foi cancelada por segurança.'
+      )
+      return
+    }
+
+    const quantidadeCotacoes = cotacoesVinculadas?.length || 0
+    const confirmar = confirm(
+      quantidadeCotacoes > 0
+        ? `Deseja realmente excluir este embarque?\n\n${quantidadeCotacoes} cotação(ões) vinculada(s) será(ão) liberada(s) para nova conversão.`
+        : 'Deseja realmente excluir este embarque?'
+    )
     if (!confirmar) return
 
     await supabase.from('embarque_clientes').delete().eq('embarque_id', id)
@@ -2358,7 +2377,45 @@ export default function EmbarquesPage() {
       return
     }
 
-    alert('Embarque excluído')
+    let houveErroAoLiberarCotacao = false
+
+    for (const cotacaoVinculada of cotacoesVinculadas || []) {
+      const statusAtual = String(cotacaoVinculada.status || '').trim().toUpperCase()
+      const payloadCotacao: any = {
+        embarque_id: null,
+      }
+
+      if (statusAtual === 'CONVERTIDA EM EMBARQUE') {
+        payloadCotacao.status = 'APROVADA'
+      }
+
+      const { error: erroLiberarCotacao } = await supabase
+        .from('cotacoes')
+        .update(payloadCotacao)
+        .eq('id', cotacaoVinculada.id)
+        .eq('embarque_id', id)
+
+      if (erroLiberarCotacao) {
+        houveErroAoLiberarCotacao = true
+        console.error(
+          `Embarque excluído, mas houve erro ao liberar a cotação ${cotacaoVinculada.referencia_hc || cotacaoVinculada.id}:`,
+          erroLiberarCotacao
+        )
+      }
+    }
+
+    if (houveErroAoLiberarCotacao) {
+      alert(
+        'Embarque excluído, mas pelo menos uma cotação vinculada não pôde ser liberada automaticamente. Abra a cotação para usar a recuperação de vínculo excluído.'
+      )
+    } else {
+      alert(
+        quantidadeCotacoes > 0
+          ? 'Embarque excluído. A cotação vinculada foi liberada para nova conversão.'
+          : 'Embarque excluído'
+      )
+    }
+
     carregar()
   }
 

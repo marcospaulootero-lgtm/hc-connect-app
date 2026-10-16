@@ -17,6 +17,7 @@ export default function DetalheCotacaoAdminPage() {
   const [convertendo, setConvertendo] = useState(false)
   const [embarqueVinculado, setEmbarqueVinculado] = useState<any>(null)
   const [erroEmbarqueVinculado, setErroEmbarqueVinculado] = useState('')
+  const [vinculoEmbarqueAusente, setVinculoEmbarqueAusente] = useState(false) // HC_RECONVERSAO_COTACAO_V1
 
   useEffect(() => {
     carregar()
@@ -33,6 +34,7 @@ export default function DetalheCotacaoAdminPage() {
     setReferenciaHC(data?.referencia_hc || '')
     setEmbarqueVinculado(null)
     setErroEmbarqueVinculado('')
+    setVinculoEmbarqueAusente(false)
 
     if (data?.embarque_id) {
       const { data: embarqueAtual, error: erroEmbarque } = await supabase
@@ -47,6 +49,7 @@ export default function DetalheCotacaoAdminPage() {
           'Não foi possível consultar o embarque vinculado. Tente atualizar a página.'
         )
       } else if (!embarqueAtual) {
+        setVinculoEmbarqueAusente(true)
         setErroEmbarqueVinculado(
           'Esta cotação possui um ID de embarque salvo, mas esse embarque não foi localizado.'
         )
@@ -589,25 +592,73 @@ export default function DetalheCotacaoAdminPage() {
   async function converterEmEmbarque() {
     if (!cotacao) return
 
+    let reconversaoVinculoExcluido = false
+
     if (cotacao.embarque_id) {
-      if (!embarqueVinculado) {
+      if (embarqueVinculado) {
+        alert('Esta cotação já foi convertida em embarque.')
+        window.location.href = `/admin/embarques/${embarqueVinculado.id}`
+        return
+      }
+
+      if (!vinculoEmbarqueAusente) {
         alert(
-          'Esta cotação possui um vínculo de embarque salvo, mas o embarque não foi localizado.\n\n' +
-            'Por segurança, o portal não criará outro embarque nem tentará vincular por AWB ou referência automaticamente.'
+          'Não foi possível confirmar se o embarque vinculado ainda existe.\n\n' +
+            'Atualize a página e tente novamente. O vínculo não será alterado enquanto a consulta estiver indisponível.'
         )
         return
       }
 
-      alert('Esta cotação já foi convertida em embarque.')
-      window.location.href = `/admin/embarques/${embarqueVinculado.id}`
-      return
+      const confirmarReconversao = confirm(
+        'O embarque anteriormente vinculado a esta cotação foi excluído.\n\n' +
+          'Deseja remover somente o vínculo antigo e criar um novo embarque a partir desta cotação?\n\n' +
+          'Nenhum vínculo será procurado por AWB ou referência. O novo embarque será criado com AWB AGUARDANDO AWB.'
+      )
+
+      if (!confirmarReconversao) return
+
+      const statusLiberado =
+        String(cotacao.status || '').trim().toUpperCase() === 'CONVERTIDA EM EMBARQUE'
+          ? 'APROVADA'
+          : cotacao.status
+
+      const { data: cotacaoLiberada, error: erroLiberarCotacao } = await supabase
+        .from('cotacoes')
+        .update({
+          embarque_id: null,
+          status: statusLiberado,
+        })
+        .eq('id', cotacao.id)
+        .eq('embarque_id', cotacao.embarque_id)
+        .select('id')
+        .maybeSingle()
+
+      if (erroLiberarCotacao || !cotacaoLiberada) {
+        console.error('Erro ao liberar vínculo antigo da cotação:', erroLiberarCotacao)
+        alert(
+          'Não foi possível remover o vínculo antigo da cotação. Atualize a página antes de tentar novamente. Nenhum novo embarque foi criado.'
+        )
+        return
+      }
+
+      setCotacao({
+        ...cotacao,
+        embarque_id: null,
+        status: statusLiberado,
+      })
+      setEmbarqueVinculado(null)
+      setErroEmbarqueVinculado('')
+      setVinculoEmbarqueAusente(false)
+      reconversaoVinculoExcluido = true
     }
 
-    const confirmar = confirm(
-      'Converter esta cotação em embarque?\n\nO embarque será criado com AWB AGUARDANDO AWB. Os valores, serviços, documentos e vínculo do cliente serão levados da cotação.'
-    )
+    if (!reconversaoVinculoExcluido) {
+      const confirmar = confirm(
+        'Converter esta cotação em embarque?\n\nO embarque será criado com AWB AGUARDANDO AWB. Os valores, serviços, documentos e vínculo do cliente serão levados da cotação.'
+      )
 
-    if (!confirmar) return
+      if (!confirmar) return
+    }
 
     setConvertendo(true)
 
@@ -960,6 +1011,19 @@ export default function DetalheCotacaoAdminPage() {
               <p className="mt-2 text-xs font-semibold text-slate-500">
                 Nenhum vínculo será alterado automaticamente por AWB, transportadora ou referência.
               </p>
+
+              {vinculoEmbarqueAusente ? (
+                <button
+                  type="button"
+                  onClick={converterEmEmbarque}
+                  disabled={convertendo}
+                  className="mt-4 rounded-xl bg-green-700 px-5 py-3 font-black text-white hover:bg-green-600 disabled:opacity-60"
+                >
+                  {convertendo
+                    ? 'Reconectando...'
+                    : '🚚 Remover vínculo antigo e converter novamente'}
+                </button>
+              ) : null}
             </div>
           )}
         </section>
