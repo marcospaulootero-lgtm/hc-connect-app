@@ -1,5 +1,7 @@
 'use client'
 
+// HC_PERFORMANCE_FINANCEIRO_PROCESSOS_V1
+
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
@@ -254,6 +256,7 @@ export default function FinanceiroPage() {
   const [importandoExtratoContaId, setImportandoExtratoContaId] = useState<string | null>(null)
 
   const [loading, setLoading] = useState(false)
+  const [carregandoHistoricoFinanceiro, setCarregandoHistoricoFinanceiro] = useState(false)
   const [loadingMovimentos, setLoadingMovimentos] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [salvandoMovimento, setSalvandoMovimento] = useState(false)
@@ -987,40 +990,10 @@ export default function FinanceiroPage() {
 
   async function carregarFinanceiro() {
     setLoading(true)
+    setCarregandoHistoricoFinanceiro(false)
 
-    const { count, error: countError } = await supabase
-      .from('financeiro_embarques')
-      .select('*', { count: 'exact', head: true })
-
-    if (countError) {
-      alert('Erro ao contar financeiro: ' + countError.message)
-      setLoading(false)
-      return
-    }
-
-    const total = count || 0
-    const paginas = Math.max(1, Math.ceil(total / LOTE_SUPABASE))
-
-    const consultas = Array.from({ length: paginas }, (_, index) => {
-      const inicio = index * LOTE_SUPABASE
-      const fim = inicio + LOTE_SUPABASE - 1
-
-      return supabase.from('financeiro_embarques').select('*').range(inicio, fim)
-    })
-
-    const respostas = await Promise.all(consultas)
-    const erro = respostas.find((res) => res.error)
-
-    if (erro?.error) {
-      alert('Erro ao carregar financeiro: ' + erro.error.message)
-      setLoading(false)
-      return
-    }
-
-    const todos = respostas.flatMap((res) => res.data || [])
-
-    setLancamentos(
-      todos.sort((a, b) => {
+    const ordenarLancamentosFinanceiros = (lista: any[]) =>
+      [...lista].sort((a, b) => {
         const statusA = statusCobranca(a)
         const statusB = statusCobranca(b)
 
@@ -1031,10 +1004,89 @@ export default function FinanceiroPage() {
         const vencB = normalizarData(b.vencimento_cobranca) || '9999-99-99'
         return vencA.localeCompare(vencB)
       })
-    )
 
+    // PERFORMANCE V1:
+    // 1) usa apenas "id" para a contagem;
+    // 2) entrega o primeiro lote para a interface imediatamente;
+    // 3) completa o histórico em paralelo sem bloquear a tabela.
+    // Nenhum filtro, cálculo ou automação financeira foi alterado.
+    const { count, error: countError } = await supabase
+      .from('financeiro_embarques')
+      .select('id', { count: 'exact', head: true })
+
+    if (countError) {
+      alert('Erro ao contar financeiro: ' + countError.message)
+      setLoading(false)
+      return
+    }
+
+    const total = count || 0
+
+    if (total === 0) {
+      setLancamentos([])
+      setPagina(1)
+      setLoading(false)
+      return
+    }
+
+    const paginas = Math.ceil(total / LOTE_SUPABASE)
+
+    const primeiraResposta = await supabase
+      .from('financeiro_embarques')
+      .select('*')
+      .range(0, LOTE_SUPABASE - 1)
+
+    if (primeiraResposta.error) {
+      alert('Erro ao carregar financeiro: ' + primeiraResposta.error.message)
+      setLoading(false)
+      return
+    }
+
+    const primeiroLote = primeiraResposta.data || []
+
+    // Libera rapidamente os primeiros registros para Processos Faturados
+    // enquanto o restante do histórico continua sendo carregado.
+    setLancamentos(ordenarLancamentosFinanceiros(primeiroLote))
     setPagina(1)
     setLoading(false)
+
+    if (paginas <= 1) return
+
+    setCarregandoHistoricoFinanceiro(true)
+
+    try {
+      const consultasRestantes = Array.from(
+        { length: paginas - 1 },
+        (_, indice) => {
+          const paginaAtual = indice + 1
+          const inicio = paginaAtual * LOTE_SUPABASE
+          const fim = inicio + LOTE_SUPABASE - 1
+
+          return supabase
+            .from('financeiro_embarques')
+            .select('*')
+            .range(inicio, fim)
+        }
+      )
+
+      const respostasRestantes = await Promise.all(consultasRestantes)
+      const erro = respostasRestantes.find((res) => res.error)
+
+      if (erro?.error) {
+        console.error(
+          'Erro ao completar histórico de processos faturados:',
+          erro.error.message
+        )
+        return
+      }
+
+      const restantes = respostasRestantes.flatMap((res) => res.data || [])
+      const todos = [...primeiroLote, ...restantes]
+
+      setLancamentos(ordenarLancamentosFinanceiros(todos))
+    } finally {
+      setCarregandoHistoricoFinanceiro(false)
+    }
   }
 
   async function carregarMovimentacoes() {
@@ -7579,6 +7631,12 @@ export default function FinanceiroPage() {
               </div>
             </section>
 
+            {carregandoHistoricoFinanceiro && (
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+                Carregando o restante do histórico financeiro em segundo plano. Os primeiros processos já estão disponíveis.
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="min-w-[1750px] w-full text-sm">
                 <thead className="bg-gray-50 text-gray-500">
@@ -7602,8 +7660,8 @@ export default function FinanceiroPage() {
                 </thead>
 
                 <tbody>
-                  {loading ? (
-                    <tr><td colSpan={15} className="p-6 text-center">Carregando todos os registros...</td></tr>
+                  {loading && filtradosPaginados.length === 0 ? (
+                    <tr><td colSpan={15} className="p-6 text-center">Carregando processos faturados...</td></tr>
                   ) : filtradosPaginados.length === 0 ? (
                     <tr><td colSpan={15} className="p-6 text-center text-gray-500">Nenhum lançamento encontrado.</td></tr>
                   ) : (
