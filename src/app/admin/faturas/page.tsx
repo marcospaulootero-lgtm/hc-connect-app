@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
 import CustoTransportadoraAwb from '@/components/admin/CustoTransportadoraAwb'
+import ImportarFichaCnpjEmissor from '@/components/admin/ImportarFichaCnpjEmissor' // HC_IMPORTAR_FICHA_CNPJ_EMISSOR_V1
 import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 const LOTE_SUPABASE = 1000
@@ -8219,6 +8220,30 @@ async function carregarImagemBase64(caminhos: string[]) {
                     ? 'Nenhum cliente encontrado. Tente buscar pelo CNPJ somente com números ou pelo nome.'
                     : 'Mostrando até 120 cadastros. A busca agora consulta também o banco de dados.'}
               </p>
+
+              <ImportarFichaCnpjEmissor
+                onClientePronto={async (cliente) => {
+                  const termoCliente = String(
+                    cliente.cnpj ||
+                    cliente.cpf ||
+                    cliente.nome_empresa ||
+                    ''
+                  ).trim()
+
+                  // Atualiza a lista do emissor usando a rotina que a página já possui.
+                  if (termoCliente) {
+                    setBuscaClienteEmissor(termoCliente)
+                    await buscarClientesFaturamentoEmissor(termoCliente)
+                  }
+
+                  // Seleciona o cadastro recém-criado (ou já existente)
+                  // e mantém a regra atual de vencimento do emissor.
+                  setEmissorClienteId(String(cliente.id))
+                  setEmissorVencimento(
+                    vencimentoPadraoCliente(cliente as ClienteFaturamento)
+                  )
+                }}
+              />
 
               <div className="mt-4 rounded-2xl border border-blue-900 bg-[#071225] p-4">
                 <label className="text-sm font-black text-slate-300">
