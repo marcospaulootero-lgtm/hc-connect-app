@@ -1,5 +1,7 @@
 'use client'
 
+// HC_PERFORMANCE_FATURAS_HOTFIX_V1
+
 // HC_PERFORMANCE_FATURAS_V1
 
 // HC_AGENTE_CNPJ_V1
@@ -431,9 +433,7 @@ export default function FaturasPage() {
     ] = await Promise.all([
       supabase
       .from('embarques')
-      .select(
-        'id, awb, usuario_id, cliente_final, exportador, importador, transportadora, status_operacional, data_envio, criado_em, servico, origem, destino, referencia_cliente, referencia_hc, valor_venda, valor_fechado, valor_cobrado_cliente, moeda, moeda_cobranca, taxa_conversao, spread, peso_real, peso_taxado, servicos_financeiros'
-      )
+      .select('*')
       .order('criado_em', { ascending: false }),
       supabase
       .from('faturas')
@@ -538,7 +538,7 @@ export default function FaturasPage() {
     if (idsEmbarques.length > 0) {
       const { data: documentosData, error: erroDocumentos } = await supabase
         .from('documentos_embarques')
-        .select('id, embarque_id, nome, nome_arquivo, filename, tipo, categoria, url, arquivo_url, arquivo_pdf, criado_em')
+        .select('*')
         .in('embarque_id', idsEmbarques)
 
       if (erroDocumentos) {
@@ -555,9 +555,7 @@ export default function FaturasPage() {
 
     const { data: clientesFaturamentoData, error: erroClientesFaturamento } = await supabase
       .from('clientes_faturamento')
-      .select(
-        'id, codigo_hc, nome_empresa, razao_social, nome, cliente, documento, nome_contato, endereco, cidade, estado, cep, cnpj, cpf, email, contato, inscricao_estadual, inscricao_municipal, observacoes, ativo'
-      )
+      .select('*')
       .eq('ativo', true)
       .order('nome_empresa', { ascending: true })
 
