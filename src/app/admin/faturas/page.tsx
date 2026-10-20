@@ -1,5 +1,7 @@
 'use client'
 
+// HC_PERFORMANCE_FATURAS_V1
+
 // HC_AGENTE_CNPJ_V1
 
 // HC_AGENTE_BUSCA_MANUAL_V1
@@ -419,14 +421,21 @@ export default function FaturasPage() {
   ])
 
   async function carregar() {
-    const { data: embarquesData, error: erroEmbarques } = await supabase
+    // PERFORMANCE V1:
+    // consultas independentes do carregamento inicial rodam em paralelo;
+    // filtros, cálculos, vínculos e automações permanecem inalterados.
+    const [
+      embarquesRes,
+      faturasRes,
+      financeiroCountRes,
+    ] = await Promise.all([
+      supabase
       .from('embarques')
-      .select('*')
-      .order('criado_em', { ascending: false })
-
-    if (erroEmbarques) console.log(erroEmbarques)
-
-    const { data: faturasData, error: erroFaturas } = await supabase
+      .select(
+        'id, awb, usuario_id, cliente_final, exportador, importador, transportadora, status_operacional, data_envio, criado_em, servico, origem, destino, referencia_cliente, referencia_hc, valor_venda, valor_fechado, valor_cobrado_cliente, moeda, moeda_cobranca, taxa_conversao, spread, peso_real, peso_taxado, servicos_financeiros'
+      )
+      .order('criado_em', { ascending: false }),
+      supabase
       .from('faturas')
       .select(`
         id,
@@ -471,13 +480,29 @@ export default function FaturasPage() {
           status_operacional
         )
       `)
-      .order('criado_em', { ascending: false })
-
-    if (erroFaturas) console.log(erroFaturas)
-
-    const { count: totalFinanceiro, error: erroCountFinanceiro } = await supabase
+      .order('criado_em', { ascending: false }),
+      supabase
       .from('financeiro_embarques')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true }),
+    ])
+
+    const {
+      data: embarquesData,
+      error: erroEmbarques,
+    } = embarquesRes
+
+    const {
+      data: faturasData,
+      error: erroFaturas,
+    } = faturasRes
+
+    const {
+      count: totalFinanceiro,
+      error: erroCountFinanceiro,
+    } = financeiroCountRes
+
+    if (erroEmbarques) console.log(erroEmbarques)
+    if (erroFaturas) console.log(erroFaturas)
 
     if (erroCountFinanceiro) console.log('ERRO COUNT FINANCEIRO:', erroCountFinanceiro)
 
@@ -513,7 +538,7 @@ export default function FaturasPage() {
     if (idsEmbarques.length > 0) {
       const { data: documentosData, error: erroDocumentos } = await supabase
         .from('documentos_embarques')
-        .select('*')
+        .select('id, embarque_id, nome, nome_arquivo, filename, tipo, categoria, url, arquivo_url, arquivo_pdf, criado_em')
         .in('embarque_id', idsEmbarques)
 
       if (erroDocumentos) {
@@ -530,7 +555,9 @@ export default function FaturasPage() {
 
     const { data: clientesFaturamentoData, error: erroClientesFaturamento } = await supabase
       .from('clientes_faturamento')
-      .select('*')
+      .select(
+        'id, codigo_hc, nome_empresa, razao_social, nome, cliente, documento, nome_contato, endereco, cidade, estado, cep, cnpj, cpf, email, contato, inscricao_estadual, inscricao_municipal, observacoes, ativo'
+      )
       .eq('ativo', true)
       .order('nome_empresa', { ascending: true })
 
