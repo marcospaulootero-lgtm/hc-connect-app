@@ -1,5 +1,7 @@
 'use client'
 
+// HC_PERFORMANCE_ADMIN_LAYOUT_V1
+
 import Link from 'next/link'
 import AdminFloatingNotes from '@/components/AdminFloatingNotes'
 import CalculadoraFinanceira from '@/components/CalculadoraFinanceira'
@@ -183,7 +185,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     carregarNotificacoesMenu()
 
-    const atualizar = () => carregarNotificacoesMenu()
+    let timerAtualizacao: number | null = null
+
+    const atualizar = () => {
+      if (timerAtualizacao !== null) {
+        window.clearTimeout(timerAtualizacao)
+      }
+
+      timerAtualizacao = window.setTimeout(() => {
+        timerAtualizacao = null
+        carregarNotificacoesMenu()
+      }, 500)
+    }
 
     const canal = supabase
       .channel('notificacoes-menu-admin-v2')
@@ -228,6 +241,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
     return () => {
       window.clearInterval(intervalo)
+
+      if (timerAtualizacao !== null) {
+        window.clearTimeout(timerAtualizacao)
+      }
+
       supabase.removeChannel(canal)
     }
   }, [])
@@ -244,7 +262,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
     const { data: perfil } = await supabase
       .from('perfis')
-      .select('*')
+      .select('id, nome, tipo_acesso')
       .eq('id', user.id)
       .single()
 
@@ -264,12 +282,43 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   async function carregarNotificacoesMenu() {
     try {
+      const hoje = hojeIsoMenu()
+
+      let usuariosAberto = false
+      let ultimaVisualizacaoUsuarios = new Date().toISOString()
+
+      if (typeof window !== 'undefined') {
+        usuariosAberto = window.location.pathname.startsWith('/admin/usuarios')
+
+        const armazenada = window.localStorage.getItem(
+          STORAGE_ULTIMA_VISUALIZACAO_USUARIOS
+        )
+
+        if (armazenada) {
+          ultimaVisualizacaoUsuarios = armazenada
+        } else {
+          window.localStorage.setItem(
+            STORAGE_ULTIMA_VISUALIZACAO_USUARIOS,
+            ultimaVisualizacaoUsuarios
+          )
+        }
+
+        if (usuariosAberto) {
+          ultimaVisualizacaoUsuarios = new Date().toISOString()
+          window.localStorage.setItem(
+            STORAGE_ULTIMA_VISUALIZACAO_USUARIOS,
+            ultimaVisualizacaoUsuarios
+          )
+        }
+      }
+
       const [
         cotacoesRes,
         solicitacoesAcessoRes,
         embarquesDiretosRes,
         perfisRes,
-        financeiroRes,
+        financeiroVencidosRes,
+        financeiroRecebidosRes,
         faturasClientesRes,
         faturasTransportadorasRes,
       ] = await Promise.all([
@@ -283,19 +332,36 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           .eq('status', 'PENDENTE'),
         supabase
           .from('embarque_direto')
-          .select('id, status, embarque_id, arquivado_admin'),
+          .select('id, status, embarque_id, arquivado_admin')
+          .is('embarque_id', null)
+          .or('arquivado_admin.is.null,arquivado_admin.eq.false'),
         supabase
           .from('perfis')
-          .select('id, criado_em'),
+          .select('id', { count: 'exact', head: true })
+          .gt('criado_em', ultimaVisualizacaoUsuarios),
         supabase
           .from('financeiro_embarques')
-          .select('id, embarque_id, awb, vencimento_cobranca, recebimento'),
+          .select('id, embarque_id, awb, vencimento_cobranca')
+          .lt('vencimento_cobranca', hoje)
+          .is('recebimento', null),
+        supabase
+          .from('financeiro_embarques')
+          .select('embarque_id')
+          .not('recebimento', 'is', null)
+          .not('embarque_id', 'is', null),
         supabase
           .from('faturas')
           .select(
-            'id, embarque_id, comprovante_pagamento, data_comprovante, status_pagamento, arquivado_admin'
-          ),
-        supabase.from('faturas_transportadoras').select('*'),
+            'id, embarque_id, comprovante_pagamento, status_pagamento, arquivado_admin'
+          )
+          .not('comprovante_pagamento', 'is', null)
+          .or('arquivado_admin.is.null,arquivado_admin.eq.false'),
+        supabase
+          .from('faturas_transportadoras')
+          .select('id, transportadora, vencimento, data_pagamento, situacao, arquivada')
+          .lte('vencimento', hoje)
+          .is('data_pagamento', null)
+          .or('arquivada.is.null,arquivada.eq.false'),
       ])
 
       if (cotacoesRes.error) {
@@ -310,10 +376,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       if (perfisRes.error) {
         console.error('Erro no badge de usuários:', perfisRes.error.message)
       }
-      if (financeiroRes.error) {
+      if (financeiroVencidosRes.error) {
         console.error(
-          'Erro no badge de faturas de clientes:',
-          financeiroRes.error.message
+          'Erro no badge de faturas de clientes vencidas:',
+          financeiroVencidosRes.error.message
+        )
+      }
+      if (financeiroRecebidosRes.error) {
+        console.error(
+          'Erro no badge de recebimentos de clientes:',
+          financeiroRecebidosRes.error.message
         )
       }
       if (faturasClientesRes.error) {
@@ -348,19 +420,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         }
       ).length
 
-      const hoje = hojeIsoMenu()
-      const financeiro = financeiroRes.data || []
+      const financeiroVencidos = financeiroVencidosRes.data || []
       const recebidosPorEmbarque = new Set(
-        financeiro
-          .filter((item: any) => !!item.recebimento && !!item.embarque_id)
+        (financeiroRecebidosRes.data || [])
+          .filter((item: any) => !!item.embarque_id)
           .map((item: any) => String(item.embarque_id))
       )
 
       const alertasFaturasClientes = new Set<string>()
 
-      financeiro.forEach((item: any) => {
+      financeiroVencidos.forEach((item: any) => {
         const vencimento = normalizarDataMenu(item.vencimento_cobranca)
-        if (!vencimento || vencimento >= hoje || item.recebimento) return
+        if (!vencimento || vencimento >= hoje) return
 
         alertasFaturasClientes.add(
           String(item.embarque_id || item.awb || item.id)
@@ -393,37 +464,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         faturasTransportadorasRes.data || []
       ).filter(faturaTransportadoraUrgenteMenu).length
 
-      let usuariosNovos = 0
-
-      if (typeof window !== 'undefined') {
-        let ultimaVisualizacao = window.localStorage.getItem(
-          STORAGE_ULTIMA_VISUALIZACAO_USUARIOS
-        )
-
-        if (!ultimaVisualizacao) {
-          ultimaVisualizacao = new Date().toISOString()
-          window.localStorage.setItem(
-            STORAGE_ULTIMA_VISUALIZACAO_USUARIOS,
-            ultimaVisualizacao
-          )
-        }
-
-        const limite = new Date(ultimaVisualizacao).getTime()
-
-        usuariosNovos = (perfisRes.data || []).filter((perfil: any) => {
-          if (!perfil.criado_em) return false
-          const criadoEm = new Date(perfil.criado_em).getTime()
-          return !isNaN(criadoEm) && criadoEm > limite
-        }).length
-
-        if (window.location.pathname.startsWith('/admin/usuarios')) {
-          window.localStorage.setItem(
-            STORAGE_ULTIMA_VISUALIZACAO_USUARIOS,
-            new Date().toISOString()
-          )
-          usuariosNovos = 0
-        }
-      }
+      const usuariosNovos = usuariosAberto ? 0 : perfisRes.count || 0
 
       setNotificacoesMenu({
         cotacoes: cotacoesRes.count || 0,
