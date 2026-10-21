@@ -1,11 +1,28 @@
 'use client'
 
+// HC_PARCEIROS_LAYOUT_V2
+
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
-const PAGE_SIZE = 10
+const PAGE_SIZE_PADRAO = 25
+const PAGE_SIZE_OPTIONS = [25, 50, 100]
 const LOTE_SUPABASE = 1000
+const ORDEM_MESES = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+]
 
 
 export default function ParceirosPage() {
@@ -22,11 +39,15 @@ export default function ParceirosPage() {
   const [salvandoPortal, setSalvandoPortal] = useState(false)
 
   const [busca, setBusca] = useState('')
-  const [buscaParceiro, setBuscaParceiro] = useState('')
   const [parceiroSelecionado, setParceiroSelecionado] = useState('')
   const [aba, setAba] = useState('TODOS')
   const [pagina, setPagina] = useState(1)
   const [periodo, setPeriodo] = useState('TODOS')
+  const [mesFiltro, setMesFiltro] = useState('TODOS')
+  const [servicoFiltro, setServicoFiltro] = useState('TODOS')
+  const [visibilidadeFiltro, setVisibilidadeFiltro] = useState('TODOS')
+  const [solicitacaoFiltro, setSolicitacaoFiltro] = useState('TODOS')
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_PADRAO)
   const [selecionadosPdf, setSelecionadosPdf] = useState<string[]>([])
   const [valorAlvoPdf, setValorAlvoPdf] = useState('')
   const [quantidadePdf, setQuantidadePdf] = useState('10')
@@ -95,7 +116,7 @@ export default function ParceirosPage() {
 
   function solicitacoesDoItem(item: any) {
     if (!item?.id) return []
-    return solicitacoesProfit.filter((solicitacao) => solicitacao.financeiro_embarque_id === item.id)
+    return solicitacoesPorFinanceiro.get(String(item.id)) || []
   }
 
   function solicitacoesAbertasDoItem(item: any) {
@@ -176,7 +197,7 @@ export default function ParceirosPage() {
 
   function acessosDoItem(item: any) {
     if (!item?.id) return []
-    return acessosPortal.filter((acesso) => acesso.financeiro_embarque_id === item.id)
+    return acessosPorFinanceiro.get(String(item.id)) || []
   }
 
   function acessosAtivosDoItem(item: any) {
@@ -436,6 +457,40 @@ export default function ParceirosPage() {
       .toLowerCase()
   }
 
+  function labelMes(valor: any) {
+    const mes = normalizarMes(valor)
+    if (!mes) return '-'
+    return mes.charAt(0).toUpperCase() + mes.slice(1)
+  }
+
+  function estadoPortalItem(item: any) {
+    if (!clienteQuitouProcesso(item)) return 'AGUARDANDO'
+    return acessosAtivosDoItem(item).length > 0 ? 'LIBERADO' : 'OCULTO'
+  }
+
+  function estadoSolicitacaoItem(item: any) {
+    const solicitacoes = solicitacoesDoItem(item)
+    if (solicitacoes.length === 0) return 'SEM_SOLICITACAO'
+    if (solicitacoesAbertasDoItem(item).length > 0) return 'ABERTA'
+    return 'COM_SOLICITACAO'
+  }
+
+  function limparFiltrosPrincipais() {
+    setParceiroSelecionado('')
+    setPeriodo('TODOS')
+    setMesFiltro('TODOS')
+    setServicoFiltro('TODOS')
+    setVisibilidadeFiltro('TODOS')
+    setSolicitacaoFiltro('TODOS')
+    setAba('TODOS')
+    setBusca('')
+    setAwbsLoteTexto('')
+    setAwbsFiltroLote([])
+    setAwbsNaoEncontrados([])
+    setSelecionadosPdf([])
+    setPagina(1)
+  }
+
   function anoRegistro(item: any) {
     const direto = normalizarTexto(
       item.ano ||
@@ -491,15 +546,31 @@ export default function ParceirosPage() {
   async function carregar() {
     setLoading(true)
 
-    const { count, error: countError } = await supabase
-      .from('financeiro_embarques')
-      .select('*', { count: 'exact', head: true })
-      .gt('debito_terceiro', 0)
+    const [
+      { count, error: countError },
+      { data: usuariosData, error: usuariosError },
+    ] = await Promise.all([
+      supabase
+        .from('financeiro_embarques')
+        .select('*', { count: 'exact', head: true })
+        .gt('debito_terceiro', 0),
+      supabase
+        .from('perfis')
+        .select('id, nome, email, tipo_acesso, ativo')
+        .neq('tipo_acesso', 'admin')
+        .order('nome', { ascending: true }),
+    ])
 
     if (countError) {
       alert('Erro ao contar parceiros: ' + countError.message)
       setLoading(false)
       return
+    }
+
+    if (usuariosError) {
+      console.log('Erro ao carregar usuários do portal:', usuariosError)
+    } else {
+      setUsuariosPortal((usuariosData || []).filter((usuario: any) => usuario.ativo !== false))
     }
 
     const total = count || 0
@@ -536,110 +607,91 @@ export default function ParceirosPage() {
       )
     )
 
-    const { data: usuariosData, error: usuariosError } = await supabase
-      .from('perfis')
-      .select('id, nome, email, tipo_acesso, ativo')
-      .neq('tipo_acesso', 'admin')
-      .order('nome', { ascending: true })
-
-    if (usuariosError) {
-      console.log('Erro ao carregar usuários do portal:', usuariosError)
-    } else {
-      setUsuariosPortal((usuariosData || []).filter((usuario: any) => usuario.ativo !== false))
-    }
-
     const idsFinanceiros = ordenados.map((item) => item.id).filter(Boolean)
     let acessosData: any[] = []
-
-    if (idsFinanceiros.length > 0) {
-      const lotesIds = dividirEmLotes(idsFinanceiros, 500)
-
-      for (const lote of lotesIds) {
-        const { data: acessosLote, error: acessosError } = await supabase
-          .from('financeiro_parceiro_acessos')
-          .select(`
-            id,
-            financeiro_embarque_id,
-            usuario_id,
-            ativo,
-            observacao_parceiro,
-            liberado_em,
-            liberado_por,
-            ocultado_em,
-            ultimo_visualizado_em,
-            visualizacoes,
-            criado_em,
-            atualizado_em,
-            perfis:usuario_id (
-              id,
-              nome,
-              email,
-              tipo_acesso,
-              ativo
-            )
-          `)
-          .in('financeiro_embarque_id', lote)
-          .order('liberado_em', { ascending: false })
-
-        if (acessosError) {
-          console.log('Erro ao carregar acessos do portal parceiro:', acessosError)
-          break
-        }
-
-        acessosData = [...acessosData, ...(acessosLote || [])]
-      }
-    }
-
     let solicitacoesData: any[] = []
 
     if (idsFinanceiros.length > 0) {
       const lotesIds = dividirEmLotes(idsFinanceiros, 500)
 
-      for (const lote of lotesIds) {
-        const { data: solicitacoesLote, error: solicitacoesError } = await supabase
-          .from('financeiro_parceiro_solicitacoes')
-          .select(`
-            id,
-            financeiro_embarque_id,
-            usuario_id,
-            status,
-            mensagem,
-            observacao_admin,
-            solicitado_em,
-            respondido_em,
-            respondido_por,
-            criado_em,
-            atualizado_em,
-            perfis:usuario_id (
-              id,
-              nome,
-              email,
-              tipo_acesso,
-              ativo
-            )
-          `)
-          .in('financeiro_embarque_id', lote)
-          .order('solicitado_em', { ascending: false })
+      const [respostasAcessos, respostasSolicitacoes] = await Promise.all([
+        Promise.all(
+          lotesIds.map((lote) =>
+            supabase
+              .from('financeiro_parceiro_acessos')
+              .select(`
+                id,
+                financeiro_embarque_id,
+                usuario_id,
+                ativo,
+                observacao_parceiro,
+                liberado_em,
+                liberado_por,
+                ocultado_em,
+                ultimo_visualizado_em,
+                visualizacoes,
+                criado_em,
+                atualizado_em,
+                perfis:usuario_id (
+                  id,
+                  nome,
+                  email,
+                  tipo_acesso,
+                  ativo
+                )
+              `)
+              .in('financeiro_embarque_id', lote)
+              .order('liberado_em', { ascending: false })
+          )
+        ),
+        Promise.all(
+          lotesIds.map((lote) =>
+            supabase
+              .from('financeiro_parceiro_solicitacoes')
+              .select(`
+                id,
+                financeiro_embarque_id,
+                usuario_id,
+                status,
+                mensagem,
+                observacao_admin,
+                solicitado_em,
+                respondido_em,
+                respondido_por,
+                criado_em,
+                atualizado_em,
+                perfis:usuario_id (
+                  id,
+                  nome,
+                  email,
+                  tipo_acesso,
+                  ativo
+                )
+              `)
+              .in('financeiro_embarque_id', lote)
+              .order('solicitado_em', { ascending: false })
+          )
+        ),
+      ])
 
-        if (solicitacoesError) {
-          console.log('Erro ao carregar solicitações de profit:', solicitacoesError)
-          break
-        }
+      const erroAcessos = respostasAcessos.find((resposta) => resposta.error)?.error
+      if (erroAcessos) {
+        console.log('Erro ao carregar acessos do portal parceiro:', erroAcessos)
+      } else {
+        acessosData = respostasAcessos.flatMap((resposta) => resposta.data || [])
+      }
 
-        solicitacoesData = [...solicitacoesData, ...(solicitacoesLote || [])]
+      const erroSolicitacoes = respostasSolicitacoes.find((resposta) => resposta.error)?.error
+      if (erroSolicitacoes) {
+        console.log('Erro ao carregar solicitações de profit:', erroSolicitacoes)
+      } else {
+        solicitacoesData = respostasSolicitacoes.flatMap((resposta) => resposta.data || [])
       }
     }
 
     setSolicitacoesProfit(solicitacoesData)
     setAcessosPortal(acessosData)
     setRegistros(ordenados)
-
-    if (!parceiroSelecionado && ordenados.length > 0) {
-      const primeiro = ordenados.find((i) => i.parceiro || i.despachante)
-      if (primeiro) {
-        setParceiroSelecionado(primeiro.parceiro || primeiro.despachante)
-      }
-    }
 
     setPagina(1)
     setLoading(false)
@@ -1426,14 +1478,6 @@ export default function ParceirosPage() {
     return Object.values(mapa).sort((a: any, b: any) => b.total - a.total)
   }, [registros])
 
-  const parceirosFiltrados = useMemo(() => {
-    const termo = normalizarBusca(buscaParceiro)
-
-    return parceirosResumo.filter((item: any) =>
-      normalizarBusca(item.nome).includes(termo)
-    )
-  }, [parceirosResumo, buscaParceiro])
-
   const dadosParceiro = useMemo(() => {
     if (!parceiroSelecionado) return registros
 
@@ -1456,17 +1500,43 @@ export default function ParceirosPage() {
     return anos
   }, [dadosParceiro])
 
-  const dadosParceiroPeriodo = useMemo(() => {
+  const dadosParceiroAno = useMemo(() => {
     if (periodo === 'TODOS') return dadosParceiro
 
-    return dadosParceiro.filter((item) => {
-      const ano = anoRegistro(item)
-
-      if (!ano) return false
-
-      return ano === periodo
-    })
+    return dadosParceiro.filter((item) => anoRegistro(item) === periodo)
   }, [dadosParceiro, periodo])
+
+  const mesesDisponiveis = useMemo(() => {
+    return Array.from(
+      new Set(
+        dadosParceiroAno
+          .map((item) => normalizarMes(item.mes_pgto))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => {
+      const indiceA = ORDEM_MESES.indexOf(String(a))
+      const indiceB = ORDEM_MESES.indexOf(String(b))
+      if (indiceA === -1 && indiceB === -1) return String(a).localeCompare(String(b), 'pt-BR')
+      if (indiceA === -1) return 1
+      if (indiceB === -1) return -1
+      return indiceA - indiceB
+    })
+  }, [dadosParceiroAno])
+
+  const dadosParceiroPeriodo = useMemo(() => {
+    if (mesFiltro === 'TODOS') return dadosParceiroAno
+    return dadosParceiroAno.filter((item) => normalizarMes(item.mes_pgto) === mesFiltro)
+  }, [dadosParceiroAno, mesFiltro])
+
+  const servicosDisponiveis = useMemo(() => {
+    return Array.from(
+      new Set(
+        dadosParceiroPeriodo
+          .map((item) => normalizarTexto(item.servico))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
+  }, [dadosParceiroPeriodo])
 
   const resumoGeral = useMemo(() => {
     const emAberto = registros.filter((item) => status(item) !== 'PAGO')
@@ -1508,6 +1578,34 @@ export default function ParceirosPage() {
     return [...parceirosResumo].slice(0, 5)
   }, [parceirosResumo])
 
+  const acessosPorFinanceiro = useMemo(() => {
+    const mapa = new Map<string, any[]>()
+
+    for (const acesso of acessosPortal) {
+      const chave = String(acesso?.financeiro_embarque_id || '')
+      if (!chave) continue
+      const atuais = mapa.get(chave) || []
+      atuais.push(acesso)
+      mapa.set(chave, atuais)
+    }
+
+    return mapa
+  }, [acessosPortal])
+
+  const solicitacoesPorFinanceiro = useMemo(() => {
+    const mapa = new Map<string, any[]>()
+
+    for (const solicitacao of solicitacoesProfit) {
+      const chave = String(solicitacao?.financeiro_embarque_id || '')
+      if (!chave) continue
+      const atuais = mapa.get(chave) || []
+      atuais.push(solicitacao)
+      mapa.set(chave, atuais)
+    }
+
+    return mapa
+  }, [solicitacoesProfit])
+
   const filtrados = useMemo(() => {
     const termo = normalizarBusca(busca)
 
@@ -1517,11 +1615,26 @@ export default function ParceirosPage() {
         ${item.cliente || ''}
         ${item.awb || ''}
         ${item.servico || ''}
+        ${item.transportadora || ''}
         ${item.pgta_terceiros || ''}
         ${item.mes_pgto || ''}
       `)
 
       const passaBusca = !termo || texto.includes(termo)
+      const passaServico =
+        servicoFiltro === 'TODOS' ||
+        normalizarTexto(item.servico) === servicoFiltro
+
+      const passaVisibilidade =
+        visibilidadeFiltro === 'TODOS' ||
+        estadoPortalItem(item) === visibilidadeFiltro
+
+      const passaSolicitacao =
+        solicitacaoFiltro === 'TODOS' ||
+        estadoSolicitacaoItem(item) === solicitacaoFiltro ||
+        (solicitacaoFiltro === 'COM_SOLICITACAO' &&
+          estadoSolicitacaoItem(item) !== 'SEM_SOLICITACAO')
+
       const passaAwbLote =
         awbsFiltroLote.length === 0 ||
         awbsFiltroLote.includes(normalizarAwbChave(item.awb))
@@ -1536,9 +1649,26 @@ export default function ParceirosPage() {
         passaAba = status(item) !== 'PAGO'
       }
 
-      return passaBusca && passaAba && passaAwbLote
+      return (
+        passaBusca &&
+        passaServico &&
+        passaVisibilidade &&
+        passaSolicitacao &&
+        passaAba &&
+        passaAwbLote
+      )
     })
-  }, [dadosParceiroPeriodo, busca, aba, awbsFiltroLote])
+  }, [
+    dadosParceiroPeriodo,
+    busca,
+    aba,
+    servicoFiltro,
+    visibilidadeFiltro,
+    solicitacaoFiltro,
+    awbsFiltroLote,
+    acessosPortal,
+    solicitacoesProfit,
+  ])
 
   const resumoFiltrado = useMemo(() => {
     const pagos = filtrados.filter((item) => status(item) === 'PAGO')
@@ -1629,12 +1759,12 @@ export default function ParceirosPage() {
     }
   }, [dadosParceiroPeriodo, acessosPortal, solicitacoesProfit])
 
-  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE))
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / pageSize))
 
   const paginados = useMemo(() => {
-    const inicio = (pagina - 1) * PAGE_SIZE
-    return filtrados.slice(inicio, inicio + PAGE_SIZE)
-  }, [filtrados, pagina])
+    const inicio = (pagina - 1) * pageSize
+    return filtrados.slice(inicio, inicio + pageSize)
+  }, [filtrados, pagina, pageSize])
 
   const todosPaginadosSelecionados =
     paginados.length > 0 &&
@@ -1688,267 +1818,343 @@ export default function ParceirosPage() {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+          <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-950">Parceiros</h2>
-              <p className="text-sm text-slate-500">
-                A seleção agora fica em cards horizontais para evitar a barra lateral apertada.
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Filtros</p>
+              <h2 className="mt-1 text-xl font-black text-slate-950">Visão financeira dos parceiros</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Refine a carteira por parceiro, período, serviço, status e situação no portal.
               </p>
             </div>
 
-            <div className="flex w-full flex-col gap-3 xl:w-[520px] xl:flex-row">
-              <input
-                value={buscaParceiro}
-                onChange={(e) => setBuscaParceiro(e.target.value)}
-                placeholder="Buscar parceiro..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-slate-400"
-              />
-
-              <button
-                type="button"
-                onClick={() => {
-                  setParceiroSelecionado('')
-                  setPagina(1)
-                  setBusca('')
-                  setAba('TODOS')
-                }}
-                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"
-              >
-                Ver todos
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={limparFiltrosPrincipais}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-100"
+            >
+              Limpar todos os filtros
+            </button>
           </div>
 
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {parceirosFiltrados.map((item: any) => (
-              <button
-                key={item.nome}
-                type="button"
-                onClick={() => {
-                  setParceiroSelecionado(item.nome)
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+            <label className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Parceiro</span>
+              <select
+                value={parceiroSelecionado}
+                onChange={(e) => {
+                  setParceiroSelecionado(e.target.value)
+                  setPeriodo('TODOS')
+                  setMesFiltro('TODOS')
+                  setServicoFiltro('TODOS')
                   setPagina(1)
-                  setBusca('')
-                  setAba('TODOS')
                 }}
-                className={`min-w-[220px] rounded-2xl border p-4 text-left transition ${
-                  parceiroSelecionado === item.nome
-                    ? 'border-blue-500 bg-blue-600 text-white shadow-md'
-                    : 'border-slate-200 bg-slate-50 text-slate-900 hover:border-blue-300 hover:bg-blue-50'
-                }`}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-black">{item.nome}</p>
-                    <p className={parceiroSelecionado === item.nome ? 'mt-1 text-xs text-blue-100' : 'mt-1 text-xs text-slate-500'}>
-                      {item.qtd} processo(s)
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-white/20 px-2 py-1 text-xs font-black">›</span>
-                </div>
+                <option value="">Todos os parceiros</option>
+                {parceirosResumo.map((item: any) => (
+                  <option key={item.nome} value={item.nome}>
+                    {item.nome} · {item.qtd} processo(s) · {moeda(item.total)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-                <p className="mt-3 text-lg font-black">{moeda(item.total)}</p>
-              </button>
-            ))}
+            <label className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Ano</span>
+              <select
+                value={periodo}
+                onChange={(e) => {
+                  setPeriodo(e.target.value)
+                  setMesFiltro('TODOS')
+                  setServicoFiltro('TODOS')
+                  setPagina(1)
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
+              >
+                <option value="TODOS">Todos os anos</option>
+                {anosDisponiveis.map((ano: any) => (
+                  <option key={ano} value={ano}>{ano}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Mês</span>
+              <select
+                value={mesFiltro}
+                onChange={(e) => {
+                  setMesFiltro(e.target.value)
+                  setServicoFiltro('TODOS')
+                  setPagina(1)
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
+              >
+                <option value="TODOS">Todos os meses</option>
+                {mesesDisponiveis.map((mes) => (
+                  <option key={mes} value={mes}>{labelMes(mes)}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Serviço</span>
+              <select
+                value={servicoFiltro}
+                onChange={(e) => {
+                  setServicoFiltro(e.target.value)
+                  setPagina(1)
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
+              >
+                <option value="TODOS">Todos os serviços</option>
+                {servicosDisponiveis.map((servico) => (
+                  <option key={servico} value={servico}>{servico}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Portal</span>
+              <select
+                value={visibilidadeFiltro}
+                onChange={(e) => {
+                  setVisibilidadeFiltro(e.target.value)
+                  setPagina(1)
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
+              >
+                <option value="TODOS">Todos</option>
+                <option value="LIBERADO">Liberados</option>
+                <option value="OCULTO">Ocultos</option>
+                <option value="AGUARDANDO">Aguardando cliente</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Solicitação</span>
+              <select
+                value={solicitacaoFiltro}
+                onChange={(e) => {
+                  setSolicitacaoFiltro(e.target.value)
+                  setPagina(1)
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800"
+              >
+                <option value="TODOS">Todas</option>
+                <option value="ABERTA">Abertas</option>
+                <option value="COM_SOLICITACAO">Com solicitação</option>
+                <option value="SEM_SOLICITACAO">Sem solicitação</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">Busca</span>
+              <input
+                value={busca}
+                onChange={(e) => {
+                  setBusca(e.target.value)
+                  setPagina(1)
+                }}
+                placeholder="AWB, cliente, serviço..."
+                className="w-full rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-slate-400"
+              />
+            </label>
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-5 2xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-5">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-2xl font-black text-white shadow-sm">
-                    {inicialParceiro.toUpperCase()}
-                  </div>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xl font-black text-white">
+                {inicialParceiro.toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <h2 className="truncate text-xl font-black text-slate-950">
+                  {parceiroSelecionado || 'Todos os parceiros'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {periodo === 'TODOS' ? 'Todos os anos' : periodo}
+                  {mesFiltro === 'TODOS' ? '' : ` · ${labelMes(mesFiltro)}`}
+                </p>
+              </div>
+            </div>
 
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h2 className="truncate text-2xl font-black text-slate-950">
-                        {parceiroSelecionado || 'Todos parceiros'}
-                      </h2>
-                      <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-black text-green-700">Parceiro ativo</span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-500">Resumo financeiro do parceiro selecionado.</p>
-                  </div>
-                </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5 xl:min-w-[720px]">
+              <MiniInfo titulo="TOTAL PROFIT" valor={moeda(resumoParceiro.total)} />
+              <MiniInfo titulo="A PAGAR" valor={moeda(resumoParceiro.aberto)} destaque="orange" />
+              <MiniInfo titulo="PAGO" valor={moeda(resumoParceiro.pago)} destaque="green" />
+              <MiniInfo titulo="PROCESSOS" valor={String(resumoParceiro.qtd)} />
+              <MiniInfo titulo="TICKET MÉDIO" valor={moeda(resumoParceiro.ticket)} />
+            </div>
+          </div>
 
-                <select
-                  value={periodo}
-                  onChange={(e) => {
-                    setPeriodo(e.target.value)
-                    setPagina(1)
-                  }}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-                >
-                  <option value="TODOS">📅 Todos os períodos</option>
-                  {anosDisponiveis.map((ano: any) => (
-                    <option key={ano} value={ano}>📅 Período: {ano}</option>
-                  ))}
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-green-500" style={{ width: `${percentualPago}%` }} />
+          </div>
+          <p className="mt-2 text-xs font-bold text-slate-500">
+            {percentualPago}% pago · {100 - percentualPago}% pendente
+          </p>
+        </section>
+
+        {editando && (
+          <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-black">Editar pagamento parceiro</h2>
+                <p className="text-sm text-slate-500">{editando.cliente} · AWB {editando.awb}</p>
+              </div>
+
+              <button type="button" onClick={cancelar} className="rounded-xl bg-slate-100 px-4 py-2 font-bold text-slate-800 hover:bg-slate-200">
+                Cancelar
+              </button>
+            </div>
+
+            <form onSubmit={salvar} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div>
+                <label className="text-sm font-semibold text-slate-600">Parceiro</label>
+                <input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+              </div>
+
+              <Info label="Cliente" value={editando.cliente || '-'} />
+              <Info label="AWB" value={editando.awb || '-'} />
+
+              <div>
+                <label className="text-sm font-semibold text-slate-600">Valor parceiro</label>
+                <input value={formatarEntradaValorBR(form.debito_terceiro)} inputMode="decimal" onChange={(e) => setForm({ ...form, debito_terceiro: formatarEntradaValorBR(e.target.value) })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-slate-600">Status pagamento</label>
+                <select value={form.pgta_terceiros} onChange={(e) => setForm({ ...form, pgta_terceiros: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+                  <option value="PENDENTE">PENDENTE</option>
+                  <option value="PAGO">PAGO</option>
                 </select>
               </div>
 
-              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-100 pt-5 md:grid-cols-5">
-                <MiniInfo titulo="TOTAL PROFIT" valor={moeda(resumoParceiro.total)} />
-                <MiniInfo titulo="A PAGAR" valor={moeda(resumoParceiro.aberto)} destaque="orange" />
-                <MiniInfo titulo="PAGO" valor={moeda(resumoParceiro.pago)} destaque="green" />
-                <MiniInfo titulo="PROCESSOS" valor={String(resumoParceiro.qtd)} />
-                <MiniInfo titulo="TICKET MÉDIO" valor={moeda(resumoParceiro.ticket)} />
+              <div>
+                <label className="text-sm font-semibold text-slate-600">Mês do pagamento</label>
+                <input value={form.mes_pgto} onChange={(e) => setForm({ ...form, mes_pgto: e.target.value })} placeholder="Ex: junho" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
               </div>
 
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-green-500" style={{ width: `${percentualPago}%` }} />
+              <div className="md:col-span-4 flex gap-3">
+                <button disabled={salvando} className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                  {salvando ? 'Salvando...' : 'Salvar pagamento'}
+                </button>
               </div>
+            </form>
+          </section>
+        )}
 
-              <p className="mt-2 text-xs font-bold text-slate-500">
-                {percentualPago}% pago · {100 - percentualPago}% pendente
+        <details className="group rounded-2xl border border-blue-200 bg-white shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Portal do parceiro</p>
+              <h3 className="mt-1 text-lg font-black text-slate-950">Liberação de repasses por login</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Abra somente quando precisar liberar, ocultar ou revisar acessos.
               </p>
-            </section>
+            </div>
+            <span className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-black text-blue-700 group-open:bg-blue-600 group-open:text-white">
+              Abrir painel
+            </span>
+          </summary>
+          <div className="border-t border-blue-100 p-5">
+            <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Portal do parceiro</p>
+                <h3 className="mt-1 text-xl font-black text-slate-950">Liberar repasses por login</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Escolha os logins que podem visualizar os processos filtrados. Abaixo você acompanha quem viu e quem solicitou.
+                </p>
+              </div>
 
-            {editando && (
-              <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-lg font-black">Editar pagamento parceiro</h2>
-                    <p className="text-sm text-slate-500">{editando.cliente} · AWB {editando.awb}</p>
-                  </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <ResumoFiltroCard titulo="Liberados" valor={String(resumoPortalParceiro.processosLiberados)} destaque="green" />
+                <ResumoFiltroCard titulo="Ocultos" valor={String(resumoPortalParceiro.processosOcultos)} destaque="orange" />
+                <ResumoFiltroCard titulo="Visualizados" valor={String(resumoPortalParceiro.acessosVisualizados)} destaque="green" />
+                <ResumoFiltroCard titulo="Solicitações" valor={String(resumoPortalParceiro.solicitacoesAbertas)} destaque="orange" />
+              </div>
 
-                  <button type="button" onClick={cancelar} className="rounded-xl bg-slate-100 px-4 py-2 font-bold text-slate-800 hover:bg-slate-200">
-                    Cancelar
-                  </button>
-                </div>
-
-                <form onSubmit={salvar} className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                  <div>
-                    <label className="text-sm font-semibold text-slate-600">Parceiro</label>
-                    <input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
-                  </div>
-
-                  <Info label="Cliente" value={editando.cliente || '-'} />
-                  <Info label="AWB" value={editando.awb || '-'} />
-
-                  <div>
-                    <label className="text-sm font-semibold text-slate-600">Valor parceiro</label>
-                    <input value={formatarEntradaValorBR(form.debito_terceiro)} inputMode="decimal" onChange={(e) => setForm({ ...form, debito_terceiro: formatarEntradaValorBR(e.target.value) })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-semibold text-slate-600">Status pagamento</label>
-                    <select value={form.pgta_terceiros} onChange={(e) => setForm({ ...form, pgta_terceiros: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
-                      <option value="PENDENTE">PENDENTE</option>
-                      <option value="PAGO">PAGO</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-semibold text-slate-600">Mês do pagamento</label>
-                    <input value={form.mes_pgto} onChange={(e) => setForm({ ...form, mes_pgto: e.target.value })} placeholder="Ex: junho" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
-                  </div>
-
-                  <div className="md:col-span-4 flex gap-3">
-                    <button disabled={salvando} className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-                      {salvando ? 'Salvando...' : 'Salvar pagamento'}
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-black text-slate-950">Logins com acesso</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={selecionarTodosUsuariosDoParceiro} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">
+                        Selecionar vinculados
+                    </button>
+                    <button type="button" onClick={limparUsuariosSelecionados} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">
+                        Limpar
                     </button>
                   </div>
-                </form>
-              </section>
-            )}
-          </div>
+                </div>
 
-          <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
-            <div className="mb-4">
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">Portal do parceiro</p>
-              <h3 className="mt-1 text-xl font-black text-slate-950">Liberar repasses por login</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Escolha os logins que podem visualizar os processos filtrados. Abaixo você acompanha quem viu e quem solicitou.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <ResumoFiltroCard titulo="Liberados" valor={String(resumoPortalParceiro.processosLiberados)} destaque="green" />
-              <ResumoFiltroCard titulo="Ocultos" valor={String(resumoPortalParceiro.processosOcultos)} destaque="orange" />
-              <ResumoFiltroCard titulo="Visualizados" valor={String(resumoPortalParceiro.acessosVisualizados)} destaque="green" />
-              <ResumoFiltroCard titulo="Solicitações" valor={String(resumoPortalParceiro.solicitacoesAbertas)} destaque="orange" />
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-black text-slate-950">Logins com acesso</p>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={selecionarTodosUsuariosDoParceiro} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">
-                    Selecionar vinculados
-                  </button>
-                  <button type="button" onClick={limparUsuariosSelecionados} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">
-                    Limpar
-                  </button>
+                <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                  {usuariosPortal.length === 0 ? (
+                    <p className="rounded-xl bg-white p-3 text-sm font-bold text-slate-500">Nenhum login de cliente/parceiro encontrado.</p>
+                  ) : (
+                    usuariosPortal.map((usuario) => (
+                        <label
+                          key={usuario.id}
+                          className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm font-bold ${
+                            usuariosSelecionadosPortal.includes(usuario.id)
+                              ? 'border-blue-300 bg-blue-50 text-blue-700'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input type="checkbox" checked={usuariosSelecionadosPortal.includes(usuario.id)} onChange={() => alternarUsuarioSelecionado(usuario.id)} />
+                          <span className="min-w-0 truncate">{usuarioPortalLabel(usuario)}</span>
+                        </label>
+                    ))
+                  )}
                 </div>
               </div>
 
-              <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-                {usuariosPortal.length === 0 ? (
-                  <p className="rounded-xl bg-white p-3 text-sm font-bold text-slate-500">Nenhum login de cliente/parceiro encontrado.</p>
-                ) : (
-                  usuariosPortal.map((usuario) => (
-                    <label
-                      key={usuario.id}
-                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm font-bold ${
-                        usuariosSelecionadosPortal.includes(usuario.id)
-                          ? 'border-blue-300 bg-blue-50 text-blue-700'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input type="checkbox" checked={usuariosSelecionadosPortal.includes(usuario.id)} onChange={() => alternarUsuarioSelecionado(usuario.id)} />
-                      <span className="min-w-0 truncate">{usuarioPortalLabel(usuario)}</span>
-                    </label>
-                  ))
-                )}
+              <input
+                value={observacaoLiberacaoPortal}
+                onChange={(e) => setObservacaoLiberacaoPortal(e.target.value)}
+                placeholder="Observação para o parceiro, ex: Repasse previsto para 30/06"
+                className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+              />
+
+              <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => liberarPortalParceiro(filtrados)}
+                  disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
+                  className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
+                >
+                  {salvandoPortal ? 'Salvando...' : 'Liberar filtrados'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => ocultarPortalParceiro(filtrados, true)}
+                  disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
+                  className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
+                >
+                  Ocultar selecionados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => ocultarPortalParceiro(filtrados, false)}
+                  disabled={salvandoPortal}
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
+                >
+                  Ocultar todos
+                </button>
               </div>
-            </div>
-
-            <input
-              value={observacaoLiberacaoPortal}
-              onChange={(e) => setObservacaoLiberacaoPortal(e.target.value)}
-              placeholder="Observação para o parceiro, ex: Repasse previsto para 30/06"
-              className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
-            />
-
-            <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
-              <button
-                type="button"
-                onClick={() => liberarPortalParceiro(filtrados)}
-                disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
-                className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-black text-green-700 hover:bg-green-100 disabled:opacity-50"
-              >
-                {salvandoPortal ? 'Salvando...' : 'Liberar filtrados'}
-              </button>
-              <button
-                type="button"
-                onClick={() => ocultarPortalParceiro(filtrados, true)}
-                disabled={salvandoPortal || usuariosSelecionadosPortal.length === 0}
-                className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
-              >
-                Ocultar selecionados
-              </button>
-              <button
-                type="button"
-                onClick={() => ocultarPortalParceiro(filtrados, false)}
-                disabled={salvandoPortal}
-                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100 disabled:opacity-50"
-              >
-                Ocultar todos
-              </button>
-            </div>
-          </section>
-        </section>
+            </section>
+          </div>
+        </details>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
             <div>
               <h3 className="text-xl font-black text-slate-950">
-                Processos do parceiro: {parceiroSelecionado || 'Todos'}
+                Processos encontrados
                 <span className="ml-2 rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-600">{filtrados.length} registros</span>
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Colunas reorganizadas para leitura sem diminuir o zoom. As informações de portal e solicitação ficam agrupadas.
+                A tabela respeita todos os filtros acima. Se houver seleção, o PDF considera somente os processos marcados.
               </p>
             </div>
 
@@ -1971,30 +2177,25 @@ export default function ParceirosPage() {
                 ))}
               </div>
 
-              <input
-                value={busca}
+              <select
+                value={pageSize}
                 onChange={(e) => {
-                  setBusca(e.target.value)
+                  setPageSize(Number(e.target.value))
                   setPagina(1)
                 }}
-                placeholder="Buscar processo, cliente, AWB..."
-                className="min-w-[280px] rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              />
-
-              <button type="button" onClick={gerarPdfFiltro} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50">
-                📄 {itensSelecionadosPdf.length > 0 ? 'Gerar PDF selecionados' : 'Gerar PDF'}
-              </button>
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700"
+              >
+                {PAGE_SIZE_OPTIONS.map((quantidade) => (
+                  <option key={quantidade} value={quantidade}>{quantidade} por página</option>
+                ))}
+              </select>
 
               <button
                 type="button"
-                onClick={() => {
-                  setBusca('')
-                  setAba('TODOS')
-                  setPagina(1)
-                }}
+                onClick={gerarPdfFiltro}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
               >
-                Limpar
+                📄 {itensSelecionadosPdf.length > 0 ? 'PDF selecionados' : 'PDF do filtro'}
               </button>
             </div>
           </div>
