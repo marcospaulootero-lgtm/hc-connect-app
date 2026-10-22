@@ -1,18 +1,14 @@
 'use client'
 
-// HC_ANALISE_CLIENTES_UNIFICADA_V1
+// HC_ANALISE_CLIENTES_UNIFICADA_V2
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
   Building2,
-  CircleDollarSign,
-  FileText,
   Filter,
-  Receipt,
   Search,
   ChevronDown,
   ChevronUp,
@@ -240,6 +236,10 @@ function clienteIdLinha(l: Linha) {
 
 function embarqueIdLinha(l: Linha) {
   return primeiro(l.embarque_id, l.id_embarque)
+}
+
+function financeiroIdLinha(l: Linha) {
+  return primeiro(l.financeiro_embarque_id, l.financeiro_id, l.id_financeiro)
 }
 
 function statusLinha(l: Linha) {
@@ -488,7 +488,6 @@ export default function Clientes360Page() {
   const [dataFim, setDataFim] = useState('')
   const [transportadora, setTransportadora] = useState('')
   const [servico, setServico] = useState('')
-  const [status, setStatus] = useState('')
   const [aba, setAba] = useState<'EMBARQUES' | 'COTACOES' | 'FINANCEIRO' | 'TIMELINE'>('EMBARQUES')
   const [verMais, setVerMais] = useState(false)
   const [rankingPor, setRankingPor] = useState<RankingPor>('PROFIT')
@@ -975,7 +974,6 @@ export default function Clientes360Page() {
     setBusca('')
     setTransportadora('')
     setServico('')
-    setStatus('')
     setVerMais(false)
   }
 
@@ -1026,55 +1024,83 @@ export default function Clientes360Page() {
       }
     }
 
-    // 1. Identifica primeiro os registros faturados desse cliente.
+    // 1. O financeiro é a base histórica mais estável da análise.
     const financeiroDireto = dados.financeiro.filter((financeiro) =>
       linhaPertenceCliente(financeiro, cliente, new Set())
     )
 
-    // 2. Dos registros financeiros, extrai embarque_id e todos os AWBs históricos.
+    const financeiroIdsDiretos = new Set(
+      financeiroDireto.map((financeiro) => texto(financeiro.id)).filter(Boolean)
+    )
     const embarqueIdsFinanceiro = new Set(
       financeiroDireto
         .map((financeiro) => texto(embarqueIdLinha(financeiro)))
         .filter(Boolean)
     )
-
     const awbsFinanceiro = new Set(
       financeiroDireto.flatMap((financeiro) => awbsLinha(financeiro))
     )
-
-    // 3. Busca os processos/embarques por vínculo direto OU AWB,
-    // além dos vínculos cadastrais já conhecidos do cliente.
-    const embarquesCliente = dados.embarques.filter((embarque) => {
-      const id = texto(embarque.id)
-
-      if (id && embarqueIdsFinanceiro.has(id)) return true
-      if (awbsLinha(embarque).some((awb) => awbsFinanceiro.has(awb))) return true
-
-      return linhaPertenceCliente(embarque, cliente, new Set())
-    })
-
-    const embarqueIds = new Set(
-      embarquesCliente.map((embarque) => texto(embarque.id)).filter(Boolean)
+    const refsFinanceiro = new Set(
+      financeiroDireto.map((financeiro) => normalizar(refHcLinha(financeiro))).filter(Boolean)
     )
 
-    // 4. Repassa os vínculos de embarque para capturar registros históricos
-    // que tenham embarque_id, mesmo quando o nome do cliente veio vazio.
-    const financeiroCliente = dados.financeiro.filter((financeiro) => {
-      if (linhaPertenceCliente(financeiro, cliente, embarqueIds)) return true
-
-      return awbsLinha(financeiro).some((awb) =>
-        embarquesCliente.some((embarque) => awbsLinha(embarque).includes(awb))
-      )
+    // 2. Localiza embarques atuais pelo ID estável, AWB ou pelas chaves fortes do cliente.
+    const embarquesCliente = dados.embarques.filter((embarque) => {
+      const id = texto(embarque.id)
+      if (id && embarqueIdsFinanceiro.has(id)) return true
+      if (awbsLinha(embarque).some((awb) => awbsFinanceiro.has(awb))) return true
+      return linhaPertenceCliente(embarque, cliente, embarqueIdsFinanceiro)
     })
 
+    const embarqueIdsLocalizados = new Set(
+      embarquesCliente.map((embarque) => texto(embarque.id)).filter(Boolean)
+    )
+    const embarqueIdsRelacionados = new Set([
+      ...Array.from(embarqueIdsFinanceiro),
+      ...Array.from(embarqueIdsLocalizados),
+    ])
+
+    // 3. Repassa os vínculos localizados ao financeiro para recuperar históricos
+    // cujo nome/cadastro já não esteja preenchido no mesmo formato.
+    const financeiroCliente = dados.financeiro.filter((financeiro) => {
+      if (financeiroIdsDiretos.has(texto(financeiro.id))) return true
+      if (linhaPertenceCliente(financeiro, cliente, embarqueIdsRelacionados)) return true
+      return awbsLinha(financeiro).some((awb) => awbsFinanceiro.has(awb))
+    })
+
+    const financeiroIdsCliente = new Set(
+      financeiroCliente.map((financeiro) => texto(financeiro.id)).filter(Boolean)
+    )
+    const awbsCliente = new Set([
+      ...Array.from(awbsFinanceiro),
+      ...financeiroCliente.flatMap((financeiro) => awbsLinha(financeiro)),
+      ...embarquesCliente.flatMap((embarque) => awbsLinha(embarque)),
+    ])
+    const refsCliente = new Set([
+      ...Array.from(refsFinanceiro),
+      ...financeiroCliente.map((financeiro) => normalizar(refHcLinha(financeiro))).filter(Boolean),
+      ...embarquesCliente.map((embarque) => normalizar(refHcLinha(embarque))).filter(Boolean),
+    ])
+
+    // 4. Cotações/faturas/suporte podem sobreviver mesmo quando o embarque original
+    // foi excluído. Por isso, além das chaves do cliente, aceitamos vínculos estáveis
+    // por embarque_id, financeiro_embarque_id, AWB e referência HC.
     const filtraRelacionado = (arr: Linha[]) =>
       arr.filter((linha) => {
-        if (linhaPertenceCliente(linha, cliente, embarqueIds)) return true
+        if (linhaPertenceCliente(linha, cliente, embarqueIdsRelacionados)) return true
 
-        return awbsLinha(linha).some((awb) =>
-          awbsFinanceiro.has(awb) ||
-          embarquesCliente.some((embarque) => awbsLinha(embarque).includes(awb))
-        )
+        const embarqueId = texto(embarqueIdLinha(linha))
+        if (embarqueId && embarqueIdsRelacionados.has(embarqueId)) return true
+
+        const financeiroId = texto(financeiroIdLinha(linha))
+        if (financeiroId && financeiroIdsCliente.has(financeiroId)) return true
+
+        if (awbsLinha(linha).some((awb) => awbsCliente.has(awb))) return true
+
+        const refHc = normalizar(refHcLinha(linha))
+        if (refHc && refsCliente.has(refHc)) return true
+
+        return false
       })
 
     return {
@@ -1087,45 +1113,110 @@ export default function Clientes360Page() {
   }, [cliente, dados])
 
   const opcoesFiltro = useMemo(() => {
-    const t = Array.from(new Set(conjunto.embarques.map(transportadoraLinha).filter(Boolean))).sort()
-    const s = Array.from(new Set(conjunto.embarques.map(servicoLinha).filter(Boolean))).sort()
-    const st = Array.from(new Set(conjunto.embarques.map(statusLinha).filter(Boolean))).sort()
-    return { transportadoras: t, servicos: s, status: st }
-  }, [conjunto.embarques])
+    const base = [...conjunto.financeiro, ...conjunto.embarques]
+    const t = Array.from(new Set(base.map(transportadoraLinha).filter(Boolean))).sort()
+    const s = Array.from(new Set(base.map(servicoLinha).filter(Boolean))).sort()
+    return { transportadoras: t, servicos: s }
+  }, [conjunto.financeiro, conjunto.embarques])
 
   const filtrado = useMemo(() => {
-    const filtrarComum = (l: Linha) => {
-      if (!dentroPeriodo(dataLinha(l), periodo, dataInicio, dataFim)) return false
+    const financeiro = conjunto.financeiro.filter((linha) => {
+      const dataReferencia =
+        vencimentoLinha(linha) ||
+        dataValida(recebimentoLinha(linha)) ||
+        dataLinha(linha)
 
-      if (transportadora) {
-        if (normalizar(transportadoraLinha(l)) !== normalizar(transportadora)) return false
+      if (!dentroPeriodo(dataReferencia, periodo, dataInicio, dataFim)) return false
+
+      if (transportadora && normalizar(transportadoraLinha(linha)) !== normalizar(transportadora)) {
+        return false
       }
 
-      if (servico) {
-        if (normalizar(servicoLinha(l)) !== normalizar(servico)) return false
+      if (servico && normalizar(servicoLinha(linha)) !== normalizar(servico)) {
+        return false
       }
 
-      if (status) {
-        if (normalizar(statusLinha(l)) !== normalizar(status)) return false
+      return true
+    })
+
+    const financeiroIds = new Set(financeiro.map((linha) => texto(linha.id)).filter(Boolean))
+    const embarqueIds = new Set(
+      financeiro.map((linha) => texto(embarqueIdLinha(linha))).filter(Boolean)
+    )
+    const awbs = new Set(financeiro.flatMap((linha) => awbsLinha(linha)))
+    const refs = new Set(
+      financeiro.map((linha) => normalizar(refHcLinha(linha))).filter(Boolean)
+    )
+
+    const filtrarRelacionadoAoPeriodo = (linha: Linha) => {
+      const embarqueId = texto(embarqueIdLinha(linha))
+      const financeiroId = texto(financeiroIdLinha(linha))
+      const awbVinculado = awbsLinha(linha).some((awb) => awbs.has(awb))
+      const refHc = normalizar(refHcLinha(linha))
+
+      const vinculadoAoFinanceiro =
+        (embarqueId && embarqueIds.has(embarqueId)) ||
+        (financeiroId && financeiroIds.has(financeiroId)) ||
+        awbVinculado ||
+        Boolean(refHc && refs.has(refHc))
+
+      // Um vínculo financeiro filtrado prevalece sobre a data do cadastro operacional.
+      if (vinculadoAoFinanceiro) return true
+
+      if (!dentroPeriodo(dataLinha(linha), periodo, dataInicio, dataFim)) return false
+
+      const transportadoraLinhaAtual = normalizar(transportadoraLinha(linha))
+      if (
+        transportadora &&
+        transportadoraLinhaAtual &&
+        transportadoraLinhaAtual !== normalizar(transportadora)
+      ) {
+        return false
+      }
+
+      const servicoLinhaAtual = normalizar(servicoLinha(linha))
+      if (servico && servicoLinhaAtual && servicoLinhaAtual !== normalizar(servico)) {
+        return false
       }
 
       return true
     }
 
     return {
-      embarques: conjunto.embarques.filter(filtrarComum),
-      financeiro: conjunto.financeiro.filter(filtrarComum),
-      cotacoes: conjunto.cotacoes.filter((l) =>
-        dentroPeriodo(dataLinha(l), periodo, dataInicio, dataFim)
-      ),
-      faturas: conjunto.faturas.filter((l) =>
-        dentroPeriodo(dataLinha(l), periodo, dataInicio, dataFim)
-      ),
-      suporte: conjunto.suporte.filter((l) =>
-        dentroPeriodo(dataLinha(l), periodo, dataInicio, dataFim)
-      ),
+      embarques: conjunto.embarques.filter(filtrarRelacionadoAoPeriodo),
+      financeiro,
+      cotacoes: conjunto.cotacoes.filter(filtrarRelacionadoAoPeriodo),
+      faturas: conjunto.faturas.filter(filtrarRelacionadoAoPeriodo),
+      suporte: conjunto.suporte.filter(filtrarRelacionadoAoPeriodo),
     }
-  }, [conjunto, periodo, dataInicio, dataFim, transportadora, servico, status])
+  }, [conjunto, periodo, dataInicio, dataFim, transportadora, servico])
+
+  const diagnosticoVinculos = useMemo(() => {
+    const processosFaturados = filtrado.financeiro.filter((linha) => valorFaturado(linha) !== 0)
+    const awbsFinanceiros = new Set(
+      processosFaturados.flatMap((linha) => awbsLinha(linha))
+    )
+    const awbsEmbarques = new Set(
+      filtrado.embarques.flatMap((linha) => awbsLinha(linha))
+    )
+    const awbsLocalizados = Array.from(awbsFinanceiros).filter((awb) => awbsEmbarques.has(awb))
+    const awbsSemEmbarque = Math.max(0, awbsFinanceiros.size - awbsLocalizados.length)
+    const coberturaAwb = awbsFinanceiros.size
+      ? (awbsLocalizados.length / awbsFinanceiros.size) * 100
+      : 0
+
+    return {
+      processosFaturados: processosFaturados.length,
+      awbsFinanceiros: awbsFinanceiros.size,
+      awbsLocalizados: awbsLocalizados.length,
+      awbsSemEmbarque,
+      coberturaAwb,
+      embarquesLocalizados: filtrado.embarques.length,
+      cotacoesLocalizadas: filtrado.cotacoes.length,
+      faturasLocalizadas: filtrado.faturas.length,
+      chamadosLocalizados: filtrado.suporte.length,
+    }
+  }, [filtrado])
 
   const resumo = useMemo(() => {
     const agora = new Date()
@@ -1413,14 +1504,18 @@ export default function Clientes360Page() {
   }, [filtrado])
 
   const primeiraOperacao = useMemo(() => {
-    const datas = conjunto.embarques.map(dataLinha).filter(Boolean) as Date[]
+    const datas = [...conjunto.embarques, ...conjunto.financeiro]
+      .map(dataLinha)
+      .filter(Boolean) as Date[]
     return datas.length ? new Date(Math.min(...datas.map((d) => d.getTime()))) : null
-  }, [conjunto.embarques])
+  }, [conjunto.embarques, conjunto.financeiro])
 
   const ultimaOperacao = useMemo(() => {
-    const datas = conjunto.embarques.map(dataLinha).filter(Boolean) as Date[]
+    const datas = [...conjunto.embarques, ...conjunto.financeiro]
+      .map(dataLinha)
+      .filter(Boolean) as Date[]
     return datas.length ? new Date(Math.max(...datas.map((d) => d.getTime()))) : null
-  }, [conjunto.embarques])
+  }, [conjunto.embarques, conjunto.financeiro])
 
   const maxSerie = Math.max(
     1,
@@ -1475,7 +1570,7 @@ export default function Clientes360Page() {
                 onClick={voltarAnaliseGeral}
                 className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800"
               >
-                Voltar para análise geral
+                Voltar para clientes
               </button>
             )}
             <button
@@ -1744,12 +1839,6 @@ export default function Clientes360Page() {
                   <h2 className="mt-2 text-2xl font-black text-white">{cliente.nome}</h2>
                   <p className="mt-1 text-sm font-semibold text-slate-500">{cliente.razaoSocial || 'Razão social não identificada'}</p>
                 </div>
-                <button
-                  onClick={voltarAnaliseGeral}
-                  className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300 hover:bg-slate-800"
-                >
-                  Voltar para ranking
-                </button>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1759,9 +1848,9 @@ export default function Clientes360Page() {
                 <Info label="Código" value={cliente.codigo || '-'} />
                 <Info label="Login vinculado" value={cliente.login || '-'} />
                 <Info label="Cadastro" value={dataBR(cliente.criadoEm)} />
-                <Info label="Primeira operação" value={dataBR(primeiraOperacao)} />
-                <Info label="Última operação" value={dataBR(ultimaOperacao)} />
-                <Info label="Embarques históricos" value={String(conjunto.embarques.length)} />
+                <Info label="Primeiro movimento" value={dataBR(primeiraOperacao)} />
+                <Info label="Último movimento" value={dataBR(ultimaOperacao)} />
+                <Info label="Processos faturados" value={String(conjunto.financeiro.filter((x) => valorFaturado(x) !== 0).length)} />
               </div>
             </div>
 
@@ -1787,10 +1876,6 @@ export default function Clientes360Page() {
                   <option value="">Todos serviços</option>
                   {opcoesFiltro.servicos.map((x) => <option key={x}>{x}</option>)}
                 </Select>
-                <Select value={status} onChange={setStatus}>
-                  <option value="">Todos status</option>
-                  {opcoesFiltro.status.map((x) => <option key={x}>{x}</option>)}
-                </Select>
               </div>
 
               {periodo === 'PERSONALIZADO' && (
@@ -1813,61 +1898,66 @@ export default function Clientes360Page() {
           </section>
 
           <section>
-            <Titulo icone={<Activity size={20} />} titulo="Operação" />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-              <Card titulo="Embarques" valor={resumo.embTotal} />
-              <Card titulo="Em trânsito" valor={resumo.transito} cor="blue" />
-              <Card titulo="Fiscalização" valor={resumo.fiscalizacao} cor="yellow" />
-              <Card titulo="Liberados" valor={resumo.liberados} cor="green" />
-              <Card titulo="Entregues" valor={resumo.entregues} cor="green" />
-              <Card titulo="Arquivados" valor={resumo.arquivados} />
-              <Card titulo="Peso" valor={`${resumo.peso.toFixed(1)} kg`} />
-            </div>
-          </section>
-
-          <section>
-            <Titulo icone={<CircleDollarSign size={20} />} titulo="Financeiro" />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+            <Titulo icone={<BarChart3 size={20} />} titulo="Resumo executivo" />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <Card
+                titulo="Processos faturados"
+                valor={diagnosticoVinculos.processosFaturados}
+                detalhe={`${diagnosticoVinculos.awbsFinanceiros} AWB(s) identificado(s)`}
+                cor="blue"
+              />
               <Card titulo="Faturamento" valor={moeda(resumo.faturamento)} cor="blue" />
+              <Card
+                titulo="Profit HC"
+                valor={moeda(resumo.profit)}
+                cor={resumo.profit >= 0 ? 'green' : 'red'}
+                detalhe={`${resumo.margem.toFixed(1)}% margem`}
+              />
               <Card titulo="Recebido" valor={moeda(resumo.recebido)} cor="green" />
-              <Card titulo="Em aberto" valor={moeda(resumo.emAberto)} cor="yellow" />
-              <Card titulo="Atrasado" valor={moeda(resumo.atrasado)} cor="red" />
-              <Card titulo="Ticket médio" valor={moeda(resumo.ticket)} />
-              <Card titulo="Custo HC" valor={moeda(resumo.custo)} />
-              <Card titulo="Profit HC" valor={moeda(resumo.profit)} cor={resumo.profit >= 0 ? 'green' : 'red'} detalhe={`${resumo.margem.toFixed(1)}% margem`} />
+              <Card
+                titulo="Em aberto"
+                valor={moeda(resumo.emAberto)}
+                cor={resumo.emAberto > 0 ? 'yellow' : 'slate'}
+                detalhe={resumo.atrasado > 0 ? `Atrasado: ${moeda(resumo.atrasado)}` : 'Sem atraso identificado'}
+              />
+              <Card
+                titulo="Custo HC"
+                valor={moeda(resumo.custo)}
+                detalhe={`Ticket faturado: ${moeda(resumo.ticket)}`}
+              />
             </div>
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-2">
-            <div>
-              <Titulo icone={<Receipt size={20} />} titulo="Cotações" />
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Card titulo="Total" valor={resumo.cotTotal} />
-                <Card titulo="Aguardando" valor={resumo.cotAguardando} cor="yellow" />
-                <Card titulo="Em análise" valor={resumo.cotAnalise} cor="blue" />
-                <Card titulo="Disponíveis" valor={resumo.cotDisponiveis} />
-                <Card titulo="Aprovadas" valor={resumo.cotAprovadas} cor="green" />
-                <Card titulo="Perdidas" valor={resumo.cotPerdidas} cor="red" />
-                <Card titulo="Sem retorno" valor={resumo.cotSemRetorno} cor="yellow" />
-                <Card titulo="Convertidas" valor={resumo.cotConvertidas} cor="green" />
-                <Card titulo="Conversão" valor={`${resumo.taxaConversao.toFixed(1)}%`} cor="blue" />
+          <section className="rounded-3xl border border-slate-800 bg-slate-950 p-5 md:p-6">
+            <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">Qualidade dos vínculos</p>
+                <h2 className="mt-1 text-xl font-black text-white">O que foi localizado nas demais bases</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Processo faturado e embarque localizado são indicadores diferentes. A ausência de um embarque não apaga o histórico financeiro.
+                </p>
+              </div>
+              <div className="text-left md:text-right">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Cobertura por AWB</p>
+                <p className="mt-1 text-2xl font-black text-white">{diagnosticoVinculos.coberturaAwb.toFixed(1)}%</p>
               </div>
             </div>
 
-            <div>
-              <Titulo icone={<FileText size={20} />} titulo="Faturas e atendimento" />
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Card titulo="Faturas" valor={resumo.faturasTotal} />
-                <Card titulo="Pagas" valor={resumo.faturasPagas} cor="green" />
-                <Card titulo="Vencidas" valor={resumo.faturasVencidas} cor="red" />
-                <Card titulo="Com recibo" valor={resumo.faturasComRecibo} />
-                <Card titulo="Visualizadas" valor={resumo.faturasVisualizadas} cor="blue" />
-                <Card titulo="Não visualizadas" valor={resumo.faturasNaoVisualizadas} cor="yellow" />
-                <Card titulo="Chamados" valor={resumo.suporteTotal} />
-                <Card titulo="Abertos" valor={resumo.suporteAbertos} cor="red" />
-                <Card titulo="Resolvidos" valor={resumo.suporteResolvidos} cor="green" />
-              </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <Card titulo="AWBs financeiros" valor={diagnosticoVinculos.awbsFinanceiros} />
+              <Card titulo="AWBs localizados" valor={diagnosticoVinculos.awbsLocalizados} cor="green" />
+              <Card titulo="Embarques localizados" valor={diagnosticoVinculos.embarquesLocalizados} />
+              <Card titulo="Cotações vinculadas" valor={diagnosticoVinculos.cotacoesLocalizadas} />
+              <Card titulo="Faturas vinculadas" valor={diagnosticoVinculos.faturasLocalizadas} />
+              <Card titulo="Peso identificado" valor={`${resumo.peso.toFixed(1)} kg`} />
             </div>
+
+            {diagnosticoVinculos.awbsSemEmbarque > 0 && (
+              <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-200">
+                {diagnosticoVinculos.awbsSemEmbarque} AWB(s) do financeiro não possuem embarque localizado no cadastro atual.
+                Esses processos continuam contabilizados no financeiro e no Profit HC.
+              </div>
+            )}
           </section>
 
           <section>
