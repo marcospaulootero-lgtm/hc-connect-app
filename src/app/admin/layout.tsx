@@ -594,9 +594,9 @@ function MenuContent({
         />
         <MenuItem
           href="/admin/clientes-360"
-          label="Clientes 360"
-          descricao="Histórico, evolução e resultados"
-          icon="✨"
+          label="Análise de Clientes"
+          descricao="Ranking, histórico e resultados"
+          icon="📊"
           pathname={pathname}
         />
 <MenuItem
@@ -676,13 +676,6 @@ function MenuContent({
           pathname={pathname}
         />
 
-        <MenuItem
-          href="/admin/clientes/performance"
-          label="Ranking de Clientes"
-          descricao="Ticket médio e faturamento"
-          icon="🏆"
-          pathname={pathname}
-        />
 
         <MenuItem
           href="/admin/parceiros"

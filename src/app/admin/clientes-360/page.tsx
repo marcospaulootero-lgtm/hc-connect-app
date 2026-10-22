@@ -1,5 +1,7 @@
 'use client'
 
+// HC_ANALISE_CLIENTES_UNIFICADA_V1
+
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -48,6 +50,34 @@ type Cliente360 = {
   nomes: Set<string>
   awbs: Set<string>
   refs: Set<string>
+}
+
+type RankingPor =
+  | 'PROFIT'
+  | 'FATURADOS'
+  | 'TICKET'
+  | 'MENOR_PROFIT'
+  | 'MENOR_TICKET'
+  | 'ATRASADOS'
+
+type ClienteRanking = {
+  clienteKey: string
+  nome: string
+  processosFaturados: number
+  comProfitHC: number
+  aguardandoCusto: number
+  pagos: number
+  emAberto: number
+  atrasados: number
+  profitTotal: number
+  ticketMedioProfit: number
+  valorFaturadoTotal: number
+  custoTotal: number
+  ultimoRegistro: Date | null
+  ultimoAwb: string
+  transportadoras: string[]
+  faturas: string[]
+  awbs: string[]
 }
 
 type SerieMensal = {
@@ -336,7 +366,7 @@ async function carregarTabela(tabela: string) {
     .select('*', { count: 'exact', head: true })
 
   if (countError) {
-    console.warn(`[Clientes 360] ${tabela}:`, countError.message)
+    console.warn(`[Análise de Clientes] ${tabela}:`, countError.message)
     return [] as Linha[]
   }
 
@@ -354,7 +384,7 @@ async function carregarTabela(tabela: string) {
   )
 
   const erro = respostas.find((r) => r.error)?.error
-  if (erro) console.warn(`[Clientes 360] ${tabela}:`, erro.message)
+  if (erro) console.warn(`[Análise de Clientes] ${tabela}:`, erro.message)
 
   return respostas.flatMap((r) => (r.data || []) as Linha[])
 }
@@ -461,6 +491,8 @@ export default function Clientes360Page() {
   const [status, setStatus] = useState('')
   const [aba, setAba] = useState<'EMBARQUES' | 'COTACOES' | 'FINANCEIRO' | 'TIMELINE'>('EMBARQUES')
   const [verMais, setVerMais] = useState(false)
+  const [rankingPor, setRankingPor] = useState<RankingPor>('PROFIT')
+  const [somenteComMovimento, setSomenteComMovimento] = useState(true)
 
   useEffect(() => {
     carregar()
@@ -499,7 +531,7 @@ export default function Clientes360Page() {
         suporte,
       })
     } catch (e: any) {
-      setErro(e?.message || 'Erro ao carregar Clientes 360.')
+      setErro(e?.message || 'Erro ao carregar Análise de Clientes.')
     } finally {
       setLoading(false)
     }
@@ -697,6 +729,255 @@ export default function Clientes360Page() {
       .filter((cliente) => cliente.nome)
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }, [dados])
+
+
+  const ranking = useMemo(() => {
+    const mapaClientes = new Map(clientes.map((c) => [c.key, c]))
+    const acumulado = new Map<string, ClienteRanking>()
+    const agora = new Date()
+
+    function registro(clienteKey: string, nome: string) {
+      if (!acumulado.has(clienteKey)) {
+        acumulado.set(clienteKey, {
+          clienteKey,
+          nome,
+          processosFaturados: 0,
+          comProfitHC: 0,
+          aguardandoCusto: 0,
+          pagos: 0,
+          emAberto: 0,
+          atrasados: 0,
+          profitTotal: 0,
+          ticketMedioProfit: 0,
+          valorFaturadoTotal: 0,
+          custoTotal: 0,
+          ultimoRegistro: null,
+          ultimoAwb: '-',
+          transportadoras: [],
+          faturas: [],
+          awbs: [],
+        })
+      }
+
+      return acumulado.get(clienteKey)!
+    }
+
+    dados.financeiro.forEach((financeiro) => {
+      const nome = clienteNomeLinha(financeiro)
+      if (!nome || normalizar(nome) === 'cliente nao identificado') return
+
+      const clienteKeyFinanceiro = `financeiro:${normalizar(nome)}`
+      const clienteEncontrado =
+        mapaClientes.get(clienteKeyFinanceiro) ||
+        clientes.find((c) => c.nomes.has(normalizar(nome)))
+
+      if (!clienteEncontrado) return
+
+      const dataReferencia =
+        vencimentoLinha(financeiro) ||
+        dataValida(recebimentoLinha(financeiro)) ||
+        dataLinha(financeiro)
+
+      if (!dentroPeriodo(dataReferencia, periodo, dataInicio, dataFim)) return
+
+      const item = registro(clienteEncontrado.key, clienteEncontrado.nome)
+      const faturado = valorFaturado(financeiro)
+      const custoCompra = valorCusto(financeiro)
+      const custoTotal = custoCompra + valorDta(financeiro) + valorDebitoTerceiro(financeiro)
+      const temCusto = custoCompra > 0
+
+      item.processosFaturados += 1
+      item.valorFaturadoTotal += faturado
+
+      if (temCusto) {
+        item.comProfitHC += 1
+        item.profitTotal += profitHC(financeiro)
+        item.custoTotal += custoTotal
+      } else {
+        item.aguardandoCusto += 1
+      }
+
+      if (pagoLinha(financeiro)) {
+        item.pagos += 1
+      } else {
+        const vencimento = vencimentoLinha(financeiro)
+        if (vencimento && vencimento < agora) item.atrasados += 1
+        else item.emAberto += 1
+      }
+
+      const awb = awbLinha(financeiro)
+      const fatura = numeroFaturaLinha(financeiro)
+      const transportadora = transportadoraLinha(financeiro)
+
+      if (awb) item.awbs.push(awb)
+      if (fatura) item.faturas.push(fatura)
+      if (transportadora) item.transportadoras.push(transportadora)
+
+      if (dataReferencia && (!item.ultimoRegistro || dataReferencia > item.ultimoRegistro)) {
+        item.ultimoRegistro = dataReferencia
+        item.ultimoAwb = awb || '-'
+      }
+    })
+
+    let lista = Array.from(acumulado.values()).map((item) => ({
+      ...item,
+      awbs: Array.from(new Set(item.awbs)),
+      faturas: Array.from(new Set(item.faturas)),
+      transportadoras: Array.from(new Set(item.transportadoras)),
+      ticketMedioProfit: item.comProfitHC > 0 ? item.profitTotal / item.comProfitHC : 0,
+    }))
+
+    if (somenteComMovimento) {
+      lista = lista.filter((item) => item.processosFaturados > 0)
+    }
+
+    const q = normalizar(busca)
+    const qa = soAlfaNum(busca)
+    const qd = soDigitos(busca)
+
+    if (q) {
+      lista = lista.filter((item) => {
+        const clienteRanking = mapaClientes.get(item.clienteKey)
+        const campos = [
+          item.nome,
+          clienteRanking?.razaoSocial,
+          clienteRanking?.fantasia,
+          clienteRanking?.documento,
+          clienteRanking?.email,
+          clienteRanking?.codigo,
+          ...item.awbs,
+          ...item.faturas,
+          ...item.transportadoras,
+        ].filter(Boolean)
+
+        return campos.some((valor) => {
+          const n = normalizar(valor)
+          const a = soAlfaNum(valor)
+          const d = soDigitos(valor)
+          return n.includes(q) || Boolean(qa && a.includes(qa)) || Boolean(qd && d.includes(qd))
+        })
+      })
+    }
+
+    lista.sort((a, b) => {
+      if (rankingPor === 'FATURADOS') return b.processosFaturados - a.processosFaturados
+      if (rankingPor === 'TICKET') return b.ticketMedioProfit - a.ticketMedioProfit
+      if (rankingPor === 'MENOR_PROFIT') return a.profitTotal - b.profitTotal
+      if (rankingPor === 'MENOR_TICKET') return a.ticketMedioProfit - b.ticketMedioProfit
+      if (rankingPor === 'ATRASADOS') return b.atrasados - a.atrasados
+      return b.profitTotal - a.profitTotal
+    })
+
+    return lista
+  }, [
+    busca,
+    clientes,
+    dados.financeiro,
+    dataFim,
+    dataInicio,
+    periodo,
+    rankingPor,
+    somenteComMovimento,
+  ])
+
+  const resumoRanking = useMemo(() => {
+    const processos = ranking.reduce((acc, item) => acc + item.processosFaturados, 0)
+    const comProfit = ranking.reduce((acc, item) => acc + item.comProfitHC, 0)
+    const profit = ranking.reduce((acc, item) => acc + item.profitTotal, 0)
+    const faturamento = ranking.reduce((acc, item) => acc + item.valorFaturadoTotal, 0)
+    const custo = ranking.reduce((acc, item) => acc + item.custoTotal, 0)
+    const pagos = ranking.reduce((acc, item) => acc + item.pagos, 0)
+    const emAberto = ranking.reduce((acc, item) => acc + item.emAberto, 0)
+    const atrasados = ranking.reduce((acc, item) => acc + item.atrasados, 0)
+    const aguardandoCusto = ranking.reduce((acc, item) => acc + item.aguardandoCusto, 0)
+    const comTicket = ranking.filter((item) => item.comProfitHC > 0)
+
+    return {
+      clientes: ranking.length,
+      processos,
+      profit,
+      faturamento,
+      custo,
+      pagos,
+      emAberto,
+      atrasados,
+      aguardandoCusto,
+      ticket: comProfit > 0 ? profit / comProfit : 0,
+      topProfit: [...ranking].sort((a, b) => b.profitTotal - a.profitTotal)[0] || null,
+      topProcessos: [...ranking].sort((a, b) => b.processosFaturados - a.processosFaturados)[0] || null,
+      topTicket: [...comTicket].sort((a, b) => b.ticketMedioProfit - a.ticketMedioProfit)[0] || null,
+      menorProfit: [...ranking]
+        .filter((item) => item.processosFaturados > 0)
+        .sort((a, b) => a.profitTotal - b.profitTotal)[0] || null,
+    }
+  }, [ranking])
+
+  function exportarRankingCSV() {
+    const linhas = [
+      [
+        'Ranking',
+        'Cliente',
+        'Processos faturados',
+        'Profit HC',
+        'Ticket medio Profit',
+        'Faturamento',
+        'Custos considerados',
+        'Aguardando custo',
+        'Pagos',
+        'Em aberto',
+        'Atrasados',
+        'Ultimo AWB',
+        'Ultimo registro',
+      ],
+      ...ranking.map((item, index) => [
+        index + 1,
+        item.nome,
+        item.processosFaturados,
+        item.profitTotal.toFixed(2).replace('.', ','),
+        item.ticketMedioProfit.toFixed(2).replace('.', ','),
+        item.valorFaturadoTotal.toFixed(2).replace('.', ','),
+        item.custoTotal.toFixed(2).replace('.', ','),
+        item.aguardandoCusto,
+        item.pagos,
+        item.emAberto,
+        item.atrasados,
+        item.ultimoAwb,
+        dataBR(item.ultimoRegistro),
+      ]),
+    ]
+
+    const csv = linhas
+      .map((linha) =>
+        linha
+          .map((campo) => `"${String(campo ?? '').replaceAll('"', '""')}"`)
+          .join(';')
+      )
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `analise-clientes-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function selecionarClienteDoRanking(item: ClienteRanking) {
+    setClienteKey(item.clienteKey)
+    setBusca(item.nome)
+    setVerMais(false)
+    setAba('EMBARQUES')
+  }
+
+  function voltarAnaliseGeral() {
+    setClienteKey('')
+    setBusca('')
+    setTransportadora('')
+    setServico('')
+    setStatus('')
+    setVerMais(false)
+  }
 
   const clientesFiltradosBusca = useMemo(() => {
     const q = normalizar(busca)
@@ -1151,7 +1432,7 @@ export default function Clientes360Page() {
       <div className="min-h-[65vh] flex items-center justify-center">
         <div className="text-center">
           <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-          <p className="mt-4 font-bold text-slate-300">Montando visão 360 dos clientes...</p>
+          <p className="mt-4 font-bold text-slate-300">Montando análise de clientes...</p>
         </div>
       </div>
     )
@@ -1166,18 +1447,44 @@ export default function Clientes360Page() {
               <BarChart3 size={20} />
               <span className="text-sm font-black uppercase tracking-[0.22em]">Gestão de clientes</span>
             </div>
-            <h1 className="text-3xl md:text-5xl font-black text-white">Clientes 360</h1>
+            <h1 className="text-3xl md:text-5xl font-black text-white">Análise de Clientes</h1>
             <p className="mt-2 max-w-3xl text-sm md:text-base font-semibold text-slate-400">
-              Histórico, evolução, operação, cotações, faturamento, profit e atendimento em uma única tela.
+              Ranking, histórico, evolução, operação, faturamento, Profit HC e atendimento em uma única tela.
             </p>
           </div>
 
-          <button
-            onClick={carregar}
-            className="rounded-2xl border border-blue-500/40 bg-blue-500/10 px-5 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/20"
-          >
-            Atualizar dados
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {!cliente && (
+              <>
+                <Link
+                  href="/admin/financeiro?aba=PROCESSOS&status=TODOS"
+                  className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-3 text-sm font-black text-emerald-200 hover:bg-emerald-500/20"
+                >
+                  Ver financeiro
+                </Link>
+                <button
+                  onClick={exportarRankingCSV}
+                  className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800"
+                >
+                  Exportar CSV
+                </button>
+              </>
+            )}
+            {cliente && (
+              <button
+                onClick={voltarAnaliseGeral}
+                className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800"
+              >
+                Voltar para análise geral
+              </button>
+            )}
+            <button
+              onClick={carregar}
+              className="rounded-2xl border border-blue-500/40 bg-blue-500/10 px-5 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/20"
+            >
+              Atualizar dados
+            </button>
+          </div>
         </div>
 
         {erro && (
@@ -1228,13 +1535,205 @@ export default function Clientes360Page() {
       </section>
 
       {!cliente ? (
-        <section className="rounded-3xl border border-slate-800 bg-slate-950 p-10 text-center">
-          <Building2 className="mx-auto text-slate-600" size={48} />
-          <h2 className="mt-4 text-xl font-black text-white">Pesquise e selecione um cliente</h2>
-          <p className="mt-2 text-sm font-semibold text-slate-500">
-            A tela cruza vínculos diretos, embarque, login/usuário, documento, código, e-mail, AWB, referência e nome normalizado.
-          </p>
-        </section>
+        <div className="space-y-5">
+          <section className="rounded-3xl border border-slate-800 bg-slate-950 p-5 md:p-6">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">Visão geral</p>
+                <h2 className="mt-1 text-2xl font-black text-white">Ranking e carteira de clientes</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  A lista já mostra os clientes identificados em Processos Faturados. Use a busca apenas para refinar.
+                </p>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <Select value={periodo} onChange={(v) => setPeriodo(v as Periodo)}>
+                  <option value="MES_ATUAL">Este mês</option>
+                  <option value="MES_ANTERIOR">Mês anterior</option>
+                  <option value="ULTIMOS_90">Últimos 90 dias</option>
+                  <option value="ANO_ATUAL">Ano atual</option>
+                  <option value="TODOS">Todo o período</option>
+                  <option value="PERSONALIZADO">Período personalizado</option>
+                </Select>
+
+                <Select value={rankingPor} onChange={(v) => setRankingPor(v as RankingPor)}>
+                  <option value="PROFIT">Maior Profit HC</option>
+                  <option value="FATURADOS">Mais processos faturados</option>
+                  <option value="TICKET">Maior ticket Profit</option>
+                  <option value="MENOR_PROFIT">Menor Profit HC</option>
+                  <option value="MENOR_TICKET">Menor ticket Profit</option>
+                  <option value="ATRASADOS">Mais atrasados</option>
+                </Select>
+
+                <label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={somenteComMovimento}
+                    onChange={(e) => setSomenteComMovimento(e.target.checked)}
+                  />
+                  Somente com movimento
+                </label>
+              </div>
+            </div>
+
+            {periodo === 'PERSONALIZADO' && (
+              <div className="mt-3 grid max-w-xl grid-cols-2 gap-3">
+                <input
+                  type="date"
+                  value={dataInicio}
+                  onChange={(e) => setDataInicio(e.target.value)}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-white"
+                />
+                <input
+                  type="date"
+                  value={dataFim}
+                  onChange={(e) => setDataFim(e.target.value)}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-white"
+                />
+              </div>
+            )}
+          </section>
+
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+            <Card titulo="Clientes" valor={resumoRanking.clientes} detalhe="no filtro atual" />
+            <Card titulo="Processos faturados" valor={resumoRanking.processos} detalhe="base do ranking" cor="blue" />
+            <Card titulo="Profit HC" valor={moeda(resumoRanking.profit)} detalhe="processos com custo" cor={resumoRanking.profit >= 0 ? 'green' : 'red'} />
+            <Card titulo="Ticket médio Profit" valor={moeda(resumoRanking.ticket)} detalhe="por processo com custo" />
+            <Card titulo="Pagos" valor={resumoRanking.pagos} detalhe="recebimento identificado" cor="green" />
+            <Card titulo="Aguardando custo" valor={resumoRanking.aguardandoCusto} detalhe="fora do Profit" cor="yellow" />
+          </section>
+
+          <section className="grid gap-3 md:grid-cols-3">
+            <Card titulo="Em aberto" valor={resumoRanking.emAberto} detalhe="ainda não vencidos" cor="yellow" />
+            <Card titulo="Atrasados" valor={resumoRanking.atrasados} detalhe="vencimento ultrapassado" cor="red" />
+            <Card
+              titulo="Faturamento bruto"
+              valor={moeda(resumoRanking.faturamento)}
+              detalhe={`Custos considerados: ${moeda(resumoRanking.custo)}`}
+              cor="blue"
+            />
+          </section>
+
+          <section className="grid gap-3 lg:grid-cols-4">
+            <DestaqueRanking
+              titulo="Maior Profit HC"
+              item={resumoRanking.topProfit}
+              valor={resumoRanking.topProfit ? moeda(resumoRanking.topProfit.profitTotal) : '-'}
+              onAnalisar={selecionarClienteDoRanking}
+            />
+            <DestaqueRanking
+              titulo="Mais processos"
+              item={resumoRanking.topProcessos}
+              valor={resumoRanking.topProcessos ? `${resumoRanking.topProcessos.processosFaturados} processo(s)` : '-'}
+              onAnalisar={selecionarClienteDoRanking}
+            />
+            <DestaqueRanking
+              titulo="Melhor ticket Profit"
+              item={resumoRanking.topTicket}
+              valor={resumoRanking.topTicket ? moeda(resumoRanking.topTicket.ticketMedioProfit) : '-'}
+              onAnalisar={selecionarClienteDoRanking}
+            />
+            <DestaqueRanking
+              titulo="Menor geração"
+              item={resumoRanking.menorProfit}
+              valor={resumoRanking.menorProfit ? moeda(resumoRanking.menorProfit.profitTotal) : '-'}
+              onAnalisar={selecionarClienteDoRanking}
+            />
+          </section>
+
+          <section className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950">
+            <div className="flex flex-col gap-2 border-b border-slate-800 p-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-xl font-black text-white">Clientes</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {ranking.length} cliente(s). Clique em Analisar para abrir a visão 360 completa.
+                </p>
+              </div>
+              {busca && (
+                <button
+                  onClick={() => setBusca('')}
+                  className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300 hover:bg-slate-800"
+                >
+                  Limpar busca
+                </button>
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-[1150px] w-full text-left">
+                <thead className="border-b border-slate-800 bg-slate-900">
+                  <tr>
+                    {['#', 'Cliente', 'Processos', 'Profit HC', 'Ticket Profit', 'Financeiro', 'Sem custo', 'Último registro', 'Ações'].map((coluna) => (
+                      <th key={coluna} className="whitespace-nowrap px-4 py-3 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                        {coluna}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ranking.map((item, index) => (
+                    <tr key={item.clienteKey} className="border-b border-slate-900 hover:bg-slate-900/50">
+                      <td className="px-4 py-3 text-xs font-black text-blue-400">{index + 1}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-black text-white">{item.nome}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">
+                          {item.transportadoras.join(', ') || 'Transportadora não informada'}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 font-black text-purple-300">{item.processosFaturados}</td>
+                      <td className={`px-4 py-3 font-black ${item.profitTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {moeda(item.profitTotal)}
+                      </td>
+                      <td className="px-4 py-3 font-black text-amber-300">{moeda(item.ticketMedioProfit)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-black text-emerald-300">
+                            Pagos {item.pagos}
+                          </span>
+                          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-black text-amber-300">
+                            Aberto {item.emAberto}
+                          </span>
+                          <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] font-black text-red-300">
+                            Atrasados {item.atrasados}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-black text-slate-300">{item.aguardandoCusto}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-black text-slate-200">{item.ultimoAwb}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">{dataBR(item.ultimoRegistro)}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => selecionarClienteDoRanking(item)}
+                            className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500"
+                          >
+                            Analisar
+                          </button>
+                          <Link
+                            href={`/admin/financeiro?aba=PROCESSOS&status=TODOS&busca=${encodeURIComponent(item.ultimoAwb !== '-' ? item.ultimoAwb : item.nome)}`}
+                            className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white hover:bg-emerald-600"
+                          >
+                            Financeiro
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {!ranking.length && (
+              <div className="p-10 text-center">
+                <Building2 className="mx-auto text-slate-600" size={42} />
+                <p className="mt-3 font-black text-white">Nenhum cliente encontrado</p>
+                <p className="mt-1 text-sm font-semibold text-slate-500">Ajuste o período ou limpe a busca.</p>
+              </div>
+            )}
+          </section>
+        </div>
       ) : (
         <>
           <section className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
@@ -1246,13 +1745,10 @@ export default function Clientes360Page() {
                   <p className="mt-1 text-sm font-semibold text-slate-500">{cliente.razaoSocial || 'Razão social não identificada'}</p>
                 </div>
                 <button
-                  onClick={() => {
-                    setClienteKey('')
-                    setBusca('')
-                  }}
+                  onClick={voltarAnaliseGeral}
                   className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300 hover:bg-slate-800"
                 >
-                  Trocar cliente
+                  Voltar para ranking
                 </button>
               </div>
 
@@ -1558,6 +2054,34 @@ export default function Clientes360Page() {
         </>
       )}
     </main>
+  )
+}
+
+function DestaqueRanking({
+  titulo,
+  item,
+  valor,
+  onAnalisar,
+}: {
+  titulo: string
+  item: ClienteRanking | null
+  valor: string
+  onAnalisar: (item: ClienteRanking) => void
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-800 bg-slate-950 p-5">
+      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{titulo}</p>
+      <p className="mt-3 min-h-[48px] text-lg font-black text-white">{item?.nome || '-'}</p>
+      <p className="mt-2 text-xl font-black text-emerald-400">{valor}</p>
+      {item && (
+        <button
+          onClick={() => onAnalisar(item)}
+          className="mt-4 rounded-xl border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-xs font-black text-blue-200 hover:bg-blue-500/20"
+        >
+          Analisar cliente
+        </button>
+      )}
+    </div>
   )
 }
 
