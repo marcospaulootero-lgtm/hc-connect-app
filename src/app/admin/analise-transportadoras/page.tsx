@@ -1,5 +1,7 @@
 'use client'
 
+// HC_ANALISE_TRANSPORTADORAS_V2
+
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -8,7 +10,7 @@ const ANO_ATUAL = new Date().getFullYear()
 
 type Linha = Record<string, any>
 
-const CORES = ['#2563eb', '#22c55e', '#a855f7', '#f59e0b', '#06b6d4', '#ef4444', '#64748b']
+const CORES = ['#2563eb', '#22c55e', '#a855f7', '#f59e0b', '#06b6d4', '#ef4444']
 
 const MESES = [
   { valor: '1', label: 'Janeiro' },
@@ -88,6 +90,10 @@ function moedaCompacta(valor: any) {
   return moeda(n)
 }
 
+function percentual(valor: number) {
+  return `${numeroBR(valor, 1)}%`
+}
+
 function normalizarAwb(valor: any) {
   return normalizar(valor).replace(/[^A-Z0-9]/g, '')
 }
@@ -95,6 +101,7 @@ function normalizarAwb(valor: any) {
 function dataISO(valor: any) {
   const s = texto(valor)
   if (!s) return ''
+
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/)
   if (m) return m[1]
 
@@ -151,105 +158,43 @@ function nomeTransportadora(valor: any) {
   return texto(valor) || 'Outra'
 }
 
-function operacaoDoEmbarque(item: Linha) {
-  const explicito = normalizar(item.tipo_operacao || item.operacao)
-  if (explicito.includes('EXPORT')) return 'Exportação'
-  if (explicito.includes('IMPORT')) return 'Importação'
-
-  const base = normalizar(`${item.servico || ''} ${item.descricao || ''}`)
-  if (base.includes('EXPORT')) return 'Exportação'
-  if (base.includes('IMPORT')) return 'Importação'
-  return 'Não informado'
+function chaveFatura(transportadora: any, numeroFatura: any) {
+  return `${normalizar(nomeTransportadora(transportadora))}|${normalizar(numeroFatura)}`
 }
 
-function classificarRegiao(local: any) {
-  const v = ` ${normalizar(local).replace(/[^A-Z0-9]+/g, ' ')} `
-  if (!v.trim()) return 'Não classificada'
-
-  const americaNorte = [
-    ' EUA ', ' USA ', ' UNITED STATES ', ' ESTADOS UNIDOS ', ' CANADA ', ' MEXICO ',
-    ' MIA ', ' JFK ', ' EWR ', ' LAX ', ' SFO ', ' ORD ', ' ATL ', ' DFW ', ' IAH ',
-    ' BOS ', ' CLE ', ' ELP ', ' RNO ', ' SEA ', ' DEN ', ' LAS ', ' MCO ', ' TMB ',
-  ]
-  if (americaNorte.some((x) => v.includes(x))) return 'América do Norte'
-
-  const americaSul = [
-    ' BRASIL ', ' BRAZIL ', ' ARGENTINA ', ' CHILE ', ' COLOMBIA ', ' PERU ',
-    ' URUGUAI ', ' URUGUAY ', ' PARAGUAI ', ' PARAGUAY ', ' BOLIVIA ', ' EQUADOR ',
-    ' ECUADOR ', ' VENEZUELA ', ' GRU ', ' VCP ', ' CNF ', ' GIG ', ' POA ', ' CWB ',
-  ]
-  if (americaSul.some((x) => v.includes(x))) return 'América do Sul'
-
-  const europa = [
-    ' ALEMANHA ', ' GERMANY ', ' FRANCE ', ' FRANCA ', ' ITALIA ', ' ITALY ',
-    ' SPAIN ', ' ESPANHA ', ' PORTUGAL ', ' UNITED KINGDOM ', ' REINO UNIDO ',
-    ' ENGLAND ', ' NETHERLANDS ', ' HOLANDA ', ' BELGIUM ', ' BELGICA ', ' SWITZERLAND ',
-    ' SUICA ', ' AUSTRIA ', ' POLAND ', ' POLONIA ', ' IRELAND ', ' IRLANDA ',
-    ' CDG ', ' FRA ', ' AMS ', ' MAD ', ' LIS ', ' LHR ', ' MXP ', ' FCO ', ' ZRH ',
-  ]
-  if (europa.some((x) => v.includes(x))) return 'Europa'
-
-  const asia = [
-    ' CHINA ', ' JAPAN ', ' JAPAO ', ' INDIA ', ' SOUTH KOREA ', ' KOREA ',
-    ' SINGAPORE ', ' HONG KONG ', ' TAIWAN ', ' THAILAND ', ' VIETNAM ', ' MALAYSIA ',
-    ' PVG ', ' SHA ', ' PEK ', ' HKG ', ' NRT ', ' HND ', ' ICN ', ' SIN ', ' TPE ',
-  ]
-  if (asia.some((x) => v.includes(x))) return 'Ásia'
-
-  const orienteMedio = [
-    ' UNITED ARAB EMIRATES ', ' EMIRADOS ARABES ', ' UAE ', ' DUBAI ', ' QATAR ',
-    ' SAUDI ARABIA ', ' ARABIA SAUDITA ', ' ISRAEL ', ' TURKEY ', ' TURQUIA ',
-    ' DXB ', ' DOH ', ' IST ', ' TLV ',
-  ]
-  if (orienteMedio.some((x) => v.includes(x))) return 'Oriente Médio'
-
-  const oceania = [' AUSTRALIA ', ' NEW ZEALAND ', ' NOVA ZELANDIA ', ' SYD ', ' MEL ', ' AKL ']
-  if (oceania.some((x) => v.includes(x))) return 'Oceania'
-
-  const africa = [
-    ' SOUTH AFRICA ', ' AFRICA DO SUL ', ' EGYPT ', ' EGITO ', ' MOROCCO ', ' MARROCOS ',
-    ' NIGERIA ', ' KENYA ', ' JNB ', ' CPT ', ' CAI ',
-  ]
-  if (africa.some((x) => v.includes(x))) return 'África'
-
-  return 'Não classificada'
-}
-
-function regiaoComercial(item: Linha) {
-  const op = operacaoDoEmbarque(item)
-
-  if (op === 'Importação') {
-    const origem = classificarRegiao(item.origem)
-    if (origem !== 'Não classificada') return origem
-  }
-
-  if (op === 'Exportação') {
-    const destino = classificarRegiao(item.destino)
-    if (destino !== 'Não classificada') return destino
-  }
-
-  const destino = classificarRegiao(item.destino)
-  if (destino !== 'Não classificada') return destino
-
-  return classificarRegiao(item.origem)
+function nomeClienteEmbarque(item: Linha | null | undefined) {
+  return texto(item?.cliente_final || item?.importador || item?.exportador)
 }
 
 function ehPago(item: Linha) {
   if (item.data_pagamento) return true
-  const s = normalizar(`${item.situacao || ''} ${item.status_recebimento_fatura || ''}`)
-  return s.includes('PAGO') || s.includes('QUITADO') || s.includes('BAIXADO')
+
+  const s = normalizar(
+    `${item.situacao || ''} ${item.status_recebimento_fatura || ''} ${item.status_pagamento || ''}`
+  )
+
+  return (
+    s.includes('PAGO') ||
+    s.includes('PAGA') ||
+    s.includes('QUITADO') ||
+    s.includes('QUITADA') ||
+    s.includes('BAIXADO') ||
+    s.includes('BAIXADA')
+  )
 }
 
 function statusFatura(item: Linha) {
   if (ehPago(item)) return 'Paga'
 
   const contestacao = normalizar(item.status_contestacao)
-  if (contestacao && !contestacao.includes('NAO') && !contestacao.includes('SEM')) return 'Contestada'
+  if (contestacao && !contestacao.includes('NAO') && !contestacao.includes('SEM')) {
+    return 'Contestada'
+  }
 
   const venc = dataISO(item.vencimento)
   const hoje = dataISO(new Date())
-  if (venc && hoje && venc < hoje) return 'Vencida'
 
+  if (venc && hoje && venc < hoje) return 'Vencida'
   return 'Em aberto'
 }
 
@@ -259,37 +204,76 @@ function valorPagoFatura(item: Linha) {
   return ehPago(item) ? numero(item.total) : 0
 }
 
-function faixaValor(valor: number) {
-  if (valor < 500) return 'Até R$ 500'
-  if (valor < 2000) return 'R$ 500 a R$ 2 mil'
-  if (valor < 5000) return 'R$ 2 mil a R$ 5 mil'
-  if (valor < 10000) return 'R$ 5 mil a R$ 10 mil'
-  return 'Acima de R$ 10 mil'
+function saldoFatura(item: Linha) {
+  if (ehPago(item)) return 0
+
+  const saldoInformado = numero(item.saldo)
+  if (saldoInformado > 0) return saldoInformado
+
+  return Math.max(0, numero(item.total) - valorPagoFatura(item))
 }
 
-function Card({
+function KpiCard({
   titulo,
   valor,
   detalhe,
   icone,
+  destaque = 'normal',
 }: {
   titulo: string
   valor: string | number
   detalhe?: string
   icone: string
+  destaque?: 'normal' | 'green' | 'orange'
 }) {
+  const borda =
+    destaque === 'green'
+      ? 'border-emerald-800/60'
+      : destaque === 'orange'
+        ? 'border-amber-800/60'
+        : 'border-slate-800'
+
+  const valorClasse =
+    destaque === 'green'
+      ? 'text-emerald-300'
+      : destaque === 'orange'
+        ? 'text-amber-300'
+        : 'text-white'
+
   return (
-    <div className="min-h-[132px] rounded-2xl border border-slate-800 bg-[#071225] p-5 shadow-xl">
+    <div className={`rounded-2xl border ${borda} bg-[#071225] p-4 shadow-lg`}>
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-bold uppercase tracking-wider text-slate-400">{titulo}</p>
-          <p className="mt-2 text-3xl font-black tracking-tight text-white">{valor}</p>
-          {detalhe ? <p className="mt-2 text-sm leading-snug text-slate-500">{detalhe}</p> : null}
+        <div className="min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
+            {titulo}
+          </p>
+          <p className={`mt-2 truncate text-2xl font-black tracking-tight ${valorClasse}`}>
+            {valor}
+          </p>
+          {detalhe ? <p className="mt-1.5 text-xs leading-snug text-slate-500">{detalhe}</p> : null}
         </div>
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10 text-2xl">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10 text-lg">
           {icone}
         </div>
       </div>
+    </div>
+  )
+}
+
+function MiniMetrica({
+  titulo,
+  valor,
+  detalhe,
+}: {
+  titulo: string
+  valor: string
+  detalhe?: string
+}) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-[#030b18] p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{titulo}</p>
+      <p className="mt-2 text-xl font-black text-white">{valor}</p>
+      {detalhe ? <p className="mt-1 text-xs text-slate-500">{detalhe}</p> : null}
     </div>
   )
 }
@@ -315,7 +299,7 @@ function BarraHorizontal({
         <span className="truncate font-bold text-slate-300">{label}</span>
         <span className="shrink-0 font-black text-white">{detalhe || numeroBR(valor)}</span>
       </div>
-      <div className="h-3 overflow-hidden rounded-full bg-slate-900">
+      <div className="h-2.5 overflow-hidden rounded-full bg-slate-900">
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${largura}%`, backgroundColor: CORES[indice % CORES.length] }}
@@ -335,12 +319,13 @@ export default function AnaliseTransportadorasPage() {
   const [transportadora, setTransportadora] = useState('TODAS')
   const [ano, setAno] = useState(String(ANO_ATUAL))
   const [mes, setMes] = useState('TODOS')
+  const [status, setStatus] = useState('TODOS')
+
+  // Estes dois filtros refinam somente a camada operacional por AWB.
+  // Os valores das faturas continuam baseados na competência da própria fatura.
   const [cliente, setCliente] = useState('TODOS')
   const [servico, setServico] = useState('TODOS')
-  const [operacao, setOperacao] = useState('TODAS')
-  const [regiao, setRegiao] = useState('TODAS')
-  const [faixa, setFaixa] = useState('TODAS')
-  const [status, setStatus] = useState('TODOS')
+
   const [modoApresentacao, setModoApresentacao] = useState(false)
 
   async function carregarTodos(tabela: string, colunaOrdem?: string, crescente = false) {
@@ -364,6 +349,7 @@ export default function AnaliseTransportadorasPage() {
 
     const respostas = await Promise.all(consultas)
     const respostaComErro = respostas.find((item) => item.error)
+
     if (respostaComErro?.error) {
       throw new Error(`Erro ao carregar ${tabela}: ${respostaComErro.error.message}`)
     }
@@ -399,197 +385,248 @@ export default function AnaliseTransportadorasPage() {
 
   const embarquesPorAwb = useMemo(() => {
     const mapa = new Map<string, Linha>()
+
     embarques.forEach((item) => {
       const awb = normalizarAwb(item.awb)
-      if (awb && !mapa.has(awb)) mapa.set(awb, item)
+      if (!awb) return
+
+      const atual = mapa.get(awb)
+
+      if (!atual) {
+        mapa.set(awb, item)
+        return
+      }
+
+      const dataAtual = dataISO(dataEmbarque(atual))
+      const dataNovo = dataISO(dataEmbarque(item))
+
+      if (dataNovo > dataAtual) mapa.set(awb, item)
     })
+
     return mapa
   }, [embarques])
 
+  const faturasPorId = useMemo(() => {
+    const mapa = new Map<string, Linha>()
+    faturas.forEach((item) => {
+      if (item.id) mapa.set(String(item.id), item)
+    })
+    return mapa
+  }, [faturas])
+
+  const faturasPorChave = useMemo(() => {
+    const mapa = new Map<string, Linha>()
+
+    faturas.forEach((item) => {
+      const chave = chaveFatura(item.transportadora, item.numero_fatura)
+      if (chave !== '|') mapa.set(chave, item)
+    })
+
+    return mapa
+  }, [faturas])
+
+  const itensComContexto = useMemo(() => {
+    return itensFaturas.map((item) => {
+      const porId = item.fatura_transportadora_id
+        ? faturasPorId.get(String(item.fatura_transportadora_id))
+        : null
+
+      const porChave = faturasPorChave.get(chaveFatura(item.transportadora, item.numero_fatura))
+      const fatura = porId || porChave || null
+      const awb = normalizarAwb(item.awb)
+      const embarque = awb ? embarquesPorAwb.get(awb) || null : null
+
+      return {
+        item,
+        fatura,
+        embarque,
+        awb,
+        faturaId: texto(fatura?.id || item.fatura_transportadora_id),
+        cliente: nomeClienteEmbarque(embarque),
+        servico: texto(embarque?.servico),
+      }
+    })
+  }, [itensFaturas, faturasPorId, faturasPorChave, embarquesPorAwb])
+
   const opcoes = useMemo(() => {
     const transportadoras = Array.from(
-      new Set(
-        [...embarques.map((x) => nomeTransportadora(x.transportadora)), ...faturas.map((x) => nomeTransportadora(x.transportadora))]
-          .filter(Boolean)
-      )
-    ).sort()
+      new Set(faturas.map((x) => nomeTransportadora(x.transportadora)).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
     const anos = Array.from(
-      new Set(
-        [
-          ...embarques.map((x) => anoDaData(dataEmbarque(x))),
-          ...faturas.map((x) => anoDaData(dataFatura(x))),
-          ...itensFaturas.map((x) => anoDaData(x.data_envio)),
-        ].filter((x) => x > 2000)
-      )
+      new Set(faturas.map((x) => anoDaData(dataFatura(x))).filter((x) => x > 2000))
     ).sort((a, b) => b - a)
 
-    const clientes = Array.from(
-      new Set(
-        embarques
-          .map((x) => texto(x.cliente_final || x.importador || x.exportador))
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    return { transportadoras, anos }
+  }, [faturas])
 
-    const servicos = Array.from(
-      new Set(embarques.map((x) => texto(x.servico)).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
-
-    const regioes = Array.from(
-      new Set(embarques.map((x) => regiaoComercial(x)).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
-
-    return { transportadoras, anos, clientes, servicos, regioes }
-  }, [embarques, faturas, itensFaturas])
-
-  const filtrosDeEmbarqueAtivos =
-    cliente !== 'TODOS' ||
-    servico !== 'TODOS' ||
-    operacao !== 'TODAS' ||
-    regiao !== 'TODAS'
-
-  const embarquesFiltrados = useMemo(() => {
-    return embarques.filter((item) => {
-      if (
-        transportadora !== 'TODAS' &&
-        normalizar(nomeTransportadora(item.transportadora)) !== normalizar(transportadora)
-      ) return false
-
-      if (ano !== 'TODOS' && anoDaData(dataEmbarque(item)) !== Number(ano)) return false
-      if (mes !== 'TODOS' && mesDaData(dataEmbarque(item)) !== Number(mes)) return false
-
-      const nomeCliente = texto(item.cliente_final || item.importador || item.exportador)
-      if (cliente !== 'TODOS' && normalizar(nomeCliente) !== normalizar(cliente)) return false
-
-      if (servico !== 'TODOS' && normalizar(item.servico) !== normalizar(servico)) return false
-      if (operacao !== 'TODAS' && operacaoDoEmbarque(item) !== operacao) return false
-      if (regiao !== 'TODAS' && regiaoComercial(item) !== regiao) return false
-
-      return true
-    })
-  }, [embarques, transportadora, ano, mes, cliente, servico, operacao, regiao])
-
-  const awbsFiltrados = useMemo(
-    () => new Set(embarquesFiltrados.map((x) => normalizarAwb(x.awb)).filter(Boolean)),
-    [embarquesFiltrados]
-  )
-
-  const itensFiltrados = useMemo(() => {
-    return itensFaturas.filter((item) => {
-      if (
-        transportadora !== 'TODAS' &&
-        normalizar(nomeTransportadora(item.transportadora)) !== normalizar(transportadora)
-      ) return false
-
-      const awb = normalizarAwb(item.awb)
-      const embarque = embarquesPorAwb.get(awb)
-
-      if (filtrosDeEmbarqueAtivos && (!awb || !awbsFiltrados.has(awb))) return false
-
-      const dataItem = item.data_envio || dataEmbarque(embarque || {})
-
-      if (ano !== 'TODOS') {
-        const anoItem = anoDaData(dataItem)
-        if (anoItem !== Number(ano)) return false
-      }
-
-      if (mes !== 'TODOS' && mesDaData(dataItem) !== Number(mes)) return false
-
-      return true
-    })
-  }, [
-    itensFaturas,
-    transportadora,
-    ano,
-    mes,
-    filtrosDeEmbarqueAtivos,
-    awbsFiltrados,
-    embarquesPorAwb,
-  ])
-
-  const faturasIdsItensFiltrados = useMemo(
-    () => new Set(itensFiltrados.map((x) => texto(x.fatura_transportadora_id)).filter(Boolean)),
-    [itensFiltrados]
-  )
-
-  const faturasFiltradas = useMemo(() => {
+  const faturasPeriodo = useMemo(() => {
     return faturas.filter((item) => {
       if (
         transportadora !== 'TODAS' &&
         normalizar(nomeTransportadora(item.transportadora)) !== normalizar(transportadora)
-      ) return false
+      ) {
+        return false
+      }
 
       if (ano !== 'TODOS' && anoDaData(dataFatura(item)) !== Number(ano)) return false
       if (mes !== 'TODOS' && mesDaData(dataFatura(item)) !== Number(mes)) return false
       if (status !== 'TODOS' && statusFatura(item) !== status) return false
-      if (faixa !== 'TODAS' && faixaValor(numero(item.total)) !== faixa) return false
-
-      if (filtrosDeEmbarqueAtivos && !faturasIdsItensFiltrados.has(texto(item.id))) return false
 
       return true
     })
-  }, [
-    faturas,
-    transportadora,
-    ano,
-    mes,
-    status,
-    faixa,
-    filtrosDeEmbarqueAtivos,
-    faturasIdsItensFiltrados,
-  ])
+  }, [faturas, transportadora, ano, mes, status])
 
-  const resumo = useMemo(() => {
-    const pesoTotal = embarquesFiltrados.reduce(
+  const idsFaturasPeriodo = useMemo(
+    () => new Set(faturasPeriodo.map((item) => texto(item.id)).filter(Boolean)),
+    [faturasPeriodo]
+  )
+
+  const itensPeriodo = useMemo(() => {
+    return itensComContexto.filter((ctx) => {
+      if (!ctx.faturaId || !idsFaturasPeriodo.has(ctx.faturaId)) return false
+      return true
+    })
+  }, [itensComContexto, idsFaturasPeriodo])
+
+  const opcoesOperacionais = useMemo(() => {
+    const clientes = Array.from(
+      new Set(itensPeriodo.map((ctx) => ctx.cliente).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+    const servicos = Array.from(
+      new Set(itensPeriodo.map((ctx) => ctx.servico).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+    return { clientes, servicos }
+  }, [itensPeriodo])
+
+  const itensOperacionais = useMemo(() => {
+    return itensPeriodo.filter((ctx) => {
+      if (cliente !== 'TODOS' && normalizar(ctx.cliente) !== normalizar(cliente)) return false
+      if (servico !== 'TODOS' && normalizar(ctx.servico) !== normalizar(servico)) return false
+      return true
+    })
+  }, [itensPeriodo, cliente, servico])
+
+  const resumoFinanceiro = useMemo(() => {
+    const total = faturasPeriodo.reduce((acc, item) => acc + numero(item.total), 0)
+    const pago = faturasPeriodo.reduce((acc, item) => acc + valorPagoFatura(item), 0)
+    const aberto = faturasPeriodo.reduce((acc, item) => acc + saldoFatura(item), 0)
+
+    return {
+      faturas: faturasPeriodo.length,
+      total,
+      pago,
+      aberto,
+      ticket: faturasPeriodo.length ? total / faturasPeriodo.length : 0,
+    }
+  }, [faturasPeriodo])
+
+  const qualidade = useMemo(() => {
+    const faturasComItens = new Set(
+      itensPeriodo.map((ctx) => ctx.faturaId).filter(Boolean)
+    )
+
+    const awbs = new Set(itensPeriodo.map((ctx) => ctx.awb).filter(Boolean))
+    const awbsComEmbarque = new Set(
+      itensPeriodo
+        .filter((ctx) => !!ctx.embarque && !!ctx.awb)
+        .map((ctx) => ctx.awb)
+    )
+
+    const faturasSemItens = Math.max(0, faturasPeriodo.length - faturasComItens.size)
+    const awbsSemEmbarque = Math.max(0, awbs.size - awbsComEmbarque.size)
+
+    return {
+      faturasComItens: faturasComItens.size,
+      faturasSemItens,
+      awbs: awbs.size,
+      awbsComEmbarque: awbsComEmbarque.size,
+      awbsSemEmbarque,
+      coberturaFaturas: faturasPeriodo.length
+        ? (faturasComItens.size / faturasPeriodo.length) * 100
+        : 0,
+      coberturaAwbs: awbs.size ? (awbsComEmbarque.size / awbs.size) * 100 : 0,
+    }
+  }, [itensPeriodo, faturasPeriodo])
+
+  const resumoOperacional = useMemo(() => {
+    const awbs = new Set<string>()
+    const awbsComEmbarque = new Set<string>()
+    const clientes = new Set<string>()
+    const embarquesUnicos = new Map<string, Linha>()
+    let custoIdentificado = 0
+
+    itensOperacionais.forEach((ctx) => {
+      if (ctx.awb) awbs.add(ctx.awb)
+      custoIdentificado += numero(ctx.item.valor_compra)
+
+      if (!ctx.embarque) return
+
+      if (ctx.awb) awbsComEmbarque.add(ctx.awb)
+
+      const chaveEmbarque = texto(ctx.embarque.id) || ctx.awb
+      if (chaveEmbarque) embarquesUnicos.set(chaveEmbarque, ctx.embarque)
+
+      const clienteAtual = nomeClienteEmbarque(ctx.embarque)
+      if (clienteAtual) clientes.add(clienteAtual)
+    })
+
+    const pesoTotal = Array.from(embarquesUnicos.values()).reduce(
       (acc, item) => acc + (numero(item.peso_taxado) || numero(item.peso_real)),
       0
     )
 
-    const clientes = new Set(
-      embarquesFiltrados
-        .map((x) => texto(x.cliente_final || x.importador || x.exportador))
-        .filter(Boolean)
-    )
-
-    const valorFaturas = faturasFiltradas.reduce((acc, item) => acc + numero(item.total), 0)
-    const valorPago = faturasFiltradas.reduce((acc, item) => acc + valorPagoFatura(item), 0)
-    const custoAwbs = itensFiltrados.reduce((acc, item) => acc + numero(item.valor_compra), 0)
-
     return {
-      embarques: embarquesFiltrados.length,
-      pesoTotal,
+      awbs: awbs.size,
+      embarques: embarquesUnicos.size,
       clientes: clientes.size,
-      faturas: faturasFiltradas.length,
-      valorFaturas,
-      valorPago,
-      custoAwbs,
-      ticketMedio: faturasFiltradas.length ? valorFaturas / faturasFiltradas.length : 0,
+      pesoTotal,
+      custoIdentificado,
+      awbsComEmbarque: awbsComEmbarque.size,
     }
-  }, [embarquesFiltrados, faturasFiltradas, itensFiltrados])
-
-  const porRegiao = useMemo(() => {
-    const mapa = new Map<string, number>()
-    embarquesFiltrados.forEach((item) => {
-      const chave = regiaoComercial(item)
-      mapa.set(chave, (mapa.get(chave) || 0) + 1)
-    })
-    return Array.from(mapa.entries())
-      .map(([label, valor]) => ({ label, valor }))
-      .sort((a, b) => b.valor - a.valor)
-  }, [embarquesFiltrados])
+  }, [itensOperacionais])
 
   const porServico = useMemo(() => {
-    const mapa = new Map<string, number>()
-    embarquesFiltrados.forEach((item) => {
-      const chave = texto(item.servico) || 'Não informado'
-      mapa.set(chave, (mapa.get(chave) || 0) + 1)
+    const mapa = new Map<string, Set<string>>()
+
+    itensOperacionais.forEach((ctx) => {
+      if (!ctx.embarque || !ctx.awb) return
+
+      const chave = texto(ctx.embarque.servico) || 'Não informado'
+      const awbs = mapa.get(chave) || new Set<string>()
+      awbs.add(ctx.awb)
+      mapa.set(chave, awbs)
     })
+
     return Array.from(mapa.entries())
-      .map(([label, valor]) => ({ label, valor }))
+      .map(([label, awbs]) => ({ label, valor: awbs.size }))
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 8)
-  }, [embarquesFiltrados])
+  }, [itensOperacionais])
+
+  const topClientes = useMemo(() => {
+    const mapa = new Map<string, { custo: number; awbs: Set<string> }>()
+
+    itensOperacionais.forEach((ctx) => {
+      const nome = ctx.cliente || 'Não identificado'
+      const atual = mapa.get(nome) || { custo: 0, awbs: new Set<string>() }
+
+      atual.custo += numero(ctx.item.valor_compra)
+      if (ctx.awb) atual.awbs.add(ctx.awb)
+      mapa.set(nome, atual)
+    })
+
+    return Array.from(mapa.entries())
+      .map(([nome, dados]) => ({
+        nome,
+        custo: dados.custo,
+        embarques: dados.awbs.size,
+      }))
+      .sort((a, b) => b.custo - a.custo)
+      .slice(0, 8)
+  }, [itensOperacionais])
 
   const evolucao = useMemo(() => {
     if (ano !== 'TODOS' && mes !== 'TODOS') {
@@ -597,11 +634,11 @@ export default function AnaliseTransportadorasPage() {
 
       return Array.from({ length: totalDias }, (_, index) => {
         const dia = index + 1
-        const fatDia = faturasFiltradas.filter((x) => diaDaData(dataFatura(x)) === dia)
+        const lista = faturasPeriodo.filter((x) => diaDaData(dataFatura(x)) === dia)
 
         return {
           label: String(dia).padStart(2, '0'),
-          valor: fatDia.reduce((acc, x) => acc + numero(x.total), 0),
+          valor: lista.reduce((acc, x) => acc + numero(x.total), 0),
         }
       })
     }
@@ -611,17 +648,18 @@ export default function AnaliseTransportadorasPage() {
 
       return nomesMeses.map((label, index) => {
         const numeroMes = index + 1
-        const fatMes = faturasFiltradas.filter((x) => mesDaData(dataFatura(x)) === numeroMes)
+        const lista = faturasPeriodo.filter((x) => mesDaData(dataFatura(x)) === numeroMes)
 
         return {
           label,
-          valor: fatMes.reduce((acc, x) => acc + numero(x.total), 0),
+          valor: lista.reduce((acc, x) => acc + numero(x.total), 0),
         }
       })
     }
 
     const mapa = new Map<number, number>()
-    faturasFiltradas.forEach((item) => {
+
+    faturasPeriodo.forEach((item) => {
       const a = anoDaData(dataFatura(item))
       if (a) mapa.set(a, (mapa.get(a) || 0) + numero(item.total))
     })
@@ -629,92 +667,44 @@ export default function AnaliseTransportadorasPage() {
     return Array.from(mapa.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([a, valor]) => ({ label: String(a), valor }))
-  }, [faturasFiltradas, ano, mes])
+  }, [faturasPeriodo, ano, mes])
 
-  const topClientes = useMemo(() => {
-    const mapa = new Map<string, { custo: number; embarques: Set<string> }>()
+  const comparativo = useMemo(() => {
+    if (transportadora !== 'TODAS') return []
 
-    itensFiltrados.forEach((item) => {
-      const awb = normalizarAwb(item.awb)
-      const emb = embarquesPorAwb.get(awb)
-      const nome = texto(emb?.cliente_final || emb?.importador || emb?.exportador) || 'Não identificado'
+    const mapa = new Map<
+      string,
+      { faturas: number; total: number; pago: number; awbs: Set<string> }
+    >()
 
-      const atual = mapa.get(nome) || { custo: 0, embarques: new Set<string>() }
-      atual.custo += numero(item.valor_compra)
-      if (awb) atual.embarques.add(awb)
+    faturasPeriodo.forEach((item) => {
+      const nome = nomeTransportadora(item.transportadora)
+      const atual = mapa.get(nome) || { faturas: 0, total: 0, pago: 0, awbs: new Set<string>() }
+
+      atual.faturas += 1
+      atual.total += numero(item.total)
+      atual.pago += valorPagoFatura(item)
       mapa.set(nome, atual)
+    })
+
+    itensPeriodo.forEach((ctx) => {
+      const nome = nomeTransportadora(ctx.fatura?.transportadora || ctx.item.transportadora)
+      const atual = mapa.get(nome)
+      if (!atual) return
+      if (ctx.awb) atual.awbs.add(ctx.awb)
     })
 
     return Array.from(mapa.entries())
       .map(([nome, dados]) => ({
         nome,
-        custo: dados.custo,
-        embarques: dados.embarques.size,
+        faturas: dados.faturas,
+        total: dados.total,
+        pago: dados.pago,
+        awbs: dados.awbs.size,
       }))
-      .sort((a, b) => b.custo - a.custo)
-      .slice(0, 10)
-  }, [itensFiltrados, embarquesPorAwb])
+      .sort((a, b) => b.total - a.total)
+  }, [transportadora, faturasPeriodo, itensPeriodo])
 
-  const comparativo = useMemo(() => {
-    const mapa = new Map<string, { embarques: Set<string>; custo: number; faturas: Set<string> }>()
-
-    embarques.forEach((item) => {
-      if (ano !== 'TODOS' && anoDaData(dataEmbarque(item)) !== Number(ano)) return false
-      if (mes !== 'TODOS' && mesDaData(dataEmbarque(item)) !== Number(mes)) return false
-
-      const nomeCliente = texto(item.cliente_final || item.importador || item.exportador)
-      if (cliente !== 'TODOS' && normalizar(nomeCliente) !== normalizar(cliente)) return false
-      if (servico !== 'TODOS' && normalizar(item.servico) !== normalizar(servico)) return false
-      if (operacao !== 'TODAS' && operacaoDoEmbarque(item) !== operacao) return false
-      if (regiao !== 'TODAS' && regiaoComercial(item) !== regiao) return false
-
-      const t = nomeTransportadora(item.transportadora)
-      const atual = mapa.get(t) || { embarques: new Set<string>(), custo: 0, faturas: new Set<string>() }
-      const awb = normalizarAwb(item.awb)
-      if (awb) atual.embarques.add(awb)
-      mapa.set(t, atual)
-    })
-
-    itensFaturas.forEach((item) => {
-      const emb = embarquesPorAwb.get(normalizarAwb(item.awb))
-      const dataItem = item.data_envio || dataEmbarque(emb || {})
-
-      if (ano !== 'TODOS' && anoDaData(dataItem) !== Number(ano)) return
-      if (mes !== 'TODOS' && mesDaData(dataItem) !== Number(mes)) return
-
-      if (cliente !== 'TODOS') {
-        const nomeCliente = texto(emb?.cliente_final || emb?.importador || emb?.exportador)
-        if (normalizar(nomeCliente) !== normalizar(cliente)) return
-      }
-      if (servico !== 'TODOS' && normalizar(emb?.servico) !== normalizar(servico)) return
-      if (operacao !== 'TODAS' && operacaoDoEmbarque(emb || {}) !== operacao) return
-      if (regiao !== 'TODAS' && regiaoComercial(emb || {}) !== regiao) return
-
-      const t = nomeTransportadora(item.transportadora || emb?.transportadora)
-      const atual = mapa.get(t) || { embarques: new Set<string>(), custo: 0, faturas: new Set<string>() }
-      atual.custo += numero(item.valor_compra)
-      const awb = normalizarAwb(item.awb)
-      if (awb) atual.embarques.add(awb)
-      const faturaId = texto(item.fatura_transportadora_id)
-      if (faturaId) atual.faturas.add(faturaId)
-      mapa.set(t, atual)
-    })
-
-    return Array.from(mapa.entries())
-      .map(([nome, d]) => ({
-        nome,
-        embarques: d.embarques.size,
-        custo: d.custo,
-        faturas: d.faturas.size,
-      }))
-      .sort((a, b) => b.embarques - a.embarques)
-  }, [embarques, itensFaturas, ano, mes, cliente, servico, operacao, regiao, embarquesPorAwb])
-
-  const maxRegiao = Math.max(1, ...porRegiao.map((x) => x.valor))
-  const maxServico = Math.max(1, ...porServico.map((x) => x.valor))
-  const maxEvolucao = Math.max(1, ...evolucao.map((x) => x.valor))
-  const maxCliente = Math.max(1, ...topClientes.map((x) => x.custo))
-  const totalCustoComparativo = comparativo.reduce((acc, x) => acc + x.custo, 0)
   const nomeMesSelecionado = MESES.find((x) => x.valor === mes)?.label || ''
 
   const tituloEvolucao =
@@ -722,24 +712,23 @@ export default function AnaliseTransportadorasPage() {
       ? `Evolução diária das faturas — ${nomeMesSelecionado}/${ano}`
       : ano !== 'TODOS'
         ? `Evolução mensal das faturas — ${ano}`
-        : mes !== 'TODOS'
-          ? `Evolução anual das faturas — ${nomeMesSelecionado}`
-          : 'Evolução anual das faturas'
+        : 'Evolução das faturas'
 
-  const faturasRecentes = [...faturasFiltradas]
+  const maxEvolucao = Math.max(1, ...evolucao.map((x) => x.valor))
+  const maxCliente = Math.max(1, ...topClientes.map((x) => x.custo))
+  const maxServico = Math.max(1, ...porServico.map((x) => x.valor))
+
+  const faturasRecentes = [...faturasPeriodo]
     .sort((a, b) => dataISO(dataFatura(b)).localeCompare(dataISO(dataFatura(a))))
-    .slice(0, modoApresentacao ? 6 : 12)
+    .slice(0, modoApresentacao ? 6 : 10)
 
   function limparFiltros() {
     setTransportadora('TODAS')
     setAno(String(ANO_ATUAL))
     setMes('TODOS')
+    setStatus('TODOS')
     setCliente('TODOS')
     setServico('TODOS')
-    setOperacao('TODAS')
-    setRegiao('TODAS')
-    setFaixa('TODAS')
-    setStatus('TODOS')
   }
 
   if (carregando) {
@@ -747,7 +736,9 @@ export default function AnaliseTransportadorasPage() {
       <main className="min-h-screen bg-[#020817] p-6 text-white">
         <div className="rounded-3xl border border-blue-900 bg-[#071225] p-8">
           <p className="text-xl font-black">Carregando Análise de Transportadoras...</p>
-          <p className="mt-2 text-sm text-slate-400">Embarques, faturas de transportadoras e custos por AWB.</p>
+          <p className="mt-2 text-sm text-slate-400">
+            Faturas de transportadoras, itens por AWB e embarques vinculados.
+          </p>
         </div>
       </main>
     )
@@ -763,41 +754,43 @@ export default function AnaliseTransportadorasPage() {
         }
       `}</style>
 
-      <div className="w-full max-w-none space-y-6">
-        <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+      <div className="w-full max-w-none space-y-5">
+        <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
           <div>
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-blue-400">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-400">
               Intelligence
             </p>
-            <h1 className="mt-1 text-4xl font-black tracking-tight 2xl:text-5xl">
+            <h1 className="mt-1 text-3xl font-black tracking-tight 2xl:text-4xl">
               Análise de Transportadoras
             </h1>
-            <p className="mt-2 max-w-4xl text-base leading-relaxed text-slate-400">
-              Visão executiva de embarques, regiões, serviços, peso e faturas pagas às transportadoras.
-              Não utiliza faturas emitidas contra clientes.
+            <p className="mt-1.5 max-w-4xl text-sm leading-relaxed text-slate-400">
+              Visão executiva das faturas pagas às transportadoras e dos AWBs identificados nelas.
+              O período financeiro segue a data da fatura; os embarques são vinculados pelos AWBs das faturas.
             </p>
           </div>
 
           <div className="no-print flex flex-wrap gap-2">
             <button
               onClick={() => setModoApresentacao((v) => !v)}
-              className={`rounded-xl border px-5 py-3 text-sm font-black ${
+              className={`rounded-xl border px-4 py-2.5 text-xs font-black ${
                 modoApresentacao
                   ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
                   : 'border-slate-700 bg-slate-900 text-slate-300'
               }`}
             >
-              🎤 Modo apresentação {modoApresentacao ? 'ON' : 'OFF'}
+              🎤 Apresentação {modoApresentacao ? 'ON' : 'OFF'}
             </button>
+
             <button
               onClick={() => window.print()}
-              className="rounded-xl bg-violet-600 px-5 py-3 text-sm font-black text-white hover:bg-violet-500"
+              className="rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-black text-white hover:bg-violet-500"
             >
               📄 Gerar PDF
             </button>
+
             <button
               onClick={() => carregar()}
-              className="rounded-xl border border-blue-800 bg-blue-950/40 px-5 py-3 text-sm font-black text-blue-300"
+              className="rounded-xl border border-blue-800 bg-blue-950/40 px-4 py-2.5 text-xs font-black text-blue-300"
             >
               ↻ Atualizar
             </button>
@@ -810,52 +803,21 @@ export default function AnaliseTransportadorasPage() {
           </div>
         ) : null}
 
-        <section className="no-print rounded-2xl border border-slate-800 bg-[#071225] p-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-9">
+        <section className="no-print rounded-2xl border border-slate-800 bg-[#071225] p-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Filtro label="Transportadora" valor={transportadora} setValor={setTransportadora}>
               <option value="TODAS">Todas</option>
               {opcoes.transportadoras.map((x) => <option key={x}>{x}</option>)}
             </Filtro>
 
-            <Filtro label="Ano" valor={ano} setValor={setAno}>
+            <Filtro label="Ano da fatura" valor={ano} setValor={setAno}>
               <option value="TODOS">Todos</option>
               {opcoes.anos.map((x) => <option key={x} value={x}>{x}</option>)}
             </Filtro>
 
-            <Filtro label="Mês" valor={mes} setValor={setMes}>
+            <Filtro label="Mês da fatura" valor={mes} setValor={setMes}>
               <option value="TODOS">Todos</option>
               {MESES.map((x) => <option key={x.valor} value={x.valor}>{x.label}</option>)}
-            </Filtro>
-
-            <Filtro label="Cliente" valor={cliente} setValor={setCliente}>
-              <option value="TODOS">Todos</option>
-              {opcoes.clientes.map((x) => <option key={x}>{x}</option>)}
-            </Filtro>
-
-            <Filtro label="Serviço" valor={servico} setValor={setServico}>
-              <option value="TODOS">Todos</option>
-              {opcoes.servicos.map((x) => <option key={x}>{x}</option>)}
-            </Filtro>
-
-            <Filtro label="Operação" valor={operacao} setValor={setOperacao}>
-              <option value="TODAS">Todas</option>
-              <option>Importação</option>
-              <option>Exportação</option>
-              <option>Não informado</option>
-            </Filtro>
-
-            <Filtro label="Região comercial" valor={regiao} setValor={setRegiao}>
-              <option value="TODAS">Todas</option>
-              {opcoes.regioes.map((x) => <option key={x}>{x}</option>)}
-            </Filtro>
-
-            <Filtro label="Faixa da fatura" valor={faixa} setValor={setFaixa}>
-              <option value="TODAS">Todas</option>
-              <option>Até R$ 500</option>
-              <option>R$ 500 a R$ 2 mil</option>
-              <option>R$ 2 mil a R$ 5 mil</option>
-              <option>R$ 5 mil a R$ 10 mil</option>
-              <option>Acima de R$ 10 mil</option>
             </Filtro>
 
             <Filtro label="Status da fatura" valor={status} setValor={setStatus}>
@@ -867,7 +829,31 @@ export default function AnaliseTransportadorasPage() {
             </Filtro>
           </div>
 
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex flex-col gap-3 border-t border-slate-800 pt-3 xl:flex-row xl:items-end xl:justify-between">
+            <details className="group flex-1">
+              <summary className="cursor-pointer text-xs font-black uppercase tracking-[0.16em] text-blue-300">
+                + Detalhamento operacional por cliente/serviço
+              </summary>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Filtro label="Cliente identificado no AWB" valor={cliente} setValor={setCliente}>
+                  <option value="TODOS">Todos</option>
+                  {opcoesOperacionais.clientes.map((x) => <option key={x}>{x}</option>)}
+                </Filtro>
+
+                <Filtro label="Serviço do embarque" valor={servico} setValor={setServico}>
+                  <option value="TODOS">Todos</option>
+                  {opcoesOperacionais.servicos.map((x) => <option key={x}>{x}</option>)}
+                </Filtro>
+              </div>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Estes dois filtros refinam os indicadores por AWB. Os totais financeiros continuam
+                representando as faturas do período selecionado para evitar atribuir o valor integral
+                de uma fatura a apenas um cliente ou serviço.
+              </p>
+            </details>
+
             <button
               onClick={limparFiltros}
               className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-black text-slate-300 hover:bg-slate-800"
@@ -877,66 +863,138 @@ export default function AnaliseTransportadorasPage() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
-          <Card titulo="Total de embarques" valor={numeroBR(resumo.embarques)} detalhe="No período filtrado" icone="🚚" />
-          <Card titulo="Valor das faturas" valor={moeda(resumo.valorFaturas)} detalhe="Cobrado pelas transportadoras" icone="🧾" />
-          <Card titulo="Valor pago" valor={moeda(resumo.valorPago)} detalhe="Faturas identificadas como pagas" icone="💰" />
-          <Card titulo="Nº de faturas" valor={numeroBR(resumo.faturas)} detalhe="Faturas de transportadoras" icone="📄" />
-          <Card titulo="Ticket médio" valor={moeda(resumo.ticketMedio)} detalhe="Valor médio por fatura" icone="🎫" />
-          <Card titulo="Peso movimentado" valor={`${numeroBR(resumo.pesoTotal, 1)} kg`} detalhe="Peso taxado; real como fallback" icone="⚖️" />
-          <Card titulo="Clientes atendidos" valor={numeroBR(resumo.clientes)} detalhe="Clientes distintos" icone="👥" />
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            titulo="Faturas"
+            valor={numeroBR(resumoFinanceiro.faturas)}
+            detalhe={`Ticket médio ${moeda(resumoFinanceiro.ticket)}`}
+            icone="📄"
+          />
+          <KpiCard
+            titulo="Valor faturado"
+            valor={moeda(resumoFinanceiro.total)}
+            detalhe="Total das faturas no período"
+            icone="🧾"
+          />
+          <KpiCard
+            titulo="Valor pago"
+            valor={moeda(resumoFinanceiro.pago)}
+            detalhe="PAGA/PAGO ou com data de pagamento"
+            icone="✅"
+            destaque="green"
+          />
+          <KpiCard
+            titulo="Saldo em aberto"
+            valor={moeda(resumoFinanceiro.aberto)}
+            detalhe="Saldo ainda não quitado"
+            icone="⏳"
+            destaque="orange"
+          />
         </section>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <Painel titulo="Embarques por região" subtitulo="Região comercial inferida pela origem/destino">
-            <div className="space-y-4">
-              {porRegiao.slice(0, 8).map((x, i) => (
-                <BarraHorizontal key={x.label} label={x.label} valor={x.valor} maximo={maxRegiao} indice={i} />
-              ))}
-              {!porRegiao.length ? <Vazio /> : null}
+        <section className="rounded-2xl border border-slate-800 bg-[#071225] p-4 shadow-lg">
+          <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">
+                Operação vinculada às faturas
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Calculada pelos AWBs cadastrados nos itens das faturas, sem filtrar pela data de criação do embarque.
+              </p>
             </div>
-          </Painel>
+            <span className="text-xs font-bold text-slate-500">
+              Custo identificado por AWB: {moeda(resumoOperacional.custoIdentificado)}
+            </span>
+          </div>
 
-          <Painel titulo="Distribuição por serviço" subtitulo="Top serviços no filtro atual">
-            <div className="space-y-4">
-              {porServico.map((x, i) => (
-                <BarraHorizontal key={x.label} label={x.label} valor={x.valor} maximo={maxServico} indice={i + 1} />
-              ))}
-              {!porServico.length ? <Vazio /> : null}
-            </div>
-          </Painel>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+            <MiniMetrica
+              titulo="AWBs identificados"
+              valor={numeroBR(resumoOperacional.awbs)}
+              detalhe="AWBs nos itens das faturas"
+            />
+            <MiniMetrica
+              titulo="Embarques encontrados"
+              valor={numeroBR(resumoOperacional.embarques)}
+              detalhe={`${numeroBR(resumoOperacional.awbsComEmbarque)} AWB(s) conciliado(s)`}
+            />
+            <MiniMetrica
+              titulo="Clientes"
+              valor={numeroBR(resumoOperacional.clientes)}
+              detalhe="Clientes distintos identificados"
+            />
+            <MiniMetrica
+              titulo="Peso identificado"
+              valor={`${numeroBR(resumoOperacional.pesoTotal, 1)} kg`}
+              detalhe="Taxado; peso real como fallback"
+            />
+            <MiniMetrica
+              titulo="Cobertura AWB"
+              valor={percentual(qualidade.coberturaAwbs)}
+              detalhe={`${qualidade.awbsSemEmbarque} AWB(s) sem embarque localizado`}
+            />
+          </div>
         </section>
 
-        <Painel titulo={tituloEvolucao} subtitulo="Valor total cobrado pelas transportadoras">
+        <section
+          className={`rounded-2xl border p-4 ${
+            qualidade.faturasSemItens > 0 || qualidade.awbsSemEmbarque > 0
+              ? 'border-amber-800/60 bg-amber-950/10'
+              : 'border-emerald-900/60 bg-emerald-950/10'
+          }`}
+        >
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+                Qualidade dos vínculos
+              </p>
+              <p className="mt-1 text-sm font-bold text-white">
+                {qualidade.faturasComItens} de {faturasPeriodo.length} fatura(s) têm AWBs cadastrados
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
+                Cobertura das faturas: {percentual(qualidade.coberturaFaturas)}
+              </span>
+              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
+                {qualidade.faturasSemItens} fatura(s) sem AWBs
+              </span>
+              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
+                {qualidade.awbsSemEmbarque} AWB(s) sem embarque
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <Painel titulo={tituloEvolucao} subtitulo="Valor total das faturas de transportadora">
           <div className="overflow-x-auto pb-2">
             <div
-              className={`flex h-[390px] items-end gap-3 pt-10 ${
-                ano !== 'TODOS' && mes !== 'TODOS' ? 'min-w-[1450px]' : 'min-w-[920px]'
+              className={`flex h-[300px] items-end gap-3 pt-8 ${
+                ano !== 'TODOS' && mes !== 'TODOS' ? 'min-w-[1300px]' : 'min-w-[820px]'
               }`}
             >
               {evolucao.map((x, i) => {
-                const altura = x.valor
-                  ? Math.max(22, Math.round((x.valor / maxEvolucao) * 280))
-                  : 4
+                const altura = x.valor ? Math.max(18, Math.round((x.valor / maxEvolucao) * 210)) : 3
 
                 return (
                   <div
                     key={`${x.label}-${i}`}
-                    className="flex min-w-[42px] flex-1 flex-col items-center justify-end gap-3"
+                    className="flex min-w-[38px] flex-1 flex-col items-center justify-end gap-2"
                     title={`${x.label}: ${moeda(x.valor)}`}
                   >
-                    <span className="min-h-[20px] whitespace-nowrap text-xs font-black text-slate-200">
+                    <span className="min-h-[18px] whitespace-nowrap text-[11px] font-black text-slate-300">
                       {x.valor ? moedaCompacta(x.valor) : ''}
                     </span>
                     <div
-                      className="w-full max-w-[76px] rounded-t-xl shadow-lg transition-all"
+                      className="w-full max-w-[64px] rounded-t-lg transition-all"
                       style={{
                         height: `${altura}px`,
                         backgroundColor: CORES[i % CORES.length],
-                        opacity: x.valor ? 1 : 0.18,
+                        opacity: x.valor ? 1 : 0.15,
                       }}
                     />
-                    <span className="text-sm font-black text-slate-300">{x.label}</span>
+                    <span className="text-xs font-black text-slate-400">{x.label}</span>
                   </div>
                 )
               })}
@@ -944,91 +1002,89 @@ export default function AnaliseTransportadorasPage() {
           </div>
         </Painel>
 
-        <Painel
-          titulo="Top clientes por custo de transporte"
-          subtitulo="Soma dos valores por AWB encontrados nas faturas das transportadoras"
-        >
-          <div className="space-y-4">
-            {topClientes.map((x, i) => (
-              <BarraHorizontal
-                key={x.nome}
-                label={`${i + 1}. ${modoApresentacao ? x.nome : x.nome}`}
-                valor={x.custo}
-                maximo={maxCliente}
-                detalhe={`${moeda(x.custo)} • ${x.embarques} AWB(s)`}
-                indice={i + 2}
-              />
-            ))}
-            {!topClientes.length ? <Vazio texto="Ainda não há custos por AWB suficientes para este filtro." /> : null}
-          </div>
-        </Painel>
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Painel
+            titulo="Top clientes por custo identificado"
+            subtitulo="Soma dos valores por AWB das faturas selecionadas"
+          >
+            <div className="space-y-4">
+              {topClientes.map((x, i) => (
+                <BarraHorizontal
+                  key={x.nome}
+                  label={`${i + 1}. ${x.nome}`}
+                  valor={x.custo}
+                  maximo={maxCliente}
+                  detalhe={`${moeda(x.custo)} • ${x.embarques} AWB(s)`}
+                  indice={i + 1}
+                />
+              ))}
+              {!topClientes.length ? <Vazio texto="Nenhum cliente identificado nos AWBs deste filtro." /> : null}
+            </div>
+          </Painel>
 
-        <Painel titulo="Comparativo por transportadora" subtitulo="Mesmo período e filtros comerciais">
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {comparativo.map((x, i) => {
-              const participacao = totalCustoComparativo > 0 ? (x.custo / totalCustoComparativo) * 100 : 0
-              const custoMedioAwb = x.embarques > 0 ? x.custo / x.embarques : 0
+          <Painel titulo="Serviços identificados" subtitulo="Quantidade de AWBs por serviço do embarque">
+            <div className="space-y-4">
+              {porServico.map((x, i) => (
+                <BarraHorizontal
+                  key={x.label}
+                  label={x.label}
+                  valor={x.valor}
+                  maximo={maxServico}
+                  indice={i + 2}
+                />
+              ))}
+              {!porServico.length ? <Vazio texto="Nenhum serviço identificado nos AWBs deste filtro." /> : null}
+            </div>
+          </Painel>
+        </section>
 
-              return (
+        {comparativo.length > 1 ? (
+          <Painel titulo="Comparativo por transportadora" subtitulo="Mesma competência financeira selecionada acima">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+              {comparativo.map((x, i) => (
                 <div
                   key={x.nome}
-                  className="rounded-2xl border border-slate-700 bg-[#030b18] p-6 shadow-lg"
+                  className="rounded-xl border border-slate-800 bg-[#030b18] p-4"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-2xl font-black text-white">{x.nome}</p>
+                    <p className="text-xl font-black text-white">{x.nome}</p>
                     <span
-                      className="h-4 w-4 rounded-full"
+                      className="h-3 w-3 rounded-full"
                       style={{ backgroundColor: CORES[i % CORES.length] }}
                     />
                   </div>
 
-                  <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Embarques</p>
-                      <p className="mt-2 text-2xl font-black text-white">{numeroBR(x.embarques)}</p>
+                      <p className="text-xs text-slate-500">Faturas</p>
+                      <p className="mt-1 font-black text-white">{numeroBR(x.faturas)}</p>
                     </div>
-
                     <div>
-                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Faturas vinculadas</p>
-                      <p className="mt-2 text-2xl font-black text-white">{numeroBR(x.faturas)}</p>
+                      <p className="text-xs text-slate-500">AWBs</p>
+                      <p className="mt-1 font-black text-white">{numeroBR(x.awbs)}</p>
                     </div>
-
                     <div>
-                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Valor identificado</p>
-                      <p className="mt-2 text-xl font-black text-white">{moeda(x.custo)}</p>
+                      <p className="text-xs text-slate-500">Valor</p>
+                      <p className="mt-1 font-black text-white">{moeda(x.total)}</p>
                     </div>
-
                     <div>
-                      <p className="text-xs font-black uppercase tracking-wider text-slate-500">Custo médio / AWB</p>
-                      <p className="mt-2 text-xl font-black text-white">{moeda(custoMedioAwb)}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-6">
-                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                      <span className="font-bold text-slate-400">Participação no valor identificado</span>
-                      <span className="font-black text-white">{numeroBR(participacao, 1)}%</span>
-                    </div>
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-900">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${Math.max(participacao > 0 ? 2 : 0, participacao)}%`,
-                          backgroundColor: CORES[i % CORES.length],
-                        }}
-                      />
+                      <p className="text-xs text-slate-500">Pago</p>
+                      <p className="mt-1 font-black text-emerald-300">{moeda(x.pago)}</p>
                     </div>
                   </div>
                 </div>
-              )
-            })}
-            {!comparativo.length ? <Vazio /> : null}
-          </div>
-        </Painel>
+              ))}
+            </div>
+          </Painel>
+        ) : null}
 
-        <Painel titulo="Faturas das transportadoras" subtitulo="Últimas faturas dentro dos filtros selecionados">
+        {!modoApresentacao ? (
+          <Painel
+            titulo="Faturas recentes"
+            subtitulo="Últimas faturas dentro da competência e status selecionados"
+          >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1200px] text-left text-sm">
+              <table className="w-full min-w-[980px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-500">
                     <th className="px-3 py-3">Transportadora</th>
@@ -1037,10 +1093,11 @@ export default function AnaliseTransportadorasPage() {
                     <th className="px-3 py-3">Vencimento</th>
                     <th className="px-3 py-3">Valor</th>
                     <th className="px-3 py-3">Pago</th>
+                    <th className="px-3 py-3">Saldo</th>
                     <th className="px-3 py-3">Situação</th>
-                    <th className="px-3 py-3">Contestação</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {faturasRecentes.map((item) => (
                     <tr key={item.id} className="border-b border-slate-900">
@@ -1050,12 +1107,12 @@ export default function AnaliseTransportadorasPage() {
                       <td className="px-3 py-3">{dataBR(item.vencimento)}</td>
                       <td className="px-3 py-3 font-black">{moeda(item.total)}</td>
                       <td className="px-3 py-3 text-emerald-300">{moeda(valorPagoFatura(item))}</td>
+                      <td className="px-3 py-3 text-amber-300">{moeda(saldoFatura(item))}</td>
                       <td className="px-3 py-3">
                         <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 font-bold">
                           {statusFatura(item)}
                         </span>
                       </td>
-                      <td className="px-3 py-3">{texto(item.status_contestacao) || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1063,14 +1120,15 @@ export default function AnaliseTransportadorasPage() {
 
               {!faturasRecentes.length ? <Vazio texto="Nenhuma fatura encontrada para os filtros atuais." /> : null}
             </div>
-        </Painel>
+          </Painel>
+        ) : null}
 
-        <footer className="flex flex-col justify-between gap-2 border-t border-slate-900 py-5 text-sm text-slate-500 sm:flex-row">
+        <footer className="flex flex-col justify-between gap-2 border-t border-slate-900 py-5 text-xs text-slate-500 sm:flex-row">
           <span>
-            Dados: embarques + faturas_transportadoras + faturas_transportadoras_itens.
+            Financeiro: faturas_transportadoras. Operação: AWBs de faturas_transportadoras_itens conciliados com embarques.
           </span>
           <span>
-            Custos por cliente dependem do AWB estar identificado na fatura da transportadora.
+            Faturas sem AWBs permanecem no total financeiro e são sinalizadas em Qualidade dos vínculos.
           </span>
         </footer>
       </div>
@@ -1091,13 +1149,13 @@ function Filtro({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-xs font-black uppercase tracking-wider text-slate-400">
+      <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
         {label}
       </span>
       <select
         value={valor}
         onChange={(e) => setValor(e.target.value)}
-        className="w-full rounded-xl border border-slate-700 bg-[#030b18] px-4 py-3 text-sm font-bold text-white outline-none focus:border-blue-500"
+        className="w-full rounded-xl border border-slate-700 bg-[#030b18] px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-blue-500"
       >
         {children}
       </select>
@@ -1115,10 +1173,10 @@ function Painel({
   children: ReactNode
 }) {
   return (
-    <section className="h-full rounded-2xl border border-slate-800 bg-[#071225] p-6 shadow-xl">
-      <div className="mb-6">
-        <h2 className="text-xl font-black text-white">{titulo}</h2>
-        {subtitulo ? <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{subtitulo}</p> : null}
+    <section className="h-full rounded-2xl border border-slate-800 bg-[#071225] p-5 shadow-lg">
+      <div className="mb-5">
+        <h2 className="text-lg font-black text-white">{titulo}</h2>
+        {subtitulo ? <p className="mt-1 text-xs leading-relaxed text-slate-500">{subtitulo}</p> : null}
       </div>
       {children}
     </section>
@@ -1127,7 +1185,7 @@ function Painel({
 
 function Vazio({ texto: mensagem = 'Sem dados para os filtros selecionados.' }: { texto?: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 p-6 text-center text-sm font-bold text-slate-500">
+    <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/30 p-5 text-center text-sm font-bold text-slate-500">
       {mensagem}
     </div>
   )
