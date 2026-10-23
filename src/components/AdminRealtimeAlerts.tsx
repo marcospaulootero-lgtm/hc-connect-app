@@ -130,6 +130,7 @@ export default function AdminRealtimeAlerts({
   const somAtivoRef = useRef(false)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ultimoAlertaRef = useRef<string>('')
+  const ultimoRefreshRef = useRef(0)
 
   function adicionarAlerta(
     titulo: string,
@@ -252,24 +253,24 @@ export default function AdminRealtimeAlerts({
 
   function atualizarDashboardComDebounce() {
     if (!onRefresh) return
+    if (typeof document !== 'undefined' && document.hidden) return
 
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current)
-    }
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
 
+    const atraso = Math.max(1500, 12000 - (Date.now() - ultimoRefreshRef.current))
     refreshTimerRef.current = setTimeout(async () => {
       try {
+        ultimoRefreshRef.current = Date.now()
         await onRefresh()
       } catch (error) {
         console.error('Erro ao atualizar dashboard em tempo real:', error)
-
         adicionarAlerta(
           'Erro ao atualizar',
           'A alteração chegou, mas a dashboard não conseguiu recarregar os dados.',
           'warning'
         )
       }
-    }, 500)
+    }, atraso)
   }
 
   useEffect(() => {

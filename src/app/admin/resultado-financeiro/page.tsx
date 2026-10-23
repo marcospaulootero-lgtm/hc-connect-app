@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { carregarAliasesClientes, mapaAliasesClientes, nomeCanonicoCliente, normalizarIdentidade, nomeExibicaoPreferido } from '@/lib/identidade'
 
 const MESES = [
   'Janeiro',
@@ -31,6 +32,8 @@ export default function ResultadoFinanceiroPage() {
   const [transportadora, setTransportadora] = useState('TODOS')
   const [metaMes, setMetaMes] = useState('40000')
   const [filtroDashboard, setFiltroDashboard] = useState('')
+  const [aliasesClientes, setAliasesClientes] = useState<any[]>([])
+  const mapaAliases = useMemo(() => mapaAliasesClientes(aliasesClientes), [aliasesClientes])
 
   useEffect(() => {
     const filtrosSalvos = localStorage.getItem(STORAGE_KEY)
@@ -116,6 +119,9 @@ export default function ResultadoFinanceiroPage() {
 
   async function carregar() {
     setLoading(true)
+
+    const aliasesCarregados = await carregarAliasesClientes(supabase)
+    setAliasesClientes(aliasesCarregados)
 
     let todos: any[] = []
     let inicio = 0
@@ -258,13 +264,21 @@ export default function ResultadoFinanceiroPage() {
   const meses = ['TODOS', ...MESES]
 
   const clientes = useMemo(() => {
+    const mapa = new Map<string, string[]>()
+
+    dadosRecebidos.forEach((item) => {
+      const nome = nomeCanonicoCliente(item.cliente || 'SEM CLIENTE', mapaAliases)
+      const chave = normalizarIdentidade(nome) || 'sem cliente'
+      mapa.set(chave, [...(mapa.get(chave) || []), nome])
+    })
+
     return [
       'TODOS',
-      ...Array.from(new Set(dadosRecebidos.map((d) => d.cliente || 'SEM CLIENTE'))).sort(
-        (a, b) => String(a).localeCompare(String(b), 'pt-BR')
-      ),
+      ...Array.from(mapa.values())
+        .map((nomes) => nomeExibicaoPreferido(nomes))
+        .sort((a, b) => String(a).localeCompare(String(b), 'pt-BR')),
     ]
-  }, [dadosRecebidos])
+  }, [dadosRecebidos, mapaAliases])
 
   const transportadoras = useMemo(() => {
     return [
@@ -279,14 +293,14 @@ export default function ResultadoFinanceiroPage() {
     return dadosRecebidos.filter((item) => {
       const passaAno = ano === 'TODOS' || getAno(item) === ano
       const passaMes = mes === 'TODOS' || getMes(item) === mes
-      const passaCliente = cliente === 'TODOS' || (item.cliente || 'SEM CLIENTE') === cliente
+      const passaCliente = cliente === 'TODOS' || normalizarIdentidade(nomeCanonicoCliente(item.cliente || 'SEM CLIENTE', mapaAliases)) === normalizarIdentidade(cliente)
       const passaTransportadora =
         transportadora === 'TODOS' ||
         (item.transportadora || 'SEM TRANSPORTADORA') === transportadora
 
       return passaAno && passaMes && passaCliente && passaTransportadora
     })
-  }, [dadosRecebidos, ano, mes, cliente, transportadora])
+  }, [dadosRecebidos, ano, mes, cliente, transportadora, mapaAliases])
 
   const filtradosComCusto = useMemo(() => {
     return filtrados.filter(temCustoReal)
@@ -322,28 +336,32 @@ export default function ResultadoFinanceiroPage() {
   }, [filtrados, filtradosComCusto])
 
   function ranking(campo: string) {
-    const mapa: any = {}
+    const mapa = new Map<string, any>()
 
     filtradosComCusto.forEach((item) => {
-      const chave = item[campo] || `SEM ${campo.toUpperCase()}`
-
-      if (!mapa[chave]) {
-        mapa[chave] = {
-          nome: chave,
-          processos: 0,
-          faturamento: 0,
-          custos: 0,
-          profit: 0,
-        }
+      const nomeOriginal = campo === 'cliente'
+        ? nomeCanonicoCliente(item[campo] || `SEM ${campo.toUpperCase()}`, mapaAliases)
+        : item[campo] || `SEM ${campo.toUpperCase()}`
+      const chave = campo === 'cliente' ? normalizarIdentidade(nomeOriginal) : String(nomeOriginal)
+      const atual = mapa.get(chave) || {
+        nome: nomeOriginal,
+        nomes: [] as string[],
+        processos: 0,
+        faturamento: 0,
+        custos: 0,
+        profit: 0,
       }
 
-      mapa[chave].processos += 1
-      mapa[chave].faturamento += Number(item.valor_cobranca || 0)
-      mapa[chave].custos += custos(item)
-      mapa[chave].profit += profit(item)
+      atual.nomes.push(String(nomeOriginal))
+      if (campo === 'cliente') atual.nome = nomeExibicaoPreferido(atual.nomes) || nomeOriginal
+      atual.processos += 1
+      atual.faturamento += Number(item.valor_cobranca || 0)
+      atual.custos += custos(item)
+      atual.profit += profit(item)
+      mapa.set(chave, atual)
     })
 
-    return Object.values(mapa)
+    return Array.from(mapa.values())
       .sort((a: any, b: any) => b.profit - a.profit)
       .slice(0, 10)
   }

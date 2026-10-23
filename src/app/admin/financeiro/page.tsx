@@ -962,9 +962,17 @@ export default function FinanceiroPage() {
     setPagina(1)
   }
 
+  function mesPadraoDespesas() {
+    const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0')
+    const anoBase = todosAnosFinanceiroAtivo()
+      ? String(new Date().getFullYear())
+      : anoFinanceiroAtivo()
+    return `${anoBase}-${mesAtual}`
+  }
+
   function limparFiltrosMovimentos() {
     setBuscaMovimento('')
-    setFiltroMesMovimento([])
+    setFiltroMesMovimento(abaPrincipal === 'DESPESAS' ? [mesPadraoDespesas()] : [])
     setFiltroStatusMovimento([])
     setFiltroSocioMovimento([])
     setPaginaMovimentos(1)
@@ -6053,7 +6061,10 @@ export default function FinanceiroPage() {
     setPaginaMovimentos(1)
     setPaginaExtrato(1)
 
-    if (novaAba === 'DESPESAS') prepararDespesa()
+    if (novaAba === 'DESPESAS') {
+      setFiltroMesMovimento([mesPadraoDespesas()])
+      prepararDespesa()
+    }
     if (novaAba === 'SOCIOS') prepararSocio()
     if (novaAba === 'FUNDO') prepararFundo()
   }

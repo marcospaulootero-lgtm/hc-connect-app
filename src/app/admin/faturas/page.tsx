@@ -282,6 +282,11 @@ export default function FaturasPage() {
     useState<VinculoFaturaCliente[]>([])
   const [visualizacoesFaturas, setVisualizacoesFaturas] =
     useState<VisualizacaoFatura[]>([])
+  const [gerenciandoVinculos, setGerenciandoVinculos] = useState<{ embarque: Embarque; fatura: Fatura | null } | null>(null)
+  const [vinculosSelecionados, setVinculosSelecionados] = useState<string[]>([])
+  const [vinculoPrincipal, setVinculoPrincipal] = useState('')
+  const [buscaVinculoPortal, setBuscaVinculoPortal] = useState('')
+  const [salvandoVinculos, setSalvandoVinculos] = useState(false)
   const [buscaEmissorAwb, setBuscaEmissorAwb] = useState('')
   const [filtroStatusEmissor, setFiltroStatusEmissor] = useState('TODOS')
   const [buscaClienteEmissor, setBuscaClienteEmissor] = useState('')
@@ -752,6 +757,94 @@ export default function FaturasPage() {
     })
   }
 
+
+  function abrirGerenciadorVinculos(embarque: Embarque, fatura?: Fatura | null) {
+    const atuais = usuariosVinculadosFatura(embarque, fatura || null).map((item) => item.id)
+    const principal = String(fatura?.usuario_id || embarque.usuario_id || atuais[0] || '')
+    setGerenciandoVinculos({ embarque, fatura: fatura || null })
+    setVinculosSelecionados(Array.from(new Set(atuais)))
+    setVinculoPrincipal(principal)
+    setBuscaVinculoPortal('')
+  }
+
+  function alternarVinculoPortal(usuarioId: string) {
+    setVinculosSelecionados((atuais) => {
+      if (atuais.includes(usuarioId)) {
+        const novos = atuais.filter((id) => id !== usuarioId)
+        if (vinculoPrincipal === usuarioId) setVinculoPrincipal(novos[0] || '')
+        return novos
+      }
+      const novos = [...atuais, usuarioId]
+      if (!vinculoPrincipal) setVinculoPrincipal(usuarioId)
+      return novos
+    })
+  }
+
+  async function salvarGerenciadorVinculos() {
+    if (!gerenciandoVinculos) return
+    const embarque = gerenciandoVinculos.embarque
+    const fatura = gerenciandoVinculos.fatura
+    const ids = Array.from(new Set(vinculosSelecionados.filter(Boolean)))
+    const principal = ids.length ? (ids.includes(vinculoPrincipal) ? vinculoPrincipal : ids[0]) : null
+
+    setSalvandoVinculos(true)
+    try {
+      const { error: erroDeleteEmbarque } = await supabase
+        .from('embarque_clientes')
+        .delete()
+        .eq('embarque_id', embarque.id)
+      if (erroDeleteEmbarque) throw erroDeleteEmbarque
+
+      if (ids.length > 0) {
+        const { error } = await supabase.from('embarque_clientes').insert(
+          ids.map((clienteId) => ({ embarque_id: embarque.id, cliente_id: clienteId }))
+        )
+        if (error) throw error
+      }
+
+      const { error: erroPrincipal } = await supabase
+        .from('embarques')
+        .update({ usuario_id: principal })
+        .eq('id', embarque.id)
+      if (erroPrincipal) throw erroPrincipal
+
+      if (fatura?.id) {
+        const { error: erroDeleteFatura } = await supabase
+          .from('fatura_clientes')
+          .delete()
+          .eq('fatura_id', fatura.id)
+        if (erroDeleteFatura) throw erroDeleteFatura
+
+        if (ids.length > 0) {
+          const { error } = await supabase.from('fatura_clientes').insert(
+            ids.map((clienteId) => ({ fatura_id: fatura.id, cliente_id: clienteId }))
+          )
+          if (error) throw error
+        }
+
+        const { error: erroFaturaPrincipal } = await supabase
+          .from('faturas')
+          .update({ usuario_id: principal })
+          .eq('id', fatura.id)
+        if (erroFaturaPrincipal) throw erroFaturaPrincipal
+      }
+
+      await carregar()
+      setGerenciandoVinculos(null)
+      setVinculosSelecionados([])
+      setVinculoPrincipal('')
+    } catch (error: any) {
+      alert('Erro ao salvar vínculos: ' + (error?.message || error))
+    } finally {
+      setSalvandoVinculos(false)
+    }
+  }
+
+  const usuariosPortalFiltradosVinculo = usuariosPortal.filter((usuario) => {
+    const termo = buscaVinculoPortal.trim().toLowerCase()
+    if (!termo) return true
+    return `${usuario.nome || ''} ${usuario.email || ''}`.toLowerCase().includes(termo)
+  })
 
   function visualizacaoFaturaUsuario(
     faturaId?: string | null,
@@ -9238,6 +9331,13 @@ async function carregarImagemBase64(caminhos: string[]) {
                             Sem login vinculado
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => abrirGerenciadorVinculos(embarque, fatura)}
+                          className="mt-2 w-full rounded-xl border border-cyan-700 bg-cyan-900/30 px-3 py-2 text-xs font-black text-cyan-200 hover:bg-cyan-800/40"
+                        >
+                          Gerenciar vínculos
+                        </button>
                       </td>
 
                       <td className="min-w-[260px]">
@@ -9896,6 +9996,70 @@ async function carregarImagemBase64(caminhos: string[]) {
         </div>
       </section>
         </>
+      )}
+
+      {gerenciandoVinculos && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/75 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-cyan-800 bg-[#071225] p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">Acesso ao portal</p>
+                <h2 className="mt-2 text-2xl font-black text-white">Gerenciar vínculos</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-400">
+                  AWB {gerenciandoVinculos.embarque.awb || '-'} • selecione um ou mais logins e defina o principal.
+                </p>
+              </div>
+              <button type="button" onClick={() => setGerenciandoVinculos(null)} disabled={salvandoVinculos} className="rounded-xl bg-slate-700 px-4 py-2 font-black text-white">✕</button>
+            </div>
+
+            <input
+              value={buscaVinculoPortal}
+              onChange={(e) => setBuscaVinculoPortal(e.target.value)}
+              placeholder="Buscar usuário por nome ou e-mail..."
+              className="mt-5 w-full rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white"
+            />
+
+            <div className="mt-4 space-y-2">
+              {usuariosPortalFiltradosVinculo.map((usuario) => {
+                const marcado = vinculosSelecionados.includes(String(usuario.id))
+                const principal = vinculoPrincipal === String(usuario.id)
+                return (
+                  <div key={usuario.id} className="flex flex-col gap-3 rounded-2xl border border-blue-900 bg-[#020817] p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <label className="flex min-w-0 cursor-pointer items-center gap-3">
+                      <input type="checkbox" checked={marcado} onChange={() => alternarVinculoPortal(String(usuario.id))} />
+                      <span className="min-w-0">
+                        <span className="block truncate font-black text-white">{usuario.nome || 'Usuário'}</span>
+                        <span className="block truncate text-xs text-slate-400">{usuario.email || '-'}</span>
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={!marcado}
+                      onClick={() => setVinculoPrincipal(String(usuario.id))}
+                      className={principal
+                        ? 'rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white'
+                        : 'rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300 disabled:opacity-40'}
+                    >
+                      {principal ? 'Principal' : 'Definir principal'}
+                    </button>
+                  </div>
+                )
+              })}
+              {usuariosPortalFiltradosVinculo.length === 0 && <p className="rounded-xl bg-[#020817] p-4 text-sm font-bold text-slate-500">Nenhum login encontrado.</p>}
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-blue-900 bg-blue-950/20 p-4 text-sm font-semibold text-slate-300">
+              {vinculosSelecionados.length} login(s) selecionado(s). Remover todos deixa a fatura/embarque sem acesso de cliente.
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={() => setGerenciandoVinculos(null)} disabled={salvandoVinculos} className="rounded-xl bg-slate-700 px-5 py-3 font-black text-white">Cancelar</button>
+              <button type="button" onClick={salvarGerenciadorVinculos} disabled={salvandoVinculos} className="rounded-xl bg-cyan-600 px-5 py-3 font-black text-white hover:bg-cyan-500 disabled:opacity-50">
+                {salvandoVinculos ? 'Salvando...' : 'Salvar vínculos'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   )

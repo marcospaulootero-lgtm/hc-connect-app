@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { carregarAliasesClientes, mapaAliasesClientes, nomeCanonicoCliente, normalizarIdentidade, nomeExibicaoPreferido } from '@/lib/identidade'
 
 const LOTE_SUPABASE = 1000
 const ANO_ATUAL = new Date().getFullYear()
@@ -315,6 +316,8 @@ export default function AnaliseTransportadorasPage() {
   const [itensFaturas, setItensFaturas] = useState<Linha[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
+  const [aliasesClientes, setAliasesClientes] = useState<any[]>([])
+  const mapaAliases = useMemo(() => mapaAliasesClientes(aliasesClientes), [aliasesClientes])
 
   const [transportadora, setTransportadora] = useState('TODAS')
   const [ano, setAno] = useState(String(ANO_ATUAL))
@@ -362,15 +365,17 @@ export default function AnaliseTransportadorasPage() {
     setErro('')
 
     try {
-      const [embarquesData, faturasData, itensData] = await Promise.all([
+      const [embarquesData, faturasData, itensData, aliasesData] = await Promise.all([
         carregarTodos('embarques', 'criado_em', false),
         carregarTodos('faturas_transportadoras', 'criado_em', false),
         carregarTodos('faturas_transportadoras_itens', 'atualizado_em', false),
+        carregarAliasesClientes(supabase),
       ])
 
       setEmbarques(embarquesData)
       setFaturas(faturasData)
       setItensFaturas(itensData)
+      setAliasesClientes(aliasesData)
     } catch (e: any) {
       console.error(e)
       setErro(e?.message || 'Não foi possível carregar os dados.')
@@ -442,11 +447,11 @@ export default function AnaliseTransportadorasPage() {
         embarque,
         awb,
         faturaId: texto(fatura?.id || item.fatura_transportadora_id),
-        cliente: nomeClienteEmbarque(embarque),
+        cliente: nomeCanonicoCliente(nomeClienteEmbarque(embarque), mapaAliases),
         servico: texto(embarque?.servico),
       }
     })
-  }, [itensFaturas, faturasPorId, faturasPorChave, embarquesPorAwb])
+  }, [itensFaturas, faturasPorId, faturasPorChave, embarquesPorAwb, mapaAliases])
 
   const opcoes = useMemo(() => {
     const transportadoras = Array.from(
@@ -491,7 +496,12 @@ export default function AnaliseTransportadorasPage() {
 
   const opcoesOperacionais = useMemo(() => {
     const clientes = Array.from(
-      new Set(itensPeriodo.map((ctx) => ctx.cliente).filter(Boolean))
+      new Map(
+        itensPeriodo
+          .map((ctx) => ctx.cliente)
+          .filter(Boolean)
+          .map((nome) => [normalizarIdentidade(nome), nome])
+      ).values()
     ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
     const servicos = Array.from(
@@ -503,7 +513,7 @@ export default function AnaliseTransportadorasPage() {
 
   const itensOperacionais = useMemo(() => {
     return itensPeriodo.filter((ctx) => {
-      if (cliente !== 'TODOS' && normalizar(ctx.cliente) !== normalizar(cliente)) return false
+      if (cliente !== 'TODOS' && normalizarIdentidade(ctx.cliente) !== normalizarIdentidade(cliente)) return false
       if (servico !== 'TODOS' && normalizar(ctx.servico) !== normalizar(servico)) return false
       return true
     })
@@ -569,8 +579,8 @@ export default function AnaliseTransportadorasPage() {
       const chaveEmbarque = texto(ctx.embarque.id) || ctx.awb
       if (chaveEmbarque) embarquesUnicos.set(chaveEmbarque, ctx.embarque)
 
-      const clienteAtual = nomeClienteEmbarque(ctx.embarque)
-      if (clienteAtual) clientes.add(clienteAtual)
+      const clienteAtual = nomeCanonicoCliente(nomeClienteEmbarque(ctx.embarque), mapaAliases)
+      if (clienteAtual) clientes.add(normalizarIdentidade(clienteAtual) || clienteAtual)
     })
 
     const pesoTotal = Array.from(embarquesUnicos.values()).reduce(
@@ -586,7 +596,7 @@ export default function AnaliseTransportadorasPage() {
       custoIdentificado,
       awbsComEmbarque: awbsComEmbarque.size,
     }
-  }, [itensOperacionais])
+  }, [itensOperacionais, mapaAliases])
 
   const porServico = useMemo(() => {
     const mapa = new Map<string, Set<string>>()
@@ -609,24 +619,28 @@ export default function AnaliseTransportadorasPage() {
   const topClientes = useMemo(() => {
     const mapa = new Map<string, { custo: number; awbs: Set<string> }>()
 
+    const nomesPorChave = new Map<string, string[]>()
+
     itensOperacionais.forEach((ctx) => {
-      const nome = ctx.cliente || 'Não identificado'
-      const atual = mapa.get(nome) || { custo: 0, awbs: new Set<string>() }
+      const nome = nomeCanonicoCliente(ctx.cliente || 'Não identificado', mapaAliases)
+      const chave = normalizarIdentidade(nome) || nome
+      const atual = mapa.get(chave) || { custo: 0, awbs: new Set<string>() }
+      nomesPorChave.set(chave, [...(nomesPorChave.get(chave) || []), nome])
 
       atual.custo += numero(ctx.item.valor_compra)
       if (ctx.awb) atual.awbs.add(ctx.awb)
-      mapa.set(nome, atual)
+      mapa.set(chave, atual)
     })
 
     return Array.from(mapa.entries())
-      .map(([nome, dados]) => ({
-        nome,
+      .map(([chave, dados]) => ({
+        nome: nomeExibicaoPreferido(nomesPorChave.get(chave) || [chave]),
         custo: dados.custo,
         embarques: dados.awbs.size,
       }))
       .sort((a, b) => b.custo - a.custo)
       .slice(0, 8)
-  }, [itensOperacionais])
+  }, [itensOperacionais, mapaAliases])
 
   const evolucao = useMemo(() => {
     if (ano !== 'TODOS' && mes !== 'TODOS') {

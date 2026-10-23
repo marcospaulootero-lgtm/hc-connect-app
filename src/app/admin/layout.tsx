@@ -183,23 +183,30 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [pathname])
 
   useEffect(() => {
-    carregarNotificacoesMenu()
-
     let timerAtualizacao: number | null = null
+    let ultimaExecucao = 0
+
+    const executar = async () => {
+      ultimaExecucao = Date.now()
+      await carregarNotificacoesMenu()
+    }
+
+    executar()
 
     const atualizar = () => {
-      if (timerAtualizacao !== null) {
-        window.clearTimeout(timerAtualizacao)
-      }
+      if (typeof document !== 'undefined' && document.hidden) return
+      if (Date.now() - ultimaExecucao < 10000) return
+
+      if (timerAtualizacao !== null) window.clearTimeout(timerAtualizacao)
 
       timerAtualizacao = window.setTimeout(() => {
         timerAtualizacao = null
-        carregarNotificacoesMenu()
-      }, 500)
+        executar()
+      }, 1200)
     }
 
     const canal = supabase
-      .channel('notificacoes-menu-admin-v2')
+      .channel('notificacoes-menu-admin-v3')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'cotacoes' },
@@ -237,15 +244,21 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       )
       .subscribe()
 
-    const intervalo = window.setInterval(atualizar, 60000)
+    const intervalo = window.setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden && Date.now() - ultimaExecucao >= 300000) {
+        executar()
+      }
+    }, 300000)
+
+    const aoFocar = () => {
+      if (Date.now() - ultimaExecucao >= 30000) atualizar()
+    }
+    window.addEventListener('focus', aoFocar)
 
     return () => {
       window.clearInterval(intervalo)
-
-      if (timerAtualizacao !== null) {
-        window.clearTimeout(timerAtualizacao)
-      }
-
+      window.removeEventListener('focus', aoFocar)
+      if (timerAtualizacao !== null) window.clearTimeout(timerAtualizacao)
       supabase.removeChannel(canal)
     }
   }, [])
@@ -318,7 +331,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         embarquesDiretosRes,
         perfisRes,
         financeiroVencidosRes,
-        financeiroRecebidosRes,
         faturasClientesRes,
         faturasTransportadorasRes,
       ] = await Promise.all([
@@ -344,11 +356,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           .select('id, embarque_id, awb, vencimento_cobranca')
           .lt('vencimento_cobranca', hoje)
           .is('recebimento', null),
-        supabase
-          .from('financeiro_embarques')
-          .select('embarque_id')
-          .not('recebimento', 'is', null)
-          .not('embarque_id', 'is', null),
         supabase
           .from('faturas')
           .select(
@@ -380,12 +387,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         console.error(
           'Erro no badge de faturas de clientes vencidas:',
           financeiroVencidosRes.error.message
-        )
-      }
-      if (financeiroRecebidosRes.error) {
-        console.error(
-          'Erro no badge de recebimentos de clientes:',
-          financeiroRecebidosRes.error.message
         )
       }
       if (faturasClientesRes.error) {
@@ -421,11 +422,21 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       ).length
 
       const financeiroVencidos = financeiroVencidosRes.data || []
-      const recebidosPorEmbarque = new Set(
-        (financeiroRecebidosRes.data || [])
-          .filter((item: any) => !!item.embarque_id)
-          .map((item: any) => String(item.embarque_id))
+      const idsComprovantes = Array.from(
+        new Set((faturasClientesRes.data || []).map((item: any) => item.embarque_id).filter(Boolean).map(String))
       )
+      const recebidosPorEmbarque = new Set<string>()
+
+      if (idsComprovantes.length > 0) {
+        const { data: recebidosData, error: recebidosError } = await supabase
+          .from('financeiro_embarques')
+          .select('embarque_id')
+          .in('embarque_id', idsComprovantes)
+          .not('recebimento', 'is', null)
+
+        if (recebidosError) console.error('Erro no badge de recebimentos de clientes:', recebidosError.message)
+        else (recebidosData || []).forEach((item: any) => item.embarque_id && recebidosPorEmbarque.add(String(item.embarque_id)))
+      }
 
       const alertasFaturasClientes = new Set<string>()
 

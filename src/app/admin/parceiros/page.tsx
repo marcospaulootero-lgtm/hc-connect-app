@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
+import { normalizarIdentidade, nomeExibicaoPreferido } from '@/lib/identidade'
 
 const PAGE_SIZE_PADRAO = 25
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
@@ -211,7 +212,7 @@ export default function ParceirosPage() {
 
     const idsFinanceiros = new Set(
       registros
-        .filter((item) => nomeParceiroRegistro(item) === parceiro)
+        .filter((item) => normalizarIdentidade(nomeParceiroRegistro(item)) === normalizarIdentidade(parceiro))
         .filter((item) => clienteQuitouProcesso(item))
         .map((item) => item.id)
         .filter(Boolean)
@@ -1448,43 +1449,42 @@ export default function ParceirosPage() {
   }
 
   const parceirosResumo = useMemo(() => {
-    const mapa: any = {}
+    const mapa = new Map<string, any>()
 
     registros.forEach((item) => {
-      const nome = item.parceiro || item.despachante || 'Sem parceiro'
-
-      if (!mapa[nome]) {
-        mapa[nome] = {
-          nome,
-          total: 0,
-          pago: 0,
-          aberto: 0,
-          qtd: 0,
-        }
+      const nomeOriginal = nomeParceiroRegistro(item)
+      const chave = normalizarIdentidade(nomeOriginal) || 'sem parceiro'
+      const atual = mapa.get(chave) || {
+        nome: nomeOriginal,
+        nomes: [] as string[],
+        total: 0,
+        pago: 0,
+        aberto: 0,
+        qtd: 0,
       }
+
+      atual.nomes.push(nomeOriginal)
+      atual.nome = nomeExibicaoPreferido(atual.nomes) || nomeOriginal
 
       const valor = Number(item.debito_terceiro || 0)
+      atual.total += valor
+      atual.qtd += 1
 
-      mapa[nome].total += valor
-      mapa[nome].qtd += 1
+      if (status(item) === 'PAGO') atual.pago += valor
+      else atual.aberto += valor
 
-      if (status(item) === 'PAGO') {
-        mapa[nome].pago += valor
-      } else {
-        mapa[nome].aberto += valor
-      }
+      mapa.set(chave, atual)
     })
 
-    return Object.values(mapa).sort((a: any, b: any) => b.total - a.total)
+    return Array.from(mapa.values()).sort((a: any, b: any) => b.total - a.total)
   }, [registros])
 
   const dadosParceiro = useMemo(() => {
     if (!parceiroSelecionado) return registros
+    const chaveSelecionada = normalizarIdentidade(parceiroSelecionado)
 
     return registros.filter(
-      (item) =>
-        (item.parceiro || item.despachante || 'Sem parceiro') ===
-        parceiroSelecionado
+      (item) => normalizarIdentidade(nomeParceiroRegistro(item)) === chaveSelecionada
     )
   }, [registros, parceiroSelecionado])
 

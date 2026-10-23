@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import AdminRealtimeAlerts from '@/components/AdminRealtimeAlerts'
 import AdminUsuariosOnline from '@/components/AdminUsuariosOnline'
+import { carregarAliasesClientes, mapaAliasesClientes, nomeCanonicoCliente, normalizarIdentidade, nomeExibicaoPreferido } from '@/lib/identidade'
 
 type PeriodoGrafico = '7D' | '30D' | 'MES_ATUAL' | 'MES_ANTERIOR'
 
@@ -25,6 +26,7 @@ export default function DashboardPage() {
   const [faturasTransportadoras, setFaturasTransportadoras] = useState<any[]>([])
   const [itensFaturasTransportadoras, setItensFaturasTransportadoras] = useState<any[]>([])
   const [ultimoRastreio, setUltimoRastreio] = useState<any>(null)
+  const [aliasesClientes, setAliasesClientes] = useState<any[]>([])
 
   const [modalErrosRastreio, setModalErrosRastreio] = useState(false)
   const [modalFaturas, setModalFaturas] = useState(false)
@@ -33,6 +35,7 @@ export default function DashboardPage() {
   const [agora, setAgora] = useState(new Date())
   const [periodoGrafico, setPeriodoGrafico] = useState<PeriodoGrafico>('7D')
   const [diaSelecionado, setDiaSelecionado] = useState<string | null>(null)
+  const mapaAliases = useMemo(() => mapaAliasesClientes(aliasesClientes), [aliasesClientes])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -44,12 +47,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     buscarDados()
-
-    const intervaloDashboard = setInterval(() => {
-      buscarDados(false)
-    }, 60000)
-
-    return () => clearInterval(intervaloDashboard)
+    // PERFORMANCE GLOBAL V2: o Dashboard deixa de baixar todo o histórico a cada 60s.
+    // Atualizações passam pelo realtime (com throttle) e pelo botão Atualizar dados.
   }, [])
 
   useEffect(() => {
@@ -107,6 +106,7 @@ export default function DashboardPage() {
       faturasTransportadorasCarregadas,
       itensFaturasTransportadorasCarregados,
       logRastreioRes,
+      aliasesClientesCarregados,
     ] = await Promise.all([
       supabase.from('perfis').select('*').order('nome'),
       carregarTodos('embarques', 'criado_em', false),
@@ -123,6 +123,7 @@ export default function DashboardPage() {
         .order('criado_em', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      carregarAliasesClientes(supabase),
     ])
 
     if (perfisRes.error) console.error('Erro ao carregar perfis:', perfisRes.error.message)
@@ -138,6 +139,7 @@ export default function DashboardPage() {
     setFaturasTransportadoras(faturasTransportadorasCarregadas || [])
     setItensFaturasTransportadoras(itensFaturasTransportadorasCarregados || [])
     setUltimoRastreio(logRastreioRes.data || null)
+    setAliasesClientes(aliasesClientesCarregados || [])
 
     if (mostrarLoading) setCarregando(false)
   }
@@ -499,14 +501,15 @@ export default function DashboardPage() {
   }
 
   function clienteDoEmbarque(item: any) {
-    return (
+    const nome =
       item.importador ||
       item.exportador ||
       item.cliente_final ||
       item.cliente_nome ||
       item.empresa_nome ||
       'Não informado'
-    )
+
+    return nomeCanonicoCliente(nome, mapaAliases) || 'Não informado'
   }
 
   function inicioDoDia(data: Date) {
@@ -1364,7 +1367,7 @@ export default function DashboardPage() {
       const cliente = clienteDoEmbarque(embarque)
       linha.total += 1
       linha.peso += numero(embarque.peso_taxado || embarque.peso_real)
-      linha.clientes.add(cliente)
+      linha.clientes.add(normalizarIdentidade(cliente) || cliente)
       linha.embarques.push(embarque)
     })
 
@@ -1377,14 +1380,17 @@ export default function DashboardPage() {
     const yTicks = Array.from({ length: Math.floor(yMax / 5) + 1 }, (_, index) => yMax - index * 5)
     const melhorDia = [...dias].sort((a, b) => b.total - a.total)[0] || null
 
-    const mapaClientes: Record<string, { nome: string; total: number; peso: number }> = {}
+    const mapaClientes: Record<string, { nome: string; nomes: string[]; total: number; peso: number }> = {}
 
     dias.forEach((dia) => {
       dia.embarques.forEach((embarque: any) => {
         const nome = clienteDoEmbarque(embarque)
-        if (!mapaClientes[nome]) mapaClientes[nome] = { nome, total: 0, peso: 0 }
-        mapaClientes[nome].total += 1
-        mapaClientes[nome].peso += numero(embarque.peso_taxado || embarque.peso_real)
+        const chave = normalizarIdentidade(nome) || nome
+        if (!mapaClientes[chave]) mapaClientes[chave] = { nome, nomes: [] as string[], total: 0, peso: 0 }
+        mapaClientes[chave].nomes.push(nome)
+        mapaClientes[chave].nome = nomeExibicaoPreferido(mapaClientes[chave].nomes) || nome
+        mapaClientes[chave].total += 1
+        mapaClientes[chave].peso += numero(embarque.peso_taxado || embarque.peso_real)
       })
     })
 

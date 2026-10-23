@@ -14,6 +14,7 @@ import {
   ChevronUp,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
+import { carregarAliasesClientes, mapaAliasesClientes, nomeCanonicoCliente, normalizarIdentidade, nomesProvavelmenteMesmoCliente, nomeExibicaoPreferido } from '@/lib/identidade'
 
 const LOTE_SUPABASE = 1000
 
@@ -492,6 +493,13 @@ export default function Clientes360Page() {
   const [verMais, setVerMais] = useState(false)
   const [rankingPor, setRankingPor] = useState<RankingPor>('PROFIT')
   const [somenteComMovimento, setSomenteComMovimento] = useState(true)
+  const [aliasesClientes, setAliasesClientes] = useState<any[]>([])
+  const [detalhesCarregados, setDetalhesCarregados] = useState(false)
+  const [carregandoDetalhes, setCarregandoDetalhes] = useState(false)
+  const [duplicidadeModal, setDuplicidadeModal] = useState<{ a: Cliente360; b: Cliente360 } | null>(null)
+  const [nomeOficialDuplicidade, setNomeOficialDuplicidade] = useState('')
+  const [salvandoDuplicidade, setSalvandoDuplicidade] = useState(false)
+  const mapaAliases = useMemo(() => mapaAliasesClientes(aliasesClientes), [aliasesClientes])
 
   useEffect(() => {
     carregar()
@@ -502,32 +510,25 @@ export default function Clientes360Page() {
     setErro('')
 
     try {
-      const [
-        embarques,
-        financeiro,
-        cotacoes,
-        faturas,
-        clientes,
-        perfis,
-        suporte,
-      ] = await Promise.all([
-        carregarTabela('embarques'),
+      // PERFORMANCE GLOBAL V2: a visão geral precisa apenas do financeiro e dos cadastros.
+      // Embarques, cotações, faturas e suporte entram somente quando um cliente é aberto.
+      const [financeiro, clientes, perfis, aliases] = await Promise.all([
         carregarTabela('financeiro_embarques'),
-        carregarTabela('cotacoes'),
-        carregarTabela('faturas'),
         carregarTabela('clientes_faturamento'),
         carregarTabela('perfis'),
-        carregarTabela('suporte'),
+        carregarAliasesClientes(supabase),
       ])
 
+      setAliasesClientes(aliases)
+      setDetalhesCarregados(false)
       setDados({
-        embarques,
+        embarques: [],
         financeiro,
-        cotacoes,
-        faturas,
+        cotacoes: [],
+        faturas: [],
         clientes,
         perfis,
-        suporte,
+        suporte: [],
       })
     } catch (e: any) {
       setErro(e?.message || 'Erro ao carregar Análise de Clientes.')
@@ -535,6 +536,33 @@ export default function Clientes360Page() {
       setLoading(false)
     }
   }
+
+  async function carregarDetalhesCliente() {
+    if (carregandoDetalhes || detalhesCarregados) return
+    setCarregandoDetalhes(true)
+
+    try {
+      const [embarques, cotacoes, faturas, suporte] = await Promise.all([
+        carregarTabela('embarques'),
+        carregarTabela('cotacoes'),
+        carregarTabela('faturas'),
+        carregarTabela('suporte'),
+      ])
+
+      setDados((atual) => ({ ...atual, embarques, cotacoes, faturas, suporte }))
+      setDetalhesCarregados(true)
+    } catch (error: any) {
+      setErro(error?.message || 'Erro ao carregar detalhes do cliente.')
+    } finally {
+      setCarregandoDetalhes(false)
+    }
+  }
+
+  useEffect(() => {
+    if (clienteKey && !detalhesCarregados && !carregandoDetalhes) {
+      carregarDetalhesCliente()
+    }
+  }, [clienteKey, detalhesCarregados])
 
   const clientes = useMemo(() => {
     const mapa = new Map<string, Cliente360>()
@@ -586,9 +614,8 @@ export default function Clientes360Page() {
 
       if (!nome || normalizar(nome) === 'cliente nao identificado') return
 
-      // Agrupamento por nome exato normalizado, como a página de Ranking de Clientes.
-      // Isso também preserva registros históricos que não possuem IDs modernos.
-      const key = `financeiro:${normalizar(nome)}`
+      const nomeCanonico = nomeCanonicoCliente(nome, mapaAliases) || nome
+      const key = `financeiro:${normalizarIdentidade(nomeCanonico)}`
 
       const doc = primeiro(documentoLinha(financeiro), documentoLinha(embarque || {}))
       const email = primeiro(emailLinha(financeiro), emailLinha(embarque || {}))
@@ -599,16 +626,16 @@ export default function Clientes360Page() {
       if (!mapa.has(key)) {
         mapa.set(key, {
           key,
-          nome,
+          nome: nomeCanonico,
           razaoSocial: primeiro(
             financeiro.razao_social,
             embarque?.razao_social,
-            nome
+            nomeCanonico
           ),
           fantasia: primeiro(
             financeiro.nome_fantasia,
             embarque?.nome_fantasia,
-            nome
+            nomeCanonico
           ),
           documento: doc,
           email,
@@ -649,7 +676,9 @@ export default function Clientes360Page() {
 
       // O nome financeiro é a identidade histórica principal.
       cliente.nomes.add(normalizar(nome))
+      cliente.nomes.add(normalizar(nomeCanonico))
       cliente.chaves.add(chaveForte('nome', nome))
+      cliente.chaves.add(chaveForte('nome', nomeCanonico))
 
       if (id) cliente.chaves.add(chaveForte('id', id))
       if (usuario) {
@@ -727,7 +756,7 @@ export default function Clientes360Page() {
     return Array.from(mapa.values())
       .filter((cliente) => cliente.nome)
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-  }, [dados])
+  }, [dados, mapaAliases])
 
 
   const ranking = useMemo(() => {
@@ -765,10 +794,11 @@ export default function Clientes360Page() {
       const nome = clienteNomeLinha(financeiro)
       if (!nome || normalizar(nome) === 'cliente nao identificado') return
 
-      const clienteKeyFinanceiro = `financeiro:${normalizar(nome)}`
+      const nomeCanonico = nomeCanonicoCliente(nome, mapaAliases) || nome
+      const clienteKeyFinanceiro = `financeiro:${normalizarIdentidade(nomeCanonico)}`
       const clienteEncontrado =
         mapaClientes.get(clienteKeyFinanceiro) ||
-        clientes.find((c) => c.nomes.has(normalizar(nome)))
+        clientes.find((c) => c.nomes.has(normalizar(nome)) || c.nomes.has(normalizar(nomeCanonico)))
 
       if (!clienteEncontrado) return
 
@@ -877,7 +907,84 @@ export default function Clientes360Page() {
     periodo,
     rankingPor,
     somenteComMovimento,
+    mapaAliases,
   ])
+
+  const duplicidadesProvaveis = useMemo(() => {
+    const pares: { a: Cliente360; b: Cliente360; motivo: string }[] = []
+    const vistos = new Set<string>()
+
+    for (let i = 0; i < clientes.length; i += 1) {
+      for (let j = i + 1; j < clientes.length; j += 1) {
+        const a = clientes[i]
+        const b = clientes[j]
+        const chavePar = [a.key, b.key].sort().join('|')
+        if (vistos.has(chavePar)) continue
+
+        const mesmoDocumento = [...a.documentos].some((x) => x && b.documentos.has(x))
+        const mesmoEmail = [...a.emails].some((x) => x && b.emails.has(x))
+        const mesmoCodigo = [...a.codigos].some((x) => x && b.codigos.has(x))
+        const nomeProvavel = nomesProvavelmenteMesmoCliente(a.nome, b.nome)
+
+        if (!mesmoDocumento && !mesmoEmail && !mesmoCodigo && !nomeProvavel) continue
+        vistos.add(chavePar)
+        pares.push({
+          a,
+          b,
+          motivo: mesmoDocumento
+            ? 'Mesmo CNPJ/CPF'
+            : mesmoEmail
+              ? 'Mesmo e-mail'
+              : mesmoCodigo
+                ? 'Mesmo código'
+                : 'Nome abreviado / razão social semelhante',
+        })
+      }
+    }
+
+    return pares.slice(0, 12)
+  }, [clientes])
+
+  function abrirDuplicidade(a: Cliente360, b: Cliente360) {
+    setDuplicidadeModal({ a, b })
+    setNomeOficialDuplicidade(nomeExibicaoPreferido([a.nome, b.nome]) || b.nome)
+  }
+
+  async function confirmarDuplicidade() {
+    if (!duplicidadeModal || !nomeOficialDuplicidade.trim()) return
+    const oficial = nomeOficialDuplicidade.trim()
+    const nomes = [duplicidadeModal.a.nome, duplicidadeModal.b.nome, oficial]
+    const payload = Array.from(
+      new Map(
+        nomes.map((alias) => [normalizarIdentidade(alias), alias])
+      ).entries()
+    )
+      .filter(([aliasNormalizado]) => Boolean(aliasNormalizado))
+      .map(([aliasNormalizado, alias]) => ({
+        alias,
+        alias_normalizado: aliasNormalizado,
+        nome_oficial: oficial,
+        nome_oficial_normalizado: normalizarIdentidade(oficial),
+      }))
+
+    setSalvandoDuplicidade(true)
+    try {
+      const { error } = await supabase
+        .from('cliente_aliases')
+        .upsert(payload, { onConflict: 'alias_normalizado' })
+
+      if (error) throw error
+
+      const aliases = await carregarAliasesClientes(supabase)
+      setAliasesClientes(aliases)
+      setDuplicidadeModal(null)
+      setNomeOficialDuplicidade('')
+    } catch (error: any) {
+      alert('Não foi possível salvar a consolidação: ' + (error?.message || error))
+    } finally {
+      setSalvandoDuplicidade(false)
+    }
+  }
 
   const resumoRanking = useMemo(() => {
     const processos = ranking.reduce((acc, item) => acc + item.processosFaturados, 0)
@@ -1629,6 +1736,35 @@ export default function Clientes360Page() {
         </div>
       </section>
 
+      {!cliente && duplicidadesProvaveis.length > 0 && (
+        <section className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-1 shrink-0 text-amber-300" size={22} />
+            <div className="min-w-0 flex-1">
+              <h2 className="font-black text-amber-100">Possíveis clientes duplicados</h2>
+              <p className="mt-1 text-sm font-semibold text-amber-200/80">
+                O HC Connect encontrou nomes que podem representar a mesma empresa. Nenhuma fusão é feita sem sua confirmação.
+              </p>
+              <div className="mt-4 grid gap-2 lg:grid-cols-2">
+                {duplicidadesProvaveis.slice(0, 6).map((par) => (
+                  <button
+                    key={`${par.a.key}-${par.b.key}`}
+                    type="button"
+                    onClick={() => abrirDuplicidade(par.a, par.b)}
+                    className="rounded-2xl border border-amber-500/30 bg-slate-950/60 p-4 text-left hover:bg-slate-900"
+                  >
+                    <p className="font-black text-white">{par.a.nome}</p>
+                    <p className="my-1 text-xs font-black text-amber-300">POSSÍVEL MESMO CLIENTE</p>
+                    <p className="font-black text-white">{par.b.nome}</p>
+                    <p className="mt-2 text-xs font-semibold text-slate-400">{par.motivo} • Clique para revisar</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {!cliente ? (
         <div className="space-y-5">
           <section className="rounded-3xl border border-slate-800 bg-slate-950 p-5 md:p-6">
@@ -1838,6 +1974,7 @@ export default function Clientes360Page() {
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">Cliente selecionado</p>
                   <h2 className="mt-2 text-2xl font-black text-white">{cliente.nome}</h2>
                   <p className="mt-1 text-sm font-semibold text-slate-500">{cliente.razaoSocial || 'Razão social não identificada'}</p>
+                  {carregandoDetalhes && <p className="mt-2 text-xs font-black text-blue-300">Carregando operação, faturas, cotações e atendimento...</p>}
                 </div>
               </div>
 
@@ -2142,6 +2279,51 @@ export default function Clientes360Page() {
             )}
           </section>
         </>
+      )}
+
+      {duplicidadeModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-amber-500/40 bg-slate-950 p-6 shadow-2xl">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">Consolidação de cliente</p>
+            <h2 className="mt-2 text-2xl font-black text-white">Estes registros são o mesmo cliente?</h2>
+            <p className="mt-2 text-sm font-semibold text-slate-400">
+              Escolha o nome oficial. O histórico não será apagado nem reescrito: o portal salvará aliases para tratar os nomes como uma única identidade.
+            </p>
+
+            <div className="mt-5 space-y-3">
+              {[duplicidadeModal.a.nome, duplicidadeModal.b.nome].map((nome) => (
+                <label key={nome} className="flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 p-4">
+                  <input
+                    type="radio"
+                    name="nome-oficial-cliente"
+                    checked={nomeOficialDuplicidade === nome}
+                    onChange={() => setNomeOficialDuplicidade(nome)}
+                  />
+                  <span className="font-black text-white">{nome}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDuplicidadeModal(null)}
+                disabled={salvandoDuplicidade}
+                className="rounded-xl border border-slate-700 px-4 py-3 font-black text-slate-300 hover:bg-slate-900"
+              >
+                Manter separados agora
+              </button>
+              <button
+                type="button"
+                onClick={confirmarDuplicidade}
+                disabled={salvandoDuplicidade || !nomeOficialDuplicidade}
+                className="rounded-xl bg-amber-500 px-5 py-3 font-black text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+              >
+                {salvandoDuplicidade ? 'Salvando...' : 'Unificar e manter este nome'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   )

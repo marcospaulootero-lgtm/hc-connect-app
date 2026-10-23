@@ -132,7 +132,7 @@ export default function AdminUsuariosOnline() {
     const intervaloBusca = setInterval(() => {
       carregarOnline()
       carregarHistorico()
-    }, 15000)
+    }, 60000)
 
     const intervaloTempo = setInterval(() => {
       setAgora(Date.now())
