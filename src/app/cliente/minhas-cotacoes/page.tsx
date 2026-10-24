@@ -331,7 +331,7 @@ export default function MinhasCotacoesPage() {
                           Solicitação
                         </span>
 
-                        {fila?.posicao > 0 ? (
+                        {fila && fila.posicao > 0 ? (
                           <span
                             className="rounded-xl border border-yellow-500/60 bg-yellow-500/15 px-3 py-2 text-sm font-black text-yellow-300"
                             title="Posição atual desta cotação na fila geral de espera"

@@ -312,7 +312,7 @@ export default function CotacoesClientePage() {
 
     setSalvando(false)
 
-    if (fila?.posicao > 0) {
+    if (fila && fila.posicao > 0) {
       alert(
         'Solicitação de cotação enviada com sucesso.\n\n' +
         `Sua posição atual na fila de espera é #${fila.posicao} de ${fila.total}.\n\n` +
