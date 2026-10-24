@@ -316,6 +316,14 @@ export default function CotacoesAdminPage() {
     return dadosEmissorObjeto(item)?.arquivada_admin === true
   }
 
+  function cotacaoNaFilaEspera(item: any) {
+    if (!item) return false
+    if (cotacaoArquivada(item)) return false
+    if (item?.embarque_id) return false
+
+    return String(item?.status || 'AGUARDANDO ANÁLISE') === 'AGUARDANDO ANÁLISE'
+  }
+
   function dataReferenciaFollowUp(item: any) {
     const dados = dadosEmissorObjeto(item)
 
@@ -610,17 +618,40 @@ export default function CotacoesAdminPage() {
   }
 
   const cotacoesAtivas = cotacoes.filter((c) => !cotacaoArquivada(c))
+  const cotacoesNoFiltroArquivamento = cotacoes.filter((item) => {
+    const arquivada = cotacaoArquivada(item)
+
+    return (
+      filtroArquivamento === 'TODAS' ||
+      (filtroArquivamento === 'ARQUIVADAS' ? arquivada : !arquivada)
+    )
+  })
+
   const totalAguardando = cotacoesAtivas.filter((c) => c.status === 'AGUARDANDO ANÁLISE').length
   const totalAnalise = cotacoesAtivas.filter((c) => c.status === 'EM ANÁLISE').length
   const totalDisponiveis = cotacoesAtivas.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
   const totalAprovadas = cotacoesAtivas.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
   const totalRecusadas = cotacoesAtivas.filter((c) => c.status === 'RECUSADA').length
-  const totalFollowUp = cotacoesAtivas.filter((c) => cotacaoPrecisaFollowUp(c)).length
-  const totalSemRetorno = cotacoesAtivas.filter((c) => c.status === 'SEM RETORNO').length
-  const totalPerdidas = cotacoesAtivas.filter((c) => c.status === 'COTAÇÃO PERDIDA').length
+  const totalFollowUp = cotacoesNoFiltroArquivamento.filter((c) => cotacaoPrecisaFollowUp(c)).length
+  const totalSemRetorno = cotacoesNoFiltroArquivamento.filter((c) => c.status === 'SEM RETORNO').length
+  const totalPerdidas = cotacoesNoFiltroArquivamento.filter((c) => c.status === 'COTAÇÃO PERDIDA').length
 
-  const proximaCotacao = cotacoesFiltradas[0]
-  const ultimaCotacao = cotacoesFiltradas[cotacoesFiltradas.length - 1]
+  const filaEspera = cotacoes
+    .filter((item) => cotacaoNaFilaEspera(item))
+    .sort((a, b) => {
+      const dataA = a.criado_em ? new Date(a.criado_em).getTime() : 0
+      const dataB = b.criado_em ? new Date(b.criado_em).getTime() : 0
+
+      if (dataA !== dataB) return dataA - dataB
+      return String(a.id || '').localeCompare(String(b.id || ''))
+    })
+
+  const posicaoFilaPorId = new Map(
+    filaEspera.map((item, index) => [String(item.id), index + 1])
+  )
+
+  const proximaCotacao = filaEspera[0]
+  const ultimaCotacao = filaEspera[filaEspera.length - 1]
 
   return (
     <main className="w-full max-w-none p-8 text-white">
@@ -673,7 +704,7 @@ export default function CotacoesAdminPage() {
             </h2>
 
             <p className="text-slate-400 text-sm mt-1">
-              O alerta de follow-up considera cotações disponíveis há 48 horas ou mais, sem embarque e ainda sem encerramento comercial.
+              Os indicadores abaixo respeitam o filtro de arquivamento. O follow-up considera cotações disponíveis há 48 horas ou mais, sem embarque e ainda sem encerramento comercial.
             </p>
           </div>
 
@@ -772,18 +803,18 @@ export default function CotacoesAdminPage() {
       <section className="border border-blue-900 rounded-3xl bg-[#071225] p-6 mb-8">
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
           <div>
-            <p className="text-blue-400 font-bold mb-1">Fila virtual</p>
-            <h2 className="text-2xl font-black">Ordem de chegada das cotações</h2>
+            <p className="text-blue-400 font-bold mb-1">Fila de espera real</p>
+            <h2 className="text-2xl font-black">Ordem de chegada para análise</h2>
             <p className="text-slate-400 text-sm mt-1">
-              A sequência abaixo é ordenada pela data e hora em que a cotação entrou no portal.
+              Entram na fila somente cotações em AGUARDANDO ANÁLISE, não arquivadas e ainda sem embarque. A posição é única e independe dos filtros da tabela.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 xl:min-w-[760px]">
             <FilaCard
-              titulo="Na fila filtrada"
-              valor={cotacoesFiltradas.length}
-              detalhe="cotações na sequência"
+              titulo="Na fila de espera"
+              valor={filaEspera.length}
+              detalhe="aguardando início da análise"
             />
 
             <FilaCard
@@ -793,7 +824,7 @@ export default function CotacoesAdminPage() {
             />
 
             <FilaCard
-              titulo="Última entrada"
+              titulo="Última entrada na fila"
               valor={ultimaCotacao ? dataHoraBR(ultimaCotacao.criado_em) : '-'}
               detalhe={ultimaCotacao ? ultimaCotacao.cliente_final || ultimaCotacao.solicitante_email || 'Cliente' : 'Sem cotação'}
             />
@@ -902,9 +933,18 @@ export default function CotacoesAdminPage() {
               {cotacoesFiltradas.map((item, index) => (
                 <tr key={item.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
                   <td>
-                    <span className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white">
-                      #{index + 1}
-                    </span>
+                    {posicaoFilaPorId.has(String(item.id)) ? (
+                      <span
+                        className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white"
+                        title="Posição real desta cotação na fila de espera"
+                      >
+                        #{posicaoFilaPorId.get(String(item.id))}
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-black text-slate-400">
+                        Fora da fila
+                      </span>
+                    )}
                   </td>
 
                   <td>

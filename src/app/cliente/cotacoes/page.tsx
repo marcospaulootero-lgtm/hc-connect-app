@@ -140,6 +140,28 @@ export default function CotacoesClientePage() {
     return Number(String(valor).replace(',', '.'))
   }
 
+  async function consultarPosicaoFila(cotacaoId: string) {
+    if (!cotacaoId) return null
+
+    const { data, error } = await supabase.rpc('get_minhas_posicoes_fila_cotacoes')
+
+    if (error) {
+      console.warn('Não foi possível consultar a posição da fila:', error)
+      return null
+    }
+
+    const item = (data || []).find(
+      (linha: any) => String(linha?.cotacao_id || '') === String(cotacaoId)
+    )
+
+    if (!item) return null
+
+    return {
+      posicao: Number(item.posicao || 0),
+      total: Number(item.total || 0),
+    }
+  }
+
 
   async function avisarEquipeNovaCotacao(cotacaoCriada: any) {
     try {
@@ -286,9 +308,22 @@ export default function CotacoesClientePage() {
 
     await avisarEquipeNovaCotacao(cotacaoCriada)
 
+    const fila = await consultarPosicaoFila(String(cotacaoCriada?.id || ''))
+
     setSalvando(false)
 
-    alert('Solicitação de cotação enviada com sucesso')
+    if (fila?.posicao > 0) {
+      alert(
+        'Solicitação de cotação enviada com sucesso.\n\n' +
+        `Sua posição atual na fila de espera é #${fila.posicao} de ${fila.total}.\n\n` +
+        'A posição é atualizada automaticamente conforme as cotações anteriores entram em análise.'
+      )
+    } else {
+      alert(
+        'Solicitação de cotação enviada com sucesso.\n\n' +
+        'Sua solicitação entrou na fila de análise. A posição atual poderá ser consultada em Minhas cotações.'
+      )
+    }
 
     setForm({
       exportador: '',

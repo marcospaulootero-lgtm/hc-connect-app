@@ -9,6 +9,7 @@ export default function MinhasCotacoesPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('TODOS')
+  const [posicoesFila, setPosicoesFila] = useState<Record<string, { posicao: number; total: number }>>({})
 
   useEffect(() => {
     carregarUsuario()
@@ -65,7 +66,30 @@ export default function MinhasCotacoesPage() {
       return
     }
 
-    setCotacoes(data || [])
+    const lista = data || []
+    setCotacoes(lista)
+
+    const { data: filaData, error: filaError } = await supabase.rpc(
+      'get_minhas_posicoes_fila_cotacoes'
+    )
+
+    if (filaError) {
+      console.warn('Não foi possível carregar as posições da fila:', filaError)
+      setPosicoesFila({})
+    } else {
+      setPosicoesFila(
+        Object.fromEntries(
+          (filaData || []).map((item: any) => [
+            String(item.cotacao_id),
+            {
+              posicao: Number(item.posicao || 0),
+              total: Number(item.total || 0),
+            },
+          ])
+        )
+      )
+    }
+
     setLoading(false)
   }
 
@@ -77,6 +101,8 @@ export default function MinhasCotacoesPage() {
     if (status === 'APROVADA') return 'bg-green-700 text-white'
     if (status === 'AUTORIZADA') return 'bg-green-700 text-white'
     if (status === 'RECUSADA') return 'bg-red-600 text-white'
+    if (status === 'SEM RETORNO') return 'bg-orange-700 text-white'
+    if (status === 'COTAÇÃO PERDIDA') return 'bg-rose-800 text-white'
     if (status === 'CONVERTIDA EM EMBARQUE') return 'bg-slate-700 text-white'
 
     return 'bg-slate-600 text-white'
@@ -264,6 +290,8 @@ export default function MinhasCotacoesPage() {
               <option value="APROVADA">Aprovada</option>
               <option value="AUTORIZADA">Autorizada</option>
               <option value="RECUSADA">Recusada</option>
+              <option value="SEM RETORNO">Sem retorno</option>
+              <option value="COTAÇÃO PERDIDA">Cotação perdida</option>
               <option value="CONVERTIDA EM EMBARQUE">Convertida em embarque</option>
             </select>
 
@@ -288,7 +316,10 @@ export default function MinhasCotacoesPage() {
             </div>
           ) : (
             <div className="space-y-5">
-              {cotacoesFiltradas.map((item, index) => (
+              {cotacoesFiltradas.map((item) => {
+                const fila = posicoesFila[String(item.id)]
+
+                return (
                 <article
                   key={item.id}
                   className="border border-blue-900 rounded-3xl p-6 bg-[#020817]"
@@ -296,9 +327,18 @@ export default function MinhasCotacoesPage() {
                   <div className="flex flex-col xl:flex-row justify-between gap-6">
                     <div className="flex-1">
                       <div className="flex flex-wrap gap-3 items-center mb-4">
-                        <span className="bg-blue-600 px-3 py-2 rounded-xl text-sm font-black">
-                          #{index + 1}
+                        <span className="bg-slate-800 px-3 py-2 rounded-xl text-sm font-black text-slate-300">
+                          Solicitação
                         </span>
+
+                        {fila?.posicao > 0 ? (
+                          <span
+                            className="rounded-xl border border-yellow-500/60 bg-yellow-500/15 px-3 py-2 text-sm font-black text-yellow-300"
+                            title="Posição atual desta cotação na fila geral de espera"
+                          >
+                            Fila: #{fila.posicao} de {fila.total}
+                          </span>
+                        ) : null}
 
                         <span className={`px-3 py-2 rounded-xl text-xs font-black ${corStatus(item.status)}`}>
                           {item.status || 'AGUARDANDO ANÁLISE'}
@@ -377,7 +417,8 @@ export default function MinhasCotacoesPage() {
                     </div>
                   </div>
                 </article>
-              ))}
+                )
+              })}
             </div>
           )}
         </section>
