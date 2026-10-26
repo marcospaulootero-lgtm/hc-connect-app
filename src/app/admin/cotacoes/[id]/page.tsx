@@ -1491,15 +1491,52 @@ export default function DetalheCotacaoAdminPage() {
             </a>
           )}
 
-          <button
-            onClick={() => atualizarStatus('COTAÇÃO DISPONÍVEL')}
-            disabled={enviandoEmail}
-            className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
-          >
-            {enviandoEmail
-              ? 'Enviando e-mail...'
-              : 'Disponibilizar cotação e notificar cliente'}
-          </button>
+          {/* HC_COTACAO_360_DISPONIBILIZACAO_V1 */}
+          {![
+            'COTAÇÃO DISPONÍVEL',
+            'APROVADA',
+            'AUTORIZADA',
+            'RECUSADA',
+            'SEM RETORNO',
+            'COTAÇÃO PERDIDA',
+            'CONVERTIDA EM EMBARQUE',
+          ].includes(String(cotacao?.status || '').trim().toUpperCase()) ? (
+            <button
+              onClick={() => atualizarStatus('COTAÇÃO DISPONÍVEL')}
+              disabled={enviandoEmail}
+              className="bg-emerald-600 hover:bg-emerald-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+            >
+              {enviandoEmail
+                ? 'Enviando e-mail...'
+                : 'Disponibilizar cotação e notificar cliente'}
+            </button>
+          ) : String(cotacao?.status || '').trim().toUpperCase() ===
+            'COTAÇÃO DISPONÍVEL' ? (
+            <div className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 px-5 py-3">
+              <p className="font-black text-emerald-300">
+                ✅ Cotação já disponível ao cliente
+              </p>
+
+              {dadosEmissorObjeto()?.cotacao_disponivel_em ? (
+                <p className="mt-1 text-sm text-slate-400">
+                  Disponibilizada em{' '}
+                  {new Date(
+                    dadosEmissorObjeto().cotacao_disponivel_em
+                  ).toLocaleString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-slate-500">
+                  Data de disponibilização não registrada.
+                </p>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {emailEnviado && (
