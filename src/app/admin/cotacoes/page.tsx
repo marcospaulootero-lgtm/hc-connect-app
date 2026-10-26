@@ -13,10 +13,19 @@ export default function CotacoesAdminPage() {
   const [cotacoes, setCotacoes] = useState<any[]>([])
   const [usuarios, setUsuarios] = useState<any[]>([])
   const [busca, setBusca] = useState('')
-  const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtroVisao, setFiltroVisao] = useState<
+    | 'TODAS'
+    | 'AGUARDANDO_ANALISE'
+    | 'EM_ANALISE'
+    | 'AGUARDANDO_TRANSPORTADORA'
+    | 'DISPONIVEIS'
+    | 'ENCERRADAS'
+  >('TODAS')
   const [filtroArquivamento, setFiltroArquivamento] = useState<'ATIVAS' | 'ARQUIVADAS' | 'TODAS'>('ATIVAS')
+  const [filtroDocumentos, setFiltroDocumentos] = useState<'TODOS' | 'COM_ANEXOS' | 'SEM_ANEXOS'>('TODOS')
   const [filtroInteligencia, setFiltroInteligencia] = useState<'TODAS' | 'FOLLOWUP' | 'SEM_RETORNO' | 'PERDIDA'>('TODAS')
   const [embarquesPorId, setEmbarquesPorId] = useState<Record<string, EmbarqueResumoCotacao>>({})
+  const [documentosPorCotacao, setDocumentosPorCotacao] = useState<Record<string, any[]>>({}) // HC_CENTRAL_COTACOES_V1
   const [cotacaoVinculo, setCotacaoVinculo] = useState<any>(null)
   const [usuarioVinculoId, setUsuarioVinculoId] = useState('')
   const [salvandoVinculo, setSalvandoVinculo] = useState(false)
@@ -39,6 +48,35 @@ export default function CotacoesAdminPage() {
 
     const lista = data || []
     setCotacoes(lista)
+
+    const idsCotacoes = lista
+      .map((item: any) => String(item.id || '').trim())
+      .filter(Boolean)
+
+    if (idsCotacoes.length === 0) {
+      setDocumentosPorCotacao({})
+    } else {
+      const { data: docsData, error: erroDocs } = await supabase
+        .from('cotacao_documentos')
+        .select('id, cotacao_id, nome, url, criado_em')
+        .in('cotacao_id', idsCotacoes)
+
+      if (erroDocs) {
+        console.error('Erro ao carregar documentos das cotações:', erroDocs)
+        setDocumentosPorCotacao({})
+      } else {
+        const mapaDocs: Record<string, any[]> = {}
+
+        for (const doc of docsData || []) {
+          const chave = String(doc?.cotacao_id || '')
+          if (!chave) continue
+          if (!mapaDocs[chave]) mapaDocs[chave] = []
+          mapaDocs[chave].push(doc)
+        }
+
+        setDocumentosPorCotacao(mapaDocs)
+      }
+    }
 
     const idsEmbarques = Array.from(
       new Set(
@@ -393,6 +431,18 @@ export default function CotacoesAdminPage() {
     return Boolean(item?.embarque_id) && !embarqueCotacao(item)
   }
 
+  function documentosCotacao(item: any) {
+    return documentosPorCotacao[String(item?.id || '')] || []
+  }
+
+  function quantidadeDocumentos(item: any) {
+    return documentosCotacao(item).length
+  }
+
+  function temPdfHC(item: any) {
+    return Boolean(item?.pdf_cotacao_url || item?.arquivo_resposta_url)
+  }
+
   async function alterarArquivamento(item: any, arquivar: boolean) {
     const confirmar = confirm(
       arquivar
@@ -550,9 +600,21 @@ export default function CotacoesAdminPage() {
   }
 
   const cotacoesFiltradas = useMemo(() => {
+    const statusEncerrados = [
+      'APROVADA',
+      'AUTORIZADA',
+      'RECUSADA',
+      'SEM RETORNO',
+      'COTAÇÃO PERDIDA',
+      'CONVERTIDA EM EMBARQUE',
+    ]
+
     return cotacoes
       .filter((item) => {
         const arquivada = cotacaoArquivada(item)
+        const status = String(item?.status || 'AGUARDANDO ANÁLISE')
+        const quantidadeDocs = quantidadeDocumentos(item)
+
         const texto = `
           ${nomeUsuario(item.usuario_id)}
           ${emailUsuario(item.usuario_id)}
@@ -563,64 +625,79 @@ export default function CotacoesAdminPage() {
           ${awbCotacao(item)}
           ${transportadoraCotacao(item)}
           ${item.tipo_operacao}
+          ${item.servico}
           ${item.origem}
           ${item.destino}
-          ${item.status}
+          ${status}
         `.toLowerCase()
 
         const matchBusca = texto.includes(busca.toLowerCase())
-        const matchStatus = !filtroStatus || item.status === filtroStatus
+
+        const matchVisao =
+          filtroVisao === 'TODAS' ||
+          (filtroVisao === 'AGUARDANDO_ANALISE' && status === 'AGUARDANDO ANÁLISE') ||
+          (filtroVisao === 'EM_ANALISE' && status === 'EM ANÁLISE') ||
+          (filtroVisao === 'AGUARDANDO_TRANSPORTADORA' && status === 'AGUARDANDO TRANSPORTADORA') ||
+          (filtroVisao === 'DISPONIVEIS' && status === 'COTAÇÃO DISPONÍVEL') ||
+          (filtroVisao === 'ENCERRADAS' && statusEncerrados.includes(status))
+
         const matchArquivamento =
           filtroArquivamento === 'TODAS' ||
           (filtroArquivamento === 'ARQUIVADAS' ? arquivada : !arquivada)
 
+        const matchDocumentos =
+          filtroDocumentos === 'TODOS' ||
+          (filtroDocumentos === 'COM_ANEXOS' && quantidadeDocs > 0) ||
+          (filtroDocumentos === 'SEM_ANEXOS' && quantidadeDocs === 0)
+
         const matchInteligencia =
           filtroInteligencia === 'TODAS' ||
           (filtroInteligencia === 'FOLLOWUP' && cotacaoPrecisaFollowUp(item)) ||
-          (filtroInteligencia === 'SEM_RETORNO' && item.status === 'SEM RETORNO') ||
-          (filtroInteligencia === 'PERDIDA' && item.status === 'COTAÇÃO PERDIDA')
+          (filtroInteligencia === 'SEM_RETORNO' && status === 'SEM RETORNO') ||
+          (filtroInteligencia === 'PERDIDA' && status === 'COTAÇÃO PERDIDA')
 
         return (
           matchBusca &&
-          matchStatus &&
+          matchVisao &&
           matchArquivamento &&
+          matchDocumentos &&
           matchInteligencia
         )
       })
       .sort((a, b) => {
         const dataA = a.criado_em ? new Date(a.criado_em).getTime() : 0
         const dataB = b.criado_em ? new Date(b.criado_em).getTime() : 0
-
-        return dataA - dataB
+        return dataB - dataA
       })
   }, [
     cotacoes,
     usuarios,
     busca,
-    filtroStatus,
+    filtroVisao,
     filtroArquivamento,
+    filtroDocumentos,
     filtroInteligencia,
     embarquesPorId,
+    documentosPorCotacao,
   ])
 
   function corStatus(status: string) {
-    if (status === 'AGUARDANDO ANÁLISE') return 'bg-yellow-400 text-black'
-    if (status === 'EM ANÁLISE') return 'bg-blue-600 text-white'
-    if (status === 'AGUARDANDO TRANSPORTADORA') return 'bg-purple-600 text-white'
-    if (status === 'COTAÇÃO DISPONÍVEL') return 'bg-emerald-600 text-white'
-    if (status === 'APROVADA') return 'bg-green-700 text-white'
-    if (status === 'AUTORIZADA') return 'bg-green-700 text-white'
-    if (status === 'RECUSADA') return 'bg-red-600 text-white'
-    if (status === 'SEM RETORNO') return 'bg-orange-700 text-white'
-    if (status === 'COTAÇÃO PERDIDA') return 'bg-rose-800 text-white'
-    if (status === 'CONVERTIDA EM EMBARQUE') return 'bg-slate-700 text-white'
-    return 'bg-slate-600 text-white'
+    if (status === 'AGUARDANDO ANÁLISE') return 'bg-yellow-400/15 text-yellow-300 border border-yellow-500/40'
+    if (status === 'EM ANÁLISE') return 'bg-blue-600/20 text-blue-300 border border-blue-500/40'
+    if (status === 'AGUARDANDO TRANSPORTADORA') return 'bg-purple-600/20 text-purple-300 border border-purple-500/40'
+    if (status === 'COTAÇÃO DISPONÍVEL') return 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40'
+    if (status === 'APROVADA' || status === 'AUTORIZADA') return 'bg-green-700/20 text-green-300 border border-green-500/40'
+    if (status === 'RECUSADA') return 'bg-red-600/20 text-red-300 border border-red-500/40'
+    if (status === 'SEM RETORNO') return 'bg-orange-700/20 text-orange-300 border border-orange-500/40'
+    if (status === 'COTAÇÃO PERDIDA') return 'bg-rose-800/20 text-rose-300 border border-rose-500/40'
+    if (status === 'CONVERTIDA EM EMBARQUE') return 'bg-slate-700 text-slate-200 border border-slate-600'
+    return 'bg-slate-700 text-white border border-slate-600'
   }
 
   const cotacoesAtivas = cotacoes.filter((c) => !cotacaoArquivada(c))
+
   const cotacoesNoFiltroArquivamento = cotacoes.filter((item) => {
     const arquivada = cotacaoArquivada(item)
-
     return (
       filtroArquivamento === 'TODAS' ||
       (filtroArquivamento === 'ARQUIVADAS' ? arquivada : !arquivada)
@@ -629,9 +706,9 @@ export default function CotacoesAdminPage() {
 
   const totalAguardando = cotacoesAtivas.filter((c) => c.status === 'AGUARDANDO ANÁLISE').length
   const totalAnalise = cotacoesAtivas.filter((c) => c.status === 'EM ANÁLISE').length
+  const totalAguardandoTransportadora = cotacoesAtivas.filter((c) => c.status === 'AGUARDANDO TRANSPORTADORA').length
   const totalDisponiveis = cotacoesAtivas.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
   const totalAprovadas = cotacoesAtivas.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
-  const totalRecusadas = cotacoesAtivas.filter((c) => c.status === 'RECUSADA').length
   const totalFollowUp = cotacoesNoFiltroArquivamento.filter((c) => cotacaoPrecisaFollowUp(c)).length
   const totalSemRetorno = cotacoesNoFiltroArquivamento.filter((c) => c.status === 'SEM RETORNO').length
   const totalPerdidas = cotacoesNoFiltroArquivamento.filter((c) => c.status === 'COTAÇÃO PERDIDA').length
@@ -652,231 +729,302 @@ export default function CotacoesAdminPage() {
 
   const proximaCotacao = filaEspera[0]
   const ultimaCotacao = filaEspera[filaEspera.length - 1]
+  const maiorEspera = proximaCotacao ? tempoNaFila(proximaCotacao.criado_em) : '-'
 
   return (
-    <main className="w-full max-w-none p-8 text-white">
-      <div className="mb-8 flex flex-col lg:flex-row justify-between gap-6">
+    <main className="w-full max-w-none p-6 xl:p-8 text-white">
+      <div className="mb-6 flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <p className="text-blue-400 font-bold mb-2">Comercial</p>
-
-          <h1 className="text-5xl font-black mb-2">
-            Cotações
-          </h1>
-
-          <p className="text-slate-400 text-lg">
-            Gerencie solicitações recebidas, acompanhe status e envie respostas ao cliente.
+          <p className="mb-1 text-sm font-black text-blue-400">Comercial</p>
+          <h1 className="text-4xl font-black tracking-tight xl:text-5xl">Cotações</h1>
+          <p className="mt-1 text-slate-400">
+            Central de cotações com fila operacional, follow-up comercial e gestão completa.
           </p>
         </div>
 
-                <a
-          href="/admin/cotacoes/nova"
-          className="rounded-xl bg-green-700 px-5 py-3 font-black text-white hover:bg-green-600"
-        >
-          + Cotação manual
-        </a>
+        <div className="flex flex-wrap gap-3">
+          <a
+            href="/admin/cotacoes/nova"
+            className="rounded-xl bg-blue-600 px-5 py-3 font-black text-white hover:bg-blue-500"
+          >
+            + Cotação manual
+          </a>
 
-<button
-          onClick={carregar}
-          className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold h-fit"
-        >
-          Atualizar fila
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              carregar()
+              carregarUsuarios()
+            }}
+            className="rounded-xl border border-blue-900 bg-[#071225] px-5 py-3 font-black text-slate-200 hover:bg-[#0b1730]"
+          >
+            ↻ Atualizar
+          </button>
+        </div>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
-        <Card titulo="Total" valor={cotacoesAtivas.length} detalhe="Cotações ativas" icone="📨" />
-        <Card titulo="Aguardando" valor={totalAguardando} detalhe="Nova análise" icone="⏳" />
-        <Card titulo="Em análise" valor={totalAnalise} detalhe="Em tratamento" icone="🔎" />
-        <Card titulo="Disponíveis" valor={totalDisponiveis} detalhe="Resposta enviada" icone="📄" />
-        <Card titulo="Aprovadas" valor={totalAprovadas} detalhe="Cliente aprovou" icone="✅" />
-        <Card titulo="Recusadas" valor={totalRecusadas} detalhe="Não aprovadas" icone="❌" />
+      <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
+        <MetricCard
+          titulo="Na fila"
+          valor={filaEspera.length}
+          icone="⏳"
+          ativo={filtroVisao === 'AGUARDANDO_ANALISE'}
+          onClick={() => {
+            setFiltroVisao(filtroVisao === 'AGUARDANDO_ANALISE' ? 'TODAS' : 'AGUARDANDO_ANALISE')
+            setFiltroInteligencia('TODAS')
+          }}
+        />
+        <MetricCard
+          titulo="Em análise"
+          valor={totalAnalise}
+          icone="⌕"
+          ativo={filtroVisao === 'EM_ANALISE'}
+          onClick={() => {
+            setFiltroVisao(filtroVisao === 'EM_ANALISE' ? 'TODAS' : 'EM_ANALISE')
+            setFiltroInteligencia('TODAS')
+          }}
+        />
+        <MetricCard
+          titulo="Aguard. transportadora"
+          valor={totalAguardandoTransportadora}
+          icone="🚚"
+          ativo={filtroVisao === 'AGUARDANDO_TRANSPORTADORA'}
+          onClick={() => {
+            setFiltroVisao(
+              filtroVisao === 'AGUARDANDO_TRANSPORTADORA'
+                ? 'TODAS'
+                : 'AGUARDANDO_TRANSPORTADORA'
+            )
+            setFiltroInteligencia('TODAS')
+          }}
+        />
+        <MetricCard
+          titulo="Disponíveis"
+          valor={totalDisponiveis}
+          icone="▤"
+          ativo={filtroVisao === 'DISPONIVEIS'}
+          onClick={() => {
+            setFiltroVisao(filtroVisao === 'DISPONIVEIS' ? 'TODAS' : 'DISPONIVEIS')
+            setFiltroInteligencia('TODAS')
+          }}
+        />
+        <MetricCard
+          titulo="Follow-up"
+          valor={totalFollowUp}
+          icone="☎"
+          ativo={filtroInteligencia === 'FOLLOWUP'}
+          onClick={() => {
+            setFiltroInteligencia(filtroInteligencia === 'FOLLOWUP' ? 'TODAS' : 'FOLLOWUP')
+            setFiltroVisao('TODAS')
+          }}
+        />
+        <MetricCard
+          titulo="Aprovadas"
+          valor={totalAprovadas}
+          icone="✓"
+          ativo={false}
+          onClick={() => {
+            setFiltroVisao('ENCERRADAS')
+            setFiltroInteligencia('TODAS')
+          }}
+        />
       </section>
 
-      <section className="border border-amber-700/50 rounded-3xl bg-[#071225] p-6 mb-8">
-        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5 mb-5">
-          <div>
-            <p className="text-amber-300 font-black mb-1">
-              Inteligência comercial
-            </p>
-
-            <h2 className="text-2xl font-black">
-              Follow-up e resultado das cotações
-            </h2>
-
-            <p className="text-slate-400 text-sm mt-1">
-              Os indicadores abaixo respeitam o filtro de arquivamento. O follow-up considera cotações disponíveis há 48 horas ou mais, sem embarque e ainda sem encerramento comercial.
-            </p>
+      <section className="mb-6 overflow-hidden rounded-3xl border border-blue-900 bg-[#071225]">
+        <div className="flex flex-col gap-5 border-b border-blue-900/70 p-5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/15 text-xl">
+              ⏳
+            </div>
+            <div>
+              <h2 className="text-2xl font-black">Fila para análise</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Cotações aguardando início da análise da equipe comercial.
+              </p>
+            </div>
           </div>
 
-          {filtroInteligencia !== 'TODAS' ? (
-            <button
-              type="button"
-              onClick={() => setFiltroInteligencia('TODAS')}
-              className="rounded-xl bg-slate-700 px-5 py-3 font-black hover:bg-slate-600"
-            >
-              Mostrar todas
-            </button>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <QueueSummary titulo="Aguardando" valor={filaEspera.length} />
+            <QueueSummary titulo="Maior espera" valor={maiorEspera} />
+            <QueueSummary
+              titulo="Próxima"
+              valor={proximaCotacao?.referencia_hc || proximaCotacao?.referencia_cliente || '-'}
+            />
+            <QueueSummary
+              titulo="Última entrada"
+              valor={
+                ultimaCotacao?.criado_em
+                  ? new Date(ultimaCotacao.criado_em).toLocaleTimeString('pt-BR', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : '-'
+              }
+            />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto p-4">
+          <table className="w-full min-w-[1100px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-blue-900 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-3">Fila</th>
+                <th className="px-3 py-3">Espera</th>
+                <th className="px-3 py-3">Cliente</th>
+                <th className="px-3 py-3">Referência</th>
+                <th className="px-3 py-3">Operação</th>
+                <th className="px-3 py-3">Rota</th>
+                <th className="px-3 py-3">Documentos</th>
+                <th className="px-3 py-3">Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filaEspera.map((item) => {
+                const qtdDocs = quantidadeDocumentos(item)
+                const espera = tempoNaFila(item.criado_em)
+                const minutosEspera = item.criado_em
+                  ? Math.max(0, Math.floor((Date.now() - new Date(item.criado_em).getTime()) / 60000))
+                  : 0
+
+                const corEspera =
+                  minutosEspera >= 90
+                    ? 'border-red-500/30 bg-red-500/15 text-red-300'
+                    : minutosEspera >= 45
+                      ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
+                      : 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+
+                return (
+                  <tr key={item.id} className="border-b border-blue-950/80 hover:bg-[#0b1730]">
+                    <td className="px-3 py-4">
+                      <span className="inline-flex min-w-12 justify-center rounded-lg bg-blue-600 px-3 py-2 font-black">
+                        #{posicaoFilaPorId.get(String(item.id))}
+                      </span>
+                    </td>
+                    <td className="px-3 py-4">
+                      <span className={`inline-flex rounded-lg border px-3 py-2 font-black ${corEspera}`}>
+                        {espera}
+                      </span>
+                    </td>
+                    <td className="px-3 py-4">
+                      <p className="font-black text-white">
+                        {item.cliente_final || nomeUsuario(item.usuario_id)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.solicitante_email || emailUsuario(item.usuario_id)}
+                      </p>
+                    </td>
+                    <td className="px-3 py-4">
+                      <a
+                        href={`/admin/cotacoes/${item.id}`}
+                        className="font-black text-blue-400 hover:text-blue-300"
+                      >
+                        {item.referencia_hc || item.referencia_cliente || String(item.id).slice(0, 8)}
+                      </a>
+                    </td>
+                    <td className="px-3 py-4">
+                      <span className="rounded-lg border border-blue-900 bg-[#0b1730] px-3 py-2 font-bold">
+                        {item.tipo_operacao || item.servico || '-'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-4">
+                      <p className="font-bold">{item.origem || '-'}</p>
+                      <p className="mt-1 text-xs text-slate-500">→ {item.destino || '-'}</p>
+                    </td>
+                    <td className="px-3 py-4">
+                      {qtdDocs > 0 ? (
+                        <a
+                          href={`/admin/cotacoes/${item.id}`}
+                          className="font-bold text-blue-400 hover:text-blue-300"
+                        >
+                          📎 {qtdDocs} {qtdDocs === 1 ? 'anexo' : 'anexos'}
+                        </a>
+                      ) : (
+                        <span className="text-slate-500">Sem anexos</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
+                          className="rounded-xl bg-blue-600 px-4 py-2 font-black hover:bg-blue-500"
+                        >
+                          Iniciar análise
+                        </button>
+                        <a
+                          href={`/admin/cotacoes/${item.id}`}
+                          className="rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 font-black hover:bg-slate-800"
+                          title="Abrir Cotação 360"
+                        >
+                          •••
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {filaEspera.length === 0 ? (
+            <div className="p-8 text-center text-slate-500">
+              Nenhuma cotação aguardando análise.
+            </div>
           ) : null}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button
-            type="button"
-            onClick={() =>
-              setFiltroInteligencia(
-                filtroInteligencia === 'FOLLOWUP'
-                  ? 'TODAS'
-                  : 'FOLLOWUP'
-              )
-            }
-            className={
-              filtroInteligencia === 'FOLLOWUP'
-                ? 'rounded-2xl border border-amber-400 bg-amber-500/20 p-5 text-left'
-                : 'rounded-2xl border border-amber-700/60 bg-[#020817] p-5 text-left hover:bg-amber-950/30'
-            }
-          >
-            <p className="text-xs font-black uppercase tracking-wide text-amber-300">
-              ⚠ Follow-up +2 dias
-            </p>
-            <p className="mt-2 text-3xl font-black text-white">
-              {totalFollowUp}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              Disponíveis há pelo menos 48h e ainda sem embarque.
-            </p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              setFiltroInteligencia(
-                filtroInteligencia === 'SEM_RETORNO'
-                  ? 'TODAS'
-                  : 'SEM_RETORNO'
-              )
-            }
-            className={
-              filtroInteligencia === 'SEM_RETORNO'
-                ? 'rounded-2xl border border-orange-400 bg-orange-500/20 p-5 text-left'
-                : 'rounded-2xl border border-orange-700/60 bg-[#020817] p-5 text-left hover:bg-orange-950/30'
-            }
-          >
-            <p className="text-xs font-black uppercase tracking-wide text-orange-300">
-              📭 Sem retorno
-            </p>
-            <p className="mt-2 text-3xl font-black text-white">
-              {totalSemRetorno}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              Encerradas manualmente por falta de resposta.
-            </p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              setFiltroInteligencia(
-                filtroInteligencia === 'PERDIDA'
-                  ? 'TODAS'
-                  : 'PERDIDA'
-              )
-            }
-            className={
-              filtroInteligencia === 'PERDIDA'
-                ? 'rounded-2xl border border-rose-400 bg-rose-500/20 p-5 text-left'
-                : 'rounded-2xl border border-rose-700/60 bg-[#020817] p-5 text-left hover:bg-rose-950/30'
-            }
-          >
-            <p className="text-xs font-black uppercase tracking-wide text-rose-300">
-              ❌ Cotações perdidas
-            </p>
-            <p className="mt-2 text-3xl font-black text-white">
-              {totalPerdidas}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              Negócios identificados como perdidos.
-            </p>
-          </button>
+        <div className="mx-4 mb-4 rounded-2xl border border-blue-800/70 bg-blue-950/30 px-4 py-3 text-sm font-semibold text-blue-200">
+          ⓘ A fila considera apenas cotações em AGUARDANDO ANÁLISE, não arquivadas e sem embarque.
         </div>
       </section>
 
-      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-6 mb-8">
-        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+      <section className="rounded-3xl border border-blue-900 bg-[#071225] p-5">
+        <div className="mb-5 flex items-start gap-4">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500/15 text-xl">
+            ▤
+          </div>
           <div>
-            <p className="text-blue-400 font-bold mb-1">Fila de espera real</p>
-            <h2 className="text-2xl font-black">Ordem de chegada para análise</h2>
-            <p className="text-slate-400 text-sm mt-1">
-              Entram na fila somente cotações em AGUARDANDO ANÁLISE, não arquivadas e ainda sem embarque. A posição é única e independe dos filtros da tabela.
+            <h2 className="text-2xl font-black">Gestão das cotações</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Visualize, filtre e gerencie todas as cotações do sistema.
             </p>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 xl:min-w-[760px]">
-            <FilaCard
-              titulo="Na fila de espera"
-              valor={filaEspera.length}
-              detalhe="aguardando início da análise"
-            />
-
-            <FilaCard
-              titulo="Próxima da fila"
-              valor={proximaCotacao ? '#1' : '-'}
-              detalhe={proximaCotacao ? `${proximaCotacao.cliente_final || proximaCotacao.solicitante_email || 'Cliente'} · ${dataHoraBR(proximaCotacao.criado_em)}` : 'Sem cotação'}
-            />
-
-            <FilaCard
-              titulo="Última entrada na fila"
-              valor={ultimaCotacao ? dataHoraBR(ultimaCotacao.criado_em) : '-'}
-              detalhe={ultimaCotacao ? ultimaCotacao.cliente_final || ultimaCotacao.solicitante_email || 'Cliente' : 'Sem cotação'}
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
-        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
-          <div>
-            <h2 className="text-2xl font-black">
-              Filtros da fila comercial
-            </h2>
-
-            <p className="text-slate-400 text-sm mt-1">
-              Busque por referência, cliente, e-mail, operação, origem, destino ou status.
-            </p>
-          </div>
-
-          <button
-            onClick={() => {
-              setBusca('')
-              setFiltroStatus('')
-              setFiltroArquivamento('ATIVAS')
-              setFiltroInteligencia('TODAS')
-            }}
-            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold h-fit"
-          >
-            Limpar filtros
-          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="mb-4 flex flex-wrap gap-2 border-b border-blue-900/70 pb-4">
+          {[
+            ['TODAS', 'Todas'],
+            ['EM_ANALISE', 'Em análise'],
+            ['AGUARDANDO_TRANSPORTADORA', 'Aguardando transportadora'],
+            ['DISPONIVEIS', 'Disponíveis'],
+            ['ENCERRADAS', 'Encerradas'],
+          ].map(([valor, rotulo]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => {
+                setFiltroVisao(valor as any)
+                setFiltroInteligencia('TODAS')
+              }}
+              className={
+                filtroVisao === valor
+                  ? 'rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white'
+                  : 'rounded-xl border border-blue-950 bg-[#020817] px-4 py-2 text-sm font-black text-slate-400 hover:bg-slate-900'
+              }
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-5 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(320px,1fr)_190px_190px_auto]">
           <input
-            placeholder="Buscar por referência, usuário, e-mail, cliente, origem, destino..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por referência, cliente, e-mail..."
+            className="rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 text-white outline-none placeholder:text-slate-600 focus:border-blue-500"
           />
-
-          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-            <option value="">Todos os status</option>
-            <option value="AGUARDANDO ANÁLISE">Aguardando análise</option>
-            <option value="EM ANÁLISE">Em análise</option>
-            <option value="AGUARDANDO TRANSPORTADORA">Aguardando transportadora</option>
-            <option value="COTAÇÃO DISPONÍVEL">Cotação disponível</option>
-            <option value="APROVADA">Aprovada</option>
-            <option value="AUTORIZADA">Autorizada</option>
-            <option value="RECUSADA">Recusada</option>
-            <option value="SEM RETORNO">Sem retorno</option>
-            <option value="COTAÇÃO PERDIDA">Cotação perdida</option>
-            <option value="CONVERTIDA EM EMBARQUE">Convertida em embarque</option>
-          </select>
 
           <select
             value={filtroArquivamento}
@@ -885,327 +1033,289 @@ export default function CotacoesAdminPage() {
                 e.target.value as 'ATIVAS' | 'ARQUIVADAS' | 'TODAS'
               )
             }
+            className="rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white"
           >
-            <option value="ATIVAS">Somente ativas</option>
-            <option value="ARQUIVADAS">Somente arquivadas</option>
+            <option value="ATIVAS">Ativas</option>
+            <option value="ARQUIVADAS">Arquivadas</option>
             <option value="TODAS">Ativas e arquivadas</option>
           </select>
 
-          <div className="border border-blue-900 rounded-2xl bg-[#020817] px-5 py-3 text-slate-300 font-bold flex items-center">
-            {cotacoesFiltradas.length} cotação(ões) encontrada(s)
-          </div>
+          <select
+            value={filtroDocumentos}
+            onChange={(e) =>
+              setFiltroDocumentos(
+                e.target.value as 'TODOS' | 'COM_ANEXOS' | 'SEM_ANEXOS'
+              )
+            }
+            className="rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white"
+          >
+            <option value="TODOS">Todos os documentos</option>
+            <option value="COM_ANEXOS">Com anexos</option>
+            <option value="SEM_ANEXOS">Sem anexos</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => {
+              setBusca('')
+              setFiltroVisao('TODAS')
+              setFiltroArquivamento('ATIVAS')
+              setFiltroDocumentos('TODOS')
+              setFiltroInteligencia('TODAS')
+            }}
+            className="rounded-xl border border-blue-600 px-5 py-3 font-black text-blue-300 hover:bg-blue-600/10"
+          >
+            Limpar filtros
+          </button>
         </div>
-      </section>
 
-      <section className="border border-blue-900 rounded-3xl bg-[#071225] p-7">
-        <div className="flex flex-col lg:flex-row justify-between gap-5 mb-7">
-          <div>
-            <h2 className="text-2xl font-black">
-              Solicitações recebidas
-            </h2>
-
-            <p className="text-slate-400 text-sm">
-              Acompanhe os pedidos e atualize o status da cotação.
-            </p>
+        {(filtroInteligencia !== 'TODAS' || totalSemRetorno > 0 || totalPerdidas > 0) ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-bold">
+            <span className="text-slate-500">Comercial:</span>
+            <button
+              type="button"
+              onClick={() => setFiltroInteligencia('FOLLOWUP')}
+              className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-amber-300"
+            >
+              Follow-up {totalFollowUp}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFiltroInteligencia('SEM_RETORNO')}
+              className="rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-orange-300"
+            >
+              Sem retorno {totalSemRetorno}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFiltroInteligencia('PERDIDA')}
+              className="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-rose-300"
+            >
+              Perdidas {totalPerdidas}
+            </button>
+            {filtroInteligencia !== 'TODAS' ? (
+              <button
+                type="button"
+                onClick={() => setFiltroInteligencia('TODAS')}
+                className="rounded-full border border-slate-700 px-3 py-1.5 text-slate-400"
+              >
+                remover filtro
+              </button>
+            ) : null}
           </div>
+        ) : null}
+
+        <div className="mb-3 text-xs font-bold text-slate-500">
+          {cotacoesFiltradas.length} cotação(ões) encontrada(s)
         </div>
 
-        <div className="overflow-auto">
-          <table className="table w-full border-collapse">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1150px] border-collapse text-sm">
             <thead>
-              <tr>
-                <th>Fila</th>
-                <th>Chegou em</th>
-                <th>Tempo</th>
-                <th>Solicitante</th>
-                <th>Referência</th>
-                <th>AWB</th>
-                <th>E-mail</th>
-                <th>Cliente final</th>
-                <th>Operação</th>
-                <th>Rota</th>
-                <th>Status</th>
-                <th>Ações</th>
+              <tr className="border-y border-blue-900 bg-[#0b1730] text-left text-xs uppercase tracking-wide text-slate-400">
+                <th className="px-3 py-3">Referência</th>
+                <th className="px-3 py-3">Cliente</th>
+                <th className="px-3 py-3">Operação / Rota</th>
+                <th className="px-3 py-3">Documentos</th>
+                <th className="px-3 py-3">Status</th>
+                <th className="px-3 py-3">Embarque</th>
+                <th className="px-3 py-3">Ações</th>
               </tr>
             </thead>
 
             <tbody>
-              {cotacoesFiltradas.map((item, index) => (
-                <tr key={item.id} className="border-b border-blue-900/60 hover:bg-[#0b1730] transition">
-                  <td>
-                    {posicaoFilaPorId.has(String(item.id)) ? (
-                      <span
-                        className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white"
-                        title="Posição real desta cotação na fila de espera"
-                      >
-                        #{posicaoFilaPorId.get(String(item.id))}
-                      </span>
-                    ) : (
-                      <span className="inline-flex rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-black text-slate-400">
-                        Fora da fila
-                      </span>
-                    )}
-                  </td>
+              {cotacoesFiltradas.map((item) => {
+                const qtdDocs = quantidadeDocumentos(item)
 
-                  <td>
-                    <div>
-                      <p className="font-bold">
-                        {dataHoraBR(item.criado_em)}
-                      </p>
-
-                      <p className="text-slate-500 text-xs">
-                        Entrada registrada
-                      </p>
-                    </div>
-                  </td>
-
-                  <td>
-                    <span className="inline-flex rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 text-xs font-black text-blue-300">
-                      {tempoNaFila(item.criado_em)}
-                    </span>
-                  </td>
-
-                  <td>
-                    <div>
-                      <p className="font-black">
-                        {nomeUsuario(item.usuario_id)}
-                      </p>
-
-                      <p className="text-slate-500 text-xs">
-                        ID: {item.id?.slice(0, 8)}
-                      </p>
-                    </div>
-                  </td>
-
-                  <td>
-                    <div className="min-w-[150px]">
-                      <p className="font-black text-blue-300">
-                        {item.referencia_hc || item.referencia_cliente || '-'}
-                      </p>
-                      {item.referencia_hc && item.referencia_cliente && (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Cliente: {item.referencia_cliente}
-                        </p>
-                      )}
-                    </div>
-                  </td>
-
-                  <td>
-                    {item.embarque_id ? (
-                      vinculoEmbarqueQuebrado(item) ? (
-                        <div
-                          className="min-w-[190px] rounded-xl border border-red-700 bg-red-950/30 px-3 py-2"
-                          title={`ID vinculado: ${item.embarque_id}`}
-                        >
-                          <p className="text-xs font-black text-red-300">
-                            ⚠ Vínculo não encontrado
-                          </p>
-                          <p className="mt-1 text-[10px] font-bold text-red-200/70">
-                            ID: {String(item.embarque_id).slice(0, 12)}…
-                          </p>
-                        </div>
-                      ) : (
-                        <a
-                          href={`/admin/embarques/${item.embarque_id}`}
-                          className="inline-flex min-w-[175px] flex-col items-start justify-center rounded-xl border border-cyan-700 bg-cyan-950/40 px-3 py-2 text-xs text-cyan-300 hover:bg-cyan-900/50"
-                          title="Abrir embarque vinculado"
-                        >
-                          <span className="font-black">
-                            {awbCotacao(item) || 'AWB não informado'}
-                          </span>
-                          <span className="mt-1 text-[10px] font-bold text-cyan-200/70">
-                            {transportadoraCotacao(item) || 'Transportadora não informada'}
-                          </span>
-                        </a>
-                      )
-                    ) : (
-                      <span className="text-slate-500">-</span>
-                    )}
-                  </td>
-
-                  <td>{item.solicitante_email || emailUsuario(item.usuario_id)}</td>
-
-                  <td>{item.cliente_final || '-'}</td>
-
-                  <td>
-                    <span className="bg-slate-800 border border-blue-900 px-3 py-2 rounded-xl font-bold">
-                      {item.tipo_operacao || '-'}
-                    </span>
-                  </td>
-
-                  <td>
-                    <div>
-                      <p className="font-bold">{item.origem || '-'}</p>
-                      <p className="text-slate-500 text-sm">→ {item.destino || '-'}</p>
-                    </div>
-                  </td>
-
-                  <td>
-                    <div className="flex min-w-[170px] flex-col items-start gap-2">
-                      <span className={`px-3 py-2 rounded-xl text-xs font-black ${corStatus(item.status)}`}>
-                        {item.status || 'AGUARDANDO ANÁLISE'}
-                      </span>
-
-                      {cotacaoPrecisaFollowUp(item) ? (
-                        <span className="rounded-full border border-amber-500/70 bg-amber-500/10 px-3 py-1 text-[10px] font-black uppercase text-amber-300">
-                          ⚠ Sem retorno há {tempoSemRetornoCotacao(item)}
-                        </span>
-                      ) : null}
-
-                      {cotacaoArquivada(item) ? (
-                        <span className="rounded-full border border-amber-600/60 bg-amber-600/10 px-3 py-1 text-[10px] font-black uppercase text-amber-300">
-                          Arquivada
-                        </span>
-                      ) : null}
-                    </div>
-                  </td>
-
-                  <td>
-                    <div className="flex gap-2 flex-wrap">
-                                            <a
-                        href={item.pdf_cotacao_url || item.arquivo_resposta_url || `/admin/cotacoes/${item.id}`}
-                        target={item.pdf_cotacao_url || item.arquivo_resposta_url ? '_blank' : undefined}
-                        rel={item.pdf_cotacao_url || item.arquivo_resposta_url ? 'noreferrer' : undefined}
-                        className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-white font-bold"
-                      >
-                        Ver PDF
-                      </a>
-
+                return (
+                  <tr key={item.id} className="border-b border-blue-950/80 hover:bg-[#0b1730]">
+                    <td className="px-3 py-4">
                       <a
-                        href={`/admin/cotacoes/nova?editar=${item.id}`}
-                        className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl text-white font-bold"
+                        href={`/admin/cotacoes/${item.id}`}
+                        className="font-black text-blue-400 hover:text-blue-300"
                       >
-                        Editar
+                        {item.referencia_hc || item.referencia_cliente || String(item.id).slice(0, 8)}
                       </a>
+                      {item.referencia_hc && item.referencia_cliente ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Ref. cliente: {item.referencia_cliente}
+                        </p>
+                      ) : null}
+                    </td>
 
-                      <button
-                        type="button"
-                        onClick={() => abrirVinculoLogin(item)}
-                        className={
-                          item.usuario_id
-                            ? 'bg-violet-700 hover:bg-violet-600 px-4 py-2 rounded-xl text-white font-bold'
-                            : 'bg-cyan-700 hover:bg-cyan-600 px-4 py-2 rounded-xl text-white font-bold'
-                        }
-                        title={
-                          item.usuario_id
-                            ? `Login atual: ${nomeUsuario(item.usuario_id)}`
-                            : 'Vincular esta cotação a um login do portal'
-                        }
-                      >
-                        {item.usuario_id ? 'Alterar login' : 'Vincular login'}
-                      </button>
+                    <td className="px-3 py-4">
+                      <p className="font-black text-white">
+                        {item.cliente_final || nomeUsuario(item.usuario_id)}
+                      </p>
+                      <p className="mt-1 max-w-[260px] truncate text-xs text-slate-500">
+                        {item.solicitante_email || emailUsuario(item.usuario_id)}
+                      </p>
+                    </td>
 
-                      <button
-                        onClick={() => atualizarStatus(item.id, 'EM ANÁLISE')}
-                        className="bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-xl font-bold"
-                      >
-                        Análise
-                      </button>
+                    <td className="px-3 py-4">
+                      <p className="font-black text-slate-200">
+                        {item.tipo_operacao || item.servico || '-'}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.origem || '-'} → {item.destino || '-'}
+                      </p>
+                    </td>
 
-                      <button
-                        onClick={() => atualizarStatus(item.id, 'AGUARDANDO TRANSPORTADORA')}
-                        className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-xl font-bold"
-                      >
-                        Aguardando
-                      </button>
+                    <td className="px-3 py-4">
+                      <div className="space-y-1">
+                        {qtdDocs > 0 ? (
+                          <a
+                            href={`/admin/cotacoes/${item.id}`}
+                            className="block font-bold text-blue-400 hover:text-blue-300"
+                          >
+                            📎 {qtdDocs} {qtdDocs === 1 ? 'anexo do cliente' : 'anexos do cliente'}
+                          </a>
+                        ) : (
+                          <span className="block text-slate-500">Sem anexos do cliente</span>
+                        )}
 
-                      <button
-                        onClick={() => atualizarStatus(item.id, 'COTAÇÃO DISPONÍVEL')}
-                        className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-xl font-bold"
-                      >
-                        Disponível
-                      </button>
+                        {temPdfHC(item) ? (
+                          <span className="block text-xs font-bold text-emerald-400">
+                            ▤ PDF HC disponível
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
 
-                      {item.status === 'COTAÇÃO DISPONÍVEL' && (
-                        <button
-                          onClick={() => atualizarStatus(item.id, 'APROVADA')}
-                          className="bg-green-700 hover:bg-green-600 px-4 py-2 rounded-xl font-bold"
-                          title="Use quando o cliente aprovar a cotação por e-mail, WhatsApp ou outro canal externo."
-                        >
-                          Aprovar
-                        </button>
+                    <td className="px-3 py-4">
+                      <div className="flex flex-col items-start gap-2">
+                        <span className={`rounded-full px-3 py-1.5 text-xs font-black ${corStatus(item.status)}`}>
+                          {item.status || 'AGUARDANDO ANÁLISE'}
+                        </span>
+                        {cotacaoArquivada(item) ? (
+                          <span className="text-[10px] font-black uppercase text-amber-400">
+                            Arquivada
+                          </span>
+                        ) : null}
+                        {cotacaoPrecisaFollowUp(item) ? (
+                          <span className="text-[10px] font-black uppercase text-amber-300">
+                            ⚠ Follow-up {tempoSemRetornoCotacao(item)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-4">
+                      {item.embarque_id ? (
+                        vinculoEmbarqueQuebrado(item) ? (
+                          <span className="text-xs font-black text-red-300">
+                            ⚠ Vínculo não encontrado
+                          </span>
+                        ) : (
+                          <a
+                            href={`/admin/embarques/${item.embarque_id}`}
+                            className="font-black text-cyan-400 hover:text-cyan-300"
+                          >
+                            {awbCotacao(item) || 'Abrir embarque'}
+                          </a>
+                        )
+                      ) : (
+                        <span className="text-slate-500">Sem embarque</span>
                       )}
+                    </td>
 
-                      {(item.status === 'APROVADA' || item.status === 'AUTORIZADA') && (
+                    <td className="px-3 py-4">
+                      <div className="flex items-center gap-2">
                         <a
                           href={`/admin/cotacoes/${item.id}`}
-                          className="bg-cyan-700 hover:bg-cyan-600 px-4 py-2 rounded-xl font-bold text-white"
+                          className="rounded-xl bg-blue-600 px-4 py-2 font-black text-white hover:bg-blue-500"
                         >
-                          Converter em embarque
+                          Abrir cotação
                         </a>
-                      )}
 
-                      <button
-                        onClick={() => atualizarStatus(item.id, 'RECUSADA')}
-                        className="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-xl font-bold"
-                      >
-                        Recusar
-                      </button>
+                        <details className="relative">
+                          <summary className="cursor-pointer list-none rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 font-black text-slate-300 hover:bg-slate-800">
+                            •••
+                          </summary>
 
-                      {!item.embarque_id &&
-                        item.status !== 'CONVERTIDA EM EMBARQUE' &&
-                        item.status !== 'SEM RETORNO' &&
-                        item.status !== 'COTAÇÃO PERDIDA' ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              marcarResultadoComercial(
-                                item,
-                                'SEM RETORNO'
-                              )
-                            }
-                            className="bg-orange-700 hover:bg-orange-600 px-4 py-2 rounded-xl font-bold"
-                            title="Encerra comercialmente a cotação por falta de retorno do cliente."
-                          >
-                            Sem retorno
-                          </button>
+                          <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-blue-900 bg-[#071225] p-2 shadow-2xl">
+                            <button
+                              type="button"
+                              onClick={() => abrirVinculoLogin(item)}
+                              className="w-full rounded-xl px-3 py-2 text-left font-bold hover:bg-slate-800"
+                            >
+                              {item.usuario_id ? 'Alterar login' : 'Vincular login'}
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              marcarResultadoComercial(
-                                item,
-                                'COTAÇÃO PERDIDA'
-                              )
-                            }
-                            className="bg-rose-800 hover:bg-rose-700 px-4 py-2 rounded-xl font-bold"
-                            title="Registra que a oportunidade comercial foi perdida."
-                          >
-                            Perdida
-                          </button>
-                        </>
-                      ) : null}
+                            <div className="my-1 border-t border-blue-950" />
 
-                      <button
-                        onClick={() => alterarArquivamento(item, !cotacaoArquivada(item))}
-                        className={
-                          cotacaoArquivada(item)
-                            ? 'bg-emerald-700 hover:bg-emerald-600 px-4 py-2 rounded-xl font-bold'
-                            : 'bg-amber-700 hover:bg-amber-600 px-4 py-2 rounded-xl font-bold'
-                        }
-                      >
-                        {cotacaoArquivada(item) ? 'Restaurar' : 'Arquivar'}
-                      </button>
+                            {[
+                              ['AGUARDANDO ANÁLISE', 'Aguardando análise'],
+                              ['EM ANÁLISE', 'Em análise'],
+                              ['AGUARDANDO TRANSPORTADORA', 'Aguardando transportadora'],
+                              ['COTAÇÃO DISPONÍVEL', 'Disponível'],
+                              ['APROVADA', 'Aprovada'],
+                              ['RECUSADA', 'Recusada'],
+                            ].map(([status, rotulo]) => (
+                              <button
+                                key={status}
+                                type="button"
+                                onClick={() => atualizarStatus(item.id, status)}
+                                className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-slate-800"
+                              >
+                                {rotulo}
+                              </button>
+                            ))}
 
-                      <button
-                        onClick={() => excluirCotacao(item.id)}
-                        className="bg-red-800 hover:bg-red-700 px-4 py-2 rounded-xl font-bold"
-                      >
-                        Excluir
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                            {!item.embarque_id &&
+                            item.status !== 'CONVERTIDA EM EMBARQUE' &&
+                            item.status !== 'SEM RETORNO' &&
+                            item.status !== 'COTAÇÃO PERDIDA' ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => marcarResultadoComercial(item, 'SEM RETORNO')}
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-orange-300 hover:bg-orange-950/30"
+                                >
+                                  Sem retorno
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => marcarResultadoComercial(item, 'COTAÇÃO PERDIDA')}
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-300 hover:bg-rose-950/30"
+                                >
+                                  Cotação perdida
+                                </button>
+                              </>
+                            ) : null}
+
+                            <div className="my-1 border-t border-blue-950" />
+
+                            <button
+                              type="button"
+                              onClick={() => alterarArquivamento(item, !cotacaoArquivada(item))}
+                              className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-amber-300 hover:bg-amber-950/30"
+                            >
+                              {cotacaoArquivada(item) ? 'Restaurar' : 'Arquivar'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => excluirCotacao(item.id)}
+                              className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-red-300 hover:bg-red-950/30"
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        </details>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
 
-          {cotacoesFiltradas.length === 0 && (
-            <div className="border border-blue-900 bg-[#020817] rounded-2xl p-8 text-center text-slate-400 mt-6">
-              Nenhuma cotação encontrada.
+          {cotacoesFiltradas.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-blue-900 bg-[#020817] p-8 text-center text-slate-400">
+              Nenhuma cotação encontrada com os filtros atuais.
             </div>
-          )}
+          ) : null}
         </div>
       </section>
 
@@ -1368,6 +1478,56 @@ export default function CotacoesAdminPage() {
         </div>
       ) : null}
     </main>
+  )
+}
+
+
+function MetricCard({
+  titulo,
+  valor,
+  icone,
+  ativo,
+  onClick,
+}: {
+  titulo: string
+  valor: any
+  icone: string
+  ativo?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        ativo
+          ? 'rounded-2xl border border-blue-500 bg-blue-600/15 p-4 text-left shadow-lg shadow-blue-950/20'
+          : 'rounded-2xl border border-blue-900 bg-[#071225] p-4 text-left hover:border-blue-700 hover:bg-[#0b1730]'
+      }
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-xl">
+          {icone}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-xs font-bold text-slate-400">{titulo}</p>
+          <p className="mt-1 text-2xl font-black text-white">{valor}</p>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+function QueueSummary({ titulo, valor }: { titulo: string; valor: any }) {
+  return (
+    <div className="min-w-[145px] rounded-2xl border border-blue-900 bg-[#020817] px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+        {titulo}
+      </p>
+      <p className="mt-1 max-w-[180px] truncate text-base font-black text-white">
+        {valor}
+      </p>
+    </div>
   )
 }
 
