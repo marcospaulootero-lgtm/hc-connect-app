@@ -265,6 +265,7 @@ export default function FaturasPage() {
   const [filtroArquivamento, setFiltroArquivamento] = useState('ATIVAS')
   const [filtrosCarregados, setFiltrosCarregados] = useState(false)
   const [faturasSelecionadasLote, setFaturasSelecionadasLote] = useState<string[]>([]) // HC_FATURAS_ARQUIVAMENTO_LOTE_V1
+  // HC_FATURAS_ARQUIVAMENTO_LOTE_V2: qualquer status pode ser arquivado em lote.
   const [arquivandoFaturasLote, setArquivandoFaturasLote] = useState(false)
 
   const [embarqueSelecionado, setEmbarqueSelecionado] = useState<Embarque | null>(null)
@@ -2479,27 +2480,28 @@ async function carregarImagemBase64(caminhos: string[]) {
     filtroArquivamento,
   ])
 
-  function faturaComReciboDoEmbarque(embarque: Embarque) {
+  function faturaElegivelArquivamentoDoEmbarque(embarque: Embarque) {
     const fatura = faturaDoEmbarque(embarque.id)
     const faturaAgente = faturaAgenteDoEmbarque(embarque)
 
-    if (fatura?.recibo_pdf) return fatura
-    if (faturaAgente?.recibo_pdf) return faturaAgente
+    const candidatas = [fatura, faturaAgente].filter(Boolean) as Fatura[]
 
-    return null
+    return (
+      candidatas.find((item) => item?.id && !item?.arquivado_admin) ||
+      null
+    )
   }
 
   const faturasElegiveisArquivamentoLote = useMemo(() => {
     const mapa = new Map<string, Fatura>()
 
     embarquesFiltrados.forEach((embarque) => {
-      const faturaRecibo = faturaComReciboDoEmbarque(embarque)
+      const faturaElegivel = faturaElegivelArquivamentoDoEmbarque(embarque)
 
-      if (!faturaRecibo?.id) return
-      if (!faturaRecibo.recibo_pdf) return
-      if (faturaRecibo.arquivado_admin) return
+      if (!faturaElegivel?.id) return
+      if (faturaElegivel.arquivado_admin) return
 
-      mapa.set(faturaRecibo.id, faturaRecibo)
+      mapa.set(faturaElegivel.id, faturaElegivel)
     })
 
     return Array.from(mapa.values())
@@ -2532,7 +2534,7 @@ async function carregarImagemBase64(caminhos: string[]) {
     })
   }
 
-  async function arquivarFaturasEmLote(idsOriginais: string[], origem: 'SELECAO' | 'COM_RECIBO') {
+  async function arquivarFaturasEmLote(idsOriginais: string[], origem: 'SELECAO' | 'FILTRADAS') {
     const ids = Array.from(
       new Set(
         idsOriginais.filter((id) =>
@@ -2542,16 +2544,16 @@ async function carregarImagemBase64(caminhos: string[]) {
     )
 
     if (ids.length === 0) {
-      alert('Nenhuma fatura com recibo elegível para arquivamento.')
+      alert('Nenhuma fatura ativa elegível para arquivamento.')
       return
     }
 
     const mensagem =
-      origem === 'COM_RECIBO'
-        ? `Arquivar todas as ${ids.length} faturas com recibo exibidas pelos filtros atuais?`
+      origem === 'FILTRADAS'
+        ? `Arquivar todas as ${ids.length} faturas exibidas pelos filtros atuais?`
         : `Arquivar ${ids.length} fatura(s) selecionada(s)?`
 
-    if (!confirm(`${mensagem}\n\nSomente faturas com recibo e ainda ativas serão arquivadas.`)) {
+    if (!confirm(`${mensagem}\n\nO arquivamento independe do status de pagamento ou da existência de recibo.`)) {
       return
     }
 
@@ -9446,7 +9448,7 @@ async function carregarImagemBase64(caminhos: string[]) {
             <div>
               <p className="font-black text-white">Ações em lote</p>
               <p className="mt-1 text-sm text-slate-400">
-                {faturasSelecionadasLote.length} selecionada(s) • {faturasElegiveisArquivamentoLote.length} com recibo elegível(is) nos filtros atuais
+                {faturasSelecionadasLote.length} selecionada(s) • {faturasElegiveisArquivamentoLote.length} fatura(s) ativa(s) nos filtros atuais
               </p>
             </div>
 
@@ -9471,14 +9473,14 @@ async function carregarImagemBase64(caminhos: string[]) {
                 {arquivandoFaturasLote ? 'Arquivando...' : `🗄️ Arquivar selecionadas (${faturasSelecionadasLote.length})`}
               </button>
 
-              {filtroDocumento === 'COM_RECIBO' && filtroArquivamento !== 'ARQUIVADAS' ? (
+              {filtroArquivamento !== 'ARQUIVADAS' ? (
                 <button
                   type="button"
-                  onClick={() => arquivarFaturasEmLote(idsElegiveisArquivamentoLote, 'COM_RECIBO')}
+                  onClick={() => arquivarFaturasEmLote(idsElegiveisArquivamentoLote, 'FILTRADAS')}
                   disabled={idsElegiveisArquivamentoLote.length === 0 || arquivandoFaturasLote}
                   className="rounded-xl bg-green-700 px-4 py-3 font-black text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  ✅ Arquivar todas com recibo ({idsElegiveisArquivamentoLote.length})
+                  ✅ Arquivar todas filtradas ({idsElegiveisArquivamentoLote.length})
                 </button>
               ) : null}
             </div>
@@ -9492,7 +9494,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                 <th className="w-[54px]">
                   <input
                     type="checkbox"
-                    aria-label="Selecionar todas as faturas elegíveis exibidas"
+                    aria-label="Selecionar todas as faturas ativas exibidas"
                     checked={todasElegiveisSelecionadas}
                     onChange={alternarTodasFaturasElegiveisLote}
                     disabled={idsElegiveisArquivamentoLote.length === 0 || arquivandoFaturasLote}
@@ -9539,9 +9541,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
                 const comprovante = statusComprovanteFatura(fatura)
                 const faturaElegivelLote =
-                  faturaReciboExibicao?.recibo_pdf && !faturaReciboExibicao?.arquivado_admin
-                    ? faturaReciboExibicao
-                    : null
+                  faturaElegivelArquivamentoDoEmbarque(embarque)
                 const documentos = documentosDoEmbarque(embarque.id)
                 const cotacoes = cotacoesDoEmbarque(embarque.id)
                 const pacoteAberto = pacoteAbertoId === embarque.id
