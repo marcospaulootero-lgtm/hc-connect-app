@@ -297,6 +297,7 @@ export default function FaturasPage() {
   const [emissorUsuarioId, setEmissorUsuarioId] = useState('')
   const [emissorDespachante, setEmissorDespachante] = useState('')
   const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS'>('FRETE')
+  const [tipoCentralEmissao, setTipoCentralEmissao] = useState<'FRETE' | 'IMPOSTOS' | 'FORMAL'>('FRETE') // HC_CENTRAL_EMISSAO_FATURAS_V1
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorDataEmbarque, setEmissorDataEmbarque] = useState('')
@@ -7999,6 +8000,109 @@ async function carregarImagemBase64(caminhos: string[]) {
     )
   }
 
+  function selecionarTipoCentralEmissao(tipo: 'FRETE' | 'IMPOSTOS' | 'FORMAL') {
+    setAbaAtiva('EMISSOR')
+    setTipoCentralEmissao(tipo)
+
+    if (tipo === 'FORMAL') {
+      return
+    }
+
+    setEmissorTipoFatura(tipo)
+  }
+
+  function renderSeletorCentralEmissao() {
+    const opcoes = [
+      {
+        tipo: 'FRETE' as const,
+        icone: '🧾',
+        titulo: 'Fatura principal',
+        descricao: 'Frete e serviços da operação. Atualiza o PDF principal do embarque.',
+        detalhe: 'Frete / serviços',
+      },
+      {
+        tipo: 'IMPOSTOS' as const,
+        icone: '🧮',
+        titulo: 'Fatura complementar',
+        descricao: 'Impostos, DOC, DTA e cobranças complementares sem substituir a principal.',
+        detalhe: 'Impostos / DOC / DTA',
+      },
+      {
+        tipo: 'FORMAL' as const,
+        icone: '📦',
+        titulo: 'Fatura formal / Agente de carga',
+        descricao: 'Emissão multimoeda para processos formais e operações com agente de carga.',
+        detalhe: 'BRL / USD / EUR',
+      },
+    ]
+
+    return (
+      <section className="mb-6 rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-6">
+        <div className="mb-5">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-400">
+            Central de emissão
+          </p>
+          <h2 className="mt-1 text-2xl font-black">Escolha o tipo de fatura</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Selecione primeiro o tipo de emissão. O formulário abaixo se adapta automaticamente.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          {opcoes.map((opcao) => {
+            const ativo = tipoCentralEmissao === opcao.tipo
+
+            return (
+              <button
+                key={opcao.tipo}
+                type="button"
+                onClick={() => selecionarTipoCentralEmissao(opcao.tipo)}
+                className={
+                  ativo
+                    ? 'rounded-2xl border border-blue-400 bg-blue-950/50 p-5 text-left shadow-[0_0_0_1px_rgba(59,130,246,0.30),0_0_28px_rgba(37,99,235,0.12)]'
+                    : 'rounded-2xl border border-blue-900 bg-[#020817] p-5 text-left transition hover:border-blue-700 hover:bg-[#07162d]'
+                }
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex min-w-0 gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-950 text-2xl">
+                      {opcao.icone}
+                    </div>
+
+                    <div>
+                      <p className={ativo ? 'font-black text-blue-300' : 'font-black text-white'}>
+                        {opcao.titulo}
+                      </p>
+                      <p className="mt-1 text-sm leading-5 text-slate-400">
+                        {opcao.descricao}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={
+                      ativo
+                        ? 'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-blue-300 bg-blue-600 text-xs text-white'
+                        : 'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-600 text-transparent'
+                    }
+                  >
+                    ✓
+                  </span>
+                </div>
+
+                <div className="mt-4">
+                  <span className="rounded-full bg-blue-950 px-3 py-1 text-xs font-bold text-blue-300">
+                    {opcao.detalhe}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+    )
+  }
+
   function renderAbaEmissor() {
     const embarque = emissorEmbarqueSelecionado
     const cliente = emissorClienteSelecionado
@@ -8210,7 +8314,11 @@ async function carregarImagemBase64(caminhos: string[]) {
             <label>Tipo da fatura</label>
             <select
               value={emissorTipoFatura}
-              onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS')}
+              onChange={(e) => {
+                const tipo = e.target.value as 'FRETE' | 'IMPOSTOS'
+                setEmissorTipoFatura(tipo)
+                setTipoCentralEmissao(tipo)
+              }}
             >
               <option value="FRETE">Fatura principal - Frete / serviços</option>
               <option value="IMPOSTOS">Complementar - Impostos / DOC / DTA</option>
@@ -8438,7 +8546,11 @@ async function carregarImagemBase64(caminhos: string[]) {
                     Tipo da fatura
                     <select
                       value={emissorTipoFatura}
-                      onChange={(e) => setEmissorTipoFatura(e.target.value as 'FRETE' | 'IMPOSTOS')}
+                      onChange={(e) => {
+                const tipo = e.target.value as 'FRETE' | 'IMPOSTOS'
+                setEmissorTipoFatura(tipo)
+                setTipoCentralEmissao(tipo)
+              }}
                       className="mt-2 w-full"
                     >
                       <option value="FRETE">Frete / serviços</option>
@@ -8938,17 +9050,17 @@ async function carregarImagemBase64(caminhos: string[]) {
 
         <div className="flex flex-wrap gap-3 h-fit">
           <button
-            onClick={() => setAbaAtiva('EMISSOR')}
+            onClick={() => selecionarTipoCentralEmissao('FRETE')}
             className="bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-2xl font-bold"
           >
             Emitir nova fatura
           </button>
 
           <button
-            onClick={() => setAbaAtiva('AGENTE_CARGA')}
+            onClick={() => selecionarTipoCentralEmissao('FORMAL')}
             className="bg-cyan-600 hover:bg-cyan-500 px-6 py-4 rounded-2xl font-bold"
           >
-            Fatura agente de carga
+            Emitir fatura formal
           </button>
 
           <button
@@ -8975,7 +9087,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
         <button
           type="button"
-          onClick={() => setAbaAtiva('EMISSOR')}
+          onClick={() => selecionarTipoCentralEmissao(tipoCentralEmissao)}
           className={
             abaAtiva === 'EMISSOR'
               ? 'rounded-2xl bg-blue-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(37,99,235,0.25)]'
@@ -8983,18 +9095,6 @@ async function carregarImagemBase64(caminhos: string[]) {
           }
         >
           🧮 Emitir nova fatura
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setAbaAtiva('AGENTE_CARGA')}
-          className={
-            abaAtiva === 'AGENTE_CARGA'
-              ? 'rounded-2xl bg-cyan-600 px-5 py-3 font-black text-white shadow-[0_0_25px_rgba(8,145,178,0.25)]'
-              : 'rounded-2xl bg-[#020817] px-5 py-3 font-black text-slate-300 hover:bg-cyan-600/20 hover:text-white'
-          }
-        >
-          ✈️ Fatura agente de carga
         </button>
 
         <button
@@ -9011,9 +9111,17 @@ async function carregarImagemBase64(caminhos: string[]) {
       </div>
 
       {abaAtiva === 'EMISSOR' ? (
-        renderAbaEmissor()
+        <>
+          {renderSeletorCentralEmissao()}
+          {tipoCentralEmissao === 'FORMAL'
+            ? renderAbaAgenteCarga()
+            : renderAbaEmissor()}
+        </>
       ) : abaAtiva === 'AGENTE_CARGA' ? (
-        renderAbaAgenteCarga()
+        <>
+          {renderSeletorCentralEmissao()}
+          {renderAbaAgenteCarga()}
+        </>
       ) : abaAtiva === 'RECIBO' ? (
         renderAbaRecibos()
       ) : (
