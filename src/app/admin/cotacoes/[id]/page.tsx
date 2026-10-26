@@ -18,6 +18,9 @@ export default function DetalheCotacaoAdminPage() {
   const [embarqueVinculado, setEmbarqueVinculado] = useState<any>(null)
   const [erroEmbarqueVinculado, setErroEmbarqueVinculado] = useState('')
   const [vinculoEmbarqueAusente, setVinculoEmbarqueAusente] = useState(false) // HC_RECONVERSAO_COTACAO_V1
+  const [modoEdicao, setModoEdicao] = useState(false) // HC_COTACAO_360_V2
+  const [salvandoCotacao, setSalvandoCotacao] = useState(false)
+  const [formEdicao, setFormEdicao] = useState<any>({})
 
   useEffect(() => {
     carregar()
@@ -32,6 +35,29 @@ export default function DetalheCotacaoAdminPage() {
 
     setCotacao(data)
     setReferenciaHC(data?.referencia_hc || '')
+    setFormEdicao({
+      solicitante_email: data?.solicitante_email || '',
+      referencia_cliente: data?.referencia_cliente || '',
+      cliente_final: data?.cliente_final || '',
+      exportador: data?.exportador || '',
+      importador: data?.importador || '',
+      servico: data?.servico || data?.tipo_operacao || '',
+      transportadoras_consulta: Array.isArray(data?.transportadoras_consulta)
+        ? data.transportadoras_consulta.join(', ')
+        : (data?.transportadoras_consulta || ''),
+      origem: data?.origem || '',
+      destino: data?.destino || '',
+      peso_real: data?.peso_real ?? data?.peso ?? '',
+      peso_taxado: data?.peso_taxado ?? data?.peso ?? '',
+      dimensoes: data?.dimensoes || '',
+      moeda: data?.moeda || '',
+      valor_mercadoria: data?.valor_mercadoria ?? '',
+      descricao_mercadoria: data?.descricao_mercadoria || '',
+      observacoes: data?.observacoes || '',
+      volumes: Array.isArray(data?.volumes)
+        ? data.volumes.map((v: any) => ({ ...v }))
+        : [],
+    })
     setEmbarqueVinculado(null)
     setErroEmbarqueVinculado('')
     setVinculoEmbarqueAusente(false)
@@ -71,6 +97,123 @@ export default function DetalheCotacaoAdminPage() {
     }
 
     setDocumentosCliente(docs || [])
+  }
+
+  function alterarCampoEdicao(campo: string, valor: any) {
+    setFormEdicao((atual: any) => ({ ...atual, [campo]: valor }))
+  }
+
+  function alterarVolumeEdicao(index: number, campo: string, valor: any) {
+    setFormEdicao((atual: any) => ({
+      ...atual,
+      volumes: (atual.volumes || []).map((volume: any, i: number) =>
+        i === index ? { ...volume, [campo]: valor } : volume
+      ),
+    }))
+  }
+
+  function adicionarVolumeEdicao() {
+    setFormEdicao((atual: any) => ({
+      ...atual,
+      volumes: [
+        ...(atual.volumes || []),
+        {
+          quantidade: '1',
+          comprimento_cm: '',
+          largura_cm: '',
+          altura_cm: '',
+          peso_kg: '',
+        },
+      ],
+    }))
+  }
+
+  function removerVolumeEdicao(index: number) {
+    setFormEdicao((atual: any) => ({
+      ...atual,
+      volumes: (atual.volumes || []).filter((_: any, i: number) => i !== index),
+    }))
+  }
+
+  async function salvarEdicaoCompleta() {
+    if (!cotacao?.id || salvandoCotacao) return
+
+    const transportadoras = String(formEdicao.transportadoras_consulta || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+
+    const dadosAtuais = dadosEmissorObjeto()
+    const dadosFormAtuais =
+      dadosAtuais?.form && typeof dadosAtuais.form === 'object'
+        ? dadosAtuais.form
+        : {}
+
+    const atualizacao: any = {
+      solicitante_email: formEdicao.solicitante_email || null,
+      referencia_cliente: formEdicao.referencia_cliente || null,
+      cliente_final: formEdicao.cliente_final || null,
+      exportador: formEdicao.exportador || null,
+      importador: formEdicao.importador || null,
+      servico: formEdicao.servico || null,
+      tipo_operacao: formEdicao.servico || null,
+      transportadoras_consulta: transportadoras,
+      origem: formEdicao.origem || null,
+      destino: formEdicao.destino || null,
+      peso_real: formEdicao.peso_real === '' ? null : formEdicao.peso_real,
+      peso_taxado: formEdicao.peso_taxado === '' ? null : formEdicao.peso_taxado,
+      dimensoes: formEdicao.dimensoes || null,
+      moeda: formEdicao.moeda || null,
+      valor_mercadoria:
+        formEdicao.valor_mercadoria === '' ? null : formEdicao.valor_mercadoria,
+      descricao_mercadoria: formEdicao.descricao_mercadoria || null,
+      observacoes: formEdicao.observacoes || null,
+      volumes: Array.isArray(formEdicao.volumes) ? formEdicao.volumes : [],
+      dados_emissor: {
+        ...dadosAtuais,
+        form: {
+          ...dadosFormAtuais,
+          empresa_solicitante:
+            formEdicao.cliente_final || dadosFormAtuais.empresa_solicitante || '',
+          exportador: formEdicao.exportador || '',
+          importador: formEdicao.importador || '',
+          servico: formEdicao.servico || '',
+          origem: formEdicao.origem || '',
+          destino: formEdicao.destino || '',
+          peso_real: formEdicao.peso_real ?? '',
+          peso_taxado: formEdicao.peso_taxado ?? '',
+          moeda: formEdicao.moeda || '',
+          valor_mercadoria: formEdicao.valor_mercadoria ?? '',
+          observacoes: formEdicao.observacoes || '',
+        },
+      },
+    }
+
+    const confirmar = confirm(
+      'Salvar todas as alterações desta cotação?\n\n' +
+      'PDFs, anexos, status e vínculo com embarque não serão apagados.'
+    )
+
+    if (!confirmar) return
+
+    setSalvandoCotacao(true)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update(atualizacao)
+      .eq('id', cotacao.id)
+
+    setSalvandoCotacao(false)
+
+    if (error) {
+      console.error('Erro ao salvar Cotação 360:', error)
+      alert('Erro ao salvar alterações: ' + error.message)
+      return
+    }
+
+    setModoEdicao(false)
+    await carregar()
+    alert('Cotação atualizada com sucesso.')
   }
 
   function servicoCotacao() {
@@ -912,9 +1055,10 @@ export default function DetalheCotacaoAdminPage() {
     <main className="w-full max-w-none p-8 text-white">
       <div className="mb-8 flex flex-col lg:flex-row justify-between gap-5">
         <div>
-          <h1 className="text-5xl font-black mb-2">Cotação</h1>
+          <p className="text-blue-400 font-black mb-2">Comercial</p>
+          <h1 className="text-5xl font-black mb-2">Cotação 360</h1>
           <p className="text-slate-400 text-lg">
-            Detalhes completos da solicitação.
+            Visão completa, edição, documentos, proposta e conversão em embarque.
           </p>
         </div>
 
@@ -950,6 +1094,162 @@ export default function DetalheCotacaoAdminPage() {
             <p>{cotacao.pdf_nome || 'Nenhum PDF anexado'}</p>
           </div>
         </div>
+      </section>
+
+      <section className="card mb-8 border border-blue-800/70">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+          <div>
+            <p className="text-blue-400 font-black">Cotação 360</p>
+            <h2 className="text-2xl font-black">Editar dados da cotação</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              Altere os dados comerciais e operacionais sem perder PDFs, anexos, status ou vínculo com embarque.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setModoEdicao((valor) => !valor)}
+            className="rounded-xl bg-blue-600 px-5 py-3 font-black hover:bg-blue-500"
+          >
+            {modoEdicao ? 'Fechar edição' : '✏️ Editar cotação'}
+          </button>
+        </div>
+
+        {modoEdicao ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[
+                ['solicitante_email', 'E-mail solicitante'],
+                ['referencia_cliente', 'Referência cliente'],
+                ['cliente_final', 'Cliente / empresa'],
+                ['exportador', 'Exportador'],
+                ['importador', 'Importador'],
+                ['servico', 'Serviço'],
+                ['transportadoras_consulta', 'Transportadoras (separadas por vírgula)'],
+                ['origem', 'Origem'],
+                ['destino', 'Destino'],
+                ['peso_real', 'Peso real'],
+                ['peso_taxado', 'Peso taxado'],
+                ['dimensoes', 'Dimensões'],
+                ['moeda', 'Moeda'],
+                ['valor_mercadoria', 'Valor da mercadoria'],
+              ].map(([campo, titulo]) => (
+                <label key={campo} className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-400">
+                    {titulo}
+                  </span>
+                  <input
+                    value={formEdicao[campo] ?? ''}
+                    onChange={(e) => alterarCampoEdicao(campo, e.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-400">
+                  Descrição da mercadoria
+                </span>
+                <textarea
+                  className="min-h-32 w-full rounded-xl border border-slate-700 bg-[#020817] p-4"
+                  value={formEdicao.descricao_mercadoria ?? ''}
+                  onChange={(e) =>
+                    alterarCampoEdicao('descricao_mercadoria', e.target.value)
+                  }
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-400">
+                  Observações
+                </span>
+                <textarea
+                  className="min-h-32 w-full rounded-xl border border-slate-700 bg-[#020817] p-4"
+                  value={formEdicao.observacoes ?? ''}
+                  onChange={(e) => alterarCampoEdicao('observacoes', e.target.value)}
+                />
+              </label>
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-xl font-black">Volumes</h3>
+                <button
+                  type="button"
+                  onClick={adicionarVolumeEdicao}
+                  className="rounded-xl bg-slate-700 px-4 py-2 font-black hover:bg-slate-600"
+                >
+                  + Adicionar volume
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {(formEdicao.volumes || []).map((volume: any, index: number) => (
+                  <div
+                    key={index}
+                    className="grid grid-cols-2 md:grid-cols-6 gap-3 rounded-2xl border border-slate-800 bg-[#020817] p-4"
+                  >
+                    {[
+                      ['quantidade', 'Qtd'],
+                      ['comprimento_cm', 'Comp. cm'],
+                      ['largura_cm', 'Larg. cm'],
+                      ['altura_cm', 'Alt. cm'],
+                      ['peso_kg', 'Peso kg'],
+                    ].map(([campo, titulo]) => (
+                      <label key={campo}>
+                        <span className="mb-1 block text-xs font-bold text-slate-500">
+                          {titulo}
+                        </span>
+                        <input
+                          value={volume[campo] ?? ''}
+                          onChange={(e) =>
+                            alterarVolumeEdicao(index, campo, e.target.value)
+                          }
+                        />
+                      </label>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => removerVolumeEdicao(index)}
+                      className="self-end rounded-xl bg-red-800 px-3 py-3 font-black hover:bg-red-700"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 border-t border-slate-800 pt-5">
+              <button
+                type="button"
+                onClick={salvarEdicaoCompleta}
+                disabled={salvandoCotacao}
+                className="rounded-xl bg-green-700 px-6 py-3 font-black hover:bg-green-600 disabled:opacity-60"
+              >
+                {salvandoCotacao ? 'Salvando...' : '💾 Salvar alterações'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setModoEdicao(false)
+                  carregar()
+                }}
+                disabled={salvandoCotacao}
+                className="rounded-xl bg-slate-700 px-6 py-3 font-black hover:bg-slate-600 disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            Modo de edição fechado. Os dados atuais permanecem protegidos contra alterações acidentais.
+          </p>
+        )}
       </section>
 
       {cotacao.embarque_id ? (
