@@ -1194,22 +1194,40 @@ const totaisAgenteMoedaTela = useMemo(() => {
       )
     }
 
-    novaPagina(16)
+    // HC_PDF_TOTAL_ALL_IN_V1
+    novaPagina(22)
+
+    const totalAllInPdf = usarCamposAgente
+      ? resumoTotalMoedas(totaisAgenteMoedaTela)
+      : resumoTotalMoedas(totaisEnvioMoedaTela)
+
+    // Caixa ampla em duas linhas para impedir sobreposição em totais multimoeda.
+    const totalBoxX = 30
+    const totalBoxW = 166
+    const totalBoxH = 18
+
     doc.setFillColor(219, 234, 254)
-    doc.rect(114, y, 82, 12, 'F')
+    doc.rect(totalBoxX, y, totalBoxW, totalBoxH, 'F')
     doc.setTextColor(15, 23, 42)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(11)
-    doc.text('TOTAL ALL IN', 118, y + 8)
-    doc.text(
-      usarCamposAgente
-        ? resumoTotalMoedas(totaisAgenteMoedaTela)
-        : resumoTotalMoedas(totaisEnvioMoedaTela),
-      192,
-      y + 8,
-      { align: 'right' }
-    )
-    y += 18
+
+    doc.setFontSize(9)
+    doc.text('TOTAL ALL IN', totalBoxX + 5, y + 6)
+
+    // Fonte adaptativa conforme o comprimento do total.
+    const tamanhoFonteTotal =
+      totalAllInPdf.length > 52
+        ? 7.5
+        : totalAllInPdf.length > 40
+          ? 8
+          : 9.5
+
+    doc.setFontSize(tamanhoFonteTotal)
+    doc.text(totalAllInPdf, totalBoxX + totalBoxW - 5, y + 13, {
+      align: 'right',
+    })
+
+    y += 24
 
     secao('MERCADORIA E OBSERVAÇÕES')
     info('Descrição da mercadoria', form.descricao_mercadoria || '-')
