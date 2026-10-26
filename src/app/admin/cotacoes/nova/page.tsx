@@ -9,6 +9,7 @@ import { useSearchParams } from 'next/navigation'
 import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 type ModeloCotacao = 'DHL' | 'FEDEX' | 'UPS' | 'AGENTE_CARGA'
+type TipoCotacaoUI = 'COURIER' | 'FORMAL' | 'MARITIMO'
 
 const SERVICOS_TRANSPORTADORAS_COTACAO = [
   'IMPORTAÇÃO FORMAL',
@@ -332,6 +333,7 @@ const PAISES_COTACAO = CODIGOS_PAISES_COTACAO
 
 
 const INCOTERMS_COTACAO = ['EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP']
+const INCOTERMS_MARITIMOS = ['FOB', 'CFR', 'CIF', 'FAS', 'EXW', 'FCA', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP']
 
 const TRANSPORTADORAS_COTACAO = [
   'FedEx',
@@ -485,6 +487,15 @@ export default function NovaCotacaoManualPage() {
   ])
 
   const usarCamposAgente = modelo === 'AGENTE_CARGA'
+  const ehMaritimo =
+    usarCamposAgente &&
+    String(form.servico || '').trim().toUpperCase() === 'MARÍTIMO'
+  const usarTabelaServicosAgente = usarCamposAgente && !ehMaritimo // HC_EMISSOR_COTACAO_V2
+  const tipoCotacaoSelecionado: TipoCotacaoUI = ehMaritimo
+    ? 'MARITIMO'
+    : usarCamposAgente
+      ? 'FORMAL'
+      : 'COURIER'
   const divisorPesoDimensional = usarCamposAgente ? 6000 : 5000
   const transportadoraSeguro = String(form.transportadora || '')
     .trim()
@@ -869,6 +880,65 @@ const totaisAgenteMoedaTela = useMemo(() => {
     }))
   }
 
+  function escolherTipoCotacao(tipo: TipoCotacaoUI) {
+    if (tipo === 'MARITIMO') {
+      setModelo('AGENTE_CARGA')
+      setForm((atual) => ({
+        ...atual,
+        servico: 'MARÍTIMO',
+        transportadora: ['DHL', 'FEDEX', 'UPS'].includes(
+          String(atual.transportadora || '').trim().toUpperCase()
+        )
+          ? ''
+          : atual.transportadora,
+        incoterm: ['FOB', 'CFR', 'CIF', 'FAS'].includes(
+          String(atual.incoterm || '').toUpperCase()
+        )
+          ? atual.incoterm
+          : 'FOB',
+      }))
+      return
+    }
+
+    if (tipo === 'FORMAL') {
+      setModelo('AGENTE_CARGA')
+      setForm((atual) => ({
+        ...atual,
+        servico: 'IMPORTAÇÃO FORMAL',
+        transportadora: ['DHL', 'FEDEX', 'UPS'].includes(
+          String(atual.transportadora || '').trim().toUpperCase()
+        )
+          ? ''
+          : atual.transportadora,
+      }))
+      return
+    }
+
+    const modeloCourier: ModeloCotacao =
+      modelo === 'DHL' || modelo === 'FEDEX' || modelo === 'UPS'
+        ? modelo
+        : 'DHL'
+
+    setModelo(modeloCourier)
+    setForm((atual) => ({
+      ...atual,
+      servico: String(atual.servico || '').toUpperCase().includes('COURIER')
+        ? atual.servico
+        : 'IMPORTAÇÃO COURIER',
+      transportadora: transportadoraDoModelo(modeloCourier),
+    }))
+  }
+
+  const cbmTotal = useMemo(() => {
+    return volumes.reduce((total, volume) => {
+      const quantidade = Math.max(numero(volume.quantidade), 1)
+      const comprimento = numero(volume.comprimento_cm)
+      const largura = numero(volume.largura_cm)
+      const altura = numero(volume.altura_cm)
+      return total + (quantidade * comprimento * largura * altura) / 1000000
+    }, 0)
+  }, [volumes])
+
   function trocarModelo(novoModelo: ModeloCotacao) {
     setModelo(novoModelo)
 
@@ -1158,7 +1228,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
       })}`
     )
 
-    if (usarCamposAgente) {
+    if (usarTabelaServicosAgente) {
       itensAgente
         .filter((item) => item.usar && numero(item.valor) > 0)
         .forEach((item) => {
@@ -1197,7 +1267,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
     // HC_PDF_TOTAL_ALL_IN_V1
     novaPagina(22)
 
-    const totalAllInPdf = usarCamposAgente
+    const totalAllInPdf = usarTabelaServicosAgente
       ? resumoTotalMoedas(totaisAgenteMoedaTela)
       : resumoTotalMoedas(totaisEnvioMoedaTela)
 
@@ -1303,10 +1373,10 @@ const totaisAgenteMoedaTela = useMemo(() => {
               form,
               volumes,
               itensEnvio: itensEnvioPersistidos,
-              itensAgente: itensAgentePersistidos,
+              itensAgente: usarTabelaServicosAgente ? itensAgentePersistidos : [],
               resumo,
               valores,
-              totaisAgenteMoeda: totaisAgenteMoedaTela,
+              totaisAgenteMoeda: usarTabelaServicosAgente ? totaisAgenteMoedaTela : {},
               atualizado_em: new Date().toISOString(),
             },
       }
@@ -1377,7 +1447,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             pdf_url: publicUrl.publicUrl,
             pdf_nome: arquivo.name,
             modelo: nomeModelo(modelo),
-            total: usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : resumoTotalMoedas(totaisEnvioMoedaTela),
+            total: usarTabelaServicosAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : resumoTotalMoedas(totaisEnvioMoedaTela),
           }),
         })
 
@@ -1400,555 +1470,746 @@ const totaisAgenteMoedaTela = useMemo(() => {
     }
   }
 
+  const totalTela = usarTabelaServicosAgente
+    ? resumoTotalMoedas(totaisAgenteMoedaTela)
+    : resumoTotalMoedas(totaisEnvioMoedaTela)
+
+  const incotermsDisponiveis = ehMaritimo
+    ? INCOTERMS_MARITIMOS
+    : INCOTERMS_COTACAO
+
+  const tituloTipo =
+    tipoCotacaoSelecionado === 'MARITIMO'
+      ? 'Marítimo'
+      : tipoCotacaoSelecionado === 'FORMAL'
+        ? 'Agente de carga / Formal'
+        : 'Courier / Expresso'
+
   return (
-    <main className="w-full max-w-none p-8 text-white">
-      <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+    <main className="w-full max-w-none p-6 text-white xl:p-8">
+      <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="mb-2 font-bold text-blue-400">Comercial</p>
-          <h1 className="text-5xl font-black">Emissor de cotação</h1>
-          <p className="mt-2 text-lg text-slate-400">
-            Preencha tudo em uma única tela, gere o PDF e salve ou envie ao cliente.
+          <h1 className="text-4xl font-black xl:text-5xl">
+            {cotacaoEditandoId ? 'Editar cotação' : 'Nova cotação'}
+          </h1>
+          <p className="mt-2 text-base text-slate-400 xl:text-lg">
+            Escolha o tipo de cotação, preencha as informações e gere o PDF para o cliente.
           </p>
         </div>
 
-        <a href="/admin/cotacoes" className="rounded-xl bg-slate-700 px-5 py-3 font-bold hover:bg-slate-600">
-          Voltar para fila
+        <a
+          href="/admin/cotacoes"
+          className="rounded-xl bg-slate-700 px-5 py-3 font-bold hover:bg-slate-600"
+        >
+          ← Voltar para lista
         </a>
       </div>
 
-      <section className="card mb-8">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.22em] text-blue-400">Modelo</p>
-            <h2 className="mt-2 text-3xl font-black">Dados principais</h2>
+      <div className="mb-6 grid grid-cols-1 gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-4 md:grid-cols-5">
+        {[
+          ['1', 'Tipo de cotação', 'Escolha o modal'],
+          ['2', 'Dados principais', 'Informações do cliente'],
+          ['3', 'Operação', 'Rota e condições'],
+          ['4', 'Serviços', 'Custos e composição'],
+          ['5', 'PDF e envio', 'Revise e finalize'],
+        ].map(([numeroEtapa, titulo, detalhe], index) => (
+          <div key={numeroEtapa} className="flex items-center gap-3">
+            <div
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border font-black ${
+                index === 0
+                  ? 'border-blue-400 bg-blue-600 text-white shadow-[0_0_24px_rgba(37,99,235,0.45)]'
+                  : 'border-blue-950 bg-[#0b1b35] text-slate-400'
+              }`}
+            >
+              {numeroEtapa}
+            </div>
+            <div className="min-w-0">
+              <p className={index === 0 ? 'font-black text-blue-300' : 'font-black text-slate-300'}>
+                {titulo}
+              </p>
+              <p className="truncate text-xs text-slate-500">{detalhe}</p>
+            </div>
           </div>
+        ))}
+      </div>
 
-          <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-right">
-            <p className="text-xs font-black uppercase tracking-widest text-slate-500">Total all in</p>
-            <p className="mt-1 text-3xl font-black text-green-400">{usarCamposAgente ? resumoTotalMoedas(totaisAgenteMoedaTela) : resumoTotalMoedas(totaisEnvioMoedaTela)}</p>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-6">
+          <section className="card">
+            <div className="mb-5">
+              <h2 className="text-2xl font-black">1. Escolha o tipo de cotação</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Selecione o fluxo que melhor representa a operação.
+              </p>
+            </div>
 
-        <div className="form-grid">
-          <CampoSelect
-            label="Modelo da cotação"
-            value={modelo}
-            onChange={(v) => trocarModelo(v as ModeloCotacao)}
-          >
-            <option value="DHL">DHL</option>
-            <option value="FEDEX">FedEx</option>
-            <option value="UPS">UPS</option>
-            <option value="AGENTE_CARGA">Agente de carga</option>
-          </CampoSelect>
-
-          <Campo label="Referência HC" value={form.referencia_hc} onChange={() => {}} readOnly />
-          <Campo label="Referência cliente (opcional)" value={form.referencia_cliente} onChange={(v) => atualizarCampo('referencia_cliente', v)} />
-          <Campo label="E-mail do cliente (opcional)" value={form.solicitante_email} onChange={(v) => atualizarCampo('solicitante_email', v)} />
-          <Campo label="Empresa solicitante" value={form.empresa_solicitante} onChange={(v) => atualizarCampo('empresa_solicitante', v)} />
-          <Campo label="Solicitante / contato" value={form.solicitante_nome} onChange={(v) => atualizarCampo('solicitante_nome', v)} />
-        </div>
-      </section>
-
-      <section className="card mb-8">
-        <h2 className="mb-6 text-2xl font-black">Operação</h2>
-
-        <div className="form-grid">
-          <CampoSelect
-            label="Serviço"
-            value={form.servico}
-            onChange={(v) => atualizarCampo('servico', v)}
-          >
-            {(() => {
-              const servicosDisponiveis = usarCamposAgente
-                ? SERVICOS_MODELO_AGENTE
-                : SERVICOS_TRANSPORTADORAS_COTACAO
-
-              const servicoAtual = String(form.servico || '')
-
-              return (
-                <>
-                  {servicoAtual &&
-                    !servicosDisponiveis.includes(servicoAtual) && (
-                      <option value={servicoAtual}>
-                        {servicoAtual} — valor existente
-                      </option>
-                    )}
-
-                  {servicosDisponiveis.map((servico) => (
-                    <option key={servico} value={servico}>
-                      {servico
-                        .toLocaleLowerCase('pt-BR')
-                        .replace(/^./, (letra) => letra.toLocaleUpperCase('pt-BR'))}
-                    </option>
-                  ))}
-                </>
-              )
-            })()}
-          </CampoSelect>
-
-          {usarCamposAgente ? (
-            <label className="block">
-              <span className="mb-2 block text-sm font-bold text-slate-400">
-                Agente de carga
-              </span>
-
-              <input
-                list="agentes-carga-cotacao"
-                value={form.transportadora}
-                onChange={(e) =>
-                  atualizarCampo('transportadora', e.target.value)
-                }
-                placeholder="Selecione ou digite o agente"
-                autoComplete="off"
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <TipoCotacaoCard
+                selecionado={tipoCotacaoSelecionado === 'COURIER'}
+                icone="✈️"
+                titulo="Courier / Expresso"
+                descricao="Cotações expressas porta a porta com DHL, FedEx e UPS."
+                etiquetas={['DHL', 'FedEx', 'UPS']}
+                onClick={() => escolherTipoCotacao('COURIER')}
               />
 
-              <datalist id="agentes-carga-cotacao">
-                {AGENTES_CARGA_COTACAO.map((agente) => (
-                  <option key={agente} value={agente} />
-                ))}
-              </datalist>
+              <TipoCotacaoCard
+                selecionado={tipoCotacaoSelecionado === 'FORMAL'}
+                icone="📄"
+                titulo="Agente de carga / Formal"
+                descricao="Operações formais com agente de carga e composição de custos."
+                etiquetas={['Formal', 'Aéreo', 'Terrestre']}
+                onClick={() => escolherTipoCotacao('FORMAL')}
+              />
 
-              <p className="mt-1 text-xs font-semibold text-slate-500">
-                Selecione um agente da lista ou digite outro manualmente.
+              <TipoCotacaoCard
+                selecionado={tipoCotacaoSelecionado === 'MARITIMO'}
+                icone="🚢"
+                titulo="Marítimo"
+                descricao="Frete marítimo com serviços manuais e condições próprias."
+                etiquetas={['FCL', 'LCL', 'Projeto']}
+                onClick={() => escolherTipoCotacao('MARITIMO')}
+              />
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="mb-5">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-400">
+                Etapa 2
               </p>
-            </label>
-          ) : (
-            <Campo
-              label="Transportadora"
-              value={form.transportadora}
-              onChange={() => {}}
-              readOnly
-            />
-          )}
+              <h2 className="mt-1 text-2xl font-black">
+                Dados principais — {tituloTipo}
+              </h2>
+            </div>
 
-          <CampoSelect label="Origem" value={form.origem || ''} onChange={(v) => atualizarCampo('origem', v)}>
-            <option value="">Selecione o país</option>
-            {PAISES_COTACAO.map((pais) => (
-              <option key={pais} value={pais}>
-                {pais}
-              </option>
-            ))}
-          </CampoSelect>
-          <CampoSelect label="Destino" value={form.destino || ''} onChange={(v) => atualizarCampo('destino', v)}>
-            <option value="">Selecione o país</option>
-            {PAISES_COTACAO.map((pais) => (
-              <option key={pais} value={pais}>
-                {pais}
-              </option>
-            ))}
-          </CampoSelect>
-          <CampoAeroporto label="AOD / Formalização" value={form.aod} onChange={(v) => atualizarCampo('aod', v)} />
-          <Campo label="Trânsito estimado" value={form.transito} onChange={(v) => atualizarCampo('transito', v)} />
-          <Campo label="Validade" value={form.validade} onChange={(v) => atualizarCampo('validade', v)} />
-          <CampoSelect label="Moeda mercadoria" value={form.moeda} onChange={(v) => atualizarCampo('moeda', v)}>
-            <option value="USD">USD - Dólar americano</option>
-            <option value="EUR">EUR - Euro</option>
-            <option value="GBP">GBP - Libra esterlina</option>
-            <option value="CNY">CNY - Yuan chinês</option>
-            <option value="BRL">BRL - Real brasileiro</option>
-            <option value="HKD">HKD - Dólar de Hong Kong</option>
-            <option value="JPY">JPY - Iene japonês</option>
-            <option value="CHF">CHF - Franco suíço</option>
-            <option value="CAD">CAD - Dólar canadense</option>
-            <option value="AUD">AUD - Dólar australiano</option>
-          </CampoSelect>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <Campo
+                label="Referência HC"
+                value={form.referencia_hc}
+                onChange={() => {}}
+                readOnly
+              />
+              <Campo
+                label="Empresa solicitante"
+                value={form.empresa_solicitante}
+                onChange={(v) => atualizarCampo('empresa_solicitante', v)}
+              />
+              <Campo
+                label="Solicitante / contato"
+                value={form.solicitante_nome}
+                onChange={(v) => atualizarCampo('solicitante_nome', v)}
+              />
+              <Campo
+                label="Referência do cliente (opcional)"
+                value={form.referencia_cliente}
+                onChange={(v) => atualizarCampo('referencia_cliente', v)}
+              />
+              <Campo
+                label="E-mail do cliente (opcional)"
+                value={form.solicitante_email}
+                onChange={(v) => atualizarCampo('solicitante_email', v)}
+              />
 
-          <CampoSelect label="Incoterm" value={form.incoterm || 'EXW'} onChange={(v) => atualizarCampo('incoterm', v)}>
-            {INCOTERMS_COTACAO.map((incoterm) => (
-              <option key={incoterm} value={incoterm}>
-                {incoterm}
-              </option>
-            ))}
-          </CampoSelect>
-          <Campo label="Valor mercadoria" type="money" value={form.valor_mercadoria} onChange={(v) => atualizarCampo('valor_mercadoria', v)} />
-        </div>
-      </section>
-
-      <section className="card mb-8">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black">Volumes</h2>
-            <p className="mt-1 text-sm text-slate-400">Peso dimensional: comprimento x largura x altura / {divisorPesoDimensional}.</p>
-          </div>
-
-          <button type="button" onClick={adicionarVolume} className="rounded-xl bg-blue-600 px-5 py-3 font-bold hover:bg-blue-500">
-            + Volume
-          </button>
-        </div>
-
-        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
-          <Resumo titulo="Volumes" valor={resumo.quantidadeVolumes} />
-          <Resumo titulo="Peso real" valor={kg(resumo.pesoReal)} />
-          <Resumo titulo="Peso dimensional" valor={kg(resumo.pesoDimensional)} />
-          <Resumo titulo="Peso taxado" valor={kg(resumo.pesoTaxado)} />
-
-          {usarCamposAgente && (
-            <div className="rounded-2xl border border-amber-700/70 bg-amber-950/10 p-4">
-              <label className="block">
-                <span className="block text-xs font-black uppercase tracking-widest text-amber-300">
-                  Peso taxado manual
-                </span>
-
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={
-                      form.pesoTaxadoManualAgente
-                    }
-                    onChange={(e) =>
-                      atualizarCampo(
-                        'pesoTaxadoManualAgente',
-                        e.target.value
-                      )
-                    }
-                    placeholder={
-                      String(
-                        resumo.pesoTaxadoAutomatico
-                      )
-                    }
-                    className="w-full"
-                  />
-
-                  <span className="font-black text-slate-300">
-                    kg
-                  </span>
-                </div>
-
-                <p className="mt-2 text-xs font-semibold text-slate-500">
-                  Automático: {kg(resumo.pesoTaxadoAutomatico)}.
-                  Deixe em branco para usar o cálculo automático.
-                </p>
-
-                {resumo.pesoTaxadoManualAtivo && (
-                  <p className="mt-1 text-xs font-black text-amber-300">
-                    Peso manual aplicado nesta cotação.
+              {tipoCotacaoSelecionado === 'COURIER' ? (
+                <CampoSelect
+                  label="Transportadora"
+                  value={modelo}
+                  onChange={(v) => trocarModelo(v as ModeloCotacao)}
+                >
+                  <option value="DHL">DHL</option>
+                  <option value="FEDEX">FedEx</option>
+                  <option value="UPS">UPS</option>
+                </CampoSelect>
+              ) : (
+                <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                    Modelo
                   </p>
-                )}
-              </label>
+                  <p className="mt-2 font-black text-blue-300">
+                    {ehMaritimo ? 'Marítimo' : 'Agente de carga'}
+                  </p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </section>
 
-        <div className="space-y-4">
-          {volumes.map((volume, index) => (
-            <div key={index} className="grid grid-cols-1 gap-4 rounded-2xl border border-blue-900 bg-[#020817] p-4 md:grid-cols-6">
-              <Campo label="Qtd" value={volume.quantidade} onChange={(v) => atualizarVolume(index, 'quantidade', v)} />
-              <Campo label="Comprimento cm" value={volume.comprimento_cm} onChange={(v) => atualizarVolume(index, 'comprimento_cm', v)} />
-              <Campo label="Largura cm" value={volume.largura_cm} onChange={(v) => atualizarVolume(index, 'largura_cm', v)} />
-              <Campo label="Altura cm" value={volume.altura_cm} onChange={(v) => atualizarVolume(index, 'altura_cm', v)} />
-              <Campo label="Peso kg" value={volume.peso_kg} onChange={(v) => atualizarVolume(index, 'peso_kg', v)} />
-
-              <button
-                type="button"
-                onClick={() => removerVolume(index)}
-                disabled={volumes.length === 1}
-                className="self-end rounded-xl bg-red-700 px-4 py-3 font-bold hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Remover
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="card mb-8">
-        <h2 className="mb-6 text-2xl font-black">Seguro</h2>
-
-        <div className="mb-5 rounded-2xl border border-blue-900 bg-[#020817] p-4">
-          {seguroAgenteManual ? (
-            <>
-              <p className="text-sm font-black text-amber-300">
-                Seguro manual — Agente de carga
-              </p>
-
-              <p className="mt-1 text-xs font-semibold text-slate-500">
-                Para agente de carga, informe manualmente o valor do seguro.
-                Nenhuma regra automática de DHL, FedEx ou UPS será aplicada.
-              </p>
-            </>
-          ) : seguroFedexUpsAtivo ? (
-            <>
-              <p className="text-sm font-black text-purple-300">
-                Cálculo automático FedEx / UPS
-              </p>
-
-              <p className="mt-1 text-sm font-semibold text-slate-300">
-                Valor da mercadoria / 100 × 1,30
-              </p>
-
-              <p className="mt-1 text-xs font-semibold text-slate-500">
-                Para FedEx e UPS, o percentual e o mínimo DHL abaixo não entram
-                no cálculo automático.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm font-black text-blue-300">
-                Cálculo automático DHL
-              </p>
-
-              <p className="mt-1 text-xs font-semibold text-slate-500">
-                Utiliza o maior valor entre o percentual informado e o mínimo
-                de seguro.
-              </p>
-            </>
-          )}
-        </div>
-
-        <div className="form-grid">
-          <Campo label="Percentual seguro %" type="decimal" value={form.percentualSeguro} onChange={(v) => atualizarCampo('percentualSeguro', v)} />
-          <Campo label={`Mínimo seguro ${String(form.moeda || 'USD').toUpperCase()}`} type="money" value={form.seguroMinimo} onChange={(v) => atualizarCampo('seguroMinimo', v)} />
-          <Campo label={`Seguro manual ${String(form.moeda || 'USD').toUpperCase()}`} type="money" value={form.seguroManual} onChange={(v) => atualizarCampo('seguroManual', v)} />
-          <Checkbox label="Usar seguro manual" checked={form.usarSeguroManual} onChange={(v) => atualizarCampo('usarSeguroManual', v)} />
-          <Checkbox label="Sem seguro" checked={form.semSeguro} onChange={(v) => atualizarCampo('semSeguro', v)} />
-          <Resumo
-            titulo={
-              seguroAgenteManual
-                ? 'Seguro final - Manual'
-                : seguroFedexUpsAtivo
-                  ? 'Seguro final FedEx / UPS'
-                  : 'Seguro final DHL'
-            }
-            valor={dinheiro(
-              valores.seguro,
-              String(form.moeda || 'USD').toUpperCase()
-            )}
-          />
-        </div>
-      </section>
-
-      <section className="card mb-8">
-        <h2 className="mb-6 text-2xl font-black">Valores do envio</h2>
-
-        {usarCamposAgente ? (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
-              <p className="text-sm font-black text-blue-300">Agente de carga / formal</p>
-              <p className="mt-1 text-xs font-semibold text-slate-400">
-                Marque apenas os valores que entram na cotação. Cada item pode ter uma moeda diferente.
-              </p>
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-blue-900">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="bg-[#020817] text-xs uppercase tracking-widest text-slate-400">
-                  <tr>
-                    <th className="px-4 py-3">Usar</th>
-                    <th className="px-4 py-3">Serviço</th>
-                    <th className="px-4 py-3">Moeda</th>
-                    <th className="px-4 py-3">Valor</th>
-                    <th className="px-4 py-3">Observação</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {itensAgente.map((item, index) => (
-                    <tr key={item.servico} className="border-t border-blue-950">
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={item.usar}
-                          onChange={(e) => atualizarItemAgente(index, 'usar', e.target.checked)}
-                        />
-                      </td>
-
-                      <td className="px-4 py-3 font-black text-white">{item.servico}</td>
-
-                      <td className="px-4 py-3">
-                        <select
-                          value={item.moeda}
-                          onChange={(e) => atualizarItemAgente(index, 'moeda', e.target.value)}
-                          className="min-w-[110px]"
-                        >
-                          <option value="USD">USD</option>
-                          <option value="BRL">BRL</option>
-                          <option value="EUR">EUR</option>
-                          <option value="GBP">GBP</option>
-                          <option value="CNY">CNY</option>
-                          <option value="HKD">HKD</option>
-                        </select>
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <input
-                          value={formatarEntradaValorBR(item.valor)}
-                          onChange={(e) => atualizarItemAgente(index, 'valor', formatarEntradaValorBR(e.target.value))}
-                          placeholder="0,00"
-                          className="min-w-[140px]"
-                        />
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <input
-                          value={item.observacao}
-                          onChange={(e) => atualizarItemAgente(index, 'observacao', e.target.value)}
-                          placeholder="Opcional"
-                          className="min-w-[260px]"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
-              <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total por moeda</p>
-              <p className="mt-2 text-2xl font-black text-green-400">
-                {resumoTotalMoedas(totaisAgenteMoedaTela)}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex flex-col gap-4 rounded-2xl border border-blue-900 bg-[#020817] p-4 lg:flex-row lg:items-center lg:justify-between">
+          <section className="card">
+            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-sm font-black text-blue-300">Serviços da cotação</p>
-                <p className="mt-1 text-xs font-semibold text-slate-400">
-                  Selecione um serviço da lista ou digite qualquer descrição manualmente.
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-400">
+                  Etapa 3
+                </p>
+                <h2 className="mt-1 text-2xl font-black">
+                  Operação — {tituloTipo}
+                </h2>
+              </div>
+
+              {ehMaritimo && (
+                <div className="rounded-xl border border-blue-800 bg-blue-950/30 px-4 py-2 text-xs font-bold text-blue-300">
+                  Incoterms marítimos em destaque: FOB, CFR, CIF e FAS
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <CampoSelect
+                label="Serviço"
+                value={form.servico}
+                onChange={(v) => atualizarCampo('servico', v)}
+              >
+                {(() => {
+                  const servicosDisponiveis = usarCamposAgente
+                    ? SERVICOS_MODELO_AGENTE
+                    : SERVICOS_TRANSPORTADORAS_COTACAO
+                  const servicoAtual = String(form.servico || '')
+
+                  return (
+                    <>
+                      {servicoAtual && !servicosDisponiveis.includes(servicoAtual) && (
+                        <option value={servicoAtual}>{servicoAtual} — valor existente</option>
+                      )}
+                      {servicosDisponiveis.map((servico) => (
+                        <option key={servico} value={servico}>
+                          {servico
+                            .toLocaleLowerCase('pt-BR')
+                            .replace(/^./, (letra) => letra.toLocaleUpperCase('pt-BR'))}
+                        </option>
+                      ))}
+                    </>
+                  )
+                })()}
+              </CampoSelect>
+
+              {usarCamposAgente ? (
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-400">
+                    Agente de carga
+                  </span>
+                  <input
+                    list="agentes-carga-cotacao"
+                    value={form.transportadora}
+                    onChange={(e) => atualizarCampo('transportadora', e.target.value)}
+                    placeholder="Selecione ou digite o agente"
+                    autoComplete="off"
+                  />
+                  <datalist id="agentes-carga-cotacao">
+                    {AGENTES_CARGA_COTACAO.map((agente) => (
+                      <option key={agente} value={agente} />
+                    ))}
+                  </datalist>
+                </label>
+              ) : (
+                <Campo
+                  label="Transportadora"
+                  value={form.transportadora}
+                  onChange={() => {}}
+                  readOnly
+                />
+              )}
+
+              <CampoSelect
+                label="Origem"
+                value={form.origem || ''}
+                onChange={(v) => atualizarCampo('origem', v)}
+              >
+                <option value="">Selecione o país</option>
+                {PAISES_COTACAO.map((pais) => (
+                  <option key={pais} value={pais}>{pais}</option>
+                ))}
+              </CampoSelect>
+
+              <CampoSelect
+                label="Destino"
+                value={form.destino || ''}
+                onChange={(v) => atualizarCampo('destino', v)}
+              >
+                <option value="">Selecione o país</option>
+                {PAISES_COTACAO.map((pais) => (
+                  <option key={pais} value={pais}>{pais}</option>
+                ))}
+              </CampoSelect>
+
+              {!ehMaritimo && (
+                <CampoAeroporto
+                  label="AOD / Formalização"
+                  value={form.aod}
+                  onChange={(v) => atualizarCampo('aod', v)}
+                />
+              )}
+
+              <CampoSelect
+                label={ehMaritimo ? 'Incoterm marítimo' : 'Incoterm'}
+                value={form.incoterm || 'EXW'}
+                onChange={(v) => atualizarCampo('incoterm', v)}
+              >
+                {incotermsDisponiveis.map((incoterm) => (
+                  <option key={incoterm} value={incoterm}>{incoterm}</option>
+                ))}
+              </CampoSelect>
+
+              <Campo
+                label="Trânsito estimado"
+                value={form.transito}
+                onChange={(v) => atualizarCampo('transito', v)}
+              />
+              <Campo
+                label="Validade"
+                value={form.validade}
+                onChange={(v) => atualizarCampo('validade', v)}
+              />
+
+              <CampoSelect
+                label="Moeda mercadoria"
+                value={form.moeda}
+                onChange={(v) => atualizarCampo('moeda', v)}
+              >
+                <option value="USD">USD - Dólar americano</option>
+                <option value="EUR">EUR - Euro</option>
+                <option value="GBP">GBP - Libra esterlina</option>
+                <option value="CNY">CNY - Yuan chinês</option>
+                <option value="BRL">BRL - Real brasileiro</option>
+                <option value="HKD">HKD - Dólar de Hong Kong</option>
+                <option value="JPY">JPY - Iene japonês</option>
+                <option value="CHF">CHF - Franco suíço</option>
+                <option value="CAD">CAD - Dólar canadense</option>
+                <option value="AUD">AUD - Dólar australiano</option>
+              </CampoSelect>
+
+              <Campo
+                label="Valor mercadoria"
+                type="money"
+                value={form.valor_mercadoria}
+                onChange={(v) => atualizarCampo('valor_mercadoria', v)}
+              />
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-400">
+                  Carga
+                </p>
+                <h2 className="mt-1 text-2xl font-black">Volumes e pesos</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  {ehMaritimo
+                    ? 'Informe os volumes da carga. O CBM é calculado automaticamente pelas dimensões.'
+                    : `Peso dimensional: comprimento × largura × altura / ${divisorPesoDimensional}.`}
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={adicionarItemEnvio}
+                onClick={adicionarVolume}
                 className="rounded-xl bg-blue-600 px-5 py-3 font-bold hover:bg-blue-500"
               >
-                + Adicionar serviço
+                + Adicionar volume
               </button>
             </div>
 
-            <datalist id="servicos-envio-cotacao">
-              {SERVICOS_ENVIO_COTACAO.map((servico) => (
-                <option key={servico} value={servico} />
-              ))}
-            </datalist>
-
-            <div className="overflow-x-auto rounded-2xl border border-blue-900">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="bg-[#020817] text-xs uppercase tracking-widest text-slate-400">
-                  <tr>
-                    <th className="px-4 py-3">Descrição</th>
-                    <th className="px-4 py-3">Moeda</th>
-                    <th className="px-4 py-3">Valor original</th>
-                    <th className="px-4 py-3">Observação</th>
-                    <th className="px-4 py-3">Ação</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {itensEnvio.map((item, index) => (
-                    <tr key={item.id} className="border-t border-blue-950">
-                      <td className="px-4 py-3">
-                        <input
-                          list="servicos-envio-cotacao"
-                          value={item.descricao}
-                          onChange={(e) => atualizarItemEnvio(index, 'descricao', e.target.value)}
-                          placeholder="Selecione ou digite o serviço"
-                          className="min-w-[280px]"
-                        />
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <select
-                          value={item.moeda}
-                          onChange={(e) => atualizarItemEnvio(index, 'moeda', e.target.value)}
-                          className="min-w-[110px]"
-                        >
-                          <option value="USD">USD</option>
-                          <option value="BRL">BRL</option>
-                          <option value="EUR">EUR</option>
-                          <option value="GBP">GBP</option>
-                          <option value="CNY">CNY</option>
-                          <option value="HKD">HKD</option>
-                        </select>
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <input
-                          value={formatarEntradaValorBR(item.valor)}
-                          onChange={(e) => atualizarItemEnvio(index, 'valor', formatarEntradaValorBR(e.target.value))}
-                          placeholder="0,00"
-                          inputMode="decimal"
-                          className="min-w-[150px]"
-                        />
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <input
-                          value={item.observacao}
-                          onChange={(e) => atualizarItemEnvio(index, 'observacao', e.target.value)}
-                          placeholder="Opcional"
-                          className="min-w-[260px]"
-                        />
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => removerItemEnvio(index)}
-                          className="rounded-lg bg-red-700 px-3 py-2 font-black text-white hover:bg-red-600"
-                        >
-                          Excluir
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className={`mb-5 grid grid-cols-1 gap-3 ${ehMaritimo ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+              <Resumo titulo="Volumes" valor={resumo.quantidadeVolumes} />
+              <Resumo titulo="Peso real" valor={kg(resumo.pesoReal)} />
+              {ehMaritimo && (
+                <Resumo titulo="CBM" valor={`${cbmTotal.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} m³`} />
+              )}
+              <Resumo titulo="Peso dimensional" valor={kg(resumo.pesoDimensional)} />
+              <Resumo titulo="Peso taxado" valor={kg(resumo.pesoTaxado)} />
             </div>
 
-            <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
-              <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total por moeda</p>
-              <p className="mt-2 text-2xl font-black text-green-400">
-                {resumoTotalMoedas(totaisEnvioMoedaTela)}
+            {usarCamposAgente && (
+              <div className="mb-5 rounded-2xl border border-amber-700/60 bg-amber-950/10 p-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px] md:items-end">
+                  <div>
+                    <p className="text-sm font-black text-amber-300">Peso taxado manual</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Automático: {kg(resumo.pesoTaxadoAutomatico)}. Preencha apenas se o agente informar peso taxado diferente.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.pesoTaxadoManualAgente}
+                      onChange={(e) => atualizarCampo('pesoTaxadoManualAgente', e.target.value)}
+                      placeholder={String(resumo.pesoTaxadoAutomatico)}
+                    />
+                    <span className="font-black text-slate-300">kg</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {volumes.map((volume, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-1 gap-3 rounded-2xl border border-blue-900 bg-[#020817] p-4 md:grid-cols-6"
+                >
+                  <Campo label="Qtd" value={volume.quantidade} onChange={(v) => atualizarVolume(index, 'quantidade', v)} />
+                  <Campo label="Comprimento cm" value={volume.comprimento_cm} onChange={(v) => atualizarVolume(index, 'comprimento_cm', v)} />
+                  <Campo label="Largura cm" value={volume.largura_cm} onChange={(v) => atualizarVolume(index, 'largura_cm', v)} />
+                  <Campo label="Altura cm" value={volume.altura_cm} onChange={(v) => atualizarVolume(index, 'altura_cm', v)} />
+                  <Campo label="Peso kg" value={volume.peso_kg} onChange={(v) => atualizarVolume(index, 'peso_kg', v)} />
+                  <button
+                    type="button"
+                    onClick={() => removerVolume(index)}
+                    disabled={volumes.length === 1}
+                    className="self-end rounded-xl bg-red-800 px-4 py-3 font-bold hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Remover
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-400">
+                  Etapa 4
+                </p>
+                <h2 className="mt-1 text-2xl font-black">
+                  Serviços — {tituloTipo}
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  {ehMaritimo
+                    ? 'Adicione manualmente somente os serviços que farão parte desta cotação marítima.'
+                    : usarTabelaServicosAgente
+                      ? 'Marque os serviços do agente que entram na composição.'
+                      : 'Adicione os serviços e valores desta cotação.'}
+                </p>
+              </div>
+
+              {!usarTabelaServicosAgente && (
+                <button
+                  type="button"
+                  onClick={adicionarItemEnvio}
+                  className="rounded-xl bg-blue-600 px-5 py-3 font-bold hover:bg-blue-500"
+                >
+                  + Adicionar serviço
+                </button>
+              )}
+            </div>
+
+            {usarTabelaServicosAgente ? (
+              <div className="overflow-x-auto rounded-2xl border border-blue-900">
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead className="bg-[#020817] text-xs uppercase tracking-widest text-slate-400">
+                    <tr>
+                      <th className="px-4 py-3">Usar</th>
+                      <th className="px-4 py-3">Serviço</th>
+                      <th className="px-4 py-3">Moeda</th>
+                      <th className="px-4 py-3">Valor</th>
+                      <th className="px-4 py-3">Observação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itensAgente.map((item, index) => (
+                      <tr key={`${item.servico}-${index}`} className="border-t border-blue-950">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={item.usar}
+                            onChange={(e) => atualizarItemAgente(index, 'usar', e.target.checked)}
+                          />
+                        </td>
+                        <td className="px-4 py-3 font-black">{item.servico}</td>
+                        <td className="px-4 py-3">
+                          <select value={item.moeda} onChange={(e) => atualizarItemAgente(index, 'moeda', e.target.value)}>
+                            <option value="USD">USD</option>
+                            <option value="BRL">BRL</option>
+                            <option value="EUR">EUR</option>
+                            <option value="GBP">GBP</option>
+                            <option value="CNY">CNY</option>
+                            <option value="HKD">HKD</option>
+                          </select>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            value={formatarEntradaValorBR(item.valor)}
+                            onChange={(e) => atualizarItemAgente(index, 'valor', formatarEntradaValorBR(e.target.value))}
+                            placeholder="0,00"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            value={item.observacao}
+                            onChange={(e) => atualizarItemAgente(index, 'observacao', e.target.value)}
+                            placeholder="Opcional"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <>
+                {!ehMaritimo && (
+                  <datalist id="servicos-envio-cotacao">
+                    {SERVICOS_ENVIO_COTACAO.map((servico) => (
+                      <option key={servico} value={servico} />
+                    ))}
+                  </datalist>
+                )}
+
+                <div className="overflow-x-auto rounded-2xl border border-blue-900">
+                  <table className="w-full min-w-[900px] text-left text-sm">
+                    <thead className="bg-[#020817] text-xs uppercase tracking-widest text-slate-400">
+                      <tr>
+                        <th className="px-4 py-3">Descrição do serviço</th>
+                        <th className="px-4 py-3">Moeda</th>
+                        <th className="px-4 py-3">Valor</th>
+                        <th className="px-4 py-3">Observação</th>
+                        <th className="px-4 py-3">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itensEnvio.map((item, index) => (
+                        <tr key={item.id} className="border-t border-blue-950">
+                          <td className="px-4 py-3">
+                            <input
+                              list={ehMaritimo ? undefined : 'servicos-envio-cotacao'}
+                              value={item.descricao}
+                              onChange={(e) => atualizarItemEnvio(index, 'descricao', e.target.value)}
+                              placeholder={ehMaritimo ? 'Digite o serviço marítimo' : 'Selecione ou digite o serviço'}
+                              className="min-w-[280px]"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <select value={item.moeda} onChange={(e) => atualizarItemEnvio(index, 'moeda', e.target.value)}>
+                              <option value="USD">USD</option>
+                              <option value="BRL">BRL</option>
+                              <option value="EUR">EUR</option>
+                              <option value="GBP">GBP</option>
+                              <option value="CNY">CNY</option>
+                              <option value="HKD">HKD</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input
+                              value={formatarEntradaValorBR(item.valor)}
+                              onChange={(e) => atualizarItemEnvio(index, 'valor', formatarEntradaValorBR(e.target.value))}
+                              placeholder="0,00"
+                              inputMode="decimal"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <input
+                              value={item.observacao}
+                              onChange={(e) => atualizarItemEnvio(index, 'observacao', e.target.value)}
+                              placeholder="Opcional"
+                              className="min-w-[220px]"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => removerItemEnvio(index)}
+                              className="rounded-lg bg-red-800 px-3 py-2 font-black hover:bg-red-700"
+                            >
+                              Excluir
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            <div className="mt-4 rounded-2xl border border-green-900 bg-green-950/20 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+                Total por moeda
+              </p>
+              <p className="mt-2 text-2xl font-black text-green-400">{totalTela}</p>
+            </div>
+          </section>
+
+          <section className="card">
+            <h2 className="mb-5 text-2xl font-black">Seguro, mercadoria e observações</h2>
+
+            <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <Campo
+                label="Percentual seguro %"
+                type="decimal"
+                value={form.percentualSeguro}
+                onChange={(v) => atualizarCampo('percentualSeguro', v)}
+              />
+              <Campo
+                label={`Mínimo seguro ${String(form.moeda || 'USD').toUpperCase()}`}
+                type="money"
+                value={form.seguroMinimo}
+                onChange={(v) => atualizarCampo('seguroMinimo', v)}
+              />
+              <Campo
+                label={`Seguro manual ${String(form.moeda || 'USD').toUpperCase()}`}
+                type="money"
+                value={form.seguroManual}
+                onChange={(v) => atualizarCampo('seguroManual', v)}
+              />
+              <Checkbox label="Usar seguro manual" checked={form.usarSeguroManual} onChange={(v) => atualizarCampo('usarSeguroManual', v)} />
+              <Checkbox label="Sem seguro" checked={form.semSeguro} onChange={(v) => atualizarCampo('semSeguro', v)} />
+              <Resumo
+                titulo="Seguro final"
+                valor={dinheiro(valores.seguro, String(form.moeda || 'USD').toUpperCase())}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <CampoTexto
+                label="Descrição da mercadoria"
+                value={form.descricao_mercadoria}
+                onChange={(v) => atualizarCampo('descricao_mercadoria', v)}
+              />
+              <CampoTexto
+                label="Observações comerciais"
+                value={form.observacoes}
+                onChange={(v) => atualizarCampo('observacoes', v)}
+              />
+            </div>
+          </section>
+        </div>
+
+        <aside className="h-fit 2xl:sticky 2xl:top-6">
+          <div className="rounded-3xl border border-blue-800 bg-[#071225] p-5 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black">Resumo da cotação</h2>
+                <p className="mt-1 text-sm text-slate-400">{tituloTipo}</p>
+              </div>
+              <span className="rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-1 text-xs font-black text-emerald-300">
+                Em edição
+              </span>
+            </div>
+
+            <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                Total all in
+              </p>
+              <p className="mt-2 break-words text-3xl font-black text-emerald-400">
+                {totalTela}
               </p>
             </div>
+
+            <div className="mt-5 space-y-3 text-sm">
+              <ResumoLinha label="Validade" valor={form.validade || '-'} />
+              <ResumoLinha label="Trânsito estimado" valor={form.transito || '-'} />
+              <ResumoLinha label="Origem" valor={form.origem || '-'} />
+              <ResumoLinha label="Destino" valor={form.destino || '-'} />
+              <ResumoLinha label="Incoterm" valor={form.incoterm || '-'} />
+              <ResumoLinha label="Volumes" valor={String(resumo.quantidadeVolumes || 0)} />
+              <ResumoLinha label={ehMaritimo ? 'CBM' : 'Peso taxado'} valor={ehMaritimo ? `${cbmTotal.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} m³` : kg(resumo.pesoTaxado)} />
+              <ResumoLinha label="Mercadoria" valor={`${form.moeda || 'USD'} ${numero(form.valor_mercadoria).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+            </div>
+
+            <div className="my-5 border-t border-blue-950" />
+
+            <button
+              type="button"
+              onClick={baixarPdf}
+              className="w-full rounded-xl bg-blue-600 px-5 py-3 font-black hover:bg-blue-500"
+            >
+              📄 Gerar prévia PDF
+            </button>
+
+            <button
+              type="button"
+              onClick={() => salvarCotacao(false)}
+              disabled={salvando}
+              className="mt-3 w-full rounded-xl border border-blue-800 bg-[#0a1730] px-5 py-3 font-black hover:bg-blue-950 disabled:opacity-60"
+            >
+              {salvando ? 'Salvando...' : cotacaoEditandoId ? 'Atualizar cotação' : 'Salvar cotação'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => salvarCotacao(true)}
+              disabled={salvando}
+              className="mt-3 w-full rounded-xl bg-green-700 px-5 py-3 font-black hover:bg-green-600 disabled:opacity-60"
+            >
+              {salvando ? 'Enviando...' : 'Salvar e enviar por e-mail'}
+            </button>
+
+            <a
+              href="/admin/cotacoes"
+              className="mt-3 block w-full rounded-xl bg-slate-800 px-5 py-3 text-center font-bold hover:bg-slate-700"
+            >
+              Cancelar
+            </a>
           </div>
-        )}
-      </section>
-
-      <section className="card mb-8">
-        <h2 className="mb-6 text-2xl font-black">Mercadoria e observações</h2>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <CampoTexto label="Descrição da mercadoria" value={form.descricao_mercadoria} onChange={(v) => atualizarCampo('descricao_mercadoria', v)} />
-          <CampoTexto label="Observações comerciais" value={form.observacoes} onChange={(v) => atualizarCampo('observacoes', v)} />
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="flex flex-wrap justify-end gap-4">
-          <a href="/admin/cotacoes" className="rounded-xl bg-slate-700 px-5 py-3 font-bold hover:bg-slate-600">
-            Cancelar
-          </a>
-
-          <button type="button" onClick={baixarPdf} className="rounded-xl bg-slate-700 px-5 py-3 font-bold hover:bg-slate-600">
-            Baixar prévia PDF
-          </button>
-
-          <button
-            type="button"
-            onClick={() => salvarCotacao(false)}
-            disabled={salvando}
-            className="rounded-xl bg-blue-600 px-6 py-3 font-black hover:bg-blue-500 disabled:opacity-60"
-          >
-            {salvando ? 'Salvando...' : cotacaoEditandoId ? 'Atualizar cotação' : 'Salvar cotação'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => salvarCotacao(true)}
-            disabled={salvando}
-            className="rounded-xl bg-green-700 px-6 py-3 font-black hover:bg-green-600 disabled:opacity-60"
-          >
-            {salvando ? 'Enviando...' : 'Salvar e enviar por e-mail'}
-          </button>
-        </div>
-      </section>
+        </aside>
+      </div>
     </main>
+  )
+}
+
+function TipoCotacaoCard({
+  selecionado,
+  icone,
+  titulo,
+  descricao,
+  etiquetas,
+  onClick,
+}: {
+  selecionado: boolean
+  icone: string
+  titulo: string
+  descricao: string
+  etiquetas: string[]
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group rounded-2xl border p-5 text-left transition ${
+        selecionado
+          ? 'border-blue-400 bg-blue-950/45 shadow-[0_0_0_1px_rgba(59,130,246,0.35),0_0_28px_rgba(37,99,235,0.12)]'
+          : 'border-blue-900 bg-[#020817] hover:border-blue-700 hover:bg-[#07162d]'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-4">
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl ${selecionado ? 'bg-blue-600/30' : 'bg-blue-950'}`}>
+            {icone}
+          </div>
+          <div>
+            <p className={selecionado ? 'font-black text-blue-300' : 'font-black text-white'}>
+              {titulo}
+            </p>
+            <p className="mt-1 text-sm leading-5 text-slate-400">{descricao}</p>
+          </div>
+        </div>
+
+        <span className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs ${selecionado ? 'border-blue-300 bg-blue-600 text-white' : 'border-slate-500 text-transparent'}`}>
+          ✓
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {etiquetas.map((etiqueta) => (
+          <span key={etiqueta} className="rounded-full bg-blue-950 px-3 py-1 text-xs font-bold text-blue-300">
+            {etiqueta}
+          </span>
+        ))}
+      </div>
+    </button>
+  )
+}
+
+function ResumoLinha({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <span className="text-slate-500">{label}</span>
+      <span className="max-w-[58%] text-right font-bold text-slate-200">{valor}</span>
+    </div>
   )
 }
 
