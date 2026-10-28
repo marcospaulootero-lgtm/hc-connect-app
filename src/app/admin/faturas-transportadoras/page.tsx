@@ -215,8 +215,9 @@ export default function FaturasTransportadorasPage() {
 
     const params = new URLSearchParams(window.location.search)
     const origemDashboard = params.get('origem') === 'dashboard' || params.get('dash') === '1'
+    const origemFinanceiro = params.get('origem') === 'financeiro'
 
-    if (!origemDashboard) return
+    if (!origemDashboard && !origemFinanceiro) return
 
     const buscaUrl = params.get('busca') || ''
     const transportadoraUrl = params.get('transportadora') || ''
@@ -224,6 +225,8 @@ export default function FaturasTransportadorasPage() {
     const arquivadasUrl = params.get('arquivadas') || ''
     const prazoUrl = params.get('prazo') || ''
     const conciliacaoUrl = params.get('conciliacao') || ''
+    const faturaIdUrl = params.get('fatura_id') || ''
+    const abrirDetalhe = params.get('abrir') === '1'
 
     setBusca(buscaUrl)
     setFiltroTransportadoras(transportadoraUrl ? [transportadoraUrl] : [])
@@ -231,6 +234,10 @@ export default function FaturasTransportadorasPage() {
     setFiltroArquivadas(arquivadasUrl || 'ATIVAS')
     setFiltroPrazo(prazoUrl)
     setFiltroConciliacao(conciliacaoUrl || 'TODAS')
+
+    if (origemFinanceiro && abrirDetalhe && faturaIdUrl) {
+      setFaturaConciliacaoAberta(faturaIdUrl)
+    }
 
     const partes = [
       situacaoUrl ? `situação ${situacaoUrl}` : '',
@@ -240,7 +247,13 @@ export default function FaturasTransportadorasPage() {
       buscaUrl ? `busca ${buscaUrl}` : '',
     ].filter(Boolean)
 
-    setFiltroDashboard(partes.length ? `Dashboard: ${partes.join(' • ')}` : 'Dashboard: faturas filtradas')
+    setFiltroDashboard(
+      origemFinanceiro
+        ? `Financeiro: ${buscaUrl || 'fatura selecionada'}`
+        : partes.length
+          ? `Dashboard: ${partes.join(' • ')}`
+          : 'Dashboard: faturas filtradas'
+    )
   }
 
   function nomeFiltroPrazo(valor: string) {
@@ -488,7 +501,9 @@ export default function FaturasTransportadorasPage() {
     if (item.data_pagamento) return 'PAGA'
     if (situacao.includes('PAGO') || situacao.includes('PAGA') || situacao.includes('BAIXADO')) return 'PAGA'
     if (situacao.includes('CANCEL')) return 'FATURA CANCELADA'
-    if (situacao.includes('CONTEST')) return 'CONTESTADA'
+
+    const statusContestacao = String(item.status_contestacao || '').toUpperCase()
+    if (situacao.includes('CONTEST') || statusContestacao.includes('CONTEST')) return 'CONTESTADA'
 
     const vencimento = String(item.vencimento || '').slice(0, 10)
 
@@ -2528,6 +2543,11 @@ export default function FaturasTransportadorasPage() {
                                 <p className="mt-2 text-sm text-slate-400">
                                   O pagamento da transportadora fica seguro somente quando todos os AWBs abaixo possuem data de recebimento no Financeiro.
                                 </p>
+                                {situacaoAutomatica(item) === 'CONTESTADA' ? (
+                                  <p className="mt-2 inline-flex rounded-lg border border-purple-500/50 bg-purple-500/10 px-3 py-2 text-sm font-black text-purple-200">
+                                    ⏸ Fatura suspensa por contestação de processo. Não liberar pagamento até a regularização.
+                                  </p>
+                                ) : null}
                               </div>
 
                               <span className={`w-fit rounded-full border px-4 py-2 text-xs font-black ${classeStatusConciliacao(conciliacao.status)}`}>

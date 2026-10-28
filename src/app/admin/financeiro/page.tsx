@@ -187,6 +187,7 @@ const STATUS_PROCESSOS = [
   { value: 'EM ABERTO', label: 'Em aberto' },
   { value: 'ATRASADO', label: 'Atrasado' },
   { value: 'PAGO', label: 'Pago' },
+  { value: 'EM CONTESTAÇÃO', label: 'Em contestação' },
   { value: 'AGUARDANDO_CUSTO', label: 'Aguardando custo' },
 ]
 
@@ -299,6 +300,8 @@ export default function FinanceiroPage() {
   const [faturasTransportadorasCaixa, setFaturasTransportadorasCaixa] = useState<any[]>([])
   const [loadingCompromissosCaixa, setLoadingCompromissosCaixa] = useState(true)
   const [erroCompromissosCaixa, setErroCompromissosCaixa] = useState('')
+  const [vinculosTransportadorasFinanceiro, setVinculosTransportadorasFinanceiro] = useState<any[]>([]) // HC_CONTESTACAO_PROCESSOS_V1
+  const [alterandoContestacaoAwb, setAlterandoContestacaoAwb] = useState<string | null>(null)
 
   useEffect(() => {
     carregarDados()
@@ -669,7 +672,39 @@ export default function FinanceiroPage() {
     return !!normalizarData(valor)
   }
 
+  function normalizarAwbContestacao(valor: any) {
+    return String(valor || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  }
+
+  function vinculoTransportadoraDoProcesso(item: any) {
+    const awb = normalizarAwbContestacao(item?.awb)
+    if (!awb) return null
+
+    const transportadoraProcesso = normalizarBusca(item?.transportadora)
+
+    return (
+      vinculosTransportadorasFinanceiro.find((vinculo: any) => {
+        const mesmoAwb = normalizarAwbContestacao(vinculo?.awb) === awb
+        if (!mesmoAwb) return false
+
+        const transportadoraVinculo = normalizarBusca(vinculo?.transportadora)
+        if (!transportadoraProcesso || !transportadoraVinculo) return true
+
+        return (
+          transportadoraProcesso.includes(transportadoraVinculo) ||
+          transportadoraVinculo.includes(transportadoraProcesso)
+        )
+      }) || null
+    )
+  }
+
+  function processoEmContestacao(item: any) {
+    const vinculo = vinculoTransportadoraDoProcesso(item)
+    return normalizarBusca(vinculo?.status_lancamento).includes('CONTEST')
+  }
+
   function statusCobranca(item: any) {
+    if (processoEmContestacao(item)) return 'EM CONTESTAÇÃO'
     if (dataRecebimentoProcesso(item)) return 'PAGO'
 
     const vencimento =
@@ -705,6 +740,7 @@ export default function FinanceiroPage() {
 
   function badgeStatus(status: string) {
     if (status === 'PAGO') return 'bg-green-100 text-green-700 border-green-300'
+    if (status === 'EM CONTESTAÇÃO') return 'bg-purple-100 text-purple-700 border-purple-300'
     if (status === 'ATRASADO' || status === 'VENCIDO') return 'bg-red-100 text-red-700 border-red-300'
     if (status === 'AGUARDANDO_CUSTO') return 'bg-orange-100 text-orange-700 border-orange-300'
     return 'bg-yellow-100 text-yellow-700 border-yellow-300'
@@ -993,7 +1029,129 @@ export default function FinanceiroPage() {
       carregarContasBancarias(),
       carregarExtratoBancario(),
       carregarCompromissosCaixa(),
+      carregarVinculosTransportadorasFinanceiro(),
     ])
+  }
+
+  async function carregarVinculosTransportadorasFinanceiro() {
+    const { count, error: countError } = await supabase
+      .from('faturas_transportadoras_itens')
+      .select('id', { count: 'exact', head: true })
+
+    if (countError) {
+      console.error('Erro ao contar vínculos das faturas transportadoras:', countError.message)
+      return
+    }
+
+    const total = count || 0
+    if (total === 0) {
+      setVinculosTransportadorasFinanceiro([])
+      return
+    }
+
+    const paginas = Math.max(1, Math.ceil(total / LOTE_SUPABASE))
+    const consultas = Array.from({ length: paginas }, (_, index) => {
+      const inicio = index * LOTE_SUPABASE
+      const fim = inicio + LOTE_SUPABASE - 1
+
+      return supabase
+        .from('faturas_transportadoras_itens')
+        .select('id, fatura_transportadora_id, transportadora, numero_fatura, awb, status_lancamento, observacao')
+        .range(inicio, fim)
+    })
+
+    const respostas = await Promise.all(consultas)
+    const erro = respostas.find((res) => res.error)
+
+    if (erro?.error) {
+      console.error('Erro ao carregar vínculos das faturas transportadoras:', erro.error.message)
+      return
+    }
+
+    setVinculosTransportadorasFinanceiro(respostas.flatMap((res) => res.data || []))
+  }
+
+  async function alternarContestacaoProcesso(item: any) {
+    const vinculo = vinculoTransportadoraDoProcesso(item)
+
+    if (!vinculo?.id || !vinculo?.fatura_transportadora_id) {
+      alert(
+        'Não foi localizada uma fatura DHL/FedEx vinculada a este AWB.\n\n' +
+        'Confira se o AWB está cadastrado nos itens da fatura da transportadora.'
+      )
+      return
+    }
+
+    const contestado = processoEmContestacao(item)
+    const awb = normalizarAwbContestacao(item?.awb)
+    const acao = contestado ? 'retirar da contestação' : 'colocar em contestação'
+
+    if (!confirm(
+      `Deseja ${acao} o processo ${item?.awb || '-'}?\n\n` +
+      (contestado
+        ? 'A fatura da transportadora só será reativada se não existir outro AWB em contestação.'
+        : 'A fatura DHL/FedEx vinculada ficará SUSPENSA enquanto houver contestação aberta.')
+    )) return
+
+    setAlterandoContestacaoAwb(awb)
+
+    try {
+      const agora = new Date().toISOString()
+      const novoStatusItem = contestado ? 'LANCADO' : 'CONTESTACAO'
+      const observacaoAtual = String(vinculo?.observacao || '').trim()
+      const historico = contestado
+        ? `Contestação encerrada pelo Financeiro em ${new Date().toLocaleString('pt-BR')}.`
+        : `Contestação aberta pelo Financeiro em ${new Date().toLocaleString('pt-BR')}.`
+
+      const { error: erroItem } = await supabase
+        .from('faturas_transportadoras_itens')
+        .update({
+          status_lancamento: novoStatusItem,
+          observacao: [observacaoAtual, historico].filter(Boolean).join(' | '),
+          atualizado_em: agora,
+        })
+        .eq('id', vinculo.id)
+
+      if (erroItem) throw erroItem
+
+      const { data: itensFatura, error: erroItensFatura } = await supabase
+        .from('faturas_transportadoras_itens')
+        .select('id, status_lancamento')
+        .eq('fatura_transportadora_id', vinculo.fatura_transportadora_id)
+
+      if (erroItensFatura) throw erroItensFatura
+
+      const aindaContestada = (itensFatura || []).some((registro: any) =>
+        normalizarBusca(registro?.status_lancamento).includes('CONTEST')
+      )
+
+      const { error: erroFatura } = await supabase
+        .from('faturas_transportadoras')
+        .update({
+          status_contestacao: aindaContestada ? 'EM CONTESTAÇÃO' : null,
+          situacao: aindaContestada ? 'CONTESTADA' : 'EM ABERTO',
+          atualizado_em: agora,
+        })
+        .eq('id', vinculo.fatura_transportadora_id)
+
+      if (erroFatura) throw erroFatura
+
+      await Promise.all([
+        carregarVinculosTransportadorasFinanceiro(),
+        carregarCompromissosCaixa(),
+      ])
+
+      alert(
+        aindaContestada
+          ? `Processo ${item?.awb || '-'} em contestação. A fatura ${vinculo.numero_fatura || '-'} ficou suspensa.`
+          : `Contestação do processo ${item?.awb || '-'} encerrada. A fatura ${vinculo.numero_fatura || '-'} foi reativada.`
+      )
+    } catch (error: any) {
+      console.error('Erro ao alterar contestação:', error)
+      alert('Erro ao alterar contestação: ' + (error?.message || error))
+    } finally {
+      setAlterandoContestacaoAwb(null)
+    }
   }
 
   async function carregarFinanceiro() {
@@ -4579,6 +4737,7 @@ export default function FinanceiroPage() {
     filtroAnoProcessos,
     filtroMesProcessos,
     anoFinanceiro,
+    vinculosTransportadorasFinanceiro,
   ])
 
   const resumoFiltrado = useMemo(() => {
@@ -7649,13 +7808,14 @@ export default function FinanceiroPage() {
             )}
 
             <div className="overflow-x-auto">
-              <table className="min-w-[1750px] w-full text-sm">
+              <table className="min-w-[1900px] w-full text-sm">
                 <thead className="bg-gray-50 text-gray-500">
                   <tr>
                     <Th>Cliente</Th>
                     <Th>Despachante</Th>
                     <Th>AWB</Th>
-                    <Th>Nº Fatura</Th>
+                    <Th>Nº Fatura cliente</Th>
+                    <Th>Fatura DHL/FedEx</Th>
                     <Th>Transportadora</Th>
                     <Th>Serviço</Th>
                     <Th>Valor Faturado</Th>
@@ -7672,14 +7832,16 @@ export default function FinanceiroPage() {
 
                 <tbody>
                   {loading && filtradosPaginados.length === 0 ? (
-                    <tr><td colSpan={15} className="p-6 text-center">Carregando processos faturados...</td></tr>
+                    <tr><td colSpan={16} className="p-6 text-center">Carregando processos faturados...</td></tr>
                   ) : filtradosPaginados.length === 0 ? (
-                    <tr><td colSpan={15} className="p-6 text-center text-gray-500">Nenhum lançamento encontrado.</td></tr>
+                    <tr><td colSpan={16} className="p-6 text-center text-gray-500">Nenhum lançamento encontrado.</td></tr>
                   ) : (
                     filtradosPaginados.map((item) => {
                       const cobranca = statusCobranca(item)
                       const possuiCusto = !aguardandoCustoProcesso(item)
                       const profit = possuiCusto ? calcularProfit(item) : null
+                      const vinculoTransportadora = vinculoTransportadoraDoProcesso(item)
+                      const contestado = processoEmContestacao(item)
 
                       return (
                         <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
@@ -7687,6 +7849,19 @@ export default function FinanceiroPage() {
                           <Td>{item.despachante}</Td>
                           <Td>{item.awb}</Td>
                           <Td>{item.fatura || '-'}</Td>
+                          <Td>
+                            {vinculoTransportadora?.numero_fatura ? (
+                              <a
+                                href={`/admin/faturas-transportadoras?origem=financeiro&busca=${encodeURIComponent(vinculoTransportadora.numero_fatura)}&fatura_id=${encodeURIComponent(vinculoTransportadora.fatura_transportadora_id || '')}&abrir=1`}
+                                className="font-black text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-800"
+                                title="Abrir esta fatura DHL/FedEx já no detalhamento"
+                              >
+                                {vinculoTransportadora.numero_fatura} ↗
+                              </a>
+                            ) : (
+                              <span className="text-gray-400">Não vinculada</span>
+                            )}
+                          </Td>
                           <Td>{item.transportadora}</Td>
                           <Td>{normalizarServicoFinanceiro(item.servico) || '-'}</Td>
                           <Td>{moeda(item.valor_cobranca)}</Td>
@@ -7698,8 +7873,28 @@ export default function FinanceiroPage() {
                           <Td>{dataRecebimentoProcesso(item) || '-'}</Td>
                           <Td><Badge texto={cobranca} classe={badgeStatus(cobranca)} /></Td>
                           <Td>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2">
                               <button onClick={() => editar(item)} className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 font-bold">✎</button>
+
+                              {vinculoTransportadora?.id ? (
+                                <button
+                                  type="button"
+                                  onClick={() => alternarContestacaoProcesso(item)}
+                                  disabled={alterandoContestacaoAwb === normalizarAwbContestacao(item.awb)}
+                                  className={
+                                    contestado
+                                      ? 'bg-purple-100 text-purple-700 border border-purple-300 px-3 py-2 rounded-lg hover:bg-purple-200 font-black disabled:opacity-50'
+                                      : 'bg-amber-50 text-amber-700 border border-amber-300 px-3 py-2 rounded-lg hover:bg-amber-100 font-black disabled:opacity-50'
+                                  }
+                                >
+                                  {alterandoContestacaoAwb === normalizarAwbContestacao(item.awb)
+                                    ? '...'
+                                    : contestado
+                                      ? 'Reativar'
+                                      : 'Contestar'}
+                                </button>
+                              ) : null}
+
                               <button onClick={() => excluir(item.id)} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 font-bold"></button>
                             </div>
                           </Td>
