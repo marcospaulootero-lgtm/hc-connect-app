@@ -196,6 +196,28 @@ export default function ClientePage() {
     }
   }
 
+  function dadosEmissorCotacao(item: any) {
+    const dados = item?.dados_emissor
+
+    if (dados && typeof dados === 'object' && !Array.isArray(dados)) return dados
+
+    if (typeof dados === 'string') {
+      try {
+        const convertido = JSON.parse(dados)
+        if (convertido && typeof convertido === 'object' && !Array.isArray(convertido)) {
+          return convertido
+        }
+      } catch {}
+    }
+
+    return {}
+  }
+
+  function cotacaoVisivelNoDashboard(item: any) {
+    const dados = dadosEmissorCotacao(item)
+    return dados?.excluida !== true && dados?.arquivada_cliente !== true
+  }
+
   async function carregarCotacoes(usuarioId: string, email: string) {
     const { data } = await supabase
       .from('cotacoes')
@@ -203,7 +225,7 @@ export default function ClientePage() {
       .or(`usuario_id.eq.${usuarioId},solicitante_email.eq.${email}`)
       .order('criado_em', { ascending: false })
 
-    setCotacoes(data || [])
+    setCotacoes((data || []).filter((item: any) => cotacaoVisivelNoDashboard(item)))
   }
 
   async function carregarFaturas(usuarioId: string) {

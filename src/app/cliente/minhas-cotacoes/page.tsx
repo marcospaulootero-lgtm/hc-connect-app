@@ -9,6 +9,7 @@ export default function MinhasCotacoesPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('TODOS')
+  const [filtroHistorico, setFiltroHistorico] = useState<'ATIVAS' | 'ARQUIVADAS' | 'EXCLUIDAS'>('ATIVAS') // HC_COTACOES_LIXEIRA_V1
   const [posicoesFila, setPosicoesFila] = useState<Record<string, { posicao: number; total: number }>>({})
 
   useEffect(() => {
@@ -113,6 +114,33 @@ export default function MinhasCotacoesPage() {
     return new Date(data).toLocaleString('pt-BR')
   }
 
+  function dadosEmissorObjeto(item: any) {
+    const dados = item?.dados_emissor
+
+    if (dados && typeof dados === 'object' && !Array.isArray(dados)) {
+      return dados
+    }
+
+    if (typeof dados === 'string') {
+      try {
+        const convertido = JSON.parse(dados)
+        if (convertido && typeof convertido === 'object' && !Array.isArray(convertido)) {
+          return convertido
+        }
+      } catch {}
+    }
+
+    return {}
+  }
+
+  function cotacaoArquivadaCliente(item: any) {
+    return dadosEmissorObjeto(item)?.arquivada_cliente === true
+  }
+
+  function cotacaoExcluida(item: any) {
+    return dadosEmissorObjeto(item)?.excluida === true
+  }
+
   function transportadorasTexto(item: any) {
     if (Array.isArray(item.transportadoras_consulta)) {
       return item.transportadoras_consulta.join(', ')
@@ -165,16 +193,62 @@ export default function MinhasCotacoesPage() {
     carregarCotacoes(usuario.id)
   }
 
-  async function excluirCotacao(id: string) {
+  async function alterarArquivamentoCliente(item: any, arquivar: boolean) {
     if (!usuario?.id) return
 
-    const confirmar = confirm('Deseja realmente excluir esta cotação do seu histórico?')
+    const confirmar = confirm(
+      arquivar
+        ? 'Arquivar esta cotação? Ela continuará salva e poderá ser restaurada.'
+        : 'Restaurar esta cotação para as ativas?'
+    )
     if (!confirmar) return
+
+    const dadosAtuais = dadosEmissorObjeto(item)
 
     const { error } = await supabase
       .from('cotacoes')
-      .delete()
-      .eq('id', id)
+      .update({
+        dados_emissor: {
+          ...dadosAtuais,
+          arquivada_cliente: arquivar,
+          arquivada_cliente_em: arquivar ? new Date().toISOString() : null,
+          arquivada_cliente_por: arquivar ? usuario.id : null,
+        },
+      })
+      .eq('id', item.id)
+      .eq('usuario_id', usuario.id)
+
+    if (error) {
+      alert('Erro ao alterar arquivamento')
+      console.log(error)
+      return
+    }
+
+    await carregarCotacoes(usuario.id)
+  }
+
+  async function excluirCotacao(item: any) {
+    if (!usuario?.id) return
+
+    const confirmar = confirm(
+      'Mover esta cotação para Excluídas?\n\nEla continuará salva e poderá ser restaurada.'
+    )
+    if (!confirmar) return
+
+    const dadosAtuais = dadosEmissorObjeto(item)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        dados_emissor: {
+          ...dadosAtuais,
+          excluida: true,
+          excluida_em: new Date().toISOString(),
+          excluida_por: usuario.id,
+          excluida_origem: 'CLIENTE',
+        },
+      })
+      .eq('id', item.id)
       .eq('usuario_id', usuario.id)
 
     if (error) {
@@ -183,12 +257,46 @@ export default function MinhasCotacoesPage() {
       return
     }
 
-    alert('Cotação excluída do histórico')
-    carregarCotacoes(usuario.id)
+    alert('Cotação movida para Excluídas')
+    await carregarCotacoes(usuario.id)
+  }
+
+  async function restaurarCotacaoExcluida(item: any) {
+    if (!usuario?.id) return
+
+    const confirmar = confirm('Restaurar esta cotação?')
+    if (!confirmar) return
+
+    const dadosAtuais = dadosEmissorObjeto(item)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        dados_emissor: {
+          ...dadosAtuais,
+          excluida: false,
+          excluida_em: null,
+          excluida_por: null,
+          excluida_origem: null,
+        },
+      })
+      .eq('id', item.id)
+      .eq('usuario_id', usuario.id)
+
+    if (error) {
+      alert('Erro ao restaurar cotação')
+      console.log(error)
+      return
+    }
+
+    alert('Cotação restaurada')
+    await carregarCotacoes(usuario.id)
   }
 
   const cotacoesFiltradas = useMemo(() => {
     return cotacoes.filter((item) => {
+      const arquivada = cotacaoArquivadaCliente(item)
+      const excluida = cotacaoExcluida(item)
       const texto = `
         ${item.exportador || ''}
         ${item.importador || ''}
@@ -203,16 +311,30 @@ export default function MinhasCotacoesPage() {
 
       const passaBusca = texto.includes(busca.toLowerCase())
       const passaStatus = filtroStatus === 'TODOS' || item.status === filtroStatus
+      const passaHistorico =
+        filtroHistorico === 'EXCLUIDAS'
+          ? excluida
+          : filtroHistorico === 'ARQUIVADAS'
+            ? !excluida && arquivada
+            : !excluida && !arquivada
 
-      return passaBusca && passaStatus
+      return passaBusca && passaStatus && passaHistorico
     })
-  }, [cotacoes, busca, filtroStatus])
+  }, [cotacoes, busca, filtroStatus, filtroHistorico])
 
-  const totalAguardando = cotacoes.filter((c) => c.status === 'AGUARDANDO ANÁLISE').length
-  const totalAnalise = cotacoes.filter((c) => c.status === 'EM ANÁLISE').length
-  const totalDisponiveis = cotacoes.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
-  const totalAprovadas = cotacoes.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
-  const totalRecusadas = cotacoes.filter((c) => c.status === 'RECUSADA').length
+  const cotacoesAtivasCliente = cotacoes.filter(
+    (c) => !cotacaoExcluida(c) && !cotacaoArquivadaCliente(c)
+  )
+  const totalArquivadas = cotacoes.filter(
+    (c) => !cotacaoExcluida(c) && cotacaoArquivadaCliente(c)
+  ).length
+  const totalExcluidas = cotacoes.filter((c) => cotacaoExcluida(c)).length
+
+  const totalAguardando = cotacoesAtivasCliente.filter((c) => c.status === 'AGUARDANDO ANÁLISE').length
+  const totalAnalise = cotacoesAtivasCliente.filter((c) => c.status === 'EM ANÁLISE').length
+  const totalDisponiveis = cotacoesAtivasCliente.filter((c) => c.status === 'COTAÇÃO DISPONÍVEL').length
+  const totalAprovadas = cotacoesAtivasCliente.filter((c) => c.status === 'APROVADA' || c.status === 'AUTORIZADA').length
+  const totalRecusadas = cotacoesAtivasCliente.filter((c) => c.status === 'RECUSADA').length
 
   return (
     <main className="min-h-screen bg-[#020817] text-white px-4 py-6 md:px-6 lg:px-8">
@@ -245,13 +367,15 @@ export default function MinhasCotacoesPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 md:grid-cols-6 gap-5 mb-8">
-          <Card titulo="Total" valor={cotacoes.length} detalhe="Solicitações" icone="📨" />
+        <section className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-8 gap-5 mb-8">
+          <Card titulo="Ativas" valor={cotacoesAtivasCliente.length} detalhe="Solicitações" icone="📨" />
           <Card titulo="Aguardando" valor={totalAguardando} detalhe="Nova análise" icone="⏳" />
           <Card titulo="Em análise" valor={totalAnalise} detalhe="Em tratamento" icone="🔎" />
           <Card titulo="Disponíveis" valor={totalDisponiveis} detalhe="Resposta enviada" icone="📄" />
           <Card titulo="Aprovadas" valor={totalAprovadas} detalhe="Autorizadas" icone="✅" />
           <Card titulo="Recusadas" valor={totalRecusadas} detalhe="Não aprovadas" icone="❌" />
+          <Card titulo="Arquivadas" valor={totalArquivadas} detalhe="Histórico organizado" icone="🗂️" />
+          <Card titulo="Excluídas" valor={totalExcluidas} detalhe="Podem ser restauradas" icone="🗑️" />
         </section>
 
         <section className="card mb-8">
@@ -267,6 +391,7 @@ export default function MinhasCotacoesPage() {
               onClick={() => {
                 setBusca('')
                 setFiltroStatus('TODOS')
+                setFiltroHistorico('ATIVAS')
               }}
               className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold h-fit"
             >
@@ -274,12 +399,18 @@ export default function MinhasCotacoesPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar cotação..."
             />
+
+            <select value={filtroHistorico} onChange={(e) => setFiltroHistorico(e.target.value as 'ATIVAS' | 'ARQUIVADAS' | 'EXCLUIDAS')}>
+              <option value="ATIVAS">Ativas</option>
+              <option value="ARQUIVADAS">Arquivadas</option>
+              <option value="EXCLUIDAS">Excluídas</option>
+            </select>
 
             <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
               <option value="TODOS">Todos os status</option>
@@ -318,6 +449,9 @@ export default function MinhasCotacoesPage() {
             <div className="space-y-5">
               {cotacoesFiltradas.map((item) => {
                 const fila = posicoesFila[String(item.id)]
+                const dadosGestao = dadosEmissorObjeto(item)
+                const arquivadaCliente = cotacaoArquivadaCliente(item)
+                const excluida = cotacaoExcluida(item)
 
                 return (
                 <article
@@ -343,6 +477,17 @@ export default function MinhasCotacoesPage() {
                         <span className={`px-3 py-2 rounded-xl text-xs font-black ${corStatus(item.status)}`}>
                           {item.status || 'AGUARDANDO ANÁLISE'}
                         </span>
+
+                        {excluida ? (
+                          <span className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300">
+                            Excluída {dadosGestao.excluida_origem === 'ADMIN' ? 'pela HC' : 'por você'}
+                            {dadosGestao.excluida_em ? ` • ${dataHoraBR(dadosGestao.excluida_em)}` : ''}
+                          </span>
+                        ) : arquivadaCliente ? (
+                          <span className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-black text-amber-300">
+                            Arquivada
+                          </span>
+                        ) : null}
 
                         <span className="text-slate-500 text-sm">
                           Enviada em {dataHoraBR(item.criado_em)}
@@ -390,30 +535,48 @@ export default function MinhasCotacoesPage() {
                         </span>
                       )}
 
-                      {item.status === 'COTAÇÃO DISPONÍVEL' && (
+                      {excluida ? (
+                        <button
+                          onClick={() => restaurarCotacaoExcluida(item)}
+                          className="bg-emerald-700 hover:bg-emerald-600"
+                        >
+                          Restaurar
+                        </button>
+                      ) : (
                         <>
+                          {!arquivadaCliente && item.status === 'COTAÇÃO DISPONÍVEL' && (
+                            <>
+                              <button
+                                onClick={() => atualizarStatusCotacao(item.id, 'APROVADA')}
+                                className="bg-green-700 hover:bg-green-600"
+                              >
+                                Aprovar
+                              </button>
+
+                              <button
+                                onClick={() => atualizarStatusCotacao(item.id, 'RECUSADA')}
+                                className="bg-red-600 hover:bg-red-500"
+                              >
+                                Recusar
+                              </button>
+                            </>
+                          )}
+
                           <button
-                            onClick={() => atualizarStatusCotacao(item.id, 'APROVADA')}
-                            className="bg-green-700 hover:bg-green-600"
+                            onClick={() => alterarArquivamentoCliente(item, !arquivadaCliente)}
+                            className="bg-amber-700 hover:bg-amber-600"
                           >
-                            Aprovar
+                            {arquivadaCliente ? 'Restaurar arquivo' : 'Arquivar'}
                           </button>
 
                           <button
-                            onClick={() => atualizarStatusCotacao(item.id, 'RECUSADA')}
-                            className="bg-red-600 hover:bg-red-500"
+                            onClick={() => excluirCotacao(item)}
+                            className="bg-red-800 hover:bg-red-700"
                           >
-                            Recusar
+                            Mover para excluídas
                           </button>
                         </>
                       )}
-
-                      <button
-                        onClick={() => excluirCotacao(item.id)}
-                        className="bg-red-800 hover:bg-red-700"
-                      >
-                        Excluir histórico
-                      </button>
                     </div>
                   </div>
                 </article>

@@ -21,7 +21,7 @@ export default function CotacoesAdminPage() {
     | 'DISPONIVEIS'
     | 'ENCERRADAS'
   >('TODAS')
-  const [filtroArquivamento, setFiltroArquivamento] = useState<'ATIVAS' | 'ARQUIVADAS' | 'TODAS'>('ATIVAS')
+  const [filtroArquivamento, setFiltroArquivamento] = useState<'ATIVAS' | 'ARQUIVADAS' | 'EXCLUIDAS' | 'TODAS'>('ATIVAS') // HC_COTACOES_LIXEIRA_V1
   const [filtroDocumentos, setFiltroDocumentos] = useState<'TODOS' | 'COM_ANEXOS' | 'SEM_ANEXOS'>('TODOS')
   const [filtroInteligencia, setFiltroInteligencia] = useState<'TODAS' | 'FOLLOWUP' | 'SEM_RETORNO' | 'PERDIDA'>('TODAS')
   const [embarquesPorId, setEmbarquesPorId] = useState<Record<string, EmbarqueResumoCotacao>>({})
@@ -354,8 +354,13 @@ export default function CotacoesAdminPage() {
     return dadosEmissorObjeto(item)?.arquivada_admin === true
   }
 
+  function cotacaoExcluida(item: any) {
+    return dadosEmissorObjeto(item)?.excluida === true
+  }
+
   function cotacaoNaFilaEspera(item: any) {
     if (!item) return false
+    if (cotacaoExcluida(item)) return false
     if (cotacaoArquivada(item)) return false
     if (item?.embarque_id) return false
 
@@ -385,6 +390,7 @@ export default function CotacoesAdminPage() {
 
   function cotacaoPrecisaFollowUp(item: any) {
     if (!item) return false
+    if (cotacaoExcluida(item)) return false
     if (cotacaoArquivada(item)) return false
     if (item?.embarque_id) return false
     if (item?.status !== 'COTAÇÃO DISPONÍVEL') return false
@@ -584,11 +590,30 @@ export default function CotacoesAdminPage() {
     await carregar()
   }
 
-  async function excluirCotacao(id: string) {
-    const confirmar = confirm('Deseja realmente excluir esta cotação?')
+  async function excluirCotacao(item: any) {
+    const confirmar = confirm(
+      'Mover esta cotação para Excluídas?\n\nEla continuará salva e poderá ser restaurada.'
+    )
     if (!confirmar) return
 
-    const { error } = await supabase.from('cotacoes').delete().eq('id', id)
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const dadosAtuais = dadosEmissorObjeto(item)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        dados_emissor: {
+          ...dadosAtuais,
+          excluida: true,
+          excluida_em: new Date().toISOString(),
+          excluida_por: user?.id || null,
+          excluida_origem: 'ADMIN',
+        },
+      })
+      .eq('id', item.id)
 
     if (error) {
       alert('Erro ao excluir cotação')
@@ -596,7 +621,37 @@ export default function CotacoesAdminPage() {
       return
     }
 
-    carregar()
+    await carregar()
+  }
+
+  async function restaurarCotacaoExcluida(item: any) {
+    const confirmar = confirm(
+      'Restaurar esta cotação?\n\nEla voltará para a área anterior e continuará com o mesmo status, PDF e vínculos.'
+    )
+    if (!confirmar) return
+
+    const dadosAtuais = dadosEmissorObjeto(item)
+
+    const { error } = await supabase
+      .from('cotacoes')
+      .update({
+        dados_emissor: {
+          ...dadosAtuais,
+          excluida: false,
+          excluida_em: null,
+          excluida_por: null,
+          excluida_origem: null,
+        },
+      })
+      .eq('id', item.id)
+
+    if (error) {
+      alert('Erro ao restaurar cotação')
+      console.log(error)
+      return
+    }
+
+    await carregar()
   }
 
   const cotacoesFiltradas = useMemo(() => {
@@ -612,6 +667,7 @@ export default function CotacoesAdminPage() {
     return cotacoes
       .filter((item) => {
         const arquivada = cotacaoArquivada(item)
+        const excluida = cotacaoExcluida(item)
         const status = String(item?.status || 'AGUARDANDO ANÁLISE')
         const quantidadeDocs = quantidadeDocumentos(item)
 
@@ -643,7 +699,11 @@ export default function CotacoesAdminPage() {
 
         const matchArquivamento =
           filtroArquivamento === 'TODAS' ||
-          (filtroArquivamento === 'ARQUIVADAS' ? arquivada : !arquivada)
+          (filtroArquivamento === 'EXCLUIDAS'
+            ? excluida
+            : filtroArquivamento === 'ARQUIVADAS'
+              ? !excluida && arquivada
+              : !excluida && !arquivada)
 
         const matchDocumentos =
           filtroDocumentos === 'TODOS' ||
@@ -694,13 +754,21 @@ export default function CotacoesAdminPage() {
     return 'bg-slate-700 text-white border border-slate-600'
   }
 
-  const cotacoesAtivas = cotacoes.filter((c) => !cotacaoArquivada(c))
+  const cotacoesAtivas = cotacoes.filter(
+    (c) => !cotacaoExcluida(c) && !cotacaoArquivada(c)
+  )
 
   const cotacoesNoFiltroArquivamento = cotacoes.filter((item) => {
     const arquivada = cotacaoArquivada(item)
+    const excluida = cotacaoExcluida(item)
+
     return (
       filtroArquivamento === 'TODAS' ||
-      (filtroArquivamento === 'ARQUIVADAS' ? arquivada : !arquivada)
+      (filtroArquivamento === 'EXCLUIDAS'
+        ? excluida
+        : filtroArquivamento === 'ARQUIVADAS'
+          ? !excluida && arquivada
+          : !excluida && !arquivada)
     )
   })
 
@@ -1030,14 +1098,15 @@ export default function CotacoesAdminPage() {
             value={filtroArquivamento}
             onChange={(e) =>
               setFiltroArquivamento(
-                e.target.value as 'ATIVAS' | 'ARQUIVADAS' | 'TODAS'
+                e.target.value as 'ATIVAS' | 'ARQUIVADAS' | 'EXCLUIDAS' | 'TODAS'
               )
             }
             className="rounded-xl border border-blue-900 bg-[#020817] px-4 py-3 font-bold text-white"
           >
             <option value="ATIVAS">Ativas</option>
             <option value="ARQUIVADAS">Arquivadas</option>
-            <option value="TODAS">Ativas e arquivadas</option>
+            <option value="EXCLUIDAS">Excluídas</option>
+            <option value="TODAS">Todas</option>
           </select>
 
           <select
@@ -1126,6 +1195,8 @@ export default function CotacoesAdminPage() {
             <tbody>
               {cotacoesFiltradas.map((item) => {
                 const qtdDocs = quantidadeDocumentos(item)
+                const dadosGestao = dadosEmissorObjeto(item)
+                const excluida = cotacaoExcluida(item)
 
                 return (
                   <tr key={item.id} className="border-b border-blue-950/80 hover:bg-[#0b1730]">
@@ -1187,7 +1258,18 @@ export default function CotacoesAdminPage() {
                         <span className={`rounded-full px-3 py-1.5 text-xs font-black ${corStatus(item.status)}`}>
                           {item.status || 'AGUARDANDO ANÁLISE'}
                         </span>
-                        {cotacaoArquivada(item) ? (
+                        {excluida ? (
+                          <>
+                            <span className="text-[10px] font-black uppercase text-red-300">
+                              Excluída
+                            </span>
+                            <span className="max-w-[220px] text-[10px] font-bold text-slate-500">
+                              {dadosGestao.excluida_origem === 'CLIENTE' ? 'Cliente' : 'Admin'}
+                              {dadosGestao.excluida_em ? ` • ${dataHoraBR(dadosGestao.excluida_em)}` : ''}
+                              {dadosGestao.excluida_por ? ` • ${nomeUsuario(dadosGestao.excluida_por)}` : ''}
+                            </span>
+                          </>
+                        ) : cotacaoArquivada(item) ? (
                           <span className="text-[10px] font-black uppercase text-amber-400">
                             Arquivada
                           </span>
@@ -1234,73 +1316,85 @@ export default function CotacoesAdminPage() {
                           </summary>
 
                           <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-blue-900 bg-[#071225] p-2 shadow-2xl">
-                            <button
-                              type="button"
-                              onClick={() => abrirVinculoLogin(item)}
-                              className="w-full rounded-xl px-3 py-2 text-left font-bold hover:bg-slate-800"
-                            >
-                              {item.usuario_id ? 'Alterar login' : 'Vincular login'}
-                            </button>
-
-                            <div className="my-1 border-t border-blue-950" />
-
-                            {[
-                              ['AGUARDANDO ANÁLISE', 'Aguardando análise'],
-                              ['EM ANÁLISE', 'Em análise'],
-                              ['AGUARDANDO TRANSPORTADORA', 'Aguardando transportadora'],
-                              ['COTAÇÃO DISPONÍVEL', 'Disponível'],
-                              ['APROVADA', 'Aprovada'],
-                              ['RECUSADA', 'Recusada'],
-                            ].map(([status, rotulo]) => (
+                            {excluida ? (
                               <button
-                                key={status}
                                 type="button"
-                                onClick={() => atualizarStatus(item.id, status)}
-                                className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-slate-800"
+                                onClick={() => restaurarCotacaoExcluida(item)}
+                                className="w-full rounded-xl px-3 py-2 text-left text-sm font-black text-emerald-300 hover:bg-emerald-950/30"
                               >
-                                {rotulo}
+                                Restaurar excluída
                               </button>
-                            ))}
-
-                            {!item.embarque_id &&
-                            item.status !== 'CONVERTIDA EM EMBARQUE' &&
-                            item.status !== 'SEM RETORNO' &&
-                            item.status !== 'COTAÇÃO PERDIDA' ? (
+                            ) : (
                               <>
                                 <button
                                   type="button"
-                                  onClick={() => marcarResultadoComercial(item, 'SEM RETORNO')}
-                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-orange-300 hover:bg-orange-950/30"
+                                  onClick={() => abrirVinculoLogin(item)}
+                                  className="w-full rounded-xl px-3 py-2 text-left font-bold hover:bg-slate-800"
                                 >
-                                  Sem retorno
+                                  {item.usuario_id ? 'Alterar login' : 'Vincular login'}
                                 </button>
+
+                                <div className="my-1 border-t border-blue-950" />
+
+                                {[
+                                  ['AGUARDANDO ANÁLISE', 'Aguardando análise'],
+                                  ['EM ANÁLISE', 'Em análise'],
+                                  ['AGUARDANDO TRANSPORTADORA', 'Aguardando transportadora'],
+                                  ['COTAÇÃO DISPONÍVEL', 'Disponível'],
+                                  ['APROVADA', 'Aprovada'],
+                                  ['RECUSADA', 'Recusada'],
+                                ].map(([status, rotulo]) => (
+                                  <button
+                                    key={status}
+                                    type="button"
+                                    onClick={() => atualizarStatus(item.id, status)}
+                                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-slate-800"
+                                  >
+                                    {rotulo}
+                                  </button>
+                                ))}
+
+                                {!item.embarque_id &&
+                                item.status !== 'CONVERTIDA EM EMBARQUE' &&
+                                item.status !== 'SEM RETORNO' &&
+                                item.status !== 'COTAÇÃO PERDIDA' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => marcarResultadoComercial(item, 'SEM RETORNO')}
+                                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-orange-300 hover:bg-orange-950/30"
+                                    >
+                                      Sem retorno
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => marcarResultadoComercial(item, 'COTAÇÃO PERDIDA')}
+                                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-300 hover:bg-rose-950/30"
+                                    >
+                                      Cotação perdida
+                                    </button>
+                                  </>
+                                ) : null}
+
+                                <div className="my-1 border-t border-blue-950" />
+
                                 <button
                                   type="button"
-                                  onClick={() => marcarResultadoComercial(item, 'COTAÇÃO PERDIDA')}
-                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-300 hover:bg-rose-950/30"
+                                  onClick={() => alterarArquivamento(item, !cotacaoArquivada(item))}
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-amber-300 hover:bg-amber-950/30"
                                 >
-                                  Cotação perdida
+                                  {cotacaoArquivada(item) ? 'Restaurar' : 'Arquivar'}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => excluirCotacao(item)}
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-red-300 hover:bg-red-950/30"
+                                >
+                                  Mover para excluídas
                                 </button>
                               </>
-                            ) : null}
-
-                            <div className="my-1 border-t border-blue-950" />
-
-                            <button
-                              type="button"
-                              onClick={() => alterarArquivamento(item, !cotacaoArquivada(item))}
-                              className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-amber-300 hover:bg-amber-950/30"
-                            >
-                              {cotacaoArquivada(item) ? 'Restaurar' : 'Arquivar'}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => excluirCotacao(item.id)}
-                              className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-red-300 hover:bg-red-950/30"
-                            >
-                              Excluir
-                            </button>
+                            )}
                           </div>
                         </details>
                       </div>
