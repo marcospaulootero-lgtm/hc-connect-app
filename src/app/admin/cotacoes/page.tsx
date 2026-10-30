@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 type EmbarqueResumoCotacao = {
@@ -29,11 +29,64 @@ export default function CotacoesAdminPage() {
   const [cotacaoVinculo, setCotacaoVinculo] = useState<any>(null)
   const [usuarioVinculoId, setUsuarioVinculoId] = useState('')
   const [salvandoVinculo, setSalvandoVinculo] = useState(false)
+  const [menuAcoes, setMenuAcoes] = useState<{ item: any; top: number; left: number } | null>(null) // HC_COTACOES_MENU_FLUTUANTE_V1
+  const menuAcoesRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     carregar()
     carregarUsuarios()
   }, [])
+
+  useEffect(() => {
+    if (!menuAcoes) return
+
+    function fecharAoClicarFora(event: MouseEvent) {
+      const alvo = event.target as Node | null
+      if (alvo && menuAcoesRef.current?.contains(alvo)) return
+      setMenuAcoes(null)
+    }
+
+    function fecharAoRolarOuRedimensionar() {
+      setMenuAcoes(null)
+    }
+
+    document.addEventListener('mousedown', fecharAoClicarFora)
+    window.addEventListener('resize', fecharAoRolarOuRedimensionar)
+    window.addEventListener('scroll', fecharAoRolarOuRedimensionar, true)
+
+    return () => {
+      document.removeEventListener('mousedown', fecharAoClicarFora)
+      window.removeEventListener('resize', fecharAoRolarOuRedimensionar)
+      window.removeEventListener('scroll', fecharAoRolarOuRedimensionar, true)
+    }
+  }, [menuAcoes])
+
+  function abrirMenuAcoes(event: React.MouseEvent<HTMLButtonElement>, item: any) {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const larguraMenu = 256
+    const margem = 12
+    const alturaEstimada = cotacaoExcluida(item) ? 64 : 430
+
+    const left = Math.min(
+      window.innerWidth - larguraMenu - margem,
+      Math.max(margem, rect.right - larguraMenu)
+    )
+
+    const espacoAbaixo = window.innerHeight - rect.bottom
+    const espacoAcima = rect.top
+    const abreParaCima =
+      espacoAbaixo < Math.min(alturaEstimada, 360) && espacoAcima > espacoAbaixo
+
+    const top = abreParaCima
+      ? Math.max(margem, rect.top - Math.min(alturaEstimada, espacoAcima - margem))
+      : Math.min(window.innerHeight - margem, rect.bottom + 8)
+
+    setMenuAcoes({ item, top, left })
+  }
+
+  function fecharMenuAcoes() {
+    setMenuAcoes(null)
+  }
 
   async function carregar() {
     const { data, error } = await supabase
@@ -1310,93 +1363,14 @@ export default function CotacoesAdminPage() {
                           Abrir cotação
                         </a>
 
-                        <details className="relative">
-                          <summary className="cursor-pointer list-none rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 font-black text-slate-300 hover:bg-slate-800">
-                            •••
-                          </summary>
-
-                          <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-blue-900 bg-[#071225] p-2 shadow-2xl">
-                            {excluida ? (
-                              <button
-                                type="button"
-                                onClick={() => restaurarCotacaoExcluida(item)}
-                                className="w-full rounded-xl px-3 py-2 text-left text-sm font-black text-emerald-300 hover:bg-emerald-950/30"
-                              >
-                                Restaurar excluída
-                              </button>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => abrirVinculoLogin(item)}
-                                  className="w-full rounded-xl px-3 py-2 text-left font-bold hover:bg-slate-800"
-                                >
-                                  {item.usuario_id ? 'Alterar login' : 'Vincular login'}
-                                </button>
-
-                                <div className="my-1 border-t border-blue-950" />
-
-                                {[
-                                  ['AGUARDANDO ANÁLISE', 'Aguardando análise'],
-                                  ['EM ANÁLISE', 'Em análise'],
-                                  ['AGUARDANDO TRANSPORTADORA', 'Aguardando transportadora'],
-                                  ['COTAÇÃO DISPONÍVEL', 'Disponível'],
-                                  ['APROVADA', 'Aprovada'],
-                                  ['RECUSADA', 'Recusada'],
-                                ].map(([status, rotulo]) => (
-                                  <button
-                                    key={status}
-                                    type="button"
-                                    onClick={() => atualizarStatus(item.id, status)}
-                                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-slate-800"
-                                  >
-                                    {rotulo}
-                                  </button>
-                                ))}
-
-                                {!item.embarque_id &&
-                                item.status !== 'CONVERTIDA EM EMBARQUE' &&
-                                item.status !== 'SEM RETORNO' &&
-                                item.status !== 'COTAÇÃO PERDIDA' ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => marcarResultadoComercial(item, 'SEM RETORNO')}
-                                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-orange-300 hover:bg-orange-950/30"
-                                    >
-                                      Sem retorno
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => marcarResultadoComercial(item, 'COTAÇÃO PERDIDA')}
-                                      className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-300 hover:bg-rose-950/30"
-                                    >
-                                      Cotação perdida
-                                    </button>
-                                  </>
-                                ) : null}
-
-                                <div className="my-1 border-t border-blue-950" />
-
-                                <button
-                                  type="button"
-                                  onClick={() => alterarArquivamento(item, !cotacaoArquivada(item))}
-                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-amber-300 hover:bg-amber-950/30"
-                                >
-                                  {cotacaoArquivada(item) ? 'Restaurar' : 'Arquivar'}
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => excluirCotacao(item)}
-                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-red-300 hover:bg-red-950/30"
-                                >
-                                  Mover para excluídas
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </details>
+                        <button
+                          type="button"
+                          onClick={(event) => abrirMenuAcoes(event, item)}
+                          className="rounded-xl border border-blue-900 bg-[#020817] px-3 py-2 font-black text-slate-300 hover:bg-slate-800"
+                          aria-label="Abrir ações da cotação"
+                        >
+                          •••
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1412,6 +1386,122 @@ export default function CotacoesAdminPage() {
           ) : null}
         </div>
       </section>
+
+      {menuAcoes ? (
+        <div
+          ref={menuAcoesRef}
+          className="fixed z-[200] w-64 max-h-[calc(100vh-24px)] overflow-y-auto rounded-2xl border border-blue-900 bg-[#071225] p-2 shadow-2xl"
+          style={{ top: menuAcoes.top, left: menuAcoes.left }}
+        >
+          {cotacaoExcluida(menuAcoes.item) ? (
+            <button
+              type="button"
+              onClick={async () => {
+                const item = menuAcoes.item
+                fecharMenuAcoes()
+                await restaurarCotacaoExcluida(item)
+              }}
+              className="w-full rounded-xl px-3 py-2 text-left text-sm font-black text-emerald-300 hover:bg-emerald-950/30"
+            >
+              Restaurar excluída
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  const item = menuAcoes.item
+                  fecharMenuAcoes()
+                  abrirVinculoLogin(item)
+                }}
+                className="w-full rounded-xl px-3 py-2 text-left font-bold hover:bg-slate-800"
+              >
+                {menuAcoes.item.usuario_id ? 'Alterar login' : 'Vincular login'}
+              </button>
+
+              <div className="my-1 border-t border-blue-950" />
+
+              {[
+                ['AGUARDANDO ANÁLISE', 'Aguardando análise'],
+                ['EM ANÁLISE', 'Em análise'],
+                ['AGUARDANDO TRANSPORTADORA', 'Aguardando transportadora'],
+                ['COTAÇÃO DISPONÍVEL', 'Disponível'],
+                ['APROVADA', 'Aprovada'],
+                ['RECUSADA', 'Recusada'],
+              ].map(([status, rotulo]) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={async () => {
+                    const item = menuAcoes.item
+                    fecharMenuAcoes()
+                    await atualizarStatus(item.id, status)
+                  }}
+                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-slate-800"
+                >
+                  {rotulo}
+                </button>
+              ))}
+
+              {!menuAcoes.item.embarque_id &&
+              menuAcoes.item.status !== 'CONVERTIDA EM EMBARQUE' &&
+              menuAcoes.item.status !== 'SEM RETORNO' &&
+              menuAcoes.item.status !== 'COTAÇÃO PERDIDA' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const item = menuAcoes.item
+                      fecharMenuAcoes()
+                      await marcarResultadoComercial(item, 'SEM RETORNO')
+                    }}
+                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-orange-300 hover:bg-orange-950/30"
+                  >
+                    Sem retorno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const item = menuAcoes.item
+                      fecharMenuAcoes()
+                      await marcarResultadoComercial(item, 'COTAÇÃO PERDIDA')
+                    }}
+                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-300 hover:bg-rose-950/30"
+                  >
+                    Cotação perdida
+                  </button>
+                </>
+              ) : null}
+
+              <div className="my-1 border-t border-blue-950" />
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const item = menuAcoes.item
+                  fecharMenuAcoes()
+                  await alterarArquivamento(item, !cotacaoArquivada(item))
+                }}
+                className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-amber-300 hover:bg-amber-950/30"
+              >
+                {cotacaoArquivada(menuAcoes.item) ? 'Restaurar' : 'Arquivar'}
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const item = menuAcoes.item
+                  fecharMenuAcoes()
+                  await excluirCotacao(item)
+                }}
+                className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-red-300 hover:bg-red-950/30"
+              >
+                Mover para excluídas
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
 
       {cotacaoVinculo ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
