@@ -1390,8 +1390,12 @@ export default function CotacoesAdminPage() {
       {menuAcoes ? (
         <div
           ref={menuAcoesRef}
-          className="fixed z-[200] w-64 max-h-[calc(100vh-24px)] overflow-y-auto rounded-2xl border border-blue-900 bg-[#071225] p-2 shadow-2xl"
-          style={{ top: menuAcoes.top, left: menuAcoes.left }}
+          className="fixed z-[200] w-64 overflow-y-auto overscroll-contain rounded-2xl border border-blue-900 bg-[#071225] p-2 shadow-2xl"
+          style={{
+            top: menuAcoes.top,
+            left: menuAcoes.left,
+            maxHeight: Math.max(140, window.innerHeight - menuAcoes.top - 12),
+          }} // HC_COTACOES_MENU_SCROLL_V2
         >
           {cotacaoExcluida(menuAcoes.item) ? (
             <button
