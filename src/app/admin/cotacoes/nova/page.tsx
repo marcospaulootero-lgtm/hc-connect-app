@@ -433,6 +433,8 @@ export default function NovaCotacaoManualPage() {
   const [salvando, setSalvando] = useState(false)
   const [modelo, setModelo] = useState<ModeloCotacao>('DHL')
   const [dadosEmissorBase, setDadosEmissorBase] = useState<any>({})
+  const [cotacaoOriginal, setCotacaoOriginal] = useState<any>(null) // HC_COTACAO_CLIENTE_EMISSOR_INTEGRADO_V1
+  const [cotacaoCarregada, setCotacaoCarregada] = useState(!cotacaoEditandoId)
 
   const [form, setForm] = useState({
     origem_solicitacao: 'EMAIL',
@@ -525,6 +527,8 @@ export default function NovaCotacaoManualPage() {
         return
       }
 
+      setCotacaoOriginal(data)
+
       const dadosEmissor =
         data.dados_emissor &&
         typeof data.dados_emissor === 'object' &&
@@ -538,15 +542,14 @@ export default function NovaCotacaoManualPage() {
         setForm((atual) => ({
           ...atual,
           ...dadosEmissor.form,
-          solicitante_nome:
-            dadosEmissor.form.solicitante_nome ||
-            dadosEmissor.form.responsavel_solicitante ||
-            '',
-          referencia_hc:
-            dadosEmissor.form.referencia_hc ||
-            data.referencia_hc ||
-            atual.referencia_hc ||
-            gerarReferenciaHCCotacao(),
+          origem_solicitacao: data.origem_solicitacao || dadosEmissor.form.origem_solicitacao || atual.origem_solicitacao,
+          solicitante_email: data.solicitante_email || dadosEmissor.form.solicitante_email || '',
+          empresa_solicitante: data.empresa_solicitante || data.cliente_final || dadosEmissor.form.empresa_solicitante || '',
+          telefone_solicitante: data.telefone_solicitante || dadosEmissor.form.telefone_solicitante || '',
+          referencia_cliente: data.referencia_cliente || dadosEmissor.form.referencia_cliente || '',
+          referencia_hc: data.referencia_hc || dadosEmissor.form.referencia_hc || atual.referencia_hc,
+          solicitante_nome: data.solicitante_nome || data.responsavel_solicitante ||
+            dadosEmissor.form.solicitante_nome || dadosEmissor.form.responsavel_solicitante || '',
         }))
 
         if (Array.isArray(dadosEmissor.itensEnvio) && dadosEmissor.itensEnvio.length > 0) {
@@ -583,6 +586,7 @@ export default function NovaCotacaoManualPage() {
           setModelo(normalizarModeloCotacao(dadosEmissor.modelo))
         }
 
+        setCotacaoCarregada(true)
         return
       }
 
@@ -630,6 +634,7 @@ export default function NovaCotacaoManualPage() {
       const servico = String(data.servico || data.tipo_operacao || '').toUpperCase()
 
       setModelo(normalizarModeloCotacao(transportadora))
+      setCotacaoCarregada(true)
     }
 
     carregarCotacaoParaEdicao()
@@ -1315,6 +1320,11 @@ const totaisAgenteMoedaTela = useMemo(() => {
   }
 
   async function salvarCotacao(enviarEmail: boolean) {
+    if (cotacaoEditandoId && (!cotacaoCarregada || !cotacaoOriginal)) {
+      alert('Aguarde o carregamento completo da cotação antes de salvar.')
+      return
+    }
+
     if (enviarEmail && !form.solicitante_email.trim()) {
       alert('Para enviar por e-mail, informe o e-mail do cliente.')
       return
@@ -1342,18 +1352,20 @@ const totaisAgenteMoedaTela = useMemo(() => {
         valor: numero(item.valor),
       }))
 
-      const payloadCotacao = {
-            origem_solicitacao: 'MANUAL',
+      const payloadCotacao: any = {
+            origem_solicitacao: cotacaoEditandoId
+              ? cotacaoOriginal?.origem_solicitacao || 'PORTAL'
+              : 'MANUAL',
             solicitante_email: form.solicitante_email.trim() || null,
             empresa_solicitante: form.empresa_solicitante || null,
             solicitante_nome: form.solicitante_nome || null,
             responsavel_solicitante: form.solicitante_nome || null,
-            telefone_solicitante: null,
+            telefone_solicitante: form.telefone_solicitante || cotacaoOriginal?.telefone_solicitante || null,
             cliente_final: form.empresa_solicitante || form.solicitante_nome || null,
             referencia_cliente: form.referencia_cliente || null,
             referencia_hc: form.referencia_hc || null,
-            exportador: null,
-            importador: null,
+            exportador: cotacaoOriginal?.exportador || null,
+            importador: cotacaoOriginal?.importador || null,
             servico: form.servico,
             tipo_operacao: form.servico,
             transportadoras_consulta: [form.transportadora],
@@ -1367,7 +1379,9 @@ const totaisAgenteMoedaTela = useMemo(() => {
             dimensoes: dimensoesTexto,
             peso_real: resumo.pesoReal,
             peso_taxado: resumo.pesoTaxado,
-            status: 'COTAÇÃO DISPONÍVEL',
+            status: cotacaoEditandoId && !enviarEmail
+              ? cotacaoOriginal?.status || 'EM ANÁLISE'
+              : 'COTAÇÃO DISPONÍVEL',
             dados_emissor: {
               ...dadosEmissorBase,
               modelo,
@@ -1380,6 +1394,20 @@ const totaisAgenteMoedaTela = useMemo(() => {
               totaisAgenteMoeda: usarTabelaServicosAgente ? totaisAgenteMoedaTela : {},
               atualizado_em: new Date().toISOString(),
             },
+      }
+
+      // Em edições, nunca substitua identificadores, anexos, vínculos ou metadados do cliente.
+      // O UPDATE mantém campos que não estão no payload (usuario_id, embarque_id etc.).
+      if (cotacaoEditandoId && cotacaoOriginal) {
+        payloadCotacao.solicitante_email = form.solicitante_email.trim() || cotacaoOriginal.solicitante_email || null
+        payloadCotacao.cliente_final = form.empresa_solicitante || form.solicitante_nome || cotacaoOriginal.cliente_final || null
+        payloadCotacao.empresa_solicitante = form.empresa_solicitante || cotacaoOriginal.empresa_solicitante || null
+        payloadCotacao.referencia_cliente = cotacaoOriginal.referencia_cliente || form.referencia_cliente || null
+        payloadCotacao.referencia_hc = cotacaoOriginal.referencia_hc || form.referencia_hc || null
+        payloadCotacao.dados_emissor = {
+          ...dadosEmissorBase,
+          ...payloadCotacao.dados_emissor,
+        }
       }
 
       const operacaoCotacao = cotacaoEditandoId
@@ -1506,6 +1534,30 @@ const totaisAgenteMoedaTela = useMemo(() => {
           ← Voltar para lista
         </a>
       </div>
+
+      {cotacaoEditandoId ? (
+        <div className="mb-5 rounded-2xl border border-blue-500/50 bg-blue-950/30 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-black text-blue-300">Edição de uma cotação recebida</p>
+              <p className="mt-1 text-sm text-slate-300">
+                {cotacaoCarregada
+                  ? `Referência: ${cotacaoOriginal?.referencia_hc || form.referencia_hc || '-'} • A proposta será salva na mesma cotação.`
+                  : 'Carregando dados originais do cliente...'}
+              </p>
+            </div>
+            <a
+              href={`/admin/cotacoes/${encodeURIComponent(cotacaoEditandoId)}`}
+              className="rounded-xl border border-blue-700 px-4 py-2 text-sm font-black text-blue-200 hover:bg-blue-950"
+            >
+              Voltar à Cotação 360
+            </a>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">
+            Salvar gera o PDF sem disparar o e-mail. Para avisar o cliente, escolha Salvar e enviar por e-mail.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mb-6 grid grid-cols-1 gap-3 rounded-3xl border border-blue-900 bg-[#071225] p-4 md:grid-cols-5">
         {[
@@ -2123,7 +2175,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             <button
               type="button"
               onClick={() => salvarCotacao(false)}
-              disabled={salvando}
+              disabled={salvando || !cotacaoCarregada}
               className="mt-3 w-full rounded-xl border border-blue-800 bg-[#0a1730] px-5 py-3 font-black hover:bg-blue-950 disabled:opacity-60"
             >
               {salvando ? 'Salvando...' : cotacaoEditandoId ? 'Atualizar cotação' : 'Salvar cotação'}
@@ -2132,7 +2184,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             <button
               type="button"
               onClick={() => salvarCotacao(true)}
-              disabled={salvando}
+              disabled={salvando || !cotacaoCarregada}
               className="mt-3 w-full rounded-xl bg-green-700 px-5 py-3 font-black hover:bg-green-600 disabled:opacity-60"
             >
               {salvando ? 'Enviando...' : 'Salvar e enviar por e-mail'}

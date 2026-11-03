@@ -1096,6 +1096,31 @@ export default function DetalheCotacaoAdminPage() {
         </div>
       </section>
 
+      {/* HC_COTACAO_CLIENTE_EMISSOR_INTEGRADO_V1 */}
+      <section className="mb-8 rounded-3xl border border-blue-500/60 bg-blue-950/30 p-5 shadow-[0_0_28px_rgba(37,99,235,0.08)]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">Emissor comercial completo</p>
+            <h2 className="mt-1 text-xl font-black">Preencher valores e gerar proposta HC</h2>
+            <p className="mt-1 max-w-3xl text-sm text-slate-300">
+              Continue esta solicitação no mesmo emissor das cotações manuais. Os dados do cliente,
+              volumes, documentos e a referência HC são preservados.
+            </p>
+          </div>
+          <a
+            href={`/admin/cotacoes/nova?editar=${encodeURIComponent(String(cotacao.id))}`}
+            className="inline-flex shrink-0 items-center justify-center rounded-xl border border-blue-400 bg-blue-600 px-5 py-3 font-black text-white shadow-lg shadow-blue-950/50 hover:bg-blue-500"
+          >
+            ✎ Abrir no emissor completo
+          </a>
+        </div>
+        {cotacao.embarque_id ? (
+          <p className="mt-3 text-xs font-bold text-amber-300">
+            Atenção: esta cotação já está vinculada a um embarque. Confirme os valores antes de alterar a proposta.
+          </p>
+        ) : null}
+      </section>
+
       <section className="card mb-8 border border-blue-800/70">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
           <div>
