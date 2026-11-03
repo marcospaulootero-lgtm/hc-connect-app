@@ -302,7 +302,7 @@ export default function FaturasPage() {
   const [emissorDespachante, setEmissorDespachante] = useState('')
   const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS'>('FRETE')
   const [tipoCentralEmissao, setTipoCentralEmissao] = useState<'FRETE' | 'IMPOSTOS' | 'FORMAL'>('FRETE') // HC_CENTRAL_EMISSAO_FATURAS_V1
-  const [idiomaFatura, setIdiomaFatura] = useState<IdiomaFatura>('PT') // HC_FATURA_INGLES_V1
+  const [idiomaFatura, setIdiomaFatura] = useState<IdiomaFatura>('PT') // HC_FATURA_INGLES_V1 / HC_FATURA_IDIOMA_SELECAO_VISUAL_V3
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorDataEmbarque, setEmissorDataEmbarque] = useState('')
@@ -7949,13 +7949,25 @@ async function carregarImagemBase64(caminhos: string[]) {
               <p className="mt-1 text-sm font-bold text-slate-300">Selecione Português ou English antes de gerar.</p>
             </div>
             <div className="flex rounded-xl border border-violet-800 bg-[#020817] p-1">
-              <button type="button" onClick={() => setIdiomaFatura('PT')}
-                className={idiomaFatura === 'PT' ? 'rounded-lg bg-violet-600 px-4 py-2 font-black' : 'rounded-lg px-4 py-2 font-black text-slate-400'}>
-                Português
+              <button
+                type="button"
+                onClick={() => setIdiomaFatura('PT')}
+                aria-pressed={idiomaFatura === 'PT'}
+                className={idiomaFatura === 'PT'
+                  ? 'rounded-xl border-2 border-violet-200 bg-violet-600 px-5 py-2.5 font-black text-white shadow-[0_0_0_3px_rgba(167,139,250,0.45)] ring-2 ring-violet-400 transition-all'
+                  : 'rounded-xl border-2 border-transparent bg-slate-900/60 px-5 py-2.5 font-black text-slate-400 opacity-75 transition-all hover:bg-slate-800 hover:text-white'}
+              >
+                {idiomaFatura === 'PT' ? '✓ ' : ''}Português
               </button>
-              <button type="button" onClick={() => setIdiomaFatura('EN')}
-                className={idiomaFatura === 'EN' ? 'rounded-lg bg-violet-600 px-4 py-2 font-black' : 'rounded-lg px-4 py-2 font-black text-slate-400'}>
-                English
+              <button
+                type="button"
+                onClick={() => setIdiomaFatura('EN')}
+                aria-pressed={idiomaFatura === 'EN'}
+                className={idiomaFatura === 'EN'
+                  ? 'rounded-xl border-2 border-violet-200 bg-violet-600 px-5 py-2.5 font-black text-white shadow-[0_0_0_3px_rgba(167,139,250,0.45)] ring-2 ring-violet-400 transition-all'
+                  : 'rounded-xl border-2 border-transparent bg-slate-900/60 px-5 py-2.5 font-black text-slate-400 opacity-75 transition-all hover:bg-slate-800 hover:text-white'}
+              >
+                {idiomaFatura === 'EN' ? '✓ ' : ''}English
               </button>
             </div>
           </div>
@@ -8465,14 +8477,26 @@ async function carregarImagemBase64(caminhos: string[]) {
             <p className="mt-1 text-sm text-slate-400">English traduz todo o conteúdo padrão do PDF sem alterar valores ou cálculos.</p>
           </div>
           <div className="flex rounded-2xl border border-violet-800 bg-[#020817] p-1">
-            <button type="button" onClick={() => setIdiomaFatura('PT')}
-              className={idiomaFatura === 'PT' ? 'rounded-xl bg-violet-600 px-5 py-2.5 font-black text-white' : 'rounded-xl px-5 py-2.5 font-black text-slate-400 hover:text-white'}>
-              Português
-            </button>
-            <button type="button" onClick={() => setIdiomaFatura('EN')}
-              className={idiomaFatura === 'EN' ? 'rounded-xl bg-violet-600 px-5 py-2.5 font-black text-white' : 'rounded-xl px-5 py-2.5 font-black text-slate-400 hover:text-white'}>
-              English
-            </button>
+            <button
+                type="button"
+                onClick={() => setIdiomaFatura('PT')}
+                aria-pressed={idiomaFatura === 'PT'}
+                className={idiomaFatura === 'PT'
+                  ? 'rounded-xl border-2 border-violet-200 bg-violet-600 px-5 py-2.5 font-black text-white shadow-[0_0_0_3px_rgba(167,139,250,0.45)] ring-2 ring-violet-400 transition-all'
+                  : 'rounded-xl border-2 border-transparent bg-slate-900/60 px-5 py-2.5 font-black text-slate-400 opacity-75 transition-all hover:bg-slate-800 hover:text-white'}
+              >
+                {idiomaFatura === 'PT' ? '✓ ' : ''}Português
+              </button>
+            <button
+                type="button"
+                onClick={() => setIdiomaFatura('EN')}
+                aria-pressed={idiomaFatura === 'EN'}
+                className={idiomaFatura === 'EN'
+                  ? 'rounded-xl border-2 border-violet-200 bg-violet-600 px-5 py-2.5 font-black text-white shadow-[0_0_0_3px_rgba(167,139,250,0.45)] ring-2 ring-violet-400 transition-all'
+                  : 'rounded-xl border-2 border-transparent bg-slate-900/60 px-5 py-2.5 font-black text-slate-400 opacity-75 transition-all hover:bg-slate-800 hover:text-white'}
+              >
+                {idiomaFatura === 'EN' ? '✓ ' : ''}English
+              </button>
           </div>
         </div>
       </div>
