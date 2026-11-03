@@ -225,6 +225,7 @@ type ItemFaturaServico = {
 }
 
 type MoedaFaturaAgente = 'BRL' | 'USD' | 'EUR'
+type IdiomaFatura = 'PT' | 'EN' // HC_FATURA_INGLES_V1
 
 type ItemFaturaAgente = {
   id: string
@@ -301,6 +302,7 @@ export default function FaturasPage() {
   const [emissorDespachante, setEmissorDespachante] = useState('')
   const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS'>('FRETE')
   const [tipoCentralEmissao, setTipoCentralEmissao] = useState<'FRETE' | 'IMPOSTOS' | 'FORMAL'>('FRETE') // HC_CENTRAL_EMISSAO_FATURAS_V1
+  const [idiomaFatura, setIdiomaFatura] = useState<IdiomaFatura>('PT') // HC_FATURA_INGLES_V1
   const [emissorNumeroFatura, setEmissorNumeroFatura] = useState('')
   const [emissorVencimento, setEmissorVencimento] = useState('')
   const [emissorDataEmbarque, setEmissorDataEmbarque] = useState('')
@@ -1336,6 +1338,86 @@ export default function FaturasPage() {
     if (ano && mes && dia) return `${dia}/${mes}/${ano}`
 
     return new Date(data).toLocaleDateString('pt-BR')
+  }
+
+  function rotuloPdf(pt: string, en: string) {
+    return idiomaFatura === 'EN' ? en : pt
+  }
+
+  function dataPdf(data?: string | null) {
+    if (!data) return '-'
+
+    const textoData = String(data).slice(0, 10)
+    const [ano, mes, dia] = textoData.split('-')
+
+    if (ano && mes && dia) {
+      return idiomaFatura === 'EN'
+        ? `${mes}/${dia}/${ano}`
+        : `${dia}/${mes}/${ano}`
+    }
+
+    return new Date(data).toLocaleDateString(idiomaFatura === 'EN' ? 'en-US' : 'pt-BR')
+  }
+
+  function formatarValorPdf(valor: number) {
+    return Number(valor || 0).toLocaleString(
+      idiomaFatura === 'EN' ? 'en-US' : 'pt-BR',
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    )
+  }
+
+  function moedaBrlPdf(valor: number | string | null | undefined) {
+    const valorNumero = Number(valor || 0)
+
+    if (idiomaFatura === 'EN') {
+      return `BRL ${valorNumero.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`
+    }
+
+    return moeda(valorNumero)
+  }
+
+  function traduzirDescricaoPdf(descricao: any) {
+    const original = String(descricao || '').trim()
+    if (idiomaFatura !== 'EN' || !original) return original
+
+    const chave = normalizarTexto(original)
+    const traducoes: Record<string, string> = {
+      'AREA REMOTA': 'REMOTE AREA',
+      'MANUSEIO FORMAL': 'FORMAL HANDLING',
+      'DESCONTO': 'DISCOUNT',
+      'TARIFA ADICIONAL P/ CARGA NAO EMPILHAVEL': 'NON-STACKABLE CARGO SURCHARGE',
+      'OUTRAS TAXAS': 'OTHER CHARGES',
+      'FRETE': 'FREIGHT',
+      'FRETE FEDEX': 'FEDEX FREIGHT',
+      'IMPOSTOS': 'TAXES',
+      'IMPOSTOS R$': 'TAXES BRL',
+      'DIVERGENCIA DE PESO': 'WEIGHT DISCREPANCY',
+      'SEGURO': 'INSURANCE',
+      'TAXA DE ALTA DEMANDA': 'HIGH DEMAND SURCHARGE',
+      'ENTREGA FORA DA AREA': 'OUT-OF-AREA DELIVERY',
+      'COBERTA NIVEL B': 'COVERAGE LEVEL B',
+      'SALDO DA FATURA ORIGINAL': 'ORIGINAL INVOICE BALANCE',
+      'MULTA POR ATRASO': 'LATE PAYMENT PENALTY',
+      'JUROS DE MORA': 'LATE PAYMENT INTEREST',
+      'FRETE INTERNACIONAL': 'INTERNATIONAL FREIGHT',
+      'COLETA': 'PICKUP',
+      'DESEMBARACO ADUANEIRO': 'CUSTOMS CLEARANCE',
+      'SERVICOS DE SEGURO DE CARGA': 'CARGO INSURANCE SERVICES',
+      'TAXA ORIGEM': 'ORIGIN FEE',
+      'TESTE MAGNETICO': 'MAGNETIC TEST',
+      'DTA - TRANSITO ADUANEIRO': 'DTA - CUSTOMS TRANSIT',
+    }
+
+    return traducoes[chave] || original
+  }
+
+  function valorPorExtensoPdf(valor: number) {
+    return idiomaFatura === 'EN'
+      ? valorPorExtensoBRLEn(valor)
+      : valorPorExtensoBRL(valor)
   }
 
   function normalizarData(valor: any) {
@@ -3602,7 +3684,7 @@ async function carregarImagemBase64(caminhos: string[]) {
           valor_pago: valorPago,
           recibo_emitido_em: new Date().toISOString(),
           recibo_observacoes: observacoesRecibo || null,
-          dados_cliente_faturamento: dadosCliente,
+          dados_cliente_faturamento: { ...dadosCliente, idioma_fatura: idiomaFatura },
           status_pagamento: 'PAGO',
           observacao_pagamento: `Recibo emitido em ${dataBR(new Date().toISOString())}. Recebido em ${dataBR(dataRecebimento)}.`,
         })
@@ -5661,10 +5743,10 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       pdf.text(
         ehDocumentoComEncargos
-          ? 'FATURA REEMITIDA'
+          ? rotuloPdf('FATURA REEMITIDA', 'REISSUED INVOICE')
           : ehFaturaImpostos
-            ? 'FATURA COMPLEMENTAR - IMPOSTOS'
-            : 'FATURA DE SERVIÇO',
+            ? rotuloPdf('FATURA COMPLEMENTAR - IMPOSTOS', 'SUPPLEMENTARY INVOICE - TAXES')
+            : rotuloPdf('FATURA DE SERVIÇO', 'SERVICE INVOICE'),
         margem,
         34
       )
@@ -5672,7 +5754,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       if (ehDocumentoComEncargos) {
         pdf.setFontSize(7.5)
         pdf.text(
-          'ENCARGOS POR ATRASO',
+          rotuloPdf('ENCARGOS POR ATRASO', 'LATE PAYMENT CHARGES'),
           margem,
           47
         )
@@ -5680,15 +5762,15 @@ async function carregarImagemBase64(caminhos: string[]) {
       }
 
       pdf.text(
-        `CÓDIGO CLIENTE: ${codigoClientePdf}`,
+        `${rotuloPdf('CÓDIGO CLIENTE', 'CUSTOMER CODE')}: ${codigoClientePdf}`,
         220,
         34
       )
-      pdf.text(`FATURA Nº: ${numeroFaturaPdf}`, larguraPagina - margem, 34, { align: 'right' })
+      pdf.text(`${rotuloPdf('FATURA Nº', 'INVOICE NO.')}: ${numeroFaturaPdf}`, larguraPagina - margem, 34, { align: 'right' })
 
       pdf.setFontSize(10)
-      pdf.text(`DATA DA FATURA: ${dataBR(new Date().toISOString())}`, 430, 56)
-      pdf.text(`DATA DE VENC.: ${dataBR(emissorVencimento)}`, 430, 76)
+      pdf.text(`${rotuloPdf('DATA DA FATURA', 'INVOICE DATE')}: ${dataPdf(new Date().toISOString())}`, 430, 56)
+      pdf.text(`${rotuloPdf('DATA DE VENC.', 'DUE DATE')}: ${dataPdf(emissorVencimento)}`, 430, 76)
 
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(9)
@@ -5698,10 +5780,10 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text('BELO HORIZONTE, MG', margem, 92)
       pdf.text('31530250', margem, 106)
       pdf.text('CNPJ 41.456.630/0001-52', margem, 120)
-      pdf.text('TELEFONE: 55 (31) 3643-6175', 185, 78)
+      pdf.text(`${rotuloPdf('TELEFONE', 'PHONE')}: 55 (31) 3643-6175`, 185, 78)
       pdf.text('E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 185, 106)
-      pdf.text('INSCRIÇÃO ESTADUAL: ISENTO', 185, 128)
-      pdf.text('INSCRIÇÃO MUNICIPAL: 1296606100', 350, 128)
+      pdf.text(rotuloPdf('INSCRIÇÃO ESTADUAL: ISENTO', 'STATE TAX REGISTRATION: EXEMPT'), 185, 128)
+      pdf.text(`${rotuloPdf('INSCRIÇÃO MUNICIPAL', 'MUNICIPAL REGISTRATION')}: 1296606100`, 350, 128)
 
       const larguraMaximaLogo = 88
       const alturaMaximaLogo = 58
@@ -5750,9 +5832,9 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.rect(margem, 140, larguraPagina - margem * 2, 104, 'FD')
       pdf.setFontSize(8)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('Cobrança para:', margem + 8, 160)
-      pdf.text('CNPJ / CPF:', 382, 160)
-      pdf.text('Endereço:', margem + 8, 190)
+      pdf.text(`${rotuloPdf('Cobrança para', 'BILL TO')}:`, margem + 8, 160)
+      pdf.text(`${rotuloPdf('CNPJ / CPF', 'TAX ID (CNPJ/CPF)')}:`, 382, 160)
+      pdf.text(`${rotuloPdf('Endereço', 'ADDRESS')}:`, margem + 8, 190)
 
       pdf.setFont('helvetica', 'normal')
       const nomeClienteLinhas = pdf.splitTextToSize(dadosCliente.nome || '-', 215)
@@ -5761,10 +5843,10 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text(dadosCliente.documento || '-', 455, 160)
       pdf.text(enderecoClienteLinhas, 150, 190)
       pdf.text(`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`, 150, 216)
-      pdf.text(`CEP: ${dadosCliente.cep || '-'}`, 150, 234)
+      pdf.text(`${rotuloPdf('CEP', 'POSTAL CODE')}: ${dadosCliente.cep || '-'}`, 150, 234)
 
       pdf.setFont('helvetica', 'bold')
-      pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 264)
+      pdf.text(rotuloPdf('DISCRIMINAÇÃO DOS SERVIÇOS', 'SERVICE DESCRIPTION'), margem, 264)
       pdf.text(`HAWB/AWB: ${emissorEmbarqueSelecionado.awb || '-'}`, 245, 264)
 
       const linhas = itens.map((item) => {
@@ -5772,17 +5854,17 @@ async function carregarImagemBase64(caminhos: string[]) {
         const valorOriginal = numero(item.valor_original)
 
         return [
-          item.descricao,
+          traduzirDescricaoPdf(item.descricao),
           item.observacao || '',
           moedaItem,
-          valorOriginal !== 0 ? formatarValorSimples(valorOriginal) : '-',
-          numero(item.valor_brl) !== 0 ? moeda(item.valor_brl) : '-',
+          valorOriginal !== 0 ? formatarValorPdf(valorOriginal) : '-',
+          numero(item.valor_brl) !== 0 ? moedaBrlPdf(item.valor_brl) : '-',
         ]
       })
 
       autoTable(pdf, {
         startY: 272,
-        head: [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
+        head: [[rotuloPdf('SERVIÇO', 'SERVICE'), rotuloPdf('OBSERVAÇÃO', 'NOTES'), rotuloPdf('MOEDA', 'CURRENCY'), rotuloPdf('VALOR ORIGINAL', 'ORIGINAL AMOUNT'), rotuloPdf('VALOR R$', 'AMOUNT BRL')]],
         body: linhas,
         theme: 'grid',
         margin: { left: margem, right: margem },
@@ -5802,16 +5884,16 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.rect(margem, yFinal, larguraPagina - margem * 2, 34, 'F')
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(7.5)
-      pdf.text('TOTAIS ORIGINAIS', margem + 6, yFinal + 12)
+      pdf.text(rotuloPdf('TOTAIS ORIGINAIS', 'ORIGINAL TOTALS'), margem + 6, yFinal + 12)
       const partesTotaisOriginaisPdf = [
         numero(totalClientePdfUSD) > 0
-          ? `USD ${formatarValorSimples(totalClientePdfUSD)}`
+          ? `USD ${formatarValorPdf(totalClientePdfUSD)}`
           : '',
         numero(totalClientePdfEUR) > 0
-          ? `EUR ${formatarValorSimples(totalClientePdfEUR)}`
+          ? `EUR ${formatarValorPdf(totalClientePdfEUR)}`
           : '',
         numero(totalClientePdfBRLOriginal) > 0
-          ? `BRL ${formatarValorSimples(totalClientePdfBRLOriginal)}`
+          ? `BRL ${formatarValorPdf(totalClientePdfBRLOriginal)}`
           : '',
       ].filter(Boolean)
 
@@ -5821,9 +5903,9 @@ async function carregarImagemBase64(caminhos: string[]) {
         yFinal + 12
       )
       pdf.setFontSize(8)
-      pdf.text('TOTAL CONVERTIDO EM BRL', margem + 6, yFinal + 28)
+      pdf.text(rotuloPdf('TOTAL CONVERTIDO EM BRL', 'TOTAL CONVERTED TO BRL'), margem + 6, yFinal + 28)
       pdf.text(
-        moeda(totalClientePdfBRL),
+        moedaBrlPdf(totalClientePdfBRL),
         larguraPagina - margem - 6,
         yFinal + 28,
         { align: 'right' }
@@ -5833,10 +5915,10 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.setDrawColor(0, 0, 0)
       pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('VALOR POR EXTENSO', margem + 8, yExtenso)
+      pdf.text(rotuloPdf('VALOR POR EXTENSO', 'AMOUNT IN WORDS'), margem + 8, yExtenso)
       pdf.setFont('helvetica', 'normal')
       pdf.text(
-        valorPorExtensoBRL(
+        valorPorExtensoPdf(
           totalClientePdfBRL
         ),
         230,
@@ -5848,8 +5930,8 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.setFont('helvetica', 'bold')
       pdf.text(
         ehDocumentoComEncargos
-          ? 'REEMISSÃO EM BRL:'
-          : 'CÂMBIO / SPREAD:',
+          ? rotuloPdf('REEMISSÃO EM BRL:', 'REISSUE IN BRL:')
+          : rotuloPdf('CÂMBIO / SPREAD:', 'EXCHANGE RATE / SPREAD:'),
         margem + 8,
         yTaxa
       )
@@ -5881,7 +5963,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       pdf.text(
         ehDocumentoComEncargos
-          ? 'ENCARGOS POR ATRASO • SEM NOVA CONVERSÃO'
+          ? rotuloPdf('ENCARGOS POR ATRASO • SEM NOVA CONVERSÃO', 'LATE PAYMENT CHARGES • NO NEW CONVERSION')
           : partesCambioPdf.join(' • '),
         larguraPagina - margem - 6,
         yTaxa,
@@ -5894,9 +5976,9 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.setTextColor(255, 255, 255)
       pdf.setFontSize(8)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
-      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
-      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.text(rotuloPdf('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', 'BANK BS2 - 218 - BS2 - BRANCH 0001 ACCOUNT: 8749272'), larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text(rotuloPdf('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 'ITAÚ BANK - BRANCH 4508 ACCOUNT: 99842-6 PIX KEY E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM'), larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text(rotuloPdf('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', 'CONTABILIZEI DOCK IP S.A. BANK 301 - BRANCH: 0001 ACCOUNT 311413-7 PIX KEY TAX ID: 41.456.630/0001-52'), larguraPagina / 2, yBanco + 30, { align: 'center' })
       pdf.setTextColor(0, 0, 0)
 
       const yAssinatura = yBanco + 68
@@ -5934,7 +6016,7 @@ async function carregarImagemBase64(caminhos: string[]) {
         pdf.text('PIX CNPJ', xQr + 36, yQr + 82, { align: 'center' })
         pdf.setFont('helvetica', 'normal')
         pdf.setFontSize(5.5)
-        pdf.text('Escaneie para pagar', xQr + 36, yQr + 91, { align: 'center' })
+        pdf.text(rotuloPdf('Escaneie para pagar', 'Scan to pay'), xQr + 36, yQr + 91, { align: 'center' })
       } else {
         pdf.setDrawColor(0, 0, 0)
         pdf.rect(xQr, yQr, 72, 72)
@@ -5948,7 +6030,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       if (emissorObservacoes) {
         pdf.setFontSize(7)
-        pdf.text(`Observações: ${emissorObservacoes}`, margem, yAssinatura + 48, {
+        pdf.text(`${rotuloPdf('Observações', 'Notes')}: ${emissorObservacoes}`, margem, yAssinatura + 48, {
           maxWidth: larguraPagina - margem * 2 - 105,
         })
       }
@@ -7062,11 +7144,11 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.rect(28, 28, larguraPagina - 56, alturaPagina - 56)
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(10)
-      pdf.text('FATURA DE SERVIÇO', margem + 8, 48)
-      pdf.text(`CÓDIGO CLIENTE: ${agenteClienteSelecionado.codigo_hc || '-'}`, 225, 48)
-      pdf.text(`FATURA Nº: ${agenteNumeroFatura}`, larguraPagina - margem - 8, 48, { align: 'right' })
-      pdf.text(`DATA DA FATURA: ${dataBR(agenteDataFatura)}`, larguraPagina - margem - 8, 70, { align: 'right' })
-      pdf.text(`DATA DE VENC.: ${dataBR(agenteVencimento)}`, larguraPagina - margem - 8, 91, { align: 'right' })
+      pdf.text(rotuloPdf('FATURA DE SERVIÇO', 'SERVICE INVOICE'), margem + 8, 48)
+      pdf.text(`${rotuloPdf('CÓDIGO CLIENTE', 'CUSTOMER CODE')}: ${agenteClienteSelecionado.codigo_hc || '-'}`, 225, 48)
+      pdf.text(`${rotuloPdf('FATURA Nº', 'INVOICE NO.')}: ${agenteNumeroFatura}`, larguraPagina - margem - 8, 48, { align: 'right' })
+      pdf.text(`${rotuloPdf('DATA DA FATURA', 'INVOICE DATE')}: ${dataPdf(agenteDataFatura)}`, larguraPagina - margem - 8, 70, { align: 'right' })
+      pdf.text(`${rotuloPdf('DATA DE VENC.', 'DUE DATE')}: ${dataPdf(agenteVencimento)}`, larguraPagina - margem - 8, 91, { align: 'right' })
 
       pdf.setFontSize(9)
       pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', margem + 8, 70)
@@ -7074,9 +7156,9 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text('RUA DOS COMANCHES Nº 131', margem + 8, 92)
       pdf.text('BELO HORIZONTE, MG - 31530250', margem + 8, 108)
       pdf.text('CNPJ 41.456.630/0001-52', margem + 8, 124)
-      pdf.text('TELEFONE: 55 (31) 3643-6175', 218, 92)
+      pdf.text(`${rotuloPdf('TELEFONE', 'PHONE')}: 55 (31) 3643-6175`, 218, 92)
       pdf.text('E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 218, 108)
-      pdf.text('INSCRIÇÃO ESTADUAL: ISENTO', 218, 124)
+      pdf.text(rotuloPdf('INSCRIÇÃO ESTADUAL: ISENTO', 'STATE TAX REGISTRATION: EXEMPT'), 218, 124)
 
       if (logoBase64) {
         try {
@@ -7090,32 +7172,32 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.setFillColor(221, 229, 244)
       pdf.rect(margem, 148, larguraPagina - margem * 2, 104, 'FD')
       pdf.setFont('helvetica', 'bold')
-      pdf.text('Cobrança para:', margem + 8, 168)
-      pdf.text('CNPJ / CPF:', 395, 168)
-      pdf.text('Endereço:', margem + 8, 196)
+      pdf.text(`${rotuloPdf('Cobrança para', 'BILL TO')}:`, margem + 8, 168)
+      pdf.text(`${rotuloPdf('CNPJ / CPF', 'TAX ID (CNPJ/CPF)')}:`, 395, 168)
+      pdf.text(`${rotuloPdf('Endereço', 'ADDRESS')}:`, margem + 8, 196)
       pdf.setFont('helvetica', 'normal')
       pdf.text(pdf.splitTextToSize(dadosCliente.nome || '-', 230), 150, 168)
       pdf.text(dadosCliente.documento || '-', 466, 168)
       pdf.text(pdf.splitTextToSize(dadosCliente.endereco || '-', 315), 150, 196)
       pdf.text(`${dadosCliente.cidade || '-'} / ${dadosCliente.estado || '-'}`, 150, 224)
-      pdf.text(`CEP: ${dadosCliente.cep || '-'}`, 395, 224)
+      pdf.text(`${rotuloPdf('CEP', 'POSTAL CODE')}: ${dadosCliente.cep || '-'}`, 395, 224)
 
       pdf.setFont('helvetica', 'bold')
-      pdf.text('DISCRIMINAÇÃO DOS SERVIÇOS', margem, 270)
-      pdf.text('PRESTAÇÃO DE CONTAS', margem, 286)
-      pdf.text(`PROCESSO: ${agenteProcesso}`, 260, 286)
+      pdf.text(rotuloPdf('DISCRIMINAÇÃO DOS SERVIÇOS', 'SERVICE DESCRIPTION'), margem, 270)
+      pdf.text(rotuloPdf('PRESTAÇÃO DE CONTAS', 'STATEMENT OF CHARGES'), margem, 286)
+      pdf.text(`${rotuloPdf('PROCESSO', 'PROCESS')}: ${agenteProcesso}`, 260, 286)
 
       const linhasPdf = itensValidos.map((item) => [
-        item.descricao,
+        traduzirDescricaoPdf(item.descricao),
         item.observacao || '',
         item.moeda,
-        formatarValorSimples(numero(item.valor_original)),
-        moeda(numero(item.valor_brl)),
+        formatarValorPdf(numero(item.valor_original)),
+        moedaBrlPdf(numero(item.valor_brl)),
       ])
 
       autoTable(pdf, {
         startY: 294,
-        head: [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
+        head: [[rotuloPdf('SERVIÇO', 'SERVICE'), rotuloPdf('OBSERVAÇÃO', 'NOTES'), rotuloPdf('MOEDA', 'CURRENCY'), rotuloPdf('VALOR ORIGINAL', 'ORIGINAL AMOUNT'), rotuloPdf('VALOR R$', 'AMOUNT BRL')]],
         body: linhasPdf,
         theme: 'grid',
         margin: { left: margem, right: margem },
@@ -7143,24 +7225,24 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text('TOTAL', margem + 8, yFinal + 15)
 
       const totaisMoedas = [
-        totaisFaturaAgente.eur > 0 ? `EUR ${formatarValorSimples(totaisFaturaAgente.eur)}` : '',
-        totaisFaturaAgente.usd > 0 ? `USD ${formatarValorSimples(totaisFaturaAgente.usd)}` : '',
-        totaisFaturaAgente.brlOriginal > 0 ? `BRL ${formatarValorSimples(totaisFaturaAgente.brlOriginal)}` : '',
+        totaisFaturaAgente.eur > 0 ? `EUR ${formatarValorPdf(totaisFaturaAgente.eur)}` : '',
+        totaisFaturaAgente.usd > 0 ? `USD ${formatarValorPdf(totaisFaturaAgente.usd)}` : '',
+        totaisFaturaAgente.brlOriginal > 0 ? `BRL ${formatarValorPdf(totaisFaturaAgente.brlOriginal)}` : '',
       ].filter(Boolean).join('   ')
 
       pdf.text(totaisMoedas || 'BRL 0,00', 270, yFinal + 15)
-      pdf.text(moeda(totaisFaturaAgente.totalBrl), larguraPagina - margem - 8, yFinal + 15, { align: 'right' })
+      pdf.text(moedaBrlPdf(totaisFaturaAgente.totalBrl), larguraPagina - margem - 8, yFinal + 15, { align: 'right' })
 
       const yExtenso = yFinal + 48
       pdf.rect(margem, yExtenso - 18, larguraPagina - margem * 2, 34)
-      pdf.text('VALOR POR EXTENSO:', margem + 8, yExtenso)
+      pdf.text(`${rotuloPdf('VALOR POR EXTENSO', 'AMOUNT IN WORDS')}:`, margem + 8, yExtenso)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(pdf.splitTextToSize(valorPorExtensoBRL(totaisFaturaAgente.totalBrl), 365), 175, yExtenso)
+      pdf.text(pdf.splitTextToSize(valorPorExtensoPdf(totaisFaturaAgente.totalBrl), 365), 175, yExtenso)
 
       const yTaxa = yExtenso + 42
       pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 28)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+      pdf.text(`${rotuloPdf('TAXA DE CONVERSÃO', 'EXCHANGE RATE')}:`, margem + 8, yTaxa)
       pdf.text(`SPREAD ${agenteSpread || '0'}%`, 235, yTaxa)
       if (totaisFaturaAgente.eur > 0) pdf.text(`EUR ${taxaFinalFaturaAgenteFormatada('EUR')}`, 345, yTaxa)
       if (totaisFaturaAgente.usd > 0) pdf.text(`USD ${taxaFinalFaturaAgenteFormatada('USD')}`, larguraPagina - margem - 8, yTaxa, { align: 'right' })
@@ -7170,9 +7252,9 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
       pdf.setTextColor(255, 255, 255)
       pdf.setFontSize(8)
-      pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
-      pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
-      pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      pdf.text(rotuloPdf('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', 'BANK BS2 - 218 - BS2 - BRANCH 0001 ACCOUNT: 8749272'), larguraPagina / 2, yBanco, { align: 'center' })
+      pdf.text(rotuloPdf('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 'ITAÚ BANK - BRANCH 4508 ACCOUNT: 99842-6 PIX KEY E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM'), larguraPagina / 2, yBanco + 15, { align: 'center' })
+      pdf.text(rotuloPdf('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', 'CONTABILIZEI DOCK IP S.A. BANK 301 - BRANCH: 0001 ACCOUNT 311413-7 PIX KEY TAX ID: 41.456.630/0001-52'), larguraPagina / 2, yBanco + 30, { align: 'center' })
       pdf.setTextColor(0, 0, 0)
 
       const yAssinatura = yBanco + 78
@@ -7194,7 +7276,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       if (agenteObservacoes) {
         pdf.setFontSize(7)
-        pdf.text(`Observações: ${agenteObservacoes}`, margem, yAssinatura + 48, { maxWidth: 390 })
+        pdf.text(`${rotuloPdf('Observações', 'Notes')}: ${agenteObservacoes}`, margem, yAssinatura + 48, { maxWidth: 390 })
       }
 
       const blob = pdf.output('blob') as Blob
@@ -7218,6 +7300,7 @@ async function carregarImagemBase64(caminhos: string[]) {
         processo: agenteProcesso,
         data_fatura: agenteDataFatura,
         observacoes_agente: agenteObservacoes || '',
+        idioma_fatura: idiomaFatura,
         taxa_base_usd: numero(agenteTaxaBaseUsd),
         taxa_base_eur: numero(agenteTaxaBaseEur),
         taxa_final_usd: taxaFinalFaturaAgente('USD'),
@@ -7760,6 +7843,24 @@ async function carregarImagemBase64(caminhos: string[]) {
           <p className="text-cyan-400 text-sm font-black uppercase tracking-wide">Emissão multimoeda</p>
           <h2 className="mt-2 text-3xl font-black">Fatura Agente de Carga</h2>
           <p className="mt-2 text-slate-400">Uma fatura por processo, com itens em BRL, USD ou EUR e conversão automática.</p>
+
+          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-violet-800 bg-violet-950/20 p-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-violet-300">Idioma do PDF</p>
+              <p className="mt-1 text-sm font-bold text-slate-300">Selecione Português ou English antes de gerar.</p>
+            </div>
+            <div className="flex rounded-xl border border-violet-800 bg-[#020817] p-1">
+              <button type="button" onClick={() => setIdiomaFatura('PT')}
+                className={idiomaFatura === 'PT' ? 'rounded-lg bg-violet-600 px-4 py-2 font-black' : 'rounded-lg px-4 py-2 font-black text-slate-400'}>
+                Português
+              </button>
+              <button type="button" onClick={() => setIdiomaFatura('EN')}
+                className={idiomaFatura === 'EN' ? 'rounded-lg bg-violet-600 px-4 py-2 font-black' : 'rounded-lg px-4 py-2 font-black text-slate-400'}>
+                English
+              </button>
+            </div>
+          </div>
+
           <CustoTransportadoraAwb key={agenteEmbarqueId || agenteProcesso} awb={agenteProcesso} />
 
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -8256,6 +8357,26 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     return (
       <section id="emissor_fatura" className="space-y-6">
+
+      <div className="rounded-3xl border border-violet-800 bg-violet-950/20 p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-violet-300">Idioma do PDF</p>
+            <h3 className="mt-1 text-xl font-black">Idioma da fatura</h3>
+            <p className="mt-1 text-sm text-slate-400">English traduz todo o conteúdo padrão do PDF sem alterar valores ou cálculos.</p>
+          </div>
+          <div className="flex rounded-2xl border border-violet-800 bg-[#020817] p-1">
+            <button type="button" onClick={() => setIdiomaFatura('PT')}
+              className={idiomaFatura === 'PT' ? 'rounded-xl bg-violet-600 px-5 py-2.5 font-black text-white' : 'rounded-xl px-5 py-2.5 font-black text-slate-400 hover:text-white'}>
+              Português
+            </button>
+            <button type="button" onClick={() => setIdiomaFatura('EN')}
+              className={idiomaFatura === 'EN' ? 'rounded-xl bg-violet-600 px-5 py-2.5 font-black text-white' : 'rounded-xl px-5 py-2.5 font-black text-slate-400 hover:text-white'}>
+              English
+            </button>
+          </div>
+        </div>
+      </div>
 
       {reemissaoFaturaId ? (
         <div className="rounded-3xl border-2 border-orange-600 bg-orange-950/20 p-6">
@@ -10446,6 +10567,60 @@ function valorPorExtensoBRL(valorOriginal: number) {
   }
 
   return partes.join(' e ')
+}
+
+function valorPorExtensoBRLEn(valorOriginal: number) {
+  const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
+  const reais = Math.floor(valor)
+  const centavos = Math.round((valor - reais) * 100)
+
+  const partes: string[] = []
+  partes.push(`${numeroPorExtensoEn(reais)} Brazilian ${reais === 1 ? 'real' : 'reais'}`)
+
+  if (centavos > 0) {
+    partes.push(`${numeroPorExtensoEn(centavos)} ${centavos === 1 ? 'cent' : 'cents'}`)
+  }
+
+  return partes.join(' and ')
+}
+
+function numeroPorExtensoEn(numero: number): string {
+  const n = Math.max(0, Math.floor(Number(numero || 0)))
+  if (n === 0) return 'zero'
+
+  const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']
+  const teens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen']
+  const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+
+  function below1000(value: number): string {
+    const parts: string[] = []
+    const hundreds = Math.floor(value / 100)
+    const rest = value % 100
+
+    if (hundreds > 0) parts.push(`${ones[hundreds]} hundred`)
+
+    if (rest >= 10 && rest <= 19) {
+      parts.push(teens[rest - 10])
+    } else {
+      const ten = Math.floor(rest / 10)
+      const one = rest % 10
+      if (ten > 1) parts.push(tens[ten])
+      if (one > 0) parts.push(ones[one])
+    }
+
+    return parts.join(' ')
+  }
+
+  const millions = Math.floor(n / 1000000)
+  const thousands = Math.floor((n % 1000000) / 1000)
+  const rest = n % 1000
+  const parts: string[] = []
+
+  if (millions > 0) parts.push(`${below1000(millions)} million`)
+  if (thousands > 0) parts.push(`${below1000(thousands)} thousand`)
+  if (rest > 0) parts.push(below1000(rest))
+
+  return parts.join(' ')
 }
 
 function numeroPorExtenso(numero: number): string {
