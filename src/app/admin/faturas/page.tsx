@@ -1416,9 +1416,9 @@ export default function FaturasPage() {
 
   function valorPorExtensoPdf(valor: number) {
     return idiomaFatura === 'EN'
-      ? valorPorExtensoBRLEn(valor)
+      ? valorPorExtensoUSDEn(valor)
       : valorPorExtensoBRL(valor)
-  }
+  } // HC_FATURA_INGLES_USD_V2
 
   function normalizarData(valor: any) {
     if (!valor) return null
@@ -5853,6 +5853,15 @@ async function carregarImagemBase64(caminhos: string[]) {
         const moedaItem = normalizarMoedaItemFatura(item.moeda)
         const valorOriginal = numero(item.valor_original)
 
+        if (idiomaFatura === 'EN') {
+          return [
+            traduzirDescricaoPdf(item.descricao),
+            item.observacao || '',
+            moedaItem,
+            valorOriginal !== 0 ? `USD ${formatarValorPdf(valorOriginal)}` : '-',
+          ]
+        }
+
         return [
           traduzirDescricaoPdf(item.descricao),
           item.observacao || '',
@@ -5864,52 +5873,76 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       autoTable(pdf, {
         startY: 272,
-        head: [[rotuloPdf('SERVIÇO', 'SERVICE'), rotuloPdf('OBSERVAÇÃO', 'NOTES'), rotuloPdf('MOEDA', 'CURRENCY'), rotuloPdf('VALOR ORIGINAL', 'ORIGINAL AMOUNT'), rotuloPdf('VALOR R$', 'AMOUNT BRL')]],
+        head:
+          idiomaFatura === 'EN'
+            ? [['SERVICE', 'NOTES', 'CURRENCY', 'AMOUNT']]
+            : [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
         body: linhas,
         theme: 'grid',
         margin: { left: margem, right: margem },
         styles: { fontSize: 7.5, cellPadding: 4, lineColor: [25, 25, 25], lineWidth: 0.4 },
         headStyles: { fillColor: [230, 230, 230], textColor: [0, 0, 0], fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 145 },
-          1: { cellWidth: 145 },
-          2: { cellWidth: 50, halign: 'center' },
-          3: { cellWidth: 85, halign: 'right' },
-          4: { cellWidth: 95, halign: 'right' },
-        },
+        columnStyles:
+          idiomaFatura === 'EN'
+            ? {
+                0: { cellWidth: 180 },
+                1: { cellWidth: 170 },
+                2: { cellWidth: 70, halign: 'center' },
+                3: { cellWidth: 110, halign: 'right' },
+              }
+            : {
+                0: { cellWidth: 145 },
+                1: { cellWidth: 145 },
+                2: { cellWidth: 50, halign: 'center' },
+                3: { cellWidth: 85, halign: 'right' },
+                4: { cellWidth: 95, halign: 'right' },
+              },
       })
 
       const yFinal = (pdf as any).lastAutoTable.finalY + 14
       pdf.setFillColor(190, 190, 190)
       pdf.rect(margem, yFinal, larguraPagina - margem * 2, 34, 'F')
       pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(7.5)
-      pdf.text(rotuloPdf('TOTAIS ORIGINAIS', 'ORIGINAL TOTALS'), margem + 6, yFinal + 12)
-      const partesTotaisOriginaisPdf = [
-        numero(totalClientePdfUSD) > 0
-          ? `USD ${formatarValorPdf(totalClientePdfUSD)}`
-          : '',
-        numero(totalClientePdfEUR) > 0
-          ? `EUR ${formatarValorPdf(totalClientePdfEUR)}`
-          : '',
-        numero(totalClientePdfBRLOriginal) > 0
-          ? `BRL ${formatarValorPdf(totalClientePdfBRLOriginal)}`
-          : '',
-      ].filter(Boolean)
-
-      pdf.text(
-        partesTotaisOriginaisPdf.join('  •  '),
-        145,
-        yFinal + 12
-      )
       pdf.setFontSize(8)
-      pdf.text(rotuloPdf('TOTAL CONVERTIDO EM BRL', 'TOTAL CONVERTED TO BRL'), margem + 6, yFinal + 28)
-      pdf.text(
-        moedaBrlPdf(totalClientePdfBRL),
-        larguraPagina - margem - 6,
-        yFinal + 28,
-        { align: 'right' }
-      )
+
+      if (idiomaFatura === 'EN') {
+        pdf.text('INVOICE TOTAL', margem + 6, yFinal + 20)
+        pdf.text(
+          `USD ${formatarValorPdf(totalClientePdfUSD)}`,
+          larguraPagina - margem - 6,
+          yFinal + 20,
+          { align: 'right' }
+        )
+      } else {
+        pdf.setFontSize(7.5)
+        pdf.text('TOTAIS ORIGINAIS', margem + 6, yFinal + 12)
+
+        const partesTotaisOriginaisPdf = [
+          numero(totalClientePdfUSD) > 0
+            ? `USD ${formatarValorPdf(totalClientePdfUSD)}`
+            : '',
+          numero(totalClientePdfEUR) > 0
+            ? `EUR ${formatarValorPdf(totalClientePdfEUR)}`
+            : '',
+          numero(totalClientePdfBRLOriginal) > 0
+            ? `BRL ${formatarValorPdf(totalClientePdfBRLOriginal)}`
+            : '',
+        ].filter(Boolean)
+
+        pdf.text(
+          partesTotaisOriginaisPdf.join('  •  '),
+          145,
+          yFinal + 12
+        )
+        pdf.setFontSize(8)
+        pdf.text('TOTAL CONVERTIDO EM BRL', margem + 6, yFinal + 28)
+        pdf.text(
+          moedaBrlPdf(totalClientePdfBRL),
+          larguraPagina - margem - 6,
+          yFinal + 28,
+          { align: 'right' }
+        )
+      }
 
       const yExtenso = yFinal + 58
       pdf.setDrawColor(0, 0, 0)
@@ -5919,7 +5952,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.setFont('helvetica', 'normal')
       pdf.text(
         valorPorExtensoPdf(
-          totalClientePdfBRL
+          idiomaFatura === 'EN' ? totalClientePdfUSD : totalClientePdfBRL
         ),
         230,
         yExtenso
@@ -5927,61 +5960,77 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       const yTaxa = yExtenso + 36
       pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
-      pdf.setFont('helvetica', 'bold')
-      pdf.text(
-        ehDocumentoComEncargos
-          ? rotuloPdf('REEMISSÃO EM BRL:', 'REISSUE IN BRL:')
-          : rotuloPdf('CÂMBIO / SPREAD:', 'EXCHANGE RATE / SPREAD:'),
-        margem + 8,
-        yTaxa
-      )
+      if (idiomaFatura !== 'EN') {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(
+          ehDocumentoComEncargos ? 'REEMISSÃO EM BRL:' : 'CÂMBIO / SPREAD:',
+          margem + 8,
+          yTaxa
+        )
 
-      const taxaPdfUSD =
-        itensClientePdf.find(
-          (item) => normalizarMoedaItemFatura(item.moeda) === 'USD'
-        )?.taxa_conversao || 0
+        const taxaPdfUSD =
+          itensClientePdf.find(
+            (item) => normalizarMoedaItemFatura(item.moeda) === 'USD'
+          )?.taxa_conversao || 0
 
-      const taxaPdfEUR =
-        itensClientePdf.find(
-          (item) => normalizarMoedaItemFatura(item.moeda) === 'EUR'
-        )?.taxa_conversao || 0
+        const taxaPdfEUR =
+          itensClientePdf.find(
+            (item) => normalizarMoedaItemFatura(item.moeda) === 'EUR'
+          )?.taxa_conversao || 0
 
-      const spreadPdf =
-        ehRegeracaoPdf
-          ? numero(faturaRegeracao?.spread)
-          : numero(emissorSpread)
+        const spreadPdf =
+          ehRegeracaoPdf
+            ? numero(faturaRegeracao?.spread)
+            : numero(emissorSpread)
 
-      const partesCambioPdf = [
-        numero(taxaPdfUSD) > 0
-          ? `USD R$ ${numero(taxaPdfUSD).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
-          : '',
-        numero(taxaPdfEUR) > 0
-          ? `EUR R$ ${numero(taxaPdfEUR).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
-          : '',
-        `SPREAD ${formatarValorSimples(spreadPdf)}%`,
-      ].filter(Boolean)
+        const partesCambioPdf = [
+          numero(taxaPdfUSD) > 0
+            ? `USD R$ ${numero(taxaPdfUSD).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+            : '',
+          numero(taxaPdfEUR) > 0
+            ? `EUR R$ ${numero(taxaPdfEUR).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+            : '',
+          `SPREAD ${formatarValorSimples(spreadPdf)}%`,
+        ].filter(Boolean)
 
-      pdf.text(
-        ehDocumentoComEncargos
-          ? rotuloPdf('ENCARGOS POR ATRASO • SEM NOVA CONVERSÃO', 'LATE PAYMENT CHARGES • NO NEW CONVERSION')
-          : partesCambioPdf.join(' • '),
-        larguraPagina - margem - 6,
-        yTaxa,
-        { align: 'right' }
-      )
+        pdf.text(
+          ehDocumentoComEncargos
+            ? 'ENCARGOS POR ATRASO • SEM NOVA CONVERSÃO'
+            : partesCambioPdf.join(' • '),
+          larguraPagina - margem - 6,
+          yTaxa,
+          { align: 'right' }
+        )
+      }
 
-      const yBanco = yTaxa + 30
+      const yBanco = idiomaFatura === 'EN' ? yExtenso + 40 : yTaxa + 30
+      const alturaBanco = idiomaFatura === 'EN' ? 126 : 54
       pdf.setFillColor(45, 119, 183)
-      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, alturaBanco, 'F')
       pdf.setTextColor(255, 255, 255)
       pdf.setFontSize(8)
-      pdf.setFont('helvetica', 'bold')
-      pdf.text(rotuloPdf('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', 'BANK BS2 - 218 - BS2 - BRANCH 0001 ACCOUNT: 8749272'), larguraPagina / 2, yBanco, { align: 'center' })
-      pdf.text(rotuloPdf('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 'ITAÚ BANK - BRANCH 4508 ACCOUNT: 99842-6 PIX KEY E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM'), larguraPagina / 2, yBanco + 15, { align: 'center' })
-      pdf.text(rotuloPdf('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', 'CONTABILIZEI DOCK IP S.A. BANK 301 - BRANCH: 0001 ACCOUNT 311413-7 PIX KEY TAX ID: 41.456.630/0001-52'), larguraPagina / 2, yBanco + 30, { align: 'center' })
+
+      if (idiomaFatura === 'EN') {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('USD WIRE TRANSFER INSTRUCTIONS', larguraPagina / 2, yBanco, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.text('Account with: JPMorgan Chase Bank', margem + 12, yBanco + 17)
+        pdf.text('SWIFT Code: CHASUS33', margem + 12, yBanco + 31)
+        pdf.text('Beneficiary Bank: Itaú Unibanco S.A.', margem + 12, yBanco + 45)
+        pdf.text('SWIFT Code: ITAUBRSP', margem + 12, yBanco + 59)
+        pdf.text('Beneficiary Customer: COUTO E OTERO INTERMEDIACAO LTDA', margem + 12, yBanco + 73)
+        pdf.text('Branch / Account: 4508 / 0099842-6', margem + 12, yBanco + 87)
+        pdf.text('IBAN: BR8460701190045080000998426C1', margem + 12, yBanco + 101)
+      } else {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+        pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+        pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      }
+
       pdf.setTextColor(0, 0, 0)
 
-      const yAssinatura = yBanco + 68
+      const yAssinatura = yBanco + (idiomaFatura === 'EN' ? 142 : 68)
       const xAssinaturaCentro = larguraPagina / 2 - 28
       pdf.setDrawColor(70, 70, 70)
       pdf.setLineWidth(0.4)
@@ -5997,7 +6046,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       const xQr = larguraPagina - margem - 92
       const yQr = yBanco + 48
 
-      if (qrPixBase64) {
+      if (idiomaFatura !== 'EN' && qrPixBase64) {
         try {
           pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
         } catch (error) {
@@ -6017,7 +6066,7 @@ async function carregarImagemBase64(caminhos: string[]) {
         pdf.setFont('helvetica', 'normal')
         pdf.setFontSize(5.5)
         pdf.text(rotuloPdf('Escaneie para pagar', 'Scan to pay'), xQr + 36, yQr + 91, { align: 'center' })
-      } else {
+      } else if (idiomaFatura !== 'EN') {
         pdf.setDrawColor(0, 0, 0)
         pdf.rect(xQr, yQr, 72, 72)
         pdf.setFont('helvetica', 'bold')
@@ -7187,29 +7236,51 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text(rotuloPdf('PRESTAÇÃO DE CONTAS', 'STATEMENT OF CHARGES'), margem, 286)
       pdf.text(`${rotuloPdf('PROCESSO', 'PROCESS')}: ${agenteProcesso}`, 260, 286)
 
-      const linhasPdf = itensValidos.map((item) => [
-        traduzirDescricaoPdf(item.descricao),
-        item.observacao || '',
-        item.moeda,
-        formatarValorPdf(numero(item.valor_original)),
-        moedaBrlPdf(numero(item.valor_brl)),
-      ])
+      const linhasPdf = itensValidos.map((item) => {
+        if (idiomaFatura === 'EN') {
+          return [
+            traduzirDescricaoPdf(item.descricao),
+            item.observacao || '',
+            'USD',
+            `USD ${formatarValorPdf(numero(item.valor_original))}`,
+          ]
+        }
+
+        return [
+          traduzirDescricaoPdf(item.descricao),
+          item.observacao || '',
+          item.moeda,
+          formatarValorPdf(numero(item.valor_original)),
+          moedaBrlPdf(numero(item.valor_brl)),
+        ]
+      })
 
       autoTable(pdf, {
         startY: 294,
-        head: [[rotuloPdf('SERVIÇO', 'SERVICE'), rotuloPdf('OBSERVAÇÃO', 'NOTES'), rotuloPdf('MOEDA', 'CURRENCY'), rotuloPdf('VALOR ORIGINAL', 'ORIGINAL AMOUNT'), rotuloPdf('VALOR R$', 'AMOUNT BRL')]],
+        head:
+          idiomaFatura === 'EN'
+            ? [['SERVICE', 'NOTES', 'CURRENCY', 'AMOUNT']]
+            : [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
         body: linhasPdf,
         theme: 'grid',
         margin: { left: margem, right: margem },
         styles: { fontSize: 7.5, cellPadding: 3, lineColor: [45, 95, 210], lineWidth: 0.35 },
         headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 175 },
-          1: { cellWidth: 135 },
-          2: { cellWidth: 50, halign: 'center' },
-          3: { cellWidth: 80, halign: 'right' },
-          4: { cellWidth: 90, halign: 'right' },
-        },
+        columnStyles:
+          idiomaFatura === 'EN'
+            ? {
+                0: { cellWidth: 200 },
+                1: { cellWidth: 165 },
+                2: { cellWidth: 65, halign: 'center' },
+                3: { cellWidth: 100, halign: 'right' },
+              }
+            : {
+                0: { cellWidth: 175 },
+                1: { cellWidth: 135 },
+                2: { cellWidth: 50, halign: 'center' },
+                3: { cellWidth: 80, halign: 'right' },
+                4: { cellWidth: 90, halign: 'right' },
+              },
       })
 
       let yFinal = (pdf as any).lastAutoTable.finalY + 14
@@ -7222,42 +7293,70 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.rect(margem, yFinal, larguraPagina - margem * 2, 22, 'F')
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(8)
-      pdf.text('TOTAL', margem + 8, yFinal + 15)
+      pdf.text(idiomaFatura === 'EN' ? 'INVOICE TOTAL' : 'TOTAL', margem + 8, yFinal + 15)
 
-      const totaisMoedas = [
-        totaisFaturaAgente.eur > 0 ? `EUR ${formatarValorPdf(totaisFaturaAgente.eur)}` : '',
-        totaisFaturaAgente.usd > 0 ? `USD ${formatarValorPdf(totaisFaturaAgente.usd)}` : '',
-        totaisFaturaAgente.brlOriginal > 0 ? `BRL ${formatarValorPdf(totaisFaturaAgente.brlOriginal)}` : '',
-      ].filter(Boolean).join('   ')
+      if (idiomaFatura === 'EN') {
+        pdf.text(
+          `USD ${formatarValorPdf(totaisFaturaAgente.usd)}`,
+          larguraPagina - margem - 8,
+          yFinal + 15,
+          { align: 'right' }
+        )
+      } else {
+        const totaisMoedas = [
+          totaisFaturaAgente.eur > 0 ? `EUR ${formatarValorPdf(totaisFaturaAgente.eur)}` : '',
+          totaisFaturaAgente.usd > 0 ? `USD ${formatarValorPdf(totaisFaturaAgente.usd)}` : '',
+          totaisFaturaAgente.brlOriginal > 0 ? `BRL ${formatarValorPdf(totaisFaturaAgente.brlOriginal)}` : '',
+        ].filter(Boolean).join('   ')
 
-      pdf.text(totaisMoedas || 'BRL 0,00', 270, yFinal + 15)
-      pdf.text(moedaBrlPdf(totaisFaturaAgente.totalBrl), larguraPagina - margem - 8, yFinal + 15, { align: 'right' })
+        pdf.text(totaisMoedas || 'BRL 0,00', 270, yFinal + 15)
+        pdf.text(moedaBrlPdf(totaisFaturaAgente.totalBrl), larguraPagina - margem - 8, yFinal + 15, { align: 'right' })
+      }
 
       const yExtenso = yFinal + 48
       pdf.rect(margem, yExtenso - 18, larguraPagina - margem * 2, 34)
       pdf.text(`${rotuloPdf('VALOR POR EXTENSO', 'AMOUNT IN WORDS')}:`, margem + 8, yExtenso)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(pdf.splitTextToSize(valorPorExtensoPdf(totaisFaturaAgente.totalBrl), 365), 175, yExtenso)
+      pdf.text(pdf.splitTextToSize(valorPorExtensoPdf(idiomaFatura === 'EN' ? totaisFaturaAgente.usd : totaisFaturaAgente.totalBrl), 365), 175, yExtenso)
 
       const yTaxa = yExtenso + 42
-      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 28)
-      pdf.setFont('helvetica', 'bold')
-      pdf.text(`${rotuloPdf('TAXA DE CONVERSÃO', 'EXCHANGE RATE')}:`, margem + 8, yTaxa)
-      pdf.text(`SPREAD ${agenteSpread || '0'}%`, 235, yTaxa)
-      if (totaisFaturaAgente.eur > 0) pdf.text(`EUR ${taxaFinalFaturaAgenteFormatada('EUR')}`, 345, yTaxa)
-      if (totaisFaturaAgente.usd > 0) pdf.text(`USD ${taxaFinalFaturaAgenteFormatada('USD')}`, larguraPagina - margem - 8, yTaxa, { align: 'right' })
 
-      const yBanco = yTaxa + 34
+      if (idiomaFatura !== 'EN') {
+        pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 28)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
+        pdf.text(`SPREAD ${agenteSpread || '0'}%`, 235, yTaxa)
+        if (totaisFaturaAgente.eur > 0) pdf.text(`EUR ${taxaFinalFaturaAgenteFormatada('EUR')}`, 345, yTaxa)
+        if (totaisFaturaAgente.usd > 0) pdf.text(`USD ${taxaFinalFaturaAgenteFormatada('USD')}`, larguraPagina - margem - 8, yTaxa, { align: 'right' })
+      }
+
+      const yBanco = idiomaFatura === 'EN' ? yExtenso + 30 : yTaxa + 34
+      const alturaBancoAgente = idiomaFatura === 'EN' ? 126 : 54
       pdf.setFillColor(45, 119, 183)
-      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, 54, 'F')
+      pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, alturaBancoAgente, 'F')
       pdf.setTextColor(255, 255, 255)
       pdf.setFontSize(8)
-      pdf.text(rotuloPdf('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', 'BANK BS2 - 218 - BS2 - BRANCH 0001 ACCOUNT: 8749272'), larguraPagina / 2, yBanco, { align: 'center' })
-      pdf.text(rotuloPdf('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', 'ITAÚ BANK - BRANCH 4508 ACCOUNT: 99842-6 PIX KEY E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM'), larguraPagina / 2, yBanco + 15, { align: 'center' })
-      pdf.text(rotuloPdf('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', 'CONTABILIZEI DOCK IP S.A. BANK 301 - BRANCH: 0001 ACCOUNT 311413-7 PIX KEY TAX ID: 41.456.630/0001-52'), larguraPagina / 2, yBanco + 30, { align: 'center' })
+
+      if (idiomaFatura === 'EN') {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('USD WIRE TRANSFER INSTRUCTIONS', larguraPagina / 2, yBanco, { align: 'center' })
+        pdf.setFont('helvetica', 'normal')
+        pdf.text('Account with: JPMorgan Chase Bank', margem + 12, yBanco + 17)
+        pdf.text('SWIFT Code: CHASUS33', margem + 12, yBanco + 31)
+        pdf.text('Beneficiary Bank: Itaú Unibanco S.A.', margem + 12, yBanco + 45)
+        pdf.text('SWIFT Code: ITAUBRSP', margem + 12, yBanco + 59)
+        pdf.text('Beneficiary Customer: COUTO E OTERO INTERMEDIACAO LTDA', margem + 12, yBanco + 73)
+        pdf.text('Branch / Account: 4508 / 0099842-6', margem + 12, yBanco + 87)
+        pdf.text('IBAN: BR8460701190045080000998426C1', margem + 12, yBanco + 101)
+      } else {
+        pdf.text('BANCO BS2 - 218 - BS2 - AGÊNCIA 0001 CONTA: 8749272', larguraPagina / 2, yBanco, { align: 'center' })
+        pdf.text('BANCO ITAÚ - AG. 4508 CONTA: 99842-6 CHAVE PIX E-MAIL: GRUPOHCCONSULTORIA@OUTLOOK.COM', larguraPagina / 2, yBanco + 15, { align: 'center' })
+        pdf.text('BANCO CONTABILIZEI DOCK IP S.A. 301 - AG: 0001 CONTA 311413-7 CHAVE PIX CNPJ: 41.456.630/0001-52', larguraPagina / 2, yBanco + 30, { align: 'center' })
+      }
+
       pdf.setTextColor(0, 0, 0)
 
-      const yAssinatura = yBanco + 78
+      const yAssinatura = yBanco + (idiomaFatura === 'EN' ? 142 : 78)
       pdf.setFont('times', 'italic')
       pdf.setFontSize(11)
       pdf.text('Marcos Paulo Otero', larguraPagina / 2 - 24, yAssinatura, { align: 'center' })
@@ -7266,7 +7365,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', larguraPagina / 2 - 24, yAssinatura + 14, { align: 'center' })
       pdf.text('CNPJ: 41.456.630/0001-52', larguraPagina / 2 - 24, yAssinatura + 27, { align: 'center' })
 
-      if (qrPixBase64) {
+      if (idiomaFatura !== 'EN' && qrPixBase64) {
         try {
           pdf.addImage(qrPixBase64, larguraPagina - margem - 88, yBanco + 45, 70, 70)
         } catch (error) {
@@ -10569,13 +10668,13 @@ function valorPorExtensoBRL(valorOriginal: number) {
   return partes.join(' e ')
 }
 
-function valorPorExtensoBRLEn(valorOriginal: number) {
+function valorPorExtensoUSDEn(valorOriginal: number) {
   const valor = Math.max(0, Math.round(Number(valorOriginal || 0) * 100) / 100)
-  const reais = Math.floor(valor)
-  const centavos = Math.round((valor - reais) * 100)
+  const dolares = Math.floor(valor)
+  const centavos = Math.round((valor - dolares) * 100)
 
   const partes: string[] = []
-  partes.push(`${numeroPorExtensoEn(reais)} Brazilian ${reais === 1 ? 'real' : 'reais'}`)
+  partes.push(`${numeroPorExtensoEn(dolares)} US ${dolares === 1 ? 'dollar' : 'dollars'}`)
 
   if (centavos > 0) {
     partes.push(`${numeroPorExtensoEn(centavos)} ${centavos === 1 ? 'cent' : 'cents'}`)
