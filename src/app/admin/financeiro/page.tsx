@@ -42,6 +42,32 @@ type MovimentacaoFormState = {
   comprovante_url: string
 }
 
+type DespesaRecorrenteHC = {
+  id: string
+  descricao: string
+  categoria: string
+  valor: number
+  dia_vencimento: number
+  ativo: boolean
+  observacoes?: string | null
+  forma_pagamento?: string | null
+}
+
+type DecisaoDespesaRecorrenteHC = {
+  id: string
+  recorrencia_id: string
+  mes_referencia: string
+  status: 'CONFIRMADA' | 'IGNORADA'
+  movimentacao_id?: string | null
+}
+
+// HC_DESPESAS_RECORRENTES_V1
+function dataVencimentoRecorrenciaHC(mes: string, dia: number) {
+  const [ano, mesNumero] = mes.split('-').map(Number)
+  const ultimoDia = new Date(ano, mesNumero, 0).getDate()
+  return `${mes}-${String(Math.min(Math.max(1, dia), ultimoDia)).padStart(2, '0')}`
+}
+
 type InputProps = {
   label: string
   value: string
@@ -243,6 +269,18 @@ function textoMesAnoProcessos(valor: string) {
 export default function FinanceiroPage() {
   const [lancamentos, setLancamentos] = useState<any[]>([])
   const [movimentacoes, setMovimentacoes] = useState<any[]>([])
+  const [recorrenciasHC, setRecorrenciasHC] = useState<DespesaRecorrenteHC[]>([])
+  const [decisoesRecorrenciasHC, setDecisoesRecorrenciasHC] = useState<DecisaoDespesaRecorrenteHC[]>([])
+  const [erroRecorrenciasHC, setErroRecorrenciasHC] = useState('')
+  const [salvandoRecorrenciaHC, setSalvandoRecorrenciaHC] = useState(false)
+  const [processandoRecorrenciaHC, setProcessandoRecorrenciaHC] = useState('')
+  const [mesRecorrenciaHC, setMesRecorrenciaHC] = useState(mesAtualFinanceiro())
+  const [formRecorrenciaHC, setFormRecorrenciaHC] = useState({
+    id: '', descricao: '', categoria: 'Outros', valor: '', dia_vencimento: '10',
+    observacoes: '', forma_pagamento: '',
+  })
+  const [edicoesMensaisHC, setEdicoesMensaisHC] = useState<Record<string, {valor: string; vencimento: string}>>({})
+  const [mostrarFormularioRecorrenciaHC, setMostrarFormularioRecorrenciaHC] = useState(false)
   const [contasBancarias, setContasBancarias] = useState<any[]>([])
 
   const [loadingContasBancarias, setLoadingContasBancarias] = useState(false)
@@ -1051,6 +1089,7 @@ export default function FinanceiroPage() {
     await Promise.all([
       carregarFinanceiro(),
       carregarMovimentacoes(),
+      carregarRecorrenciasHC(),
       carregarContasBancarias(),
       carregarExtratoBancario(),
       carregarCompromissosCaixa(),
@@ -1301,6 +1340,192 @@ export default function FinanceiroPage() {
     setLoadingMovimentos(false)
   }
 
+
+  async function carregarRecorrenciasHC() {
+    const [resModelos, resDecisoes] = await Promise.all([
+      supabase.from('financeiro_despesas_recorrentes').select('*').order('descricao'),
+      supabase.from('financeiro_recorrencias_meses').select('*').order('mes_referencia', { ascending: false }).limit(3000),
+    ])
+    if (resModelos.error || resDecisoes.error) {
+      setErroRecorrenciasHC(resModelos.error?.message || resDecisoes.error?.message || 'Falha ao ler recorrências')
+      return
+    }
+    setErroRecorrenciasHC('')
+    setRecorrenciasHC((resModelos.data || []) as DespesaRecorrenteHC[])
+    setDecisoesRecorrenciasHC((resDecisoes.data || []) as DecisaoDespesaRecorrenteHC[])
+  }
+
+  async function salvarRecorrenciaHC(e: FormEvent) {
+    e.preventDefault()
+    const descricao = formRecorrenciaHC.descricao.trim()
+    const valor = numero(formRecorrenciaHC.valor)
+    const dia = Number(formRecorrenciaHC.dia_vencimento)
+    if (!descricao || valor <= 0 || dia < 1 || dia > 31) {
+      alert('Informe descrição, valor positivo e vencimento entre 1 e 31.')
+      return
+    }
+    setSalvandoRecorrenciaHC(true)
+    try {
+      const payload = {
+        descricao,
+        categoria: formRecorrenciaHC.categoria,
+        valor,
+        dia_vencimento: dia,
+        observacoes: formRecorrenciaHC.observacoes,
+        forma_pagamento: formRecorrenciaHC.forma_pagamento,
+      }
+      const res = formRecorrenciaHC.id
+        ? await supabase.from('financeiro_despesas_recorrentes').update(payload).eq('id', formRecorrenciaHC.id)
+        : await supabase.from('financeiro_despesas_recorrentes').insert({ ...payload, ativo: true })
+      if (res.error) throw res.error
+      setFormRecorrenciaHC({ id: '', descricao: '', categoria: 'Outros', valor: '', dia_vencimento: '10', observacoes: '', forma_pagamento: '' })
+      setMostrarFormularioRecorrenciaHC(false)
+      await carregarRecorrenciasHC()
+    } catch (error: any) {
+      alert('Não foi possível salvar a recorrência: ' + (error?.message || error))
+    } finally {
+      setSalvandoRecorrenciaHC(false)
+    }
+  }
+
+  async function alterarAtivoRecorrenciaHC(item: DespesaRecorrenteHC) {
+    const { error } = await supabase.from('financeiro_despesas_recorrentes').update({ ativo: !item.ativo }).eq('id', item.id)
+    if (error) return alert('Erro: ' + error.message)
+    await carregarRecorrenciasHC()
+  }
+
+  function editarRecorrenciaHC(item: DespesaRecorrenteHC) {
+    setFormRecorrenciaHC({
+      id: item.id,
+      descricao: item.descricao,
+      categoria: item.categoria || 'Outros',
+      valor: formatarValorParaForm(item.valor),
+      dia_vencimento: String(item.dia_vencimento),
+      observacoes: item.observacoes || '',
+      forma_pagamento: item.forma_pagamento || '',
+    })
+    setMostrarFormularioRecorrenciaHC(true)
+  }
+
+  async function decidirRecorrenciaHC(item: DespesaRecorrenteHC, status: 'CONFIRMADA' | 'IGNORADA') {
+    const idProcessamento = `${item.id}|${mesRecorrenciaHC}`
+    if (processandoRecorrenciaHC) return
+    const valores = edicoesMensaisHC[item.id]
+    const valor = valores ? numero(valores.valor) : Number(item.valor)
+    const vencimento = valores?.vencimento || dataVencimentoRecorrenciaHC(mesRecorrenciaHC, item.dia_vencimento)
+    if (status === 'CONFIRMADA' && (valor <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(vencimento) || vencimento.slice(0,7) !== mesRecorrenciaHC)) {
+      alert('Confira o valor e o vencimento dentro do mês de referência.')
+      return
+    }
+    setProcessandoRecorrenciaHC(idProcessamento)
+    try {
+      const { error } = await supabase.rpc('hc_decidir_despesa_recorrente', {
+        p_recorrencia_id: item.id,
+        p_mes: mesRecorrenciaHC,
+        p_status: status,
+        p_valor: status === 'CONFIRMADA' ? valor : null,
+        p_vencimento: status === 'CONFIRMADA' ? vencimento : null,
+      })
+      if (error) throw error
+      await Promise.all([carregarRecorrenciasHC(), carregarMovimentacoes()])
+    } catch (error: any) {
+      alert('Erro ao confirmar/ignorar despesa: ' + (error?.message || error))
+    } finally {
+      setProcessandoRecorrenciaHC('')
+    }
+  }
+
+  const sugestoesHistoricoHC = useMemo(() => {
+    const agrupado = new Map<string, any[]>()
+    for (const item of movimentacoes) {
+      if (item.tipo !== 'DESPESA' || !item.descricao || !item.mes_referencia) continue
+      const chave = `${String(item.descricao).trim().toUpperCase()}|${String(item.categoria || '').trim().toUpperCase()}`
+      const grupo = agrupado.get(chave) || []
+      grupo.push(item)
+      agrupado.set(chave, grupo)
+    }
+    return [...agrupado.values()].filter((grupo) => {
+      const meses = new Set(grupo.map(x => String(x.mes_referencia).slice(0,7)))
+      if (meses.size < 2) return false
+      const valores = grupo.map(x => Number(x.valor || 0)).filter(x => x > 0)
+      if (valores.length < 2) return false
+      const media = valores.reduce((a,b) => a+b,0)/valores.length
+      if (valores.some(v => Math.abs(v-media)/media > .2)) return false
+      return !recorrenciasHC.some(r => String(r.descricao).trim().toUpperCase() === String(grupo[0].descricao).trim().toUpperCase())
+    }).slice(0,6)
+  }, [movimentacoes, recorrenciasHC])
+
+  function renderDespesasRecorrentesHC() {
+    const ativos = recorrenciasHC.filter(x => x.ativo)
+    const pendentes = ativos.filter(x => !decisoesRecorrenciasHC.some(d => d.recorrencia_id === x.id && d.mes_referencia === mesRecorrenciaHC))
+    const totalPendente = pendentes.reduce((acc, item) => acc + (edicoesMensaisHC[item.id] ? numero(edicoesMensaisHC[item.id].valor) : Number(item.valor)), 0)
+    return (
+      <section className="mb-6 overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 bg-gradient-to-r from-[#071225] to-[#123568] p-5 text-white">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-blue-200">HC Connect • Financeiro</p>
+            <h2 className="mt-1 text-xl font-black">Despesas fixas inteligentes</h2>
+            <p className="mt-1 text-sm text-blue-100">Sugestões mensais, sempre sujeitas à sua confirmação.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-full border border-blue-400/40 bg-blue-500/20 px-4 py-2 text-sm font-black">{pendentes.length} para confirmar</span>
+            <button type="button" onClick={() => { setMostrarFormularioRecorrenciaHC(true); setFormRecorrenciaHC({ id:'',descricao:'',categoria:'Outros',valor:'',dia_vencimento:'10',observacoes:'',forma_pagamento:'' }) }} className="rounded-xl bg-blue-500 px-4 py-2 font-black hover:bg-blue-400">+ Nova despesa fixa</button>
+          </div>
+        </div>
+        <div className="space-y-5 p-5">
+          {erroRecorrenciasHC ? (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Ative o cadastro de recorrências no Supabase antes de usar esta função. Detalhe: {erroRecorrenciasHC}</p>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-bold text-gray-700">Competência</label>
+              <input type="month" value={mesRecorrenciaHC} min={MES_MINIMO_FINANCEIRO} max={MES_MAXIMO_FINANCEIRO} onChange={e => {setMesRecorrenciaHC(e.target.value);setEdicoesMensaisHC({})}} className="rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+            </div>
+            <p className="text-sm text-gray-600">Valor previsto para confirmação: <strong className="text-gray-900">{moeda(totalPendente)}</strong></p>
+          </div>
+          {mostrarFormularioRecorrenciaHC && (
+            <form onSubmit={salvarRecorrenciaHC} className="grid grid-cols-1 gap-3 rounded-2xl border border-blue-200 bg-blue-50/60 p-4 md:grid-cols-4">
+              <div className="md:col-span-2"><label className="text-xs font-bold text-gray-700">Descrição</label><input required value={formRecorrenciaHC.descricao} onChange={e=>setFormRecorrenciaHC(x=>({...x,descricao:e.target.value}))} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2" /></div>
+              <div><label className="text-xs font-bold text-gray-700">Categoria</label><select value={formRecorrenciaHC.categoria} onChange={e=>setFormRecorrenciaHC(x=>({...x,categoria:e.target.value}))} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2">{CATEGORIAS_DESPESA.map(c=><option key={c}>{c}</option>)}</select></div>
+              <div><label className="text-xs font-bold text-gray-700">Valor previsto (R$)</label><input required value={formRecorrenciaHC.valor} onChange={e=>setFormRecorrenciaHC(x=>({...x,valor:formatarEntradaValorBR(e.target.value)}))} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2" /></div>
+              <div><label className="text-xs font-bold text-gray-700">Dia do vencimento</label><input type="number" min="1" max="31" required value={formRecorrenciaHC.dia_vencimento} onChange={e=>setFormRecorrenciaHC(x=>({...x,dia_vencimento:e.target.value}))} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2" /></div>
+              <div><label className="text-xs font-bold text-gray-700">Forma de pagamento</label><input value={formRecorrenciaHC.forma_pagamento} onChange={e=>setFormRecorrenciaHC(x=>({...x,forma_pagamento:e.target.value}))} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2" /></div>
+              <div className="md:col-span-2"><label className="text-xs font-bold text-gray-700">Observações</label><input value={formRecorrenciaHC.observacoes} onChange={e=>setFormRecorrenciaHC(x=>({...x,observacoes:e.target.value}))} className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2" /></div>
+              <div className="flex items-end gap-2"><button type="submit" disabled={salvandoRecorrenciaHC} className="rounded-xl bg-blue-600 px-4 py-2 font-black text-white disabled:opacity-60">{salvandoRecorrenciaHC?'Salvando...':'Salvar'}</button><button type="button" onClick={()=>setMostrarFormularioRecorrenciaHC(false)} className="rounded-xl border px-3 py-2 font-bold">Cancelar</button></div>
+            </form>
+          )}
+          {recorrenciasHC.length === 0 && !erroRecorrenciasHC ? <p className="rounded-2xl border border-dashed border-gray-300 p-5 text-sm text-gray-600">Nenhuma despesa fixa cadastrada. Adicione a primeira acima ou aprove uma sugestão identificada no histórico abaixo.</p> : null}
+          <div className="space-y-3">
+            {recorrenciasHC.map(item => {
+              const decisao = decisoesRecorrenciasHC.find(d => d.recorrencia_id===item.id && d.mes_referencia===mesRecorrenciaHC)
+              const edicao = edicoesMensaisHC[item.id] || {valor:formatarValorParaForm(item.valor),vencimento:dataVencimentoRecorrenciaHC(mesRecorrenciaHC,item.dia_vencimento)}
+              const operando = processandoRecorrenciaHC===`${item.id}|${mesRecorrenciaHC}`
+              return (
+                <div key={item.id} className={`rounded-2xl border p-4 ${item.ativo?'border-gray-200 bg-white':'border-gray-200 bg-gray-50 opacity-75'}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div><p className="font-black text-gray-900">{item.descricao}</p><p className="text-xs text-gray-500">{item.categoria} • Todo mês, dia {item.dia_vencimento}</p></div>
+                    <div className="flex items-center gap-2"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{!item.ativo?'Pausada':decisao ? (decisao.status==='CONFIRMADA'?'Confirmada':'Ignorada'):'A confirmar'}</span><button type="button" onClick={()=>editarRecorrenciaHC(item)} className="rounded-lg border px-3 py-1.5 text-xs font-black text-blue-700">Editar modelo</button><button type="button" onClick={()=>alterarAtivoRecorrenciaHC(item)} className="rounded-lg border px-3 py-1.5 text-xs font-black">{item.ativo?'Pausar':'Reativar'}</button></div>
+                  </div>
+                  {item.ativo && !decisao && !erroRecorrenciasHC && (
+                    <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
+                      <div><label className="block text-xs font-bold text-gray-600">Valor neste mês (R$)</label><input value={edicao.valor} onChange={e=>setEdicoesMensaisHC(a=>({...a,[item.id]:{...edicao,valor:formatarEntradaValorBR(e.target.value)}}))} className="mt-1 w-36 rounded-lg border px-3 py-2 text-sm" /></div>
+                      <div><label className="block text-xs font-bold text-gray-600">Vencimento</label><input type="date" value={edicao.vencimento} onChange={e=>setEdicoesMensaisHC(a=>({...a,[item.id]:{...edicao,vencimento:e.target.value}}))} className="mt-1 rounded-lg border px-3 py-2 text-sm" /></div>
+                      <button type="button" disabled={!!processandoRecorrenciaHC} onClick={()=>decidirRecorrenciaHC(item,'CONFIRMADA')} className="rounded-xl bg-blue-600 px-4 py-2 font-black text-white disabled:opacity-60">{operando?'Confirmando...':'✓ Confirmar'}</button>
+                      <button type="button" disabled={!!processandoRecorrenciaHC} onClick={()=>decidirRecorrenciaHC(item,'IGNORADA')} className="rounded-xl border border-gray-300 px-4 py-2 font-black text-gray-600 disabled:opacity-60">Ignorar mês</button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {sugestoesHistoricoHC.length>0 && (
+            <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/50 p-4"><h3 className="font-black text-gray-900">Possíveis despesas fixas identificadas no histórico</h3><p className="mb-3 text-xs text-gray-600">Reconhecidas em pelo menos dois meses com valores semelhantes. Nada é cadastrado sem aprovação.</p><div className="space-y-2">{sugestoesHistoricoHC.map((grupo,i)=>{const item=grupo[0]; return <div key={i} className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 pb-2"><span className="text-sm text-gray-700">{item.descricao} • {moeda(item.valor)} • {new Set(grupo.map((x:any)=>x.mes_referencia)).size} meses</span><button type="button" className="rounded-lg bg-white px-3 py-1.5 text-xs font-black text-blue-700" onClick={()=>{setFormRecorrenciaHC({id:'',descricao:item.descricao,categoria:item.categoria||'Outros',valor:formatarValorParaForm(item.valor),dia_vencimento:String(Number(String(item.data_vencimento||'').slice(8,10))||10),observacoes:'',forma_pagamento:item.forma_pagamento||''});setMostrarFormularioRecorrenciaHC(true)}}>Cadastrar como fixa</button></div>})}</div></div>
+          )}
+          <p className="text-xs text-gray-500">A confirmação cria uma despesa PENDENTE e não dá baixa no pagamento. O mesmo modelo só pode ser confirmado uma vez por competência.</p>
+        </div>
+      </section>
+    )
+  }
 
   async function carregarContasBancarias() {
     setLoadingContasBancarias(true)
@@ -7960,6 +8185,7 @@ export default function FinanceiroPage() {
 
       {abaPrincipal === 'DESPESAS' && (
         <>
+          {renderDespesasRecorrentesHC()}
           {renderFormularioMovimento('Nova despesa', 'Lance despesas fixas ou variáveis da empresa, sem misturar com os processos faturados.')}
           {renderTabelaMovimentos()}
         </>
