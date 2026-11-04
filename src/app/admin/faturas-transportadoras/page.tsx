@@ -132,6 +132,14 @@ const formVazio: FormState = {
 }
 
 const STORAGE_BUCKET = 'faturas'
+const TRANSPORTADORAS_PADRAO = ['DHL', 'FedEx', 'KPM', 'CLIPPER', 'UPS'] // HC_TRANSPORTADORAS_CADASTRO_V1
+
+function normalizarNomeTransportadora(nome: string) {
+  const limpo = String(nome || '').trim().replace(/\s+/g, ' ')
+  if (limpo.toUpperCase() === 'FEDEX' || limpo.toUpperCase() === 'FED EX') return 'FedEx'
+  return limpo.toUpperCase()
+}
+
 
 export default function FaturasTransportadorasPage() {
   const [faturas, setFaturas] = useState<FaturaTransportadora[]>([])
@@ -146,6 +154,12 @@ export default function FaturasTransportadorasPage() {
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
   const [form, setForm] = useState<FormState>(formVazio)
+  const [transportadorasCadastradas, setTransportadorasCadastradas] = useState<string[]>(TRANSPORTADORAS_PADRAO)
+  const [exibirCadastroTransportadora, setExibirCadastroTransportadora] = useState(false)
+  const [novaTransportadora, setNovaTransportadora] = useState('')
+  const [salvandoNovaTransportadora, setSalvandoNovaTransportadora] = useState(false)
+  const [erroCadastroTransportadora, setErroCadastroTransportadora] = useState('')
+
   const [busca, setBusca] = useState('')
   const [filtroTransportadoras, setFiltroTransportadoras] = useState<string[]>([])
   const [filtroSituacoes, setFiltroSituacoes] = useState<string[]>([])
@@ -192,6 +206,7 @@ export default function FaturasTransportadorasPage() {
 
     aplicarFiltrosDaDashboard()
     carregar()
+    carregarTransportadorasCadastradas()
   }, [])
 
   useEffect(() => {
@@ -439,6 +454,74 @@ export default function FaturasTransportadorasPage() {
     return resultado
   }
 
+  const opcoesTransportadoras = Array.from(new Set([
+    ...TRANSPORTADORAS_PADRAO,
+    ...transportadorasCadastradas,
+    ...faturas.map((fatura) => String(fatura.transportadora || '').trim()),
+    form.transportadora,
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+  async function carregarTransportadorasCadastradas() {
+    const { data, error } = await supabase
+      .from('hc_transportadoras_cadastro')
+      .select('nome, ativo')
+      .eq('ativo', true)
+      .order('nome')
+
+    if (error) {
+      console.error('Não foi possível carregar o cadastro de transportadoras:', error)
+      setErroCadastroTransportadora('Não foi possível carregar a lista do Supabase. Verifique o SQL de instalação.')
+      return
+    }
+
+    setErroCadastroTransportadora('')
+    setTransportadorasCadastradas((data || []).map((item: any) => String(item.nome || '')).filter(Boolean))
+  }
+
+  async function salvarNovaTransportadora() {
+    const nome = normalizarNomeTransportadora(novaTransportadora)
+
+    if (!nome || nome.length < 2 || nome.length > 80) {
+      setErroCadastroTransportadora('Informe um nome entre 2 e 80 caracteres.')
+      return
+    }
+
+    const existente = opcoesTransportadoras.find(
+      (item) => normalizarNomeTransportadora(item) === nome
+    )
+    if (existente) {
+      setForm((atual) => ({ ...atual, transportadora: existente }))
+      setErroCadastroTransportadora('Transportadora já cadastrada. Ela foi selecionada.')
+      setNovaTransportadora('')
+      setExibirCadastroTransportadora(false)
+      return
+    }
+
+    setSalvandoNovaTransportadora(true)
+    setErroCadastroTransportadora('')
+
+    const { error } = await supabase
+      .from('hc_transportadoras_cadastro')
+      .insert([{ nome }])
+
+    setSalvandoNovaTransportadora(false)
+
+    if (error) {
+      setErroCadastroTransportadora(
+        error.code === '23505'
+          ? 'Essa transportadora já foi cadastrada. Atualize a lista.'
+          : 'Não foi possível salvar no Supabase: ' + error.message
+      )
+      return
+    }
+
+    setTransportadorasCadastradas((atuais) => [...atuais, nome])
+    setForm((atual) => ({ ...atual, transportadora: nome }))
+    setNovaTransportadora('')
+    setExibirCadastroTransportadora(false)
+    await carregarTransportadorasCadastradas()
+  }
+
   async function carregar() {
     setLoading(true)
 
@@ -676,6 +759,7 @@ export default function FaturasTransportadorasPage() {
     if (texto.includes('DHL')) return 'DHL'
     if (texto.includes('KPM')) return 'KPM'
     if (texto.includes('CLIPPER')) return 'CLIPPER'
+    if (texto.includes('UPS')) return 'UPS'
 
     return ''
   }
@@ -2060,17 +2144,59 @@ export default function FaturasTransportadorasPage() {
           )}
         </div>
 
+        {exibirCadastroTransportadora && (
+          <div className="mb-5 rounded-2xl border border-blue-700 bg-[#020817] p-4">
+            <p className="mb-2 text-sm font-black text-blue-200">Nova transportadora</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={novaTransportadora}
+                onChange={(e) => setNovaTransportadora(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!salvandoNovaTransportadora) void salvarNovaTransportadora() } }}
+                placeholder="Ex.: LATAM Cargo"
+                maxLength={80}
+                className="min-w-[220px] flex-1 rounded-xl border border-blue-900 bg-[#071225] px-4 py-3 text-white outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                disabled={salvandoNovaTransportadora || !novaTransportadora.trim()}
+                onClick={() => void salvarNovaTransportadora()}
+                className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                {salvandoNovaTransportadora ? 'Salvando...' : 'Salvar transportadora'}
+              </button>
+              <button type="button" onClick={() => { setExibirCadastroTransportadora(false); setNovaTransportadora(''); setErroCadastroTransportadora('') }} className="rounded-xl border border-slate-600 px-4 py-3 text-sm font-bold text-slate-300">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+        {erroCadastroTransportadora && (
+          <p className="mb-4 text-sm font-semibold text-amber-300">{erroCadastroTransportadora}</p>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-4">
           <Campo label="Transportadora">
-            <select
-              value={form.transportadora}
-              onChange={(e) => setForm({ ...form, transportadora: e.target.value })}
-            >
-              <option value="DHL">DHL</option>
-              <option value="FedEx">FedEx</option>
-              <option value="KPM">KPM</option>
-              <option value="CLIPPER">CLIPPER</option>
-            </select>
+            <div className="flex flex-col gap-2">
+              <select
+                value={form.transportadora}
+                onChange={(e) => setForm({ ...form, transportadora: e.target.value })}
+              >
+                {opcoesTransportadoras.map((nome) => (
+                  <option key={nome} value={nome}>{nome}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setExibirCadastroTransportadora((atual) => !atual)
+                  setErroCadastroTransportadora('')
+                }}
+                className="rounded-xl border border-blue-600 bg-blue-950/50 px-3 py-2 text-left text-xs font-black text-blue-200 hover:bg-blue-900/50"
+              >
+                + Adicionar transportadora
+              </button>
+            </div>
           </Campo>
 
           <Campo label="Conta">
@@ -2241,12 +2367,7 @@ export default function FaturasTransportadorasPage() {
           <div className="grid grid-cols-1 md:grid-cols-6 gap-3 w-full xl:max-w-[1320px]">
             <MultiFiltro
               titulo="Transportadora"
-              opcoes={[
-                { valor: 'DHL', label: 'DHL' },
-                { valor: 'FedEx', label: 'FedEx' },
-                { valor: 'KPM', label: 'KPM' },
-                { valor: 'CLIPPER', label: 'CLIPPER' },
-              ]}
+              opcoes={opcoesTransportadoras.map((nome) => ({ valor: nome, label: nome }))}
               selecionados={filtroTransportadoras}
               onChange={setFiltroTransportadoras}
             />
