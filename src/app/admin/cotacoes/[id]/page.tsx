@@ -21,6 +21,11 @@ export default function DetalheCotacaoAdminPage() {
   const [modoEdicao, setModoEdicao] = useState(false) // HC_COTACAO_360_V2
   const [salvandoCotacao, setSalvandoCotacao] = useState(false)
   const [formEdicao, setFormEdicao] = useState<any>({})
+  // HC_REVISOES_COTACOES_V1
+  const [versoesHC, setVersoesHC] = useState<any[]>([])
+  const [alteracoesClienteHC, setAlteracoesClienteHC] = useState<any[]>([])
+  const [restaurandoVersaoHC, setRestaurandoVersaoHC] = useState<number | null>(null)
+
 
   useEffect(() => {
     carregar()
@@ -34,6 +39,15 @@ export default function DetalheCotacaoAdminPage() {
       .single()
 
     setCotacao(data)
+    // Historico independente, sem sobrescrever a cotacao atual.
+    const [resVersoes, resAlteracoes] = await Promise.all([
+      supabase.from('hc_cotacao_versoes').select('id,numero,origem,versao_origem,pdf_url,pdf_nome,criado_em,snapshot').eq('cotacao_id',params.id).order('numero',{ascending:false}),
+      supabase.from('hc_cotacao_alteracoes_cliente').select('id,alterados,criado_em,visualizada_em').eq('cotacao_id',params.id).order('criado_em',{ascending:false}),
+    ])
+    if (resVersoes.error) console.warn('Historico de versoes:',resVersoes.error.message)
+    if (resAlteracoes.error) console.warn('Historico de alteracoes:',resAlteracoes.error.message)
+    setVersoesHC(resVersoes.data || [])
+    setAlteracoesClienteHC(resAlteracoes.data || [])
     setReferenciaHC(data?.referencia_hc || '')
     setFormEdicao({
       solicitante_email: data?.solicitante_email || '',
@@ -97,6 +111,25 @@ export default function DetalheCotacaoAdminPage() {
     }
 
     setDocumentosCliente(docs || [])
+  }
+
+  async function restaurarVersaoHC(numero: number) {
+    if (!cotacao?.id || restaurandoVersaoHC !== null) return
+    if (!confirm(`Restaurar a versao ${String(numero).padStart(3,'0')} como uma NOVA revisao? Todas as versoes e PDFs anteriores continuarao preservados.`)) return
+    setRestaurandoVersaoHC(numero)
+    try {
+      const {data,error} = await supabase.rpc('hc_admin_restaurar_versao_cotacao', {p_cotacao_id:cotacao.id,p_numero:numero})
+      if (error) throw error
+      await carregar()
+      alert(`Versao restaurada. Nova revisao ${String(data).padStart(3,'0')} criada, sem apagar o historico.`)
+    } catch (error: any) { alert('Erro ao restaurar revisao: ' + (error?.message || String(error))) }
+    finally { setRestaurandoVersaoHC(null) }
+  }
+
+  function resumoAlteracaoHC(valor: any) {
+    if (valor === null || valor === undefined) return '-'
+    if (typeof valor === 'object') return JSON.stringify(valor)
+    return String(valor)
   }
 
   function alterarCampoEdicao(campo: string, valor: any) {
@@ -1094,6 +1127,43 @@ export default function DetalheCotacaoAdminPage() {
             <p>{cotacao.pdf_nome || 'Nenhum PDF anexado'}</p>
           </div>
         </div>
+      </section>
+
+      {/* HC_REVISOES_COTACOES_V1 */}
+      <section className="card mb-8 border border-indigo-500/60">
+        <h2 className="text-2xl font-black mb-2">Histórico e revisões da cotação</h2>
+        <p className="text-sm text-slate-400 mb-5">Cada PDF publicado permanece salvo como uma versão. A restauração cria outra versão sem apagar as anteriores.</p>
+        {alteracoesClienteHC.length > 0 && (
+          <div className="mb-5 rounded-2xl border border-amber-500/50 bg-amber-950/20 p-4">
+            <h3 className="font-black text-amber-300 mb-3">Alterações enviadas pelo cliente</h3>
+            {alteracoesClienteHC.map((alteracao:any) => (
+              <details key={alteracao.id} className="mb-2 rounded-lg border border-amber-900/60 p-3">
+                <summary className="cursor-pointer font-bold">{new Date(alteracao.criado_em).toLocaleString('pt-BR')} • {Object.keys(alteracao.alterados || {}).length} campo(s) modificado(s)</summary>
+                <div className="overflow-x-auto mt-3"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Campo</th><th className="p-2">Antes</th><th className="p-2">Depois</th></tr></thead><tbody>
+                  {Object.entries(alteracao.alterados || {}).map(([campo,mudanca]:any) => (
+                    <tr key={campo} className="border-t border-slate-700"><td className="p-2 font-bold">{campo}</td><td className="p-2 break-all">{resumoAlteracaoHC(mudanca.antes)}</td><td className="p-2 break-all text-amber-200">{resumoAlteracaoHC(mudanca.depois)}</td></tr>
+                  ))}
+                </tbody></table></div>
+              </details>
+            ))}
+          </div>
+        )}
+        {versoesHC.length === 0 ? <p className="text-slate-400">Nenhuma versão de PDF registrada ainda.</p> : (
+          <div className="flex flex-col gap-3">
+            {versoesHC.map((v:any) => (
+              <div key={v.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-900 bg-[#020817] p-4">
+                <div><p className="font-black">Versão {String(v.numero).padStart(3,'0')} {v.origem==='RESTAURADA' ? `(restaurada da ${String(v.versao_origem).padStart(3,'0')})` : ''}</p>
+                <p className="text-xs text-slate-400">{new Date(v.criado_em).toLocaleString('pt-BR')} • {v.pdf_nome || 'PDF sem nome'}</p></div>
+                <div className="flex flex-wrap gap-2">
+                  {v.pdf_url && <a href={v.pdf_url} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-slate-700 px-4 py-2 font-bold">Abrir PDF</a>}
+                  <button disabled={restaurandoVersaoHC!==null || !!cotacao?.embarque_id} onClick={()=>restaurarVersaoHC(v.numero)}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 font-bold disabled:opacity-40">{restaurandoVersaoHC===v.numero ? 'Restaurando...' : 'Recuperar versão'}</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {cotacao?.embarque_id && <p className="mt-3 text-amber-300 text-sm">Restauração bloqueada enquanto houver embarque vinculado.</p>}
       </section>
 
       {/* HC_COTACAO_CLIENTE_EMISSOR_INTEGRADO_V1 */}

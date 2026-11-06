@@ -550,6 +550,14 @@ export default function NovaCotacaoManualPage() {
           referencia_hc: data.referencia_hc || dadosEmissor.form.referencia_hc || atual.referencia_hc,
           solicitante_nome: data.solicitante_nome || data.responsavel_solicitante ||
             dadosEmissor.form.solicitante_nome || dadosEmissor.form.responsavel_solicitante || '',
+          // HC_REVISOES_COTACOES_V1: dados atualizados pelo cliente prevalecem
+          // sobre os dados operacionais antigos no formulario do emissor.
+          origem: data.origem || dadosEmissor.form.origem || '',
+          destino: data.destino || dadosEmissor.form.destino || '',
+          moeda: data.moeda || dadosEmissor.form.moeda || 'USD',
+          valor_mercadoria: data.valor_mercadoria != null ? String(data.valor_mercadoria) : dadosEmissor.form.valor_mercadoria || '',
+          descricao_mercadoria: data.descricao_mercadoria || dadosEmissor.form.descricao_mercadoria || '',
+          observacoes: data.observacoes || dadosEmissor.form.observacoes || '',
         }))
 
         if (Array.isArray(dadosEmissor.itensEnvio) && dadosEmissor.itensEnvio.length > 0) {
@@ -566,9 +574,11 @@ export default function NovaCotacaoManualPage() {
           setItensEnvio(itensEnvioCotacaoLegados(dadosEmissor.form))
         }
 
-        if (Array.isArray(dadosEmissor.volumes) && dadosEmissor.volumes.length > 0) {
+        const volumesFonte = dadosEmissor.revisao_cliente_pendente && Array.isArray(data.volumes)
+          ? data.volumes : dadosEmissor.volumes
+        if (Array.isArray(volumesFonte) && volumesFonte.length > 0) {
           setVolumes(
-            dadosEmissor.volumes.map((v: any) => ({
+            volumesFonte.map((v: any) => ({
               quantidade: String(v.quantidade || v.qtd || 1),
               comprimento_cm: String(v.comprimento_cm || v.comprimento || ''),
               largura_cm: String(v.largura_cm || v.largura || ''),
@@ -1379,9 +1389,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
             dimensoes: dimensoesTexto,
             peso_real: resumo.pesoReal,
             peso_taxado: resumo.pesoTaxado,
-            status: cotacaoEditandoId && !enviarEmail
-              ? cotacaoOriginal?.status || 'EM ANÁLISE'
-              : 'COTAÇÃO DISPONÍVEL',
+            status: enviarEmail ? 'COTAÇÃO DISPONÍVEL' :
+              cotacaoEditandoId ? (cotacaoOriginal?.status === 'AGUARDANDO ANÁLISE' ? 'EM ANÁLISE' : cotacaoOriginal?.status || 'EM ANÁLISE') : 'EM ANÁLISE',
             dados_emissor: {
               ...dadosEmissorBase,
               modelo,
@@ -1451,6 +1460,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
         .update({
           pdf_cotacao_url: publicUrl.publicUrl,
           pdf_nome: arquivo.name,
+          dados_emissor: { ...payloadCotacao.dados_emissor, revisao_cliente_pendente: false },
         })
         .eq('id', cotacaoCriada.id)
         .select()

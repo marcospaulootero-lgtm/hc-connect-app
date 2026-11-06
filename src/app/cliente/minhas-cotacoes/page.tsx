@@ -11,6 +11,12 @@ export default function MinhasCotacoesPage() {
   const [filtroStatus, setFiltroStatus] = useState('TODOS')
   const [filtroHistorico, setFiltroHistorico] = useState<'ATIVAS' | 'ARQUIVADAS' | 'EXCLUIDAS'>('ATIVAS') // HC_COTACOES_LIXEIRA_V1
   const [posicoesFila, setPosicoesFila] = useState<Record<string, { posicao: number; total: number }>>({})
+  // HC_REVISOES_COTACOES_V1
+  const [editandoCotacao, setEditandoCotacao] = useState<any>(null)
+  const [camposRevisao, setCamposRevisao] = useState<Record<string, any>>({})
+  const [volumesRevisao, setVolumesRevisao] = useState<any[]>([])
+  const [salvandoRevisao, setSalvandoRevisao] = useState(false)
+
 
   useEffect(() => {
     carregarUsuario()
@@ -155,6 +161,41 @@ export default function MinhasCotacoesPage() {
     }
 
     return '-'
+  }
+
+  // HC_REVISOES_COTACOES_V1: somente campos operacionais, sem valores de frete ou PDF.
+  function iniciarRevisaoCliente(item: any) {
+    const campos = ['referencia_cliente','exportador','importador','origem','destino','peso_real','peso_taxado','dimensoes','moeda','valor_mercadoria','descricao_mercadoria','observacoes']
+    setCamposRevisao(Object.fromEntries(campos.map((campo) => [campo, String(item[campo] ?? '')])))
+    setCamposRevisao((anterior) => ({...anterior, transportadoras_consulta: Array.isArray(item.transportadoras_consulta) ? item.transportadoras_consulta.join(', ') : String(item.transportadoras_consulta || '')}))
+    setVolumesRevisao(Array.isArray(item.volumes) ? item.volumes.map((v: any) => ({...v})) : [])
+    setEditandoCotacao(item)
+  }
+
+  async function enviarRevisaoCliente() {
+    if (!editandoCotacao?.id || !usuario?.id || salvandoRevisao) return
+    if (!confirm('Enviar os dados alterados para nova analise da HC? O PDF anterior ficara preservado no historico.')) return
+    setSalvandoRevisao(true)
+    try {
+      const payload: Record<string, any> = {...camposRevisao,
+        transportadoras_consulta: String(camposRevisao.transportadoras_consulta || '').split(',').map((n) => n.trim()).filter(Boolean),
+        volumes: volumesRevisao,
+      }
+      for (const campo of ['peso_real','peso_taxado','valor_mercadoria']) {
+        const valor = String(payload[campo] || '').trim()
+        payload[campo] = valor ? Number(valor.replace(',', '.')) : null
+        if (payload[campo] !== null && !Number.isFinite(payload[campo])) throw new Error('Valor invalido: ' + campo)
+      }
+      const {error} = await supabase.rpc('hc_cliente_revisar_cotacao', {
+        p_cotacao_id: editandoCotacao.id, p_alteracoes: payload,
+      })
+      if (error) throw error
+      setEditandoCotacao(null)
+      await carregarCotacoes(usuario.id)
+      alert('Alteracoes enviadas. A HC recebera a solicitacao para revisar a mesma cotacao.')
+    } catch (error: any) {
+      alert('Erro ao enviar alteracao: ' + (error?.message || String(error)))
+    } finally { setSalvandoRevisao(false) }
   }
 
   async function atualizarStatusCotacao(id: string, status: string) {
@@ -520,7 +561,12 @@ export default function MinhasCotacoesPage() {
                     </div>
 
                     <div className="xl:w-[240px] flex flex-col gap-3">
-                      {item.pdf_cotacao_url ? (
+                      {!arquivadaCliente && !excluida && !item.embarque_id && !['APROVADA','AUTORIZADA','CONVERTIDA EM EMBARQUE'].includes(String(item.status || '').toUpperCase()) && (
+                        <button onClick={() => iniciarRevisaoCliente(item)} className="bg-indigo-600 hover:bg-indigo-500 px-5 py-3 rounded-xl font-bold">
+                          ✎ Solicitar alteração
+                        </button>
+                      )}
+                      {item.pdf_cotacao_url && item.status === 'COTAÇÃO DISPONÍVEL' ? (
                         <a
                           href={item.pdf_cotacao_url}
                           target="_blank"
@@ -586,6 +632,52 @@ export default function MinhasCotacoesPage() {
           )}
         </section>
       </div>
+      {editandoCotacao && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/80 px-4 py-8">
+          <div className="mx-auto max-w-5xl rounded-3xl border border-blue-500 bg-[#071225] p-6 shadow-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div><h2 className="text-2xl font-black">Alterar cotação existente</h2>
+                <p className="text-slate-400 text-sm">{editandoCotacao.referencia_hc || 'Cotação'} • A HC receberá as diferenças. Preços e PDFs anteriores serão preservados.</p></div>
+              <button onClick={() => setEditandoCotacao(null)} disabled={salvandoRevisao} className="bg-slate-700 px-4 py-2 rounded-lg">Fechar</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {([
+                ['referencia_cliente','Referência do cliente'], ['exportador','Exportador'],['importador','Importador'],
+                ['origem','Origem'],['destino','Destino'],['peso_real','Peso real (kg)'],['peso_taxado','Peso taxado (kg)'],
+                ['dimensoes','Dimensões'],['moeda','Moeda da mercadoria'],['valor_mercadoria','Valor da mercadoria'],
+                ['descricao_mercadoria','Descrição da mercadoria'],['transportadoras_consulta','Transportadoras (separadas por vírgula)'],
+                ['observacoes','Observações'],
+              ] as [string,string][]).map(([campo,rotulo]) => (
+                <label key={campo} className="flex flex-col gap-1 text-sm font-semibold text-slate-300">
+                  {rotulo}
+                  <input value={camposRevisao[campo] ?? ''} onChange={(e) => setCamposRevisao((v) => ({...v,[campo]:e.target.value}))}
+                    className="rounded-lg border border-blue-900 bg-[#020817] p-3 text-white" />
+                </label>
+              ))}
+            </div>
+            <h3 className="font-black mt-6 mb-2">Volumes</h3>
+            {volumesRevisao.map((v: any,index: number) => (
+              <div key={index} className="flex flex-wrap gap-2 mb-2 items-end">
+                {(['quantidade','comprimento_cm','largura_cm','altura_cm','peso_kg'] as const).map((campo) => (
+                  <label key={campo} className="flex-1 min-w-[100px] text-xs text-slate-300">{campo.replace('_cm',' (cm)').replace('peso_kg','Peso (kg)')}
+                    <input className="block w-full mt-1 rounded-lg border border-blue-900 bg-[#020817] p-2 text-white"
+                      value={v[campo] ?? ''} onChange={(e) => setVolumesRevisao((lista) => lista.map((x,i) => i===index?{...x,[campo]:e.target.value}:x))} />
+                  </label>
+                ))}
+                <button onClick={() => setVolumesRevisao((lista) => lista.filter((_,i)=>i!==index))} className="bg-red-900 rounded-lg px-3 py-2">Remover</button>
+              </div>
+            ))}
+            <button onClick={() => setVolumesRevisao((v)=>[...v,{quantidade:'1',comprimento_cm:'',largura_cm:'',altura_cm:'',peso_kg:''}])}
+              className="bg-slate-700 rounded-lg px-4 py-2 mt-2">+ Volume</button>
+            <div className="mt-6 flex justify-end gap-3">
+              <button disabled={salvandoRevisao} onClick={() => setEditandoCotacao(null)} className="bg-slate-700 rounded-xl px-6 py-3">Cancelar</button>
+              <button disabled={salvandoRevisao} onClick={enviarRevisaoCliente} className="bg-blue-600 rounded-xl px-6 py-3 font-black disabled:opacity-60">
+                {salvandoRevisao ? 'Enviando...' : 'Enviar alteração à HC'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
