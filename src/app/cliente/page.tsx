@@ -704,6 +704,10 @@ export default function ClientePage() {
                 Minhas cotações
               </a>
 
+              {/* HC_RESUMO_MENSAL_CLIENTE_V1 */}
+              <a href="/cliente/resumo-mensal" className="bg-cyan-700 hover:bg-cyan-600 px-5 py-3 rounded-xl font-bold">
+                📊 Resumo mensal
+              </a>
               <a href="/cliente/faturas" className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold">
                 Faturas e recibos
               </a>
