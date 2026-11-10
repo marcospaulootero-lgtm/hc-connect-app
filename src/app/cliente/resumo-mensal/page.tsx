@@ -141,7 +141,7 @@ export default function ResumoMensalClientePage() {
 
   return (
     <main className="min-h-screen bg-[#020817] px-4 py-7 text-white md:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto max-w-none space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4 print:hidden">
           <div><p className="text-xs font-bold uppercase tracking-widest text-blue-400">HC Connect · Portal do cliente</p><h1 className="mt-2 text-3xl font-black md:text-4xl">Resumo mensal de operações</h1><p className="mt-2 text-sm text-slate-400">Relatório consolidado do período, com embarques, cotações e faturas disponíveis.</p></div>
           <a href="/cliente" className="rounded-xl bg-slate-700 px-4 py-3 text-sm font-bold hover:bg-slate-600">Voltar ao portal</a>
