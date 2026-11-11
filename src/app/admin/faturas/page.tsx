@@ -1542,11 +1542,18 @@ export default function FaturasPage() {
     return numero(item?.valor_total) > 0 ? moeda(item.valor_total) : '-'
   }
 
+  // HC_EXCLUSAO_SEGURA_V1: IDs virtuais da tabela faturas não são IDs de anexos.
+  function ehIdAnexoRemovivel(item: any) {
+    const id = String(item?.id || '').trim()
+    return origemDocumentoPacoteFatura(item) === 'fatura_arquivos' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  }
+
   async function removerAnexoPacoteFatura(item: any) {
     const origem = origemDocumentoPacoteFatura(item)
 
-    if (origem !== 'fatura_arquivos') {
-      alert('Este item é uma fatura lançada no financeiro. Para remover, primeiro precisa cancelar/ajustar o lançamento financeiro.')
+    if (origem !== 'fatura_arquivos' || !ehIdAnexoRemovivel(item)) {
+      alert('Este documento é oficial ou não possui registro de anexo removível. A fatura e o financeiro foram preservados.')
       return
     }
 
@@ -1556,18 +1563,7 @@ export default function FaturasPage() {
 
     if (!confirmar) return
 
-    const { error } = await supabase
-      .from('fatura_arquivos')
-      .delete()
-      .eq('id', item.id)
-
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    alert('Anexo removido.')
-    await carregar()
+    await removerArquivoExtraFatura(item as FaturaArquivo)
   }
 
   function documentosPacoteAdmin(embarque: any, faturaPrincipal?: any | null) {
@@ -1940,26 +1936,22 @@ export default function FaturasPage() {
         )
       }
 
+      // Excluir registro primeiro: se falhar, o arquivo continua acessível.
+      const { data: excluido, error } = await supabase
+        .from('fatura_arquivos')
+        .delete()
+        .eq('id', idArquivo)
+        .select('id')
+        .maybeSingle()
+
+      if (error) throw new Error(error.message)
+      if (!excluido) throw new Error('Anexo não encontrado ou exclusão não autorizada.')
+
       if (caminhoArquivo) {
         const { error: erroStorage } = await supabase.storage
           .from('faturas')
           .remove([caminhoArquivo])
-
-        if (erroStorage) {
-          console.log(
-            'Não foi possível remover o arquivo antigo do Storage:',
-            erroStorage
-          )
-        }
-      }
-
-      const { error } = await supabase
-        .from('fatura_arquivos')
-        .delete()
-        .eq('id', idArquivo)
-
-      if (error) {
-        throw new Error(error.message)
+        if (erroStorage) console.warn('Anexo desvinculado; limpeza de Storage pendente:', erroStorage)
       }
 
       alert('Documento removido com sucesso.')
@@ -10472,7 +10464,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                                               : 'Emitir recibo comp.'}
                                           </button>
 
-                                          {origemDocumentoPacoteFatura(doc) === 'fatura_arquivos' ? (
+                                          {ehIdAnexoRemovivel(doc) ? (
                                             <button
                                               type="button"
                                               onClick={() => removerAnexoPacoteFatura(doc)}
@@ -10878,14 +10870,20 @@ async function carregarImagemBase64(caminhos: string[]) {
                                         <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
                                           Abrir
                                         </Link>
-                                        <button
-                                          type="button"
-                                          onClick={() => removerArquivoExtraFatura(arquivo)}
-                                          disabled={removendoArquivoExtra === arquivo.id}
-                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
-                                        >
-                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
-                                        </button>
+                                        {ehIdAnexoRemovivel(arquivo) ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => removerArquivoExtraFatura(arquivo)}
+                                            disabled={removendoArquivoExtra === arquivo.id}
+                                            className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                          >
+                                            {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                          </button>
+                                        ) : (
+                                          <span className="rounded-lg border border-yellow-700 px-3 py-2 text-xs text-yellow-200">
+                                            Documento protegido
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   ))}

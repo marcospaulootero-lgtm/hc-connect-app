@@ -39,6 +39,7 @@ export default function FaturasClientePage() {
   const [arquivoSelecionado, setArquivoSelecionado] = useState<Record<string, File | null>>({})
   const [enviando, setEnviando] = useState<Record<string, boolean>>({})
   const [arquivando, setArquivando] = useState<Record<string, boolean>>({})
+  const [removendoComprovante, setRemovendoComprovante] = useState<Record<string, boolean>>({}) // HC_EXCLUSAO_SEGURA_V1
 
   useEffect(() => {
     carregarUsuario()
@@ -217,6 +218,30 @@ export default function FaturasClientePage() {
 
     setFaturas(agruparFaturasClientePorEmbarque(faturasComArquivamento))
     setLoading(false)
+  }
+
+  // HC_EXCLUSAO_SEGURA_V1: API verifica login, vinculo, status e documento corrente.
+  async function removerComprovantePendente(fatura: any) {
+    if (!fatura?.id || !usuarioId) return
+    if (!confirm('Remover o comprovante enviado por engano? A fatura e os dados financeiros serão preservados.')) return
+    setRemovendoComprovante((prev) => ({ ...prev, [fatura.id]: true }))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Sessão expirada. Entre novamente no portal.')
+      const resposta = await fetch('/api/comprovantes/remover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ fatura_id: fatura.id, comprovante_url: fatura.comprovante_pagamento }),
+      })
+      const resultado = await resposta.json().catch(() => ({}))
+      if (!resposta.ok) throw new Error(resultado.error || 'Não foi possível remover o comprovante.')
+      alert('Comprovante removido. Você pode enviar o documento correto.')
+      await carregarFaturas(usuarioId)
+    } catch (error: any) {
+      alert(error?.message || 'Erro ao remover comprovante.')
+    } finally {
+      setRemovendoComprovante((prev) => ({ ...prev, [fatura.id]: false }))
+    }
   }
 
   async function enviarComprovante(fatura: any) {
@@ -908,6 +933,17 @@ export default function FaturasClientePage() {
                                   Ver comprovante enviado
                                 </a>
 
+                                {!pagamentoConfirmado && !fatura.recibo_pdf && !fatura.data_pagamento &&
+                                  ['COMPROVANTE ENVIADO', 'COMPROVANTE REJEITADO'].includes(statusPagamentoOriginal) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removerComprovantePendente(fatura)}
+                                    disabled={!!removendoComprovante[fatura.id]}
+                                    className="rounded-xl bg-red-700 px-5 py-3 font-bold text-white hover:bg-red-600 disabled:opacity-50"
+                                  >
+                                    {removendoComprovante[fatura.id] ? 'Removendo...' : 'Excluir comprovante incorreto'}
+                                  </button>
+                                )}
                                 {statusPagamento === 'COMPROVANTE REJEITADO' && (
                                   <div className="flex flex-col md:flex-row gap-3 flex-1">
                                     <input
