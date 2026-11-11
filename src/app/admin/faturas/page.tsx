@@ -211,7 +211,7 @@ type VisualizacaoFatura = {
   visualizacoes?: number | string | null
 }
 
-type MoedaItemFatura = 'BRL' | 'USD' | 'EUR'
+type MoedaItemFatura = 'BRL' | 'USD' | 'EUR' | 'GBP' | 'CNY' | 'HKD'
 
 type ItemFaturaServico = {
   id: string
@@ -224,7 +224,10 @@ type ItemFaturaServico = {
   observacao: string
 }
 
-type MoedaFaturaAgente = 'BRL' | 'USD' | 'EUR'
+type MoedaFaturaAgente = MoedaItemFatura
+type MoedaAdicional = 'GBP' | 'CNY' | 'HKD'
+const MOEDAS_ADICIONAIS: MoedaAdicional[] = ['GBP', 'CNY', 'HKD']
+const TAXAS_ADICIONAIS_VAZIAS: Record<MoedaAdicional, string> = { GBP: '', CNY: '', HKD: '' }
 type IdiomaFatura = 'PT' | 'EN' // HC_FATURA_INGLES_V1
 
 type ItemFaturaAgente = {
@@ -300,6 +303,8 @@ export default function FaturasPage() {
   const [emissorClienteId, setEmissorClienteId] = useState('')
   const [emissorUsuarioId, setEmissorUsuarioId] = useState('')
   const [emissorDespachante, setEmissorDespachante] = useState('')
+  // HC_PARCEIRO_HISTORICO_FATURAS_V1
+  const [emissorParceiroEditadoManualmente, setEmissorParceiroEditadoManualmente] = useState(false)
   const [emissorTipoFatura, setEmissorTipoFatura] = useState<'FRETE' | 'IMPOSTOS'>('FRETE')
   const [tipoCentralEmissao, setTipoCentralEmissao] = useState<'FRETE' | 'IMPOSTOS' | 'FORMAL'>('FRETE') // HC_CENTRAL_EMISSAO_FATURAS_V1
   const [idiomaFatura, setIdiomaFatura] = useState<IdiomaFatura>('PT') // HC_FATURA_INGLES_V1 / HC_FATURA_IDIOMA_SELECAO_VISUAL_V3
@@ -308,6 +313,9 @@ export default function FaturasPage() {
   const [emissorDataEmbarque, setEmissorDataEmbarque] = useState('')
   const [emissorTaxaConversao, setEmissorTaxaConversao] = useState('')
   const [emissorTaxaBaseEur, setEmissorTaxaBaseEur] = useState('')
+  // HC_MOEDAS_INTERNACIONAIS_V1: valores-base em BRL por unidade da moeda.
+  const [emissorTaxasAdicionais, setEmissorTaxasAdicionais] = useState<Record<MoedaAdicional, string>>({...TAXAS_ADICIONAIS_VAZIAS})
+  const [emissorDatasAdicionais, setEmissorDatasAdicionais] = useState<Record<MoedaAdicional, string>>({...TAXAS_ADICIONAIS_VAZIAS})
   const [emissorTipoCambio, setEmissorTipoCambio] = useState('DOLAR_VENDA_DIA')
   const [emissorDolarVendaDia, setEmissorDolarVendaDia] = useState('')
   const [emissorEuroVendaDia, setEmissorEuroVendaDia] = useState('')
@@ -344,6 +352,10 @@ export default function FaturasPage() {
   const [agenteSpread, setAgenteSpread] = useState('3')
   const [agenteTaxaBaseUsd, setAgenteTaxaBaseUsd] = useState('')
   const [agenteTaxaBaseEur, setAgenteTaxaBaseEur] = useState('')
+  const [agenteTaxasAdicionais, setAgenteTaxasAdicionais] = useState<Record<MoedaAdicional, string>>({...TAXAS_ADICIONAIS_VAZIAS})
+  const [agenteDatasAdicionais, setAgenteDatasAdicionais] = useState<Record<MoedaAdicional, string>>({...TAXAS_ADICIONAIS_VAZIAS})
+  const [agenteBuscandoCambio, setAgenteBuscandoCambio] = useState(false)
+  const [agenteAvisoCambio, setAgenteAvisoCambio] = useState('')
   const [agenteObservacoes, setAgenteObservacoes] = useState('')
   const [agenteVisivelCliente, setAgenteVisivelCliente] = useState(true)
   const [salvandoFaturaAgente, setSalvandoFaturaAgente] = useState(false)
@@ -3900,6 +3912,72 @@ async function carregarImagemBase64(caminhos: string[]) {
     return usuariosPortal.find((item) => item.id === emissorUsuarioId) || null
   }, [usuariosPortal, emissorUsuarioId])
 
+  // HC_PARCEIRO_HISTORICO_FATURAS_V1: sugere apenas parceiros demonstrados no historico da mesma conta/login.
+  // Nomes distintos no historico sao ambiguos; nesses casos o usuario escolhe manualmente.
+  const emissorParceiroHistorico = useMemo(() => {
+    if (!emissorEmbarqueSelecionado) return { sugestao: '', opcoes: [] as string[], origem: '' }
+
+    const awbAtual = normalizarAwb(emissorEmbarqueSelecionado.awb)
+    const clienteFiscalAtual = emissorClienteSelecionado
+    const identificadoresCliente = [
+      clienteFiscalAtual?.nome_empresa,
+      clienteFiscalAtual?.razao_social,
+      emissorEmbarqueSelecionado.cliente_final,
+    ].map(normalizarTexto).filter(Boolean)
+    const embarquesConta = embarques.filter((item) => {
+      if (item.id === emissorEmbarqueSelecionado.id) return false
+      if (emissorUsuarioId && String(item.usuario_id || '') === String(emissorUsuarioId)) return true
+      return vinculosEmbarquesClientes.some((vinculo) =>
+        vinculo.embarque_id === item.id && vinculo.cliente_id === emissorUsuarioId
+      )
+    })
+    const awbsLogin = new Set(embarquesConta.map((item) => normalizarAwb(item.awb)).filter(Boolean))
+    const faturasCliente = faturas.filter((f) =>
+      !!emissorClienteId && String(f.cliente_faturamento_id || '') === String(emissorClienteId)
+    )
+    const awbsClienteFiscal = new Set(faturasCliente.map((f) => {
+      const embarque = embarques.find((e) => e.id === f.embarque_id)
+      return normalizarAwb(embarque?.awb)
+    }).filter(Boolean))
+
+    const existente = financeiros.find((f) =>
+      (f.embarque_id && f.embarque_id === emissorEmbarqueSelecionado.id) ||
+      (awbAtual && awbsFinanceiro(f).includes(awbAtual))
+    )
+    const parceiroAtual = String(existente?.despachante || '').trim()
+    if (parceiroAtual) return { sugestao: parceiroAtual, opcoes: [parceiroAtual], origem: 'do processo atual' }
+
+    const candidatos = financeiros.filter((item) => {
+      const parceiro = String(item.despachante || '').trim()
+      if (!parceiro) return false
+      const chaves = awbsFinanceiro(item)
+      if (awbAtual && chaves.includes(awbAtual)) return false
+      if (item.embarque_id && embarquesConta.some((e) => e.id === item.embarque_id)) return true
+      if (chaves.some((awb) => awbsLogin.has(awb))) return true
+      if (chaves.some((awb) => awbsClienteFiscal.has(awb))) return true
+      // Nome fiscal exato, sem correspondencia parcial entre empresas distintas.
+      return identificadoresCliente.includes(normalizarTexto(item.cliente))
+    })
+    const mapa = new Map<string,string>()
+    candidatos.forEach((item) => {
+      const nome = String(item.despachante || '').trim()
+      const chave = normalizarTexto(nome)
+      if (chave && !mapa.has(chave)) mapa.set(chave,nome)
+    })
+    const opcoes = Array.from(mapa.values()).sort((a,b)=>a.localeCompare(b,'pt-BR'))
+    return {
+      sugestao: opcoes.length === 1 ? opcoes[0] : '',
+      opcoes,
+      origem: opcoes.length === 1 ? 'do historico do cliente' : '',
+    }
+  }, [emissorEmbarqueSelecionado, emissorClienteSelecionado, emissorUsuarioId,
+      emissorClienteId, embarques, financeiros, faturas, vinculosEmbarquesClientes])
+
+  useEffect(() => {
+    if (emissorParceiroEditadoManualmente || !emissorEmbarqueId) return
+    setEmissorDespachante(emissorParceiroHistorico.sugestao)
+  }, [emissorParceiroHistorico, emissorEmbarqueId, emissorParceiroEditadoManualmente])
+
   const statusDisponiveisEmissor = useMemo(() => {
     return Array.from(
       new Set(
@@ -4031,7 +4109,17 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     if (moedaNormalizada === 'BRL' || moedaNormalizada === 'R$') return 'BRL'
     if (moedaNormalizada === 'EUR' || moedaNormalizada === 'EURO') return 'EUR'
-    return 'USD'
+    if (moedaNormalizada === 'USD' || moedaNormalizada === 'DOLAR' || moedaNormalizada === 'DOLAR AMERICANO') return 'USD'
+    if (moedaNormalizada === 'GBP') return 'GBP'
+    if (moedaNormalizada === 'CNY') return 'CNY'
+    if (moedaNormalizada === 'HKD') return 'HKD'
+    if (!valor || !String(valor).trim()) return fallback
+    throw new Error(`Moeda não reconhecida: ${String(valor)}. Corrija o item antes de emitir a fatura.`)
+  }
+
+  function taxaBaseMoedaAdicional(codigo: MoedaItemFatura, taxas = emissorTaxasAdicionais) {
+    return MOEDAS_ADICIONAIS.includes(codigo as MoedaAdicional)
+      ? numero(taxas[codigo as MoedaAdicional]) : 0
   }
 
   function taxaConversaoItemFatura(
@@ -4042,7 +4130,7 @@ async function carregarImagemBase64(caminhos: string[]) {
   ) {
     if (moedaItem === 'BRL') return 1
 
-    const base = moedaItem === 'EUR' ? numero(baseEur) : numero(baseUsd)
+    const base = moedaItem === 'EUR' ? numero(baseEur) : moedaItem === 'USD' ? numero(baseUsd) : taxaBaseMoedaAdicional(moedaItem)
     if (base <= 0) return 0
 
     return base * (1 + numero(spreadValor) / 100)
@@ -4068,6 +4156,9 @@ async function carregarImagemBase64(caminhos: string[]) {
 
         if (moedaItem === 'USD') acc.totalUSD += valorOriginal
         if (moedaItem === 'EUR') acc.totalEUR += valorOriginal
+        if (moedaItem === 'GBP') acc.totalGBP += valorOriginal
+        if (moedaItem === 'CNY') acc.totalCNY += valorOriginal
+        if (moedaItem === 'HKD') acc.totalHKD += valorOriginal
         if (moedaItem === 'BRL') acc.totalBRLOriginal += valorOriginal
 
         acc.totalBRL += numero(item.valor_brl)
@@ -4076,6 +4167,9 @@ async function carregarImagemBase64(caminhos: string[]) {
       {
         totalUSD: 0,
         totalEUR: 0,
+        totalGBP: 0,
+        totalCNY: 0,
+        totalHKD: 0,
         totalBRLOriginal: 0,
         totalBRL: 0,
       }
@@ -4098,11 +4192,14 @@ async function carregarImagemBase64(caminhos: string[]) {
 
         if (item.moeda === 'USD') acc.usd += valorOriginal
         if (item.moeda === 'EUR') acc.eur += valorOriginal
+        if (item.moeda === 'GBP') acc.gbp += valorOriginal
+        if (item.moeda === 'CNY') acc.cny += valorOriginal
+        if (item.moeda === 'HKD') acc.hkd += valorOriginal
         if (item.moeda === 'BRL') acc.brlOriginal += valorOriginal
         acc.totalBrl += valorBrl
         return acc
       },
-      { usd: 0, eur: 0, brlOriginal: 0, totalBrl: 0 }
+      { usd: 0, eur: 0, gbp: 0, cny: 0, hkd: 0, brlOriginal: 0, totalBrl: 0 }
     )
   }, [itensFaturaAgente])
 
@@ -4223,7 +4320,9 @@ async function carregarImagemBase64(caminhos: string[]) {
             ? 1
             : moedaItem === 'EUR'
               ? taxaFinalEur
-              : taxaFinalUsd
+              : moedaItem === 'USD'
+                ? taxaFinalUsd
+                : 0 // Aguarda câmbio do novo embarque; nunca usa cotação do embarque anterior.
 
         const valorBrl =
           moedaItem === 'BRL'
@@ -4310,6 +4409,23 @@ async function carregarImagemBase64(caminhos: string[]) {
     }
   }
 
+  function formatarTaxaCambioInputAdicional(valor: any) {
+    const numeroValor = Number(valor || 0)
+    return numeroValor > 0 ? numeroValor.toLocaleString('pt-BR', { minimumFractionDigits: 6, maximumFractionDigits: 6 }) : ''
+  }
+
+  function recalcularItensPorTaxaAdicional(codigo: MoedaAdicional, novaTaxa: string) {
+    const formatada = formatarEntradaTaxaBR(novaTaxa, 6)
+    setEmissorTaxasAdicionais((anteriores) => ({ ...anteriores, [codigo]: formatada }))
+    setEmissorDatasAdicionais((anteriores) => ({ ...anteriores, [codigo]: '' }))
+    const taxa = numero(formatada) * (1 + numero(emissorSpread) / 100)
+    setItensFatura((atuais) => atuais.map((item) => {
+      if (normalizarMoedaItemFatura(item.moeda) !== codigo) return item
+      const original = numero(item.valor_usd)
+      return { ...item, valor_brl: taxa > 0 && original !== 0 ? formatarNumeroInput(original * taxa) : '' }
+    }))
+  }
+
   function formatarTaxaCambioInput(valor: any) {
     const numeroValor = Number(valor || 0)
 
@@ -4368,6 +4484,28 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       const dataEuroVenda =
         retorno?.euro_venda_dia?.data || ''
+
+      // Moedas adicionais usam o fechamento venda mais recente, sem alterar a PTAX DHL/USD.
+      const recebidas = retorno?.cotacoes_moedas || {}
+      const novasTaxas = { ...emissorTaxasAdicionais }
+      const novasDatas = { ...emissorDatasAdicionais }
+      MOEDAS_ADICIONAIS.forEach((codigo) => {
+        const valorCotacao = Number(recebidas[codigo]?.valor || 0)
+        if (valorCotacao > 0) {
+          novasTaxas[codigo] = formatarTaxaCambioInputAdicional(valorCotacao)
+          novasDatas[codigo] = String(recebidas[codigo]?.data || '')
+        }
+      })
+      setEmissorTaxasAdicionais(novasTaxas)
+      setEmissorDatasAdicionais(novasDatas)
+      setItensFatura((atuais) => atuais.map((item) => {
+        const codigo = normalizarMoedaItemFatura(item.moeda)
+        if (!MOEDAS_ADICIONAIS.includes(codigo as MoedaAdicional)) return item
+        const original = numero(item.valor_usd)
+        const base = numero(novasTaxas[codigo as MoedaAdicional])
+        const taxa = base * (1 + numero(emissorSpread) / 100)
+        return { ...item, valor_brl: base > 0 && original !== 0 ? formatarNumeroInput(original * taxa) : '' }
+      }))
 
       const ptaxDhl = formatarTaxaCambioInput(retorno?.ptax_dhl_mes_anterior?.valor)
       const dataPtaxDhl = retorno?.ptax_dhl_mes_anterior?.data || ''
@@ -4895,6 +5033,8 @@ async function carregarImagemBase64(caminhos: string[]) {
     setEmissorDataEmbarque(dataEmbarque)
     setEmissorTaxaConversao(taxaBaseInicial)
     setEmissorTaxaBaseEur('')
+    setEmissorTaxasAdicionais({...TAXAS_ADICIONAIS_VAZIAS})
+    setEmissorDatasAdicionais({...TAXAS_ADICIONAIS_VAZIAS})
     setEmissorEuroVendaDia('')
     setEmissorDataEuroVendaDia('')
     setEmissorTipoCambio(transportadoraDhl ? 'PTAX_DHL_MES_ANTERIOR' : 'DOLAR_VENDA_DIA')
@@ -4902,6 +5042,7 @@ async function carregarImagemBase64(caminhos: string[]) {
     setEmissorPtaxDhlMesAnterior('')
     setEmissorDolarVendaDia(!transportadoraDhl ? taxaBaseEmbarque : '')
     setEmissorUsuarioId(embarque.usuario_id || '')
+    setEmissorParceiroEditadoManualmente(false)
     setEmissorDespachante(financeiro?.despachante || '')
 
     const taxaFinal = taxaConversaoFinal(taxaBaseInicial, emissorSpread)
@@ -4913,6 +5054,10 @@ async function carregarImagemBase64(caminhos: string[]) {
     )
 
     if (!carregouItensSalvos) {
+      // Sem itens detalhados não há como saber se 'valor' é BRL ou a moeda do embarque.
+      // Para GBP/CNY/HKD exige preenchimento explícito do valor original.
+      const moedaEmbarque = normalizarMoedaItemFatura(embarque.moeda_cobranca || embarque.moeda || 'USD')
+      const precisaValorManual = MOEDAS_ADICIONAIS.includes(moedaEmbarque as MoedaAdicional)
       setItensFatura((atuais) =>
         atuais.map((item) => {
           if (item.id !== 'frete') {
@@ -4928,10 +5073,10 @@ async function carregarImagemBase64(caminhos: string[]) {
 
           return {
             ...item,
-            selecionado: valor > 0,
-            moeda: 'USD' as MoedaItemFatura,
-            valor_usd: taxaFinal > 0 && valor > 0 ? formatarNumeroInput(valor / taxaFinal) : '',
-            valor_brl: valor > 0 ? formatarNumeroInput(valor) : '',
+            selecionado: !precisaValorManual && valor > 0,
+            moeda: precisaValorManual ? moedaEmbarque : 'USD' as MoedaItemFatura,
+            valor_usd: !precisaValorManual && taxaFinal > 0 && valor > 0 ? formatarNumeroInput(valor / taxaFinal) : '',
+            valor_brl: !precisaValorManual && valor > 0 ? formatarNumeroInput(valor) : '',
             observacao: embarque.transportadora || '',
           }
         })
@@ -5082,12 +5227,10 @@ async function carregarImagemBase64(caminhos: string[]) {
           }
         }
 
-        const taxa = taxaConversaoItemFatura(
-          moedaItem,
-          emissorTaxaConversao,
-          emissorTaxaBaseEur,
-          spreadFormatado
-        )
+        const base = moedaItem === 'USD' ? numero(emissorTaxaConversao)
+          : moedaItem === 'EUR' ? numero(emissorTaxaBaseEur)
+          : taxaBaseMoedaAdicional(moedaItem)
+        const taxa = base > 0 ? base * (1 + numero(spreadFormatado) / 100) : 0
 
         return {
           ...item,
@@ -5109,12 +5252,15 @@ async function carregarImagemBase64(caminhos: string[]) {
     setEmissorClienteId('')
     setEmissorUsuarioId('')
     setEmissorDespachante('')
+    setEmissorParceiroEditadoManualmente(false)
     setEmissorTipoFatura('FRETE')
     setEmissorNumeroFatura('')
     setEmissorVencimento('')
     setEmissorDataEmbarque('')
     setEmissorTaxaConversao('')
     setEmissorTaxaBaseEur('')
+    setEmissorTaxasAdicionais({...TAXAS_ADICIONAIS_VAZIAS})
+    setEmissorDatasAdicionais({...TAXAS_ADICIONAIS_VAZIAS})
     setEmissorTipoCambio('DOLAR_VENDA_DIA')
     setEmissorDolarVendaDia('')
     setEmissorPtaxDhlMesAnterior('')
@@ -5264,6 +5410,11 @@ async function carregarImagemBase64(caminhos: string[]) {
       const baseEur = numero(emissorTaxaBaseEur)
       if (moedaItem === 'EUR' && valorOriginal !== 0 && baseEur > 0) {
         return total + valorOriginal * baseEur
+      }
+
+      const baseAdicional = taxaBaseMoedaAdicional(moedaItem)
+      if (baseAdicional > 0 && valorOriginal !== 0) {
+        return total + valorOriginal * baseAdicional
       }
 
       if (valorBrl !== 0 && fatorSpread > 0) {
@@ -5544,6 +5695,23 @@ async function carregarImagemBase64(caminhos: string[]) {
       return alert('Existem serviços em EUR. Informe a taxa base EUR antes de emitir a fatura.')
     }
 
+    if (!ehReemissaoJuros && !ehRegeracaoPdf) {
+      for (const codigo of MOEDAS_ADICIONAIS) {
+        const itens = itensClienteAtuais.filter((item) => item.moeda === codigo && numero(item.valor_original) !== 0)
+        if (itens.length && taxaBaseMoedaAdicional(codigo) <= 0) {
+          return alert(`Existem serviços em ${codigo}. Aguarde a cotação do BCB ou informe manualmente a taxa base ${codigo}.`)
+        }
+      }
+      for (const item of itensClienteAtuais.filter((item) => MOEDAS_ADICIONAIS.includes(item.moeda as MoedaAdicional))) {
+        const taxa = taxaConversaoItemFatura(normalizarMoedaItemFatura(item.moeda))
+        if (!(taxa > 0)) return alert(`Taxa inválida para ${item.moeda}.`)
+        const esperado = numero(item.valor_original) * taxa
+        if (Math.abs(esperado - numero(item.valor_brl)) > Math.max(0.05, Math.abs(esperado) * 0.00001)) {
+          return alert(`Valor convertido divergente em ${item.descricao} (${item.moeda}). Recalcule antes de emitir.`)
+        }
+      }
+    }
+
     if (
       !ehReemissaoJuros &&
       !ehRegeracaoPdf &&
@@ -5689,6 +5857,11 @@ async function carregarImagemBase64(caminhos: string[]) {
           ? total + numero(item.valor_original)
           : total
       }, 0)
+      const totalClientePdfMoedasExtras = Object.fromEntries(
+        MOEDAS_ADICIONAIS.map((codigo) => [codigo, itensClientePdf.reduce((total, item) =>
+          normalizarMoedaItemFatura(item.moeda) === codigo ? total + numero(item.valor_original) : total, 0)])
+      ) as Record<MoedaAdicional, number>
+      const pdfFormatoUsdEn = idiomaFatura === 'EN' && itensClientePdf.every((item) => normalizarMoedaItemFatura(item.moeda) === 'USD')
 
       const totalClientePdfBRLOriginal = itensClientePdf.reduce((total, item) => {
         return normalizarMoedaItemFatura(item.moeda) === 'BRL'
@@ -5853,7 +6026,7 @@ async function carregarImagemBase64(caminhos: string[]) {
         const moedaItem = normalizarMoedaItemFatura(item.moeda)
         const valorOriginal = numero(item.valor_original)
 
-        if (idiomaFatura === 'EN') {
+        if (pdfFormatoUsdEn) {
           return [
             traduzirDescricaoPdf(item.descricao),
             item.observacao || '',
@@ -5874,16 +6047,16 @@ async function carregarImagemBase64(caminhos: string[]) {
       autoTable(pdf, {
         startY: 272,
         head:
-          idiomaFatura === 'EN'
+          pdfFormatoUsdEn
             ? [['SERVICE', 'NOTES', 'CURRENCY', 'AMOUNT']]
-            : [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
+            : [[rotuloPdf('SERVIÇO', 'SERVICE'), rotuloPdf('OBSERVAÇÃO', 'NOTES'), rotuloPdf('MOEDA', 'CURRENCY'), rotuloPdf('VALOR ORIGINAL', 'ORIGINAL AMOUNT'), rotuloPdf('VALOR R$', 'BRL EQUIVALENT')]],
         body: linhas,
         theme: 'grid',
         margin: { left: margem, right: margem },
         styles: { fontSize: 7.5, cellPadding: 4, lineColor: [25, 25, 25], lineWidth: 0.4 },
         headStyles: { fillColor: [230, 230, 230], textColor: [0, 0, 0], fontStyle: 'bold' },
         columnStyles:
-          idiomaFatura === 'EN'
+          pdfFormatoUsdEn
             ? {
                 0: { cellWidth: 180 },
                 1: { cellWidth: 170 },
@@ -5901,11 +6074,14 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       const yFinal = (pdf as any).lastAutoTable.finalY + 14
       pdf.setFillColor(190, 190, 190)
-      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 34, 'F')
+      const moedasNoTotal = itensClientePdf.filter((item) => numero(item.valor_original) !== 0)
+        .map((item) => normalizarMoedaItemFatura(item.moeda))
+      const alturaTotaisPdf = new Set(moedasNoTotal).size > 3 && !pdfFormatoUsdEn ? 48 : 34
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, alturaTotaisPdf, 'F')
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(8)
 
-      if (idiomaFatura === 'EN') {
+      if (pdfFormatoUsdEn) {
         pdf.text('INVOICE TOTAL', margem + 6, yFinal + 20)
         pdf.text(
           `USD ${formatarValorPdf(totalClientePdfUSD)}`,
@@ -5915,7 +6091,7 @@ async function carregarImagemBase64(caminhos: string[]) {
         )
       } else {
         pdf.setFontSize(7.5)
-        pdf.text('TOTAIS ORIGINAIS', margem + 6, yFinal + 12)
+        pdf.text(rotuloPdf('TOTAIS ORIGINAIS', 'ORIGINAL TOTALS'), margem + 6, yFinal + 12)
 
         const partesTotaisOriginaisPdf = [
           numero(totalClientePdfUSD) > 0
@@ -5924,18 +6100,19 @@ async function carregarImagemBase64(caminhos: string[]) {
           numero(totalClientePdfEUR) > 0
             ? `EUR ${formatarValorPdf(totalClientePdfEUR)}`
             : '',
+          ...MOEDAS_ADICIONAIS.map((codigo) => totalClientePdfMoedasExtras[codigo] !== 0 ? `${codigo} ${formatarValorPdf(totalClientePdfMoedasExtras[codigo])}` : ''),
           numero(totalClientePdfBRLOriginal) > 0
             ? `BRL ${formatarValorPdf(totalClientePdfBRLOriginal)}`
             : '',
         ].filter(Boolean)
 
         pdf.text(
-          partesTotaisOriginaisPdf.join('  •  '),
+          pdf.splitTextToSize(partesTotaisOriginaisPdf.join('  •  '), 380),
           145,
           yFinal + 12
         )
         pdf.setFontSize(8)
-        pdf.text('TOTAL CONVERTIDO EM BRL', margem + 6, yFinal + 28)
+        pdf.text(rotuloPdf('TOTAL CONVERTIDO EM BRL', 'TOTAL IN BRL'), margem + 6, yFinal + 28)
         pdf.text(
           moedaBrlPdf(totalClientePdfBRL),
           larguraPagina - margem - 6,
@@ -5944,23 +6121,27 @@ async function carregarImagemBase64(caminhos: string[]) {
         )
       }
 
-      const yExtenso = yFinal + 58
+      const yExtenso = yFinal + 58 + (alturaTotaisPdf - 34)
       pdf.setDrawColor(0, 0, 0)
       pdf.rect(margem, yExtenso - 20, larguraPagina - margem * 2, 32)
       pdf.setFont('helvetica', 'bold')
-      pdf.text(rotuloPdf('VALOR POR EXTENSO', 'AMOUNT IN WORDS'), margem + 8, yExtenso)
+      pdf.text(idiomaFatura === 'EN' && !pdfFormatoUsdEn ? 'AMOUNT PAYABLE' : rotuloPdf('VALOR POR EXTENSO', 'AMOUNT IN WORDS'), margem + 8, yExtenso)
       pdf.setFont('helvetica', 'normal')
       pdf.text(
-        valorPorExtensoPdf(
-          idiomaFatura === 'EN' ? totalClientePdfUSD : totalClientePdfBRL
-        ),
+        pdfFormatoUsdEn
+          ? valorPorExtensoPdf(totalClientePdfUSD)
+          : idiomaFatura === 'EN'
+            ? `BRL ${formatarValorPdf(totalClientePdfBRL)} (equivalent in Brazilian reais)`
+            : valorPorExtensoPdf(totalClientePdfBRL),
         230,
         yExtenso
       )
 
       const yTaxa = yExtenso + 36
-      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 26)
-      if (idiomaFatura !== 'EN') {
+      const moedasPdfTaxas = new Set(itensClientePdf.map((item) => normalizarMoedaItemFatura(item.moeda)))
+      const alturaCambio = moedasPdfTaxas.size > 3 ? 38 : 26
+      pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, alturaCambio)
+      if (!pdfFormatoUsdEn) {
         pdf.setFont('helvetica', 'bold')
         pdf.text(
           ehDocumentoComEncargos ? 'REEMISSÃO EM BRL:' : 'CÂMBIO / SPREAD:',
@@ -5978,6 +6159,12 @@ async function carregarImagemBase64(caminhos: string[]) {
             (item) => normalizarMoedaItemFatura(item.moeda) === 'EUR'
           )?.taxa_conversao || 0
 
+        const taxasPdfAdicionais = MOEDAS_ADICIONAIS.map((codigo) => {
+          const salva = itensClientePdf.find((item) => normalizarMoedaItemFatura(item.moeda) === codigo)
+          const taxa = numero(salva?.taxa_conversao)
+          return taxa > 0 ? `${codigo} R$ ${taxa.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 6 })}` : ''
+        }).filter(Boolean)
+
         const spreadPdf =
           ehRegeracaoPdf
             ? numero(faturaRegeracao?.spread)
@@ -5990,27 +6177,29 @@ async function carregarImagemBase64(caminhos: string[]) {
           numero(taxaPdfEUR) > 0
             ? `EUR R$ ${numero(taxaPdfEUR).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
             : '',
+          ...taxasPdfAdicionais,
           `SPREAD ${formatarValorSimples(spreadPdf)}%`,
         ].filter(Boolean)
 
+        pdf.setFontSize(7)
         pdf.text(
-          ehDocumentoComEncargos
+          pdf.splitTextToSize(ehDocumentoComEncargos
             ? 'ENCARGOS POR ATRASO • SEM NOVA CONVERSÃO'
-            : partesCambioPdf.join(' • '),
+            : partesCambioPdf.join(' • '), 390),
           larguraPagina - margem - 6,
-          yTaxa,
+          yTaxa - 5,
           { align: 'right' }
         )
       }
 
-      const yBanco = idiomaFatura === 'EN' ? yExtenso + 40 : yTaxa + 30
-      const alturaBanco = idiomaFatura === 'EN' ? 126 : 54
+      const yBanco = pdfFormatoUsdEn ? yExtenso + 40 : yTaxa + 30 + (alturaCambio - 26)
+      const alturaBanco = pdfFormatoUsdEn ? 126 : 54
       pdf.setFillColor(45, 119, 183)
       pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, alturaBanco, 'F')
       pdf.setTextColor(255, 255, 255)
       pdf.setFontSize(8)
 
-      if (idiomaFatura === 'EN') {
+      if (pdfFormatoUsdEn) {
         pdf.setFont('helvetica', 'bold')
         pdf.text('USD WIRE TRANSFER INSTRUCTIONS', larguraPagina / 2, yBanco, { align: 'center' })
         pdf.setFont('helvetica', 'normal')
@@ -6030,7 +6219,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       pdf.setTextColor(0, 0, 0)
 
-      const yAssinatura = yBanco + (idiomaFatura === 'EN' ? 142 : 68)
+      const yAssinatura = yBanco + (pdfFormatoUsdEn ? 142 : 68)
       const xAssinaturaCentro = larguraPagina / 2 - 28
       pdf.setDrawColor(70, 70, 70)
       pdf.setLineWidth(0.4)
@@ -6046,7 +6235,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       const xQr = larguraPagina - margem - 92
       const yQr = yBanco + 48
 
-      if (idiomaFatura !== 'EN' && qrPixBase64) {
+      if (!pdfFormatoUsdEn && qrPixBase64) {
         try {
           pdf.addImage(qrPixBase64, xQr, yQr, 72, 72)
         } catch (error) {
@@ -6066,7 +6255,7 @@ async function carregarImagemBase64(caminhos: string[]) {
         pdf.setFont('helvetica', 'normal')
         pdf.setFontSize(5.5)
         pdf.text(rotuloPdf('Escaneie para pagar', 'Scan to pay'), xQr + 36, yQr + 91, { align: 'center' })
-      } else if (idiomaFatura !== 'EN') {
+      } else if (!pdfFormatoUsdEn) {
         pdf.setDrawColor(0, 0, 0)
         pdf.rect(xQr, yQr, 72, 72)
         pdf.setFont('helvetica', 'bold')
@@ -6237,7 +6426,13 @@ async function carregarImagemBase64(caminhos: string[]) {
               : null
           ) ||
           null,
-        dados_cliente_faturamento: dadosCliente,
+        dados_cliente_faturamento: (ehRegeracaoPdf || ehReemissaoJuros)
+          ? dadosCliente
+          : { ...dadosCliente, cambio_moedas: Object.fromEntries(MOEDAS_ADICIONAIS.map((codigo) => [codigo, {
+              taxa_base: numero(emissorTaxasAdicionais[codigo]),
+              data_cotacao: emissorDatasAdicionais[codigo] || null,
+              taxa_final: taxaConversaoItemFatura(codigo),
+            }])) },
         itens_fatura: itensClientePdf,
         valor_total: totalClientePdfBRL,
         valor_usd: totalClientePdfUSD,
@@ -6808,7 +7003,9 @@ async function carregarImagemBase64(caminhos: string[]) {
   ) {
     if (moedaItem === 'BRL') return 1
 
-    const base = moedaItem === 'USD' ? numero(baseUsd) : numero(baseEur)
+    const base = moedaItem === 'USD' ? numero(baseUsd)
+      : moedaItem === 'EUR' ? numero(baseEur)
+      : numero(agenteTaxasAdicionais[moedaItem as MoedaAdicional])
     if (base <= 0) return 0
 
     return base * (1 + numero(spread) / 100)
@@ -6818,6 +7015,61 @@ async function carregarImagemBase64(caminhos: string[]) {
     const taxa = taxaFinalFaturaAgente(moedaItem)
     if (taxa <= 0) return '-'
     return taxa.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+  }
+
+  async function consultarCambioFaturaAgente() {
+    setAgenteBuscandoCambio(true)
+    try {
+      const resposta = await fetch('/api/cambio-bacen', { cache: 'no-store' })
+      const retorno = await resposta.json().catch(() => null)
+      if (!resposta.ok) throw new Error(retorno?.error || 'Falha na consulta de câmbio')
+      const novas = { ...agenteTaxasAdicionais }
+      const datas = { ...agenteDatasAdicionais }
+      for (const codigo of MOEDAS_ADICIONAIS) {
+        const cotacao = retorno?.cotacoes_moedas?.[codigo]
+        if (Number(cotacao?.valor || 0) > 0) {
+          novas[codigo] = formatarTaxaCambioInputAdicional(cotacao.valor)
+          datas[codigo] = String(cotacao.data || '')
+        }
+      }
+      setAgenteTaxasAdicionais(novas)
+      setAgenteDatasAdicionais(datas)
+      const baseUsd = formatarTaxaCambioInput(retorno?.dolar_venda_dia?.valor)
+      const baseEur = formatarTaxaCambioInput(retorno?.euro_venda_dia?.valor)
+      if (baseUsd) setAgenteTaxaBaseUsd(baseUsd)
+      if (baseEur) setAgenteTaxaBaseEur(baseEur)
+      const spread = numero(agenteSpread)
+      setItensFaturaAgente((atuais) => atuais.map((item) => {
+        const original = numero(item.valor_original)
+        const base = item.moeda === 'BRL' ? 1
+          : item.moeda === 'USD' ? numero(baseUsd || agenteTaxaBaseUsd)
+          : item.moeda === 'EUR' ? numero(baseEur || agenteTaxaBaseEur)
+          : numero(novas[item.moeda as MoedaAdicional])
+        const taxa = item.moeda === 'BRL' ? 1 : base * (1 + spread / 100)
+        return { ...item, valor_brl: base > 0 && original !== 0 ? formatarNumeroInput(original * taxa) : '' }
+      }))
+      const faltantes = MOEDAS_ADICIONAIS.filter((codigo) => !numero(novas[codigo]))
+      setAgenteAvisoCambio(faltantes.length
+        ? `Câmbio BCB parcialmente atualizado. Sem cotação para: ${faltantes.join(', ')}. Preencha manualmente antes de emitir.`
+        : 'Câmbio de GBP, CNY e HKD atualizado pelo Banco Central.')
+    } catch (error: any) {
+      setAgenteAvisoCambio(`Falha ao consultar BCB: ${error?.message || error}. Informe as taxas manualmente.`)
+    } finally {
+      setAgenteBuscandoCambio(false)
+    }
+  }
+
+  function atualizarTaxaAgenteAdicional(codigo: MoedaAdicional, valor: string) {
+    const formatada = formatarEntradaTaxaBR(valor, 6)
+    const novas = { ...agenteTaxasAdicionais, [codigo]: formatada }
+    setAgenteTaxasAdicionais(novas)
+    setAgenteDatasAdicionais((anterior) => ({ ...anterior, [codigo]: '' }))
+    setItensFaturaAgente((atuais) => atuais.map((item) => {
+      if (item.moeda !== codigo) return item
+      const original = numero(item.valor_original)
+      const taxa = numero(formatada) * (1 + numero(agenteSpread) / 100)
+      return { ...item, valor_brl: taxa > 0 && original !== 0 ? formatarNumeroInput(original * taxa) : '' }
+    }))
   }
 
   function recalcularItensFaturaAgente(
@@ -6897,6 +7149,9 @@ async function carregarImagemBase64(caminhos: string[]) {
     setAgenteSpread('3')
     setAgenteTaxaBaseUsd('')
     setAgenteTaxaBaseEur('')
+    setAgenteTaxasAdicionais({...TAXAS_ADICIONAIS_VAZIAS})
+    setAgenteDatasAdicionais({...TAXAS_ADICIONAIS_VAZIAS})
+    setAgenteAvisoCambio('')
     setAgenteObservacoes('')
     setAgenteVisivelCliente(true)
     setItensFaturaAgente([novoItemFaturaAgente()])
@@ -6948,9 +7203,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     const itensCarregados: ItemFaturaAgente[] = itensSalvos.map((item: any) => {
       const moedaItem = String(item?.moeda || 'USD').toUpperCase()
-      const moedaValida: MoedaFaturaAgente = ['BRL', 'USD', 'EUR'].includes(moedaItem)
-        ? moedaItem as MoedaFaturaAgente
-        : 'USD'
+      const moedaValida: MoedaFaturaAgente = normalizarMoedaItemFatura(moedaItem)
 
       return {
         id: `agente-edicao-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -7017,6 +7270,13 @@ async function carregarImagemBase64(caminhos: string[]) {
     setAgenteSpread(formatarTaxaInput(fatura.spread) || '0')
     setAgenteTaxaBaseUsd(formatarTaxaInput(dados.taxa_base_usd))
     setAgenteTaxaBaseEur(formatarTaxaInput(dados.taxa_base_eur))
+    setAgenteTaxasAdicionais(Object.fromEntries(MOEDAS_ADICIONAIS.map((codigo) => [codigo,
+      formatarTaxaInput(dados.taxa_base_moedas?.[codigo] || dados.cambio_moedas?.[codigo]?.taxa_base)
+    ])) as Record<MoedaAdicional, string>)
+    setAgenteDatasAdicionais(Object.fromEntries(MOEDAS_ADICIONAIS.map((codigo) => [codigo,
+      String(dados.datas_cotacao_moedas?.[codigo] || '')
+    ])) as Record<MoedaAdicional, string>)
+    setAgenteAvisoCambio('')
     setAgenteObservacoes(observacoesSalvas)
     setAgenteVisivelCliente(fatura.visivel_cliente !== false)
     setItensFaturaAgente(itensCarregados.length > 0 ? itensCarregados : [novoItemFaturaAgente()])
@@ -7167,7 +7427,14 @@ async function carregarImagemBase64(caminhos: string[]) {
     if (itensValidos.some((item) => item.moeda === 'EUR') && taxaFinalFaturaAgente('EUR') <= 0) {
       return alert('Informe a taxa base do EUR.')
     }
-
+    for (const codigo of MOEDAS_ADICIONAIS) {
+      if (itensValidos.some((item) => item.moeda === codigo) && taxaFinalFaturaAgente(codigo) <= 0) {
+        return alert(`Informe a taxa base ${codigo} ou consulte o Banco Central.`)
+      }
+    }
+    if (itensFaturaAgente.some((item) => item.descricao.trim() && numero(item.valor_original) !== 0 && !itensValidos.includes(item))) {
+      return alert('Há serviços com conversão inválida. Revise as taxas e os valores antes de emitir.')
+    }
     setSalvandoFaturaAgente(true)
 
     try {
@@ -7236,12 +7503,13 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text(rotuloPdf('PRESTAÇÃO DE CONTAS', 'STATEMENT OF CHARGES'), margem, 286)
       pdf.text(`${rotuloPdf('PROCESSO', 'PROCESS')}: ${agenteProcesso}`, 260, 286)
 
+      const pdfFormatoUsdEnAgente = idiomaFatura === 'EN' && itensValidos.every((item) => item.moeda === 'USD')
       const linhasPdf = itensValidos.map((item) => {
-        if (idiomaFatura === 'EN') {
+        if (pdfFormatoUsdEnAgente) {
           return [
             traduzirDescricaoPdf(item.descricao),
             item.observacao || '',
-            'USD',
+            item.moeda,
             `USD ${formatarValorPdf(numero(item.valor_original))}`,
           ]
         }
@@ -7258,16 +7526,16 @@ async function carregarImagemBase64(caminhos: string[]) {
       autoTable(pdf, {
         startY: 294,
         head:
-          idiomaFatura === 'EN'
+          pdfFormatoUsdEnAgente
             ? [['SERVICE', 'NOTES', 'CURRENCY', 'AMOUNT']]
-            : [['SERVIÇO', 'OBSERVAÇÃO', 'MOEDA', 'VALOR ORIGINAL', 'VALOR R$']],
+            : [[rotuloPdf('SERVIÇO', 'SERVICE'), rotuloPdf('OBSERVAÇÃO', 'NOTES'), rotuloPdf('MOEDA', 'CURRENCY'), rotuloPdf('VALOR ORIGINAL', 'ORIGINAL AMOUNT'), rotuloPdf('VALOR R$', 'BRL EQUIVALENT')]],
         body: linhasPdf,
         theme: 'grid',
         margin: { left: margem, right: margem },
         styles: { fontSize: 7.5, cellPadding: 3, lineColor: [45, 95, 210], lineWidth: 0.35 },
         headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
         columnStyles:
-          idiomaFatura === 'EN'
+          pdfFormatoUsdEnAgente
             ? {
                 0: { cellWidth: 200 },
                 1: { cellWidth: 165 },
@@ -7290,12 +7558,14 @@ async function carregarImagemBase64(caminhos: string[]) {
       }
 
       pdf.setFillColor(190, 190, 190)
-      pdf.rect(margem, yFinal, larguraPagina - margem * 2, 22, 'F')
+      const totaisAgenteAtivos = new Set(itensValidos.map((item) => item.moeda))
+      const alturaTotaisAgente = totaisAgenteAtivos.size > 3 && !pdfFormatoUsdEnAgente ? 38 : 22
+      pdf.rect(margem, yFinal, larguraPagina - margem * 2, alturaTotaisAgente, 'F')
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(8)
-      pdf.text(idiomaFatura === 'EN' ? 'INVOICE TOTAL' : 'TOTAL', margem + 8, yFinal + 15)
+      pdf.text(pdfFormatoUsdEnAgente ? 'INVOICE TOTAL' : rotuloPdf('TOTAL', 'TOTAL IN BRL'), margem + 8, yFinal + 15)
 
-      if (idiomaFatura === 'EN') {
+      if (pdfFormatoUsdEnAgente) {
         pdf.text(
           `USD ${formatarValorPdf(totaisFaturaAgente.usd)}`,
           larguraPagina - margem - 8,
@@ -7305,39 +7575,54 @@ async function carregarImagemBase64(caminhos: string[]) {
       } else {
         const totaisMoedas = [
           totaisFaturaAgente.eur > 0 ? `EUR ${formatarValorPdf(totaisFaturaAgente.eur)}` : '',
+          ...MOEDAS_ADICIONAIS.map((codigo) => {
+            const total = codigo === 'GBP' ? totaisFaturaAgente.gbp : codigo === 'CNY' ? totaisFaturaAgente.cny : totaisFaturaAgente.hkd
+            return total !== 0 ? `${codigo} ${formatarValorPdf(total)}` : ''
+          }),
           totaisFaturaAgente.usd > 0 ? `USD ${formatarValorPdf(totaisFaturaAgente.usd)}` : '',
           totaisFaturaAgente.brlOriginal > 0 ? `BRL ${formatarValorPdf(totaisFaturaAgente.brlOriginal)}` : '',
         ].filter(Boolean).join('   ')
 
-        pdf.text(totaisMoedas || 'BRL 0,00', 270, yFinal + 15)
+        pdf.setFontSize(7)
+        pdf.text(pdf.splitTextToSize(totaisMoedas || 'BRL 0,00', 230), 170, yFinal + 12)
         pdf.text(moedaBrlPdf(totaisFaturaAgente.totalBrl), larguraPagina - margem - 8, yFinal + 15, { align: 'right' })
       }
 
-      const yExtenso = yFinal + 48
+      const yExtenso = yFinal + 48 + (alturaTotaisAgente - 22)
       pdf.rect(margem, yExtenso - 18, larguraPagina - margem * 2, 34)
-      pdf.text(`${rotuloPdf('VALOR POR EXTENSO', 'AMOUNT IN WORDS')}:`, margem + 8, yExtenso)
+      pdf.text(`${idiomaFatura === 'EN' && !pdfFormatoUsdEnAgente ? 'AMOUNT PAYABLE' : rotuloPdf('VALOR POR EXTENSO', 'AMOUNT IN WORDS')}:`, margem + 8, yExtenso)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(pdf.splitTextToSize(valorPorExtensoPdf(idiomaFatura === 'EN' ? totaisFaturaAgente.usd : totaisFaturaAgente.totalBrl), 365), 175, yExtenso)
+      const valorExtensoAgente = pdfFormatoUsdEnAgente ? valorPorExtensoPdf(totaisFaturaAgente.usd)
+        : idiomaFatura === 'EN' ? `BRL ${formatarValorPdf(totaisFaturaAgente.totalBrl)} (equivalent in Brazilian reais)`
+        : valorPorExtensoPdf(totaisFaturaAgente.totalBrl)
+      pdf.text(pdf.splitTextToSize(valorExtensoAgente, 365), 175, yExtenso)
 
       const yTaxa = yExtenso + 42
 
-      if (idiomaFatura !== 'EN') {
-        pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, 28)
+      const taxasAgenteAdicionaisPdf = MOEDAS_ADICIONAIS.filter((codigo) => itensValidos.some((item) => item.moeda === codigo))
+      const alturaCambioAgente = taxasAgenteAdicionaisPdf.length ? 44 : 28
+      if (!pdfFormatoUsdEnAgente) {
+        pdf.rect(margem, yTaxa - 18, larguraPagina - margem * 2, alturaCambioAgente)
         pdf.setFont('helvetica', 'bold')
         pdf.text('TAXA DE CONVERSÃO:', margem + 8, yTaxa)
         pdf.text(`SPREAD ${agenteSpread || '0'}%`, 235, yTaxa)
         if (totaisFaturaAgente.eur > 0) pdf.text(`EUR ${taxaFinalFaturaAgenteFormatada('EUR')}`, 345, yTaxa)
         if (totaisFaturaAgente.usd > 0) pdf.text(`USD ${taxaFinalFaturaAgenteFormatada('USD')}`, larguraPagina - margem - 8, yTaxa, { align: 'right' })
+        if (taxasAgenteAdicionaisPdf.length) {
+          pdf.setFontSize(7)
+          pdf.text(taxasAgenteAdicionaisPdf.map((codigo) => `${codigo} ${taxaFinalFaturaAgenteFormatada(codigo)}`).join('   '),
+            margem + 10, yTaxa + 16)
+        }
       }
 
-      const yBanco = idiomaFatura === 'EN' ? yExtenso + 30 : yTaxa + 34
-      const alturaBancoAgente = idiomaFatura === 'EN' ? 126 : 54
+      const yBanco = pdfFormatoUsdEnAgente ? yExtenso + 30 : yTaxa + 34 + (alturaCambioAgente - 28)
+      const alturaBancoAgente = pdfFormatoUsdEnAgente ? 126 : 54
       pdf.setFillColor(45, 119, 183)
       pdf.rect(margem, yBanco - 16, larguraPagina - margem * 2, alturaBancoAgente, 'F')
       pdf.setTextColor(255, 255, 255)
       pdf.setFontSize(8)
 
-      if (idiomaFatura === 'EN') {
+      if (pdfFormatoUsdEnAgente) {
         pdf.setFont('helvetica', 'bold')
         pdf.text('USD WIRE TRANSFER INSTRUCTIONS', larguraPagina / 2, yBanco, { align: 'center' })
         pdf.setFont('helvetica', 'normal')
@@ -7356,7 +7641,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
       pdf.setTextColor(0, 0, 0)
 
-      const yAssinatura = yBanco + (idiomaFatura === 'EN' ? 142 : 78)
+      const yAssinatura = yBanco + (pdfFormatoUsdEnAgente ? 142 : 78)
       pdf.setFont('times', 'italic')
       pdf.setFontSize(11)
       pdf.text('Marcos Paulo Otero', larguraPagina / 2 - 24, yAssinatura, { align: 'center' })
@@ -7365,7 +7650,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       pdf.text('COUTO E OTERO INTERMEDIAÇÃO LTDA', larguraPagina / 2 - 24, yAssinatura + 14, { align: 'center' })
       pdf.text('CNPJ: 41.456.630/0001-52', larguraPagina / 2 - 24, yAssinatura + 27, { align: 'center' })
 
-      if (idiomaFatura !== 'EN' && qrPixBase64) {
+      if (!pdfFormatoUsdEnAgente && qrPixBase64) {
         try {
           pdf.addImage(qrPixBase64, larguraPagina - margem - 88, yBanco + 45, 70, 70)
         } catch (error) {
@@ -7404,6 +7689,9 @@ async function carregarImagemBase64(caminhos: string[]) {
         taxa_base_eur: numero(agenteTaxaBaseEur),
         taxa_final_usd: taxaFinalFaturaAgente('USD'),
         taxa_final_eur: taxaFinalFaturaAgente('EUR'),
+        taxa_base_moedas: Object.fromEntries(MOEDAS_ADICIONAIS.map((codigo) => [codigo, numero(agenteTaxasAdicionais[codigo])])),
+        datas_cotacao_moedas: { ...agenteDatasAdicionais },
+        taxa_final_moedas: Object.fromEntries(MOEDAS_ADICIONAIS.map((codigo) => [codigo, taxaFinalFaturaAgente(codigo)])),
       }
 
       const payloadFatura: any = {
@@ -8175,6 +8463,21 @@ async function carregarImagemBase64(caminhos: string[]) {
               />
             </label>
           </div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+            {MOEDAS_ADICIONAIS.map((codigo) => <label key={codigo} className="text-sm font-bold text-slate-300">
+              Taxa base {codigo} (R$ por unidade)
+              <input value={formatarEntradaTaxaBR(agenteTaxasAdicionais[codigo], 6)} inputMode="decimal"
+                onChange={(e) => atualizarTaxaAgenteAdicional(codigo, e.target.value)} className="mt-2 w-full"
+                placeholder="Ex.: 0,800000" />
+              <span className="mt-1 block text-xs text-green-300">Final: R$ {taxaFinalFaturaAgenteFormatada(codigo)}</span>
+              <span className="block text-xs text-slate-500">{agenteDatasAdicionais[codigo] ? `BCB: ${dataBRSimples(agenteDatasAdicionais[codigo])}` : 'Taxa manual ou aguardando consulta'}</span>
+            </label>)}
+          </div>
+          <button type="button" onClick={() => void consultarCambioFaturaAgente()} disabled={agenteBuscandoCambio}
+            className="mt-4 rounded-xl bg-green-600 px-4 py-2 text-sm font-bold disabled:opacity-50">
+            {agenteBuscandoCambio ? 'Consultando BCB...' : 'Atualizar câmbio BCB (todas as moedas)'}
+          </button>
+          {agenteAvisoCambio && <p className="mt-2 text-sm text-amber-200">{agenteAvisoCambio}</p>}
         </div>
 
         <div className="rounded-3xl border border-blue-900 bg-[#071225] p-5 lg:p-7">
@@ -8208,6 +8511,9 @@ async function carregarImagemBase64(caminhos: string[]) {
                         <option value="BRL">BRL</option>
                         <option value="USD">USD</option>
                         <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="CNY">CNY</option>
+                        <option value="HKD">HKD</option>
                       </select>
                     </td>
                     <td><input value={formatarEntradaValorBR(item.valor_original)} inputMode="decimal" onChange={(e) => atualizarItemFaturaAgente(item.id, 'valor_original', e.target.value)} placeholder="0,00" className="w-full" /></td>
@@ -8224,6 +8530,7 @@ async function carregarImagemBase64(caminhos: string[]) {
           <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
             <ResumoFiltro titulo="Total EUR" valor={`EUR ${formatarValorSimples(totaisFaturaAgente.eur)}`} detalhe="Moeda original" />
             <ResumoFiltro titulo="Total USD" valor={`USD ${formatarValorSimples(totaisFaturaAgente.usd)}`} detalhe="Moeda original" />
+            {MOEDAS_ADICIONAIS.map((codigo) => <ResumoFiltro key={codigo} titulo={`Total ${codigo}`} valor={`${codigo} ${formatarValorSimples(codigo === 'GBP' ? totaisFaturaAgente.gbp : codigo === 'CNY' ? totaisFaturaAgente.cny : totaisFaturaAgente.hkd)}`} detalhe="Moeda original" />)}
             <ResumoFiltro titulo="Itens BRL" valor={moeda(totaisFaturaAgente.brlOriginal)} detalhe="Sem conversão" />
             <ResumoFiltro titulo="Total da fatura" valor={moeda(totaisFaturaAgente.totalBrl)} detalhe="Cobrança final" />
           </div>
@@ -8881,7 +9188,10 @@ async function carregarImagemBase64(caminhos: string[]) {
                   Parceiro / Despachante do repasse
                   <input
                     value={emissorDespachante}
-                    onChange={(e) => setEmissorDespachante(e.target.value)}
+                    onChange={(e) => {
+                      setEmissorDespachante(e.target.value)
+                      setEmissorParceiroEditadoManualmente(true)
+                    }}
                     placeholder="Ex.: SKYSEA"
                     className="mt-2 w-full"
                   />
@@ -8890,6 +9200,44 @@ async function carregarImagemBase64(caminhos: string[]) {
                 <p className="mt-2 text-xs text-emerald-300">
                   Campo interno. Não aparece no PDF da fatura. Será salvo em Processos Faturados para identificar quem recebe o repasse/profit de terceiros.
                 </p>
+
+                {emissorParceiroHistorico.sugestao && !emissorParceiroEditadoManualmente && (
+                  <p className="mt-2 text-xs text-emerald-300">
+                    Parceiro preenchido automaticamente {emissorParceiroHistorico.origem}.
+                  </p>
+                )}
+                {emissorParceiroHistorico.opcoes.length > 1 && (
+                  <div className="mt-3 rounded-xl border border-amber-700 bg-amber-950/20 p-3">
+                    <p className="mb-2 text-xs font-semibold text-amber-200">
+                      Existem diferentes parceiros no historico. Selecione o correto antes de emitir:
+                    </p>
+                    <select
+                      className="w-full"
+                      value={emissorParceiroHistorico.opcoes.includes(emissorDespachante) ? emissorDespachante : ''}
+                      onChange={(e) => {
+                        setEmissorDespachante(e.target.value)
+                        setEmissorParceiroEditadoManualmente(true)
+                      }}
+                    >
+                      <option value="">Selecionar parceiro...</option>
+                      {emissorParceiroHistorico.opcoes.map((nome) => (
+                        <option key={nome} value={nome}>{nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {emissorParceiroEditadoManualmente && emissorParceiroHistorico.sugestao && (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs font-semibold text-emerald-300 underline"
+                    onClick={() => {
+                      setEmissorDespachante(emissorParceiroHistorico.sugestao)
+                      setEmissorParceiroEditadoManualmente(false)
+                    }}
+                  >
+                    Restaurar sugestao do historico
+                  </button>
+                )}
               </div>
 
               {dadosCliente ? (
@@ -9121,6 +9469,17 @@ async function carregarImagemBase64(caminhos: string[]) {
                         Preenchida automaticamente pelo euro venda do dia do Banco Central. Continua editável; o spread é aplicado sobre esta base.
                       </span>
                     </label>
+                    {MOEDAS_ADICIONAIS.map((codigo) => (
+                      <label key={codigo} className="text-sm font-bold text-slate-300">
+                        Taxa base {codigo} usada na fatura
+                        <input value={formatarEntradaTaxaBR(emissorTaxasAdicionais[codigo], 6)} inputMode="decimal"
+                          onChange={(e) => recalcularItensPorTaxaAdicional(codigo, e.target.value)}
+                          placeholder="R$ por 1 unidade" className="mt-2 w-full" />
+                        <span className="mt-2 block text-xs font-normal text-slate-500">
+                          {emissorDatasAdicionais[codigo] ? `BCB: ${dataBRSimples(emissorDatasAdicionais[codigo])}` : 'Aguardando BCB ou preenchimento manual'}
+                        </span>
+                      </label>
+                    ))}
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
@@ -9194,6 +9553,10 @@ async function carregarImagemBase64(caminhos: string[]) {
                 <div className="rounded-2xl border border-green-900 bg-green-950/20 p-4">
                   <p className="text-xs font-black uppercase tracking-wide text-slate-400">Taxas finais com spread</p>
                   <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {MOEDAS_ADICIONAIS.map((codigo) => <div key={codigo}>
+                      <p className="text-xs font-black text-blue-300">{codigo} → BRL</p>
+                      <p className="text-xl font-black text-green-300">R$ {taxaConversaoItemFaturaFormatada(codigo)}</p>
+                    </div>)}
                     <div>
                       <p className="text-xs font-black text-blue-300">USD → BRL</p>
                       <p className="text-xl font-black text-green-300">R$ {taxaConversaoItemFaturaFormatada('USD')}</p>
@@ -9204,7 +9567,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                     </div>
                   </div>
                   <p className="mt-2 text-xs text-slate-400">
-                    USD mantém a regra atual de câmbio/DHL. EUR usa automaticamente o euro venda do dia do Banco Central, com possibilidade de ajuste manual. BRL não sofre conversão.
+                    USD mantém a regra atual de câmbio/DHL. EUR, GBP, CNY e HKD usam o câmbio de venda mais recente do Banco Central (editável). BRL não sofre conversão.
                   </p>
                 </div>
 
@@ -9239,6 +9602,10 @@ async function carregarImagemBase64(caminhos: string[]) {
                 <p className="text-xs text-slate-500 font-black">TOTAL EUR</p>
                 <p className="text-xl font-black text-blue-300">EUR {formatarValorSimples(totaisEmissor.totalEUR)}</p>
               </div>
+              {MOEDAS_ADICIONAIS.map((codigo) => <div key={codigo} className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
+                <p className="text-xs text-slate-500 font-black">TOTAL {codigo}</p>
+                <p className="text-xl font-black text-blue-300">{codigo} {formatarValorSimples(codigo === 'GBP' ? totaisEmissor.totalGBP : codigo === 'CNY' ? totaisEmissor.totalCNY : totaisEmissor.totalHKD)}</p>
+              </div>)}
               <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4">
                 <p className="text-xs text-slate-500 font-black">TOTAL BRL ORIGINAL</p>
                 <p className="text-xl font-black text-blue-300">BRL {formatarValorSimples(totaisEmissor.totalBRLOriginal)}</p>
@@ -9281,6 +9648,9 @@ async function carregarImagemBase64(caminhos: string[]) {
                       >
                         <option value="USD">USD</option>
                         <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="CNY">CNY</option>
+                        <option value="HKD">HKD</option>
                         <option value="BRL">BRL</option>
                       </select>
                     </td>

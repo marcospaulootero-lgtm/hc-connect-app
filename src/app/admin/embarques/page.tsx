@@ -3049,6 +3049,9 @@ export default function EmbarquesPage() {
             >
               <option value="USD">USD</option>
               <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="CNY">CNY</option>
+              <option value="HKD">HKD</option>
               <option value="BRL">BRL</option>
             </select>
           </Campo>
@@ -3160,6 +3163,9 @@ export default function EmbarquesPage() {
                       >
                         <option value="USD">USD</option>
                         <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="CNY">CNY</option>
+                        <option value="HKD">HKD</option>
                         <option value="BRL">BRL</option>
                       </select>
                     </div>
@@ -3620,6 +3626,9 @@ export default function EmbarquesPage() {
                       >
                         <option value="USD">USD</option>
                         <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="CNY">CNY</option>
+                        <option value="HKD">HKD</option>
                         <option value="BRL">BRL</option>
                       </select>
                     </Campo>

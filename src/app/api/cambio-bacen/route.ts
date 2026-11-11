@@ -201,6 +201,18 @@ export async function GET(req: Request) {
       )
     }
 
+    const moedasAdicionais = ['GBP', 'CNY', 'HKD'] as const
+    const resultadosMoedas = await Promise.all(moedasAdicionais.map(async (codigo) => {
+      try {
+        const cotacao = await buscarUltimaCotacaoMoeda(codigo, addDias(hoje, -10), hoje)
+        return [codigo, cotacao] as const
+      } catch (error) {
+        console.warn(`Não foi possível consultar ${codigo} no Banco Central:`, error)
+        return [codigo, null] as const
+      }
+    }))
+    const cotacoesMoedas = Object.fromEntries(resultadosMoedas)
+
     const ptaxDhlMesAnterior = await buscarUltimaCotacao(
       inicioMesAnterior(dataBase),
       fimMesAnterior(dataBase)
@@ -225,6 +237,7 @@ export async function GET(req: Request) {
       data_base: dataBase,
       dolar_venda_dia: dolarVendaDia,
       euro_venda_dia: euroVendaDia,
+      cotacoes_moedas: cotacoesMoedas,
       ptax_dhl_mes_anterior: ptaxDhlMesAnterior,
     })
   } catch (error: any) {
