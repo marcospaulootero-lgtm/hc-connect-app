@@ -1566,6 +1566,58 @@ export default function DashboardPage() {
           </div>
         </header>
 
+        {/* HC_NOTIFICACOES_DASHBOARD_TOPO_V1 */}
+        <section aria-label="Atendimento prioritário" className="mb-5 rounded-2xl border border-blue-700 bg-[#07152f] p-4 sm:p-5 shadow-[0_12px_34px_rgba(0,0,0,0.20)]">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-black text-white">🔔 Atendimento prioritário</h2>
+                {suporteResumo.abertos > 0 && (
+                  <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
+                    {suporteResumo.abertos} chamado(s) aberto(s)
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-slate-400">Chamados e cotações com ação pendente, sem precisar rolar a página.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a href="/admin/suporte?status=ABERTO" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500">Ver chamados</a>
+              <a href="/admin/cotacoes?status=PENDENTES" className="rounded-xl border border-blue-700 bg-[#091b38] px-4 py-2 text-sm font-bold text-blue-100 hover:bg-blue-800/50">Ver cotações</a>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-red-900/70 bg-[#170e21] p-4">
+              <p className="text-xs font-extrabold uppercase tracking-wider text-red-300">💬 Suporte em aberto</p>
+              <p className="mt-2 text-3xl font-black text-white">{suporteResumo.abertos}</p>
+              <p className="mt-1 text-xs text-slate-400">Aguardando atendimento</p>
+            </div>
+            <div className="rounded-xl border border-amber-900/70 bg-[#1b1725] p-4">
+              <p className="text-xs font-extrabold uppercase tracking-wider text-amber-300">🕒 Em análise</p>
+              <p className="mt-2 text-3xl font-black text-white">{suporteResumo.analise}</p>
+              <p className="mt-1 text-xs text-slate-400">Chamados em andamento</p>
+            </div>
+            <div className="rounded-xl border border-blue-800 bg-[#0b1935] p-4">
+              <p className="text-xs font-extrabold uppercase tracking-wider text-blue-300">📄 Cotações pendentes</p>
+              <p className="mt-2 text-3xl font-black text-white">{cotacoesPendentes}</p>
+              <p className="mt-1 text-xs text-slate-400">Solicitações aguardando ação</p>
+            </div>
+          </div>
+          {suporteResumo.abertos > 0 && (
+            <div className="mt-3 rounded-xl border border-blue-900 bg-[#020817] p-3">
+              <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">Chamados abertos mais recentes</p>
+              <div className="grid grid-cols-1 gap-2 xl:grid-cols-3">
+                {suporte.filter((item) => item.status === 'ABERTO').slice(0, 3).map((item: any, index: number) => (
+                  <a key={String(item.id || index)} href="/admin/suporte?status=ABERTO" className="rounded-lg border border-blue-900 bg-[#0b1b38] px-3 py-3 transition hover:border-blue-500 hover:bg-blue-950">
+                    <p className="truncate text-sm font-extrabold text-white">{item.assunto || 'Chamado sem assunto'}</p>
+                    <p className="mt-1 truncate text-xs text-slate-400">{item.email || item.nome || 'Cliente não informado'}</p>
+                    <p className="mt-2 text-xs font-bold text-blue-300">Abrir Central de Suporte →</p>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+
         <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <HeroCard
             titulo="A receber"
