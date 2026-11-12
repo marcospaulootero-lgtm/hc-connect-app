@@ -1423,6 +1423,15 @@ export default function CotacoesAdminPage() {
                 {menuAcoes.item.usuario_id ? 'Alterar login' : 'Vincular login'}
               </button>
 
+              {/* HC_DUPLICAR_COTACAO_V1: cria uma cotacao independente sem alterar a original */}
+              <a
+                href={`/admin/cotacoes/nova?duplicar=${encodeURIComponent(String(menuAcoes.item.id))}`}
+                onClick={fecharMenuAcoes}
+                className="block w-full rounded-xl px-3 py-2 text-left text-sm font-black text-cyan-300 hover:bg-cyan-950/30"
+              >
+                ⧉ Duplicar cotação
+              </a>
+
               <div className="my-1 border-t border-blue-950" />
 
               {[

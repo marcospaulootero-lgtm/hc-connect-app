@@ -430,11 +430,14 @@ function itensEnvioCotacaoLegados(formLegado: any): ItemServicoEnvioCotacao[] {
 export default function NovaCotacaoManualPage() {
   const searchParams = useSearchParams()
   const cotacaoEditandoId = searchParams.get('editar')
+  // HC_DUPLICAR_COTACAO_V1: a duplicacao le a origem, mas sempre faz INSERT de nova cotacao.
+  const cotacaoDuplicandoId = cotacaoEditandoId ? null : searchParams.get('duplicar')
+  const cotacaoFonteId = cotacaoEditandoId || cotacaoDuplicandoId
   const [salvando, setSalvando] = useState(false)
   const [modelo, setModelo] = useState<ModeloCotacao>('DHL')
   const [dadosEmissorBase, setDadosEmissorBase] = useState<any>({})
   const [cotacaoOriginal, setCotacaoOriginal] = useState<any>(null) // HC_COTACAO_CLIENTE_EMISSOR_INTEGRADO_V1
-  const [cotacaoCarregada, setCotacaoCarregada] = useState(!cotacaoEditandoId)
+  const [cotacaoCarregada, setCotacaoCarregada] = useState(!cotacaoFonteId)
 
   const [form, setForm] = useState({
     origem_solicitacao: 'EMAIL',
@@ -512,13 +515,13 @@ export default function NovaCotacaoManualPage() {
 
 
   useEffect(() => {
-    if (!cotacaoEditandoId) return
+    if (!cotacaoFonteId) return
 
     async function carregarCotacaoParaEdicao() {
       const { data, error } = await supabase
         .from('cotacoes')
         .select('*')
-        .eq('id', cotacaoEditandoId)
+        .eq('id', cotacaoFonteId)
         .single()
 
       if (error || !data) {
@@ -547,7 +550,7 @@ export default function NovaCotacaoManualPage() {
           empresa_solicitante: data.empresa_solicitante || data.cliente_final || dadosEmissor.form.empresa_solicitante || '',
           telefone_solicitante: data.telefone_solicitante || dadosEmissor.form.telefone_solicitante || '',
           referencia_cliente: data.referencia_cliente || dadosEmissor.form.referencia_cliente || '',
-          referencia_hc: data.referencia_hc || dadosEmissor.form.referencia_hc || atual.referencia_hc,
+          referencia_hc: cotacaoDuplicandoId ? gerarReferenciaHCCotacao() : (data.referencia_hc || dadosEmissor.form.referencia_hc || atual.referencia_hc),
           solicitante_nome: data.solicitante_nome || data.responsavel_solicitante ||
             dadosEmissor.form.solicitante_nome || dadosEmissor.form.responsavel_solicitante || '',
           // HC_REVISOES_COTACOES_V1: dados atualizados pelo cliente prevalecem
@@ -612,7 +615,7 @@ export default function NovaCotacaoManualPage() {
         responsavel_solicitante: data.responsavel_solicitante || '',
         telefone_solicitante: data.telefone_solicitante || '',
         referencia_cliente: data.referencia_cliente || '',
-        referencia_hc: data.referencia_hc || gerarReferenciaHCCotacao(),
+        referencia_hc: cotacaoDuplicandoId ? gerarReferenciaHCCotacao() : (data.referencia_hc || gerarReferenciaHCCotacao()),
         servico: data.servico || data.tipo_operacao || atual.servico,
         transportadora: Array.isArray(data.transportadoras_consulta)
           ? data.transportadoras_consulta[0] || atual.transportadora
@@ -648,7 +651,7 @@ export default function NovaCotacaoManualPage() {
     }
 
     carregarCotacaoParaEdicao()
-  }, [cotacaoEditandoId])
+  }, [cotacaoFonteId, cotacaoDuplicandoId])
 
   const volumesCalculados = useMemo(() => {
     return volumes.map((volume, index) => {
@@ -1330,7 +1333,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
   }
 
   async function salvarCotacao(enviarEmail: boolean) {
-    if (cotacaoEditandoId && (!cotacaoCarregada || !cotacaoOriginal)) {
+    if (cotacaoFonteId && (!cotacaoCarregada || !cotacaoOriginal)) {
       alert('Aguarde o carregamento completo da cotação antes de salvar.')
       return
     }
@@ -1342,6 +1345,11 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
     if (!form.empresa_solicitante.trim() && !form.solicitante_nome.trim()) {
       alert('Informe a empresa solicitante ou o nome do solicitante.')
+      return
+    }
+
+    if (cotacaoDuplicandoId && form.referencia_hc === cotacaoOriginal?.referencia_hc) {
+      alert('A cópia precisa ter uma referência HC diferente da original.')
       return
     }
 
@@ -1362,6 +1370,9 @@ const totaisAgenteMoedaTela = useMemo(() => {
         valor: numero(item.valor),
       }))
 
+      // Em copia, nao herdar status, versoes, flags de exclusao, anexos ou outros
+      // metadados operacionais embutidos no JSON da cotacao de origem.
+      const dadosEmissorPersistir = cotacaoDuplicandoId ? {} : dadosEmissorBase
       const payloadCotacao: any = {
             origem_solicitacao: cotacaoEditandoId
               ? cotacaoOriginal?.origem_solicitacao || 'PORTAL'
@@ -1392,7 +1403,12 @@ const totaisAgenteMoedaTela = useMemo(() => {
             status: enviarEmail ? 'COTAÇÃO DISPONÍVEL' :
               cotacaoEditandoId ? (cotacaoOriginal?.status === 'AGUARDANDO ANÁLISE' ? 'EM ANÁLISE' : cotacaoOriginal?.status || 'EM ANÁLISE') : 'EM ANÁLISE',
             dados_emissor: {
-              ...dadosEmissorBase,
+              ...dadosEmissorPersistir,
+              ...(cotacaoDuplicandoId ? {
+                duplicada_de_id: cotacaoOriginal?.id || cotacaoDuplicandoId,
+                duplicada_de_referencia: cotacaoOriginal?.referencia_hc || null,
+                duplicada_em: new Date().toISOString(),
+              } : {}),
               modelo,
               form,
               volumes,
@@ -1530,7 +1546,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
         <div>
           <p className="mb-2 font-bold text-blue-400">Comercial</p>
           <h1 className="text-4xl font-black xl:text-5xl">
-            {cotacaoEditandoId ? 'Editar cotação' : 'Nova cotação'}
+            {cotacaoEditandoId ? 'Editar cotação' : cotacaoDuplicandoId ? 'Duplicar cotação' : 'Nova cotação'}
           </h1>
           <p className="mt-2 text-base text-slate-400 xl:text-lg">
             Escolha o tipo de cotação, preencha as informações e gere o PDF para o cliente.
@@ -1544,6 +1560,20 @@ const totaisAgenteMoedaTela = useMemo(() => {
           ← Voltar para lista
         </a>
       </div>
+
+      {cotacaoDuplicandoId ? (
+        <div className="mb-5 rounded-2xl border border-cyan-500/50 bg-cyan-950/30 p-4">
+          <p className="font-black text-cyan-200">Cópia independente da cotação</p>
+          <p className="mt-2 text-sm text-slate-200">
+            {cotacaoCarregada
+              ? `Original: ${cotacaoOriginal?.referencia_hc || cotacaoDuplicandoId} • Nova: ${form.referencia_hc}`
+              : 'Carregando dados da cotação original...'}
+          </p>
+          <p className="mt-2 text-xs text-cyan-100/80">
+            Ao salvar, será criada outra cotação e outro PDF. A proposta original não será modificada. O envio ao cliente é opcional.
+          </p>
+        </div>
+      ) : null}
 
       {cotacaoEditandoId ? (
         <div className="mb-5 rounded-2xl border border-blue-500/50 bg-blue-950/30 p-4">
