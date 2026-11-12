@@ -1373,6 +1373,9 @@ const totaisAgenteMoedaTela = useMemo(() => {
       // Em copia, nao herdar status, versoes, flags de exclusao, anexos ou outros
       // metadados operacionais embutidos no JSON da cotacao de origem.
       const dadosEmissorPersistir = cotacaoDuplicandoId ? {} : dadosEmissorBase
+      // HC_COTACOES_UNIFICADO_V1: finalizar e disponibilizar nao depende do envio de e-mail.
+      // A nova cotacao so fica disponivel apos PDF salvo e vinculado com sucesso.
+      const dataDisponibilizacao = dadosEmissorPersistir?.cotacao_disponivel_em || new Date().toISOString()
       const payloadCotacao: any = {
             origem_solicitacao: cotacaoEditandoId
               ? cotacaoOriginal?.origem_solicitacao || 'PORTAL'
@@ -1400,8 +1403,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
             dimensoes: dimensoesTexto,
             peso_real: resumo.pesoReal,
             peso_taxado: resumo.pesoTaxado,
-            status: enviarEmail ? 'COTAÇÃO DISPONÍVEL' :
-              cotacaoEditandoId ? (cotacaoOriginal?.status === 'AGUARDANDO ANÁLISE' ? 'EM ANÁLISE' : cotacaoOriginal?.status || 'EM ANÁLISE') : 'EM ANÁLISE',
+            // Enquanto o novo PDF nao foi persistido, nao disponibilizar um novo registro.
+            status: cotacaoEditandoId ? (cotacaoOriginal?.status || 'EM ANÁLISE') : 'EM ANÁLISE',
             dados_emissor: {
               ...dadosEmissorPersistir,
               ...(cotacaoDuplicandoId ? {
@@ -1476,7 +1479,12 @@ const totaisAgenteMoedaTela = useMemo(() => {
         .update({
           pdf_cotacao_url: publicUrl.publicUrl,
           pdf_nome: arquivo.name,
-          dados_emissor: { ...payloadCotacao.dados_emissor, revisao_cliente_pendente: false },
+          status: 'COTAÇÃO DISPONÍVEL',
+          dados_emissor: {
+            ...payloadCotacao.dados_emissor,
+            cotacao_disponivel_em: dataDisponibilizacao,
+            revisao_cliente_pendente: false,
+          },
         })
         .eq('id', cotacaoCriada.id)
         .select()
@@ -1515,7 +1523,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
         }
       }
 
-      alert(enviarEmail ? 'Cotação salva e enviada por e-mail.' : cotacaoEditandoId ? 'Cotação atualizada e PDF salvo.' : 'Cotação salva no histórico.')
+      alert(enviarEmail ? 'Cotação disponibilizada ao cliente e enviada por e-mail.' : 'Cotação finalizada, PDF salvo e disponível no portal do cliente.')
       window.location.href = '/admin/cotacoes'
     } catch (error) {
       console.log(error)
@@ -1594,7 +1602,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
             </a>
           </div>
           <p className="mt-2 text-xs text-slate-400">
-            Salvar gera o PDF sem disparar o e-mail. Para avisar o cliente, escolha Salvar e enviar por e-mail.
+            Salvar finaliza a cotação, gera o PDF e a disponibiliza no portal do cliente, sem enviar e-mail. Para enviar também por e-mail, escolha Salvar e enviar por e-mail.
           </p>
         </div>
       ) : null}
@@ -2218,7 +2226,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
               disabled={salvando || !cotacaoCarregada}
               className="mt-3 w-full rounded-xl border border-blue-800 bg-[#0a1730] px-5 py-3 font-black hover:bg-blue-950 disabled:opacity-60"
             >
-              {salvando ? 'Salvando...' : cotacaoEditandoId ? 'Atualizar cotação' : 'Salvar cotação'}
+              {salvando ? 'Salvando...' : cotacaoEditandoId ? 'Atualizar e disponibilizar' : 'Salvar e disponibilizar'}
             </button>
 
             <button

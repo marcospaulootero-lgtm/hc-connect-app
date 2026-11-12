@@ -1,5 +1,8 @@
 import { Resend } from 'resend'
 import { NextResponse } from 'next/server'
+import { createHash } from 'node:crypto'
+
+// HC_COTACOES_UNIFICADO_V1: aviso de nova solicitacao, sem misturar com email comercial ao cliente.
 
 export async function POST(req: Request) {
   try {
@@ -33,6 +36,17 @@ export async function POST(req: Request) {
       link_admin,
     } = body
 
+    // Rejeita payloads vazios ou incompletos antes do Resend.
+    // Isso interrompe os avisos sem identificador exibidos nas capturas.
+    const identificador = String(cotacao_id || '').trim()
+    const emailSolicitante = String(solicitante_email || '').trim()
+    const servicoInformado = String(servico || '').trim()
+    if (!identificador || identificador.length > 150 || !emailSolicitante ||
+        !/^[^@ ]+@[^@ ]+[.][^@ ]+$/.test(emailSolicitante) || !servicoInformado) {
+      console.warn('Aviso de cotação bloqueado: identificador, e-mail ou serviço ausente/inválido')
+      return NextResponse.json({ error: 'Dados obrigatórios da cotação ausentes: ID, solicitante ou serviço.' }, { status: 422 })
+    }
+
     console.log('Disparando aviso de nova cotação:', {
       cotacao_id,
       solicitante_email,
@@ -45,6 +59,9 @@ export async function POST(req: Request) {
       ? transportadoras_consulta.join(', ')
       : transportadoras_consulta || '-'
 
+    // Mesma solicitacao = mesma chave. Resend suprime repeticoes por 24 horas.
+    // Nao inclui data/hora ou UUID aleatorio na chave.
+    const chaveIdempotencia = 'nova-cotacao/' + createHash('sha256').update(identificador).digest('hex')
     const { data, error } = await resend.emails.send({
       from: 'HC Connect - Cotações <cotacoes@hcbhz.com>',
       to: ['marcos@hcbhz.com', 'hericamcouto@outlook.com'],
@@ -122,7 +139,7 @@ export async function POST(req: Request) {
           </div>
         </div>
       `,
-    })
+    }, { idempotencyKey: chaveIdempotencia })
 
     if (error) {
       console.error('Erro Resend ao enviar aviso de cotação:', error)
