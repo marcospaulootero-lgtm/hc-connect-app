@@ -362,6 +362,81 @@ async function buscarClienteDaSolicitacao(item: any) {
     return cliente
   }
 
+  // HC_EMBARQUE_DIRETO_REFERENCIA_V1
+  // Referencia interna independente do AWB e da cotacao (sem alterar o rastreio).
+  function gerarReferenciaHCDireta() {
+    const agora = new Date()
+    const partes = [
+      agora.getFullYear(),
+      String(agora.getMonth() + 1).padStart(2, '0'),
+      String(agora.getDate()).padStart(2, '0'),
+    ].join('')
+    const horario = [
+      String(agora.getHours()).padStart(2, '0'),
+      String(agora.getMinutes()).padStart(2, '0'),
+      String(agora.getSeconds()).padStart(2, '0'),
+    ].join('')
+    // Sufixo aleatorio para evitar colisoes mesmo em criacoes simultaneas.
+    const sufixo = crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()
+    return `HC${partes}-${horario}-${sufixo}`
+  }
+
+  // So regulariza embarques criados por este fluxo; nao modifica referencias existentes.
+  async function regularizarReferenciaDireta(item: any) {
+    if (!item?.embarque_id) {
+      alert('Esta solicitacao ainda nao possui embarque vinculado.')
+      return
+    }
+    if (convertendo !== null) return
+    setConvertendo(item.id)
+    try {
+      const { data: embarque, error: erroBusca } = await supabase
+        .from('embarques')
+        .select('id, awb, referencia_hc, observacoes')
+        .eq('id', item.embarque_id)
+        .single()
+      if (erroBusca || !embarque) throw new Error(erroBusca?.message || 'Embarque nao encontrado.')
+
+      const atual = String(embarque.referencia_hc || '').trim()
+      if (atual) {
+        alert('O embarque ja possui referencia HC: ' + atual + '. Nenhuma alteracao foi feita.')
+        return
+      }
+      if (!String(embarque.observacoes || '').includes('Solicitação criada via Embarque Direto.')) {
+        alert('Este embarque nao foi identificado como criado por conversao direta. Nao sera alterado automaticamente.')
+        return
+      }
+      const novaReferencia = gerarReferenciaHCDireta()
+      if (!confirm(
+        'Criar referencia HC para o embarque direto ja existente?\n\n' +
+        'AWB: ' + (embarque.awb || '-') + '\n' +
+        'Nova referencia: ' + novaReferencia + '\n\n' +
+        'AWB, cotacoes, documentos e rastreamento permanecerao inalterados.'
+      )) return
+
+      // Evita sobrescrever referencia preenchida por outra sessao apos a leitura.
+      const filtro = supabase.from('embarques')
+        .update({ referencia_hc: novaReferencia })
+        .eq('id', embarque.id)
+      const { data: atualizado, error: erroUpdate } = await (
+        embarque.referencia_hc === null
+          ? filtro.is('referencia_hc', null)
+          : filtro.eq('referencia_hc', '')
+      ).select('id, referencia_hc')
+      if (erroUpdate) throw new Error(erroUpdate.message)
+      if (!atualizado || atualizado.length !== 1) {
+        throw new Error('O registro foi alterado por outra sessao ou nao foi autorizado. Confira o embarque antes de tentar novamente.')
+      }
+      alert('Referencia HC gerada: ' + novaReferencia)
+      await carregar()
+    } catch (erro: any) {
+      console.error(erro)
+      alert('Erro ao regularizar referencia HC: ' + (erro?.message || 'erro desconhecido'))
+    } finally {
+      setConvertendo(null)
+    }
+  }
+
   async function converterEmEmbarque(item: any, arquivarDepois = false) {
     if (item.embarque_id) {
       alert(
@@ -419,6 +494,7 @@ async function buscarClienteDaSolicitacao(item: any) {
             exportador: item.tipo_operacao === 'Exportação' ? item.cliente_final : null,
             importador: item.tipo_operacao === 'Importação' ? item.cliente_final : null,
             awb: awbNormalizado,
+            referencia_hc: gerarReferenciaHCDireta(), // HC_EMBARQUE_DIRETO_REFERENCIA_V1
             transportadora: item.transportadora || null,
             servico: item.tipo_operacao || null,
             origem: item.origem || null,
@@ -877,6 +953,17 @@ async function buscarClienteDaSolicitacao(item: any) {
                     </div>
 
                     <div className="xl:w-[260px] flex flex-col gap-3">
+                      {/* HC_EMBARQUE_DIRETO_REFERENCIA_V1: disponivel tambem para solicitacoes arquivadas */}
+                      {item.embarque_id && String(item.status || '').toUpperCase() === 'CONVERTIDO EM EMBARQUE' && (
+                        <button
+                          type="button"
+                          onClick={() => regularizarReferenciaDireta(item)}
+                          disabled={convertendo === item.id}
+                          className="bg-cyan-700 hover:bg-cyan-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                        >
+                          {convertendo === item.id ? 'Verificando...' : 'Verificar / gerar Ref. HC'}
+                        </button>
+                      )}
                       {itemArquivado ? (
                         <button
                           onClick={() => restaurarDaLista(item)}
