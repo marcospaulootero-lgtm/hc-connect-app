@@ -31,6 +31,16 @@ export default function CotacoesAdminPage() {
   const [salvandoVinculo, setSalvandoVinculo] = useState(false)
   const [menuAcoes, setMenuAcoes] = useState<{ item: any; top: number; left: number } | null>(null) // HC_COTACOES_MENU_FLUTUANTE_V1
   const menuAcoesRef = useRef<HTMLDivElement | null>(null)
+  // HC_FOLLOWUP_COMERCIAL_V1: janela e histórico do acompanhamento comercial.
+  const [cotacaoFollowup, setCotacaoFollowup] = useState<any>(null)
+  const [modeloFollowup, setModeloFollowup] = useState('primeiro')
+  const [emailFollowup, setEmailFollowup] = useState('')
+  const [mensagemFollowup, setMensagemFollowup] = useState('')
+  const [pdfFollowup, setPdfFollowup] = useState(false)
+  const [enviandoFollowup, setEnviandoFollowup] = useState(false)
+  const [erroFollowup, setErroFollowup] = useState('')
+  const [historicoFollowup, setHistoricoFollowup] = useState<any[]>([])
+  const [ultimoFollowup, setUltimoFollowup] = useState<Record<string,string>>({})
 
   useEffect(() => {
     carregar()
@@ -87,6 +97,63 @@ export default function CotacoesAdminPage() {
   function fecharMenuAcoes() {
     setMenuAcoes(null)
   }
+
+  function textoModeloFollowup(item: any, modelo: string) {
+    const ref = String(item?.referencia_hc || item?.referencia_cliente || item?.id || '')
+    const dados = 'Cotação ' + ref + ', referente a ' + String(item?.tipo_operacao || item?.servico || 'operação internacional') + ', rota ' + String(item?.origem || '-') + ' → ' + String(item?.destino || '-')
+    if (modelo === 'segundo') return 'Olá! Tudo bem?\n\nRetomamos nosso contato sobre a ' + dados + '.\n\nGostaríamos de saber se existe alguma atualização ou se podemos esclarecer algum ponto da proposta.\n\nAtenciosamente,\nEquipe HC Consultoria'
+    if (modelo === 'final') return 'Olá! Tudo bem?\n\nEstamos atualizando o acompanhamento comercial da ' + dados + '.\n\nPoderia nos informar se a operação permanece em análise, foi aprovada ou não terá continuidade?\n\nAgradecemos seu retorno.\n\nAtenciosamente,\nEquipe HC Consultoria'
+    return 'Olá! Tudo bem?\n\nGostaríamos de saber se já foi possível avaliar a ' + dados + '.\n\nCaso necessite de algum ajuste ou esclarecimento, estamos à disposição.\n\nAguardamos seu feedback.\n\nAtenciosamente,\nEquipe HC Consultoria'
+  }
+
+  async function carregarHistoricoFollowup(cotacaoId?: string) {
+    const {data:{session}} = await supabase.auth.getSession()
+    if (!session?.access_token) {setErroFollowup('Sessão expirada. Faça login novamente.');return}
+    const url = '/api/cotacoes/followup' + (cotacaoId ? '?cotacao_id='+encodeURIComponent(cotacaoId) : '')
+    const resposta = await fetch(url,{headers:{Authorization:'Bearer '+session.access_token},cache:'no-store'})
+    const json = await resposta.json().catch(()=>({}))
+    if (!resposta.ok) {setErroFollowup(json.error || 'Não foi possível carregar o histórico');return}
+    if (cotacaoId) setHistoricoFollowup(json.historico || [])
+    else {
+      const mapa:Record<string,string> = {}
+      for(const entrada of json.historico || []) if(entrada.enviado_em && !mapa[entrada.cotacao_id]) mapa[entrada.cotacao_id]=entrada.enviado_em
+      setUltimoFollowup(mapa)
+    }
+  }
+
+  function abrirFollowup(item: any) {
+    setCotacaoFollowup(item)
+    setModeloFollowup('primeiro')
+    setEmailFollowup(String(item?.solicitante_email || emailUsuario(item?.usuario_id) || '').replace(/^-$|^undefined$/,'').trim())
+    setMensagemFollowup(textoModeloFollowup(item,'primeiro'))
+    setPdfFollowup(!!item?.pdf_cotacao_url)
+    setErroFollowup('')
+    setHistoricoFollowup([])
+    carregarHistoricoFollowup(String(item.id))
+  }
+
+  async function enviarFollowupComercial() {
+    if (!cotacaoFollowup || enviandoFollowup) return
+    if (!window.confirm('Confirmar envio deste e-mail ao cliente, com os três destinatários em cópia?')) return
+    setEnviandoFollowup(true);setErroFollowup('')
+    try {
+      const {data:{session}} = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Sua sessão expirou')
+      const resp = await fetch('/api/cotacoes/followup',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},
+        body:JSON.stringify({cotacao_id:cotacaoFollowup.id,destinatario:emailFollowup,modelo:modeloFollowup,mensagem:mensagemFollowup,anexar_pdf:pdfFollowup})
+      })
+      const json=await resp.json().catch(()=>({}))
+      if(!resp.ok) throw new Error(json.error || 'Erro ao enviar follow-up')
+      await carregarHistoricoFollowup(String(cotacaoFollowup.id))
+      await carregarHistoricoFollowup()
+      if (!json.registro_confirmado) setErroFollowup('E-mail aceito pelo Resend, mas o histórico precisa de conferência. Não reenvie agora.')
+      else {alert('Follow-up enviado e registrado com sucesso.');setCotacaoFollowup(null)}
+    }catch(e:any){setErroFollowup(e?.message || 'Falha no envio')}
+    finally{setEnviandoFollowup(false)}
+  }
+
+  useEffect(()=>{carregarHistoricoFollowup()},[])
 
   async function carregar() {
     const { data, error } = await supabase
@@ -422,6 +489,8 @@ export default function CotacoesAdminPage() {
 
   function dataReferenciaFollowUp(item: any) {
     const dados = dadosEmissorObjeto(item)
+    const ultimo = ultimoFollowup[String(item?.id || '')]
+    if (ultimo && new Date(ultimo).getTime() > new Date(dados?.cotacao_disponivel_em || item?.atualizado_em || item?.criado_em || 0).getTime()) return ultimo
 
     return (
       dados?.cotacao_disponivel_em ||
@@ -792,6 +861,7 @@ export default function CotacoesAdminPage() {
     filtroInteligencia,
     embarquesPorId,
     documentosPorCotacao,
+    ultimoFollowup,
   ])
 
   function corStatus(status: string) {
@@ -1432,6 +1502,12 @@ export default function CotacoesAdminPage() {
                 ⧉ Duplicar cotação
               </a>
 
+              {menuAcoes.item.status === 'COTAÇÃO DISPONÍVEL' && !menuAcoes.item.embarque_id ? (
+                <button type="button" onClick={() => { const item=menuAcoes.item;fecharMenuAcoes();abrirFollowup(item) }}
+                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-black text-cyan-300 hover:bg-cyan-950/30">
+                  ✉ Enviar follow-up
+                </button>
+              ) : null}
               <div className="my-1 border-t border-blue-950" />
 
               {[
@@ -1513,6 +1589,30 @@ export default function CotacoesAdminPage() {
               </button>
             </>
           )}
+        </div>
+      ) : null}
+
+      {cotacaoFollowup ? (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-blue-800 bg-[#071225] p-5 text-white shadow-2xl xl:p-7">
+            <div className="mb-5 flex items-center justify-between gap-4"><div><p className="text-sm text-blue-400">Comercial / Cotações</p><h2 className="text-2xl font-black">Enviar follow-up</h2><p className="text-sm text-slate-400">{cotacaoFollowup.referencia_hc || cotacaoFollowup.referencia_cliente}</p></div>
+              <button type="button" disabled={enviandoFollowup} onClick={()=>setCotacaoFollowup(null)} className="rounded-lg border border-slate-600 px-3 py-2">✕ Fechar</button></div>
+            <label className="mb-1 block text-sm font-bold">Para (contato da cotação)</label>
+            <input type="email" value={emailFollowup} onChange={e=>setEmailFollowup(e.target.value)} disabled={enviandoFollowup} className="mb-4 w-full rounded-xl border border-blue-900 bg-[#020817] p-3" />
+            <p className="mb-4 break-words rounded-xl border border-blue-900 bg-[#020817] p-3 text-sm text-slate-300"><strong>CC obrigatórios:</strong> marcos@hcbhz.com, hericacouto@hcbhz.com, hericamcouto@outlook.com</p>
+            <label className="mb-1 block text-sm font-bold">Modelo de acompanhamento</label>
+            <select value={modeloFollowup} disabled={enviandoFollowup} onChange={e=>{setModeloFollowup(e.target.value);setMensagemFollowup(textoModeloFollowup(cotacaoFollowup,e.target.value))}} className="mb-4 w-full rounded-xl border border-blue-900 bg-[#020817] p-3">
+              <option value="primeiro">Primeiro acompanhamento</option><option value="segundo">Segundo acompanhamento</option><option value="final">Solicitar posicionamento final</option>
+            </select>
+            <label className="mb-1 block text-sm font-bold">Mensagem editável</label>
+            <textarea value={mensagemFollowup} disabled={enviandoFollowup} onChange={e=>setMensagemFollowup(e.target.value)} rows={9} className="mb-3 w-full rounded-xl border border-blue-900 bg-[#020817] p-3" />
+            <label className="mb-5 flex items-center gap-2 text-sm"><input type="checkbox" checked={pdfFollowup} disabled={enviandoFollowup || !cotacaoFollowup.pdf_cotacao_url} onChange={e=>setPdfFollowup(e.target.checked)} /> Anexar o PDF da cotação</label>
+            {erroFollowup ? <p role="alert" className="mb-4 rounded-xl border border-red-600 p-3 text-sm text-red-300">{erroFollowup}</p> : null}
+            <div className="flex flex-wrap justify-end gap-3"><button type="button" disabled={enviandoFollowup} onClick={()=>setCotacaoFollowup(null)} className="rounded-xl bg-slate-700 px-5 py-3">Cancelar</button><button type="button" disabled={enviandoFollowup || !emailFollowup || mensagemFollowup.trim().length < 20} onClick={enviarFollowupComercial} className="rounded-xl bg-blue-600 px-5 py-3 font-black disabled:opacity-50">{enviandoFollowup ? 'Enviando…' : 'Confirmar e enviar e-mail'}</button></div>
+            <div className="mt-6 border-t border-blue-900 pt-5"><h3 className="mb-3 font-black">Histórico de follow-ups enviados</h3>
+              {historicoFollowup.length === 0 ? <p className="text-sm text-slate-400">Nenhum envio registrado.</p> : historicoFollowup.map((h:any)=><div key={h.id} className="mb-2 rounded-xl border border-blue-900 p-3 text-sm"><strong>{new Date(h.enviado_em).toLocaleString('pt-BR')}</strong> — {h.destinatario} — {h.modelo}{h.pdf_anexado?' — PDF anexado':''}</div>)}
+            </div>
+          </div>
         </div>
       ) : null}
 
