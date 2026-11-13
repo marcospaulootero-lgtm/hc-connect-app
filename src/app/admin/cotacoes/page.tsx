@@ -272,11 +272,49 @@ export default function CotacoesAdminPage() {
     })
   }
 
+  // HC_VINCULOS_INTELIGENTES_V1: somente identidade exata; nunca confundir contato com login.
+  function normalizarEmpresaVinculo(valor: any) {
+    return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ')
+  }
+
+  function sugestaoLoginCotacao(item: any) {
+    if (!item || item.usuario_id) return null
+    const empresa = normalizarEmpresaVinculo(item.empresa_solicitante || item.cliente_final)
+    const email = String(item.solicitante_email || '').trim().toLowerCase()
+    const disponiveis = usuariosClientesDisponiveis()
+    if (!empresa && !email) return null
+
+    // O historico de cotacoes ja vinculadas tem prioridade, desde que sem conflito.
+    const registros = cotacoes.filter((c: any) =>
+      c.id !== item.id && c.usuario_id &&
+      (empresa && normalizarEmpresaVinculo(c.empresa_solicitante || c.cliente_final) === empresa) &&
+      disponiveis.some((u: any) => String(u.id) === String(c.usuario_id))
+    )
+    const idsHistoricos = Array.from(new Set(registros.map((c: any) => String(c.usuario_id))))
+    if (idsHistoricos.length === 1) {
+      const usuario = disponiveis.find((u: any) => String(u.id) === idsHistoricos[0])
+      return usuario ? { usuario, motivo: 'Historico de cotacoes vinculadas a esta empresa' } : null
+    }
+    if (idsHistoricos.length > 1) return null // Usuarios distintos: exigir escolha manual.
+
+    // Sem historico, apenas identificadores de contato exatos; nome de pessoa isolado nao basta.
+    const porEmail = email ? disponiveis.filter((u: any) =>
+      String(u.email || '').trim().toLowerCase() === email) : []
+    if (porEmail.length === 1) return { usuario: porEmail[0], motivo: 'E-mail exato do login cadastrado' }
+
+    const porEmpresa = empresa ? disponiveis.filter((u: any) => {
+      const valores = [u.empresa_nome, u.nome_empresa, u.empresa, u.razao_social, u.nome_fantasia]
+      return valores.some((v: any) => normalizarEmpresaVinculo(v) === empresa)
+    }) : []
+    if (porEmpresa.length === 1) return { usuario: porEmpresa[0], motivo: 'Empresa exata do perfil de cliente' }
+    return null
+  }
+
   function abrirVinculoLogin(item: any) {
     setCotacaoVinculo(item)
-    setUsuarioVinculoId(
-      String(item?.usuario_id || '')
-    )
+    const sugestao = sugestaoLoginCotacao(item)
+    setUsuarioVinculoId(String(item?.usuario_id || sugestao?.usuario?.id || ''))
   }
 
   function fecharVinculoLogin() {
@@ -1695,6 +1733,14 @@ export default function CotacoesAdminPage() {
                 </p>
               </div>
             )}
+
+            {!cotacaoVinculo.usuario_id && sugestaoLoginCotacao(cotacaoVinculo) ? (
+              <div className="mt-4 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-sm">
+                <p className="font-black text-cyan-300">Sugestão inteligente de vínculo</p>
+                <p className="mt-1 text-slate-200">{sugestaoLoginCotacao(cotacaoVinculo)?.usuario?.nome || sugestaoLoginCotacao(cotacaoVinculo)?.usuario?.email} — {sugestaoLoginCotacao(cotacaoVinculo)?.usuario?.email}</p>
+                <p className="mt-1 text-xs text-slate-400">{sugestaoLoginCotacao(cotacaoVinculo)?.motivo}. Confira antes de salvar: este login terá acesso ao PDF da cotação.</p>
+              </div>
+            ) : null}
 
             <div className="mt-6">
               <label className="text-sm font-black text-slate-300">
