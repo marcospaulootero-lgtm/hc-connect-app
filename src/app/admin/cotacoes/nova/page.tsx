@@ -333,6 +333,14 @@ const PAISES_COTACAO = CODIGOS_PAISES_COTACAO
   .sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
 
+// HC_CONDICOES_IMPORTACAO_FORMAL_V1: termos obrigatórios em toda cotação de importação formal.
+const CONDICOES_IMPORTACAO_FORMAL = [
+  'SERVIÇO PORTA A PORTA',
+  'ENTREGA NO ENDEREÇO DO IMPORTADOR APÓS LIBERAÇÃO',
+  'SUJEITO A ATRASOS SEM AVISO PRÉVIO',
+  'NÃO INCLUSAS DESPESAS ALFANDEGÁRIAS NO DESTINO',
+] as const
+
 const INCOTERMS_COTACAO = ['EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP']
 const INCOTERMS_MARITIMOS = ['FOB', 'CFR', 'CIF', 'FAS', 'EXW', 'FCA', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP']
 
@@ -1322,6 +1330,15 @@ const totaisAgenteMoedaTela = useMemo(() => {
     info('Descrição da mercadoria', form.descricao_mercadoria || '-')
     info('Observações comerciais', form.observacoes || '-')
 
+    // HC_CONDICOES_IMPORTACAO_FORMAL_V1: condições obrigatórias no PDF,
+    // independentes das observações editáveis e do envio por e-mail.
+    if (String(form.servico || '').trim().toUpperCase() === 'IMPORTAÇÃO FORMAL') {
+      secao('CONDIÇÕES DA IMPORTAÇÃO FORMAL')
+      for (const condicao of CONDICOES_IMPORTACAO_FORMAL) {
+        info('•', condicao)
+      }
+    }
+
     inserirRodapePdf()
 
     return doc
@@ -2175,6 +2192,15 @@ const totaisAgenteMoedaTela = useMemo(() => {
                 onChange={(v) => atualizarCampo('observacoes', v)}
               />
             </div>
+            {String(form.servico || '').trim().toUpperCase() === 'IMPORTAÇÃO FORMAL' ? (
+              <div className="mt-4 rounded-2xl border border-blue-700/60 bg-blue-950/30 p-4">
+                <p className="mb-2 text-sm font-black text-blue-200">Condições obrigatórias — Importação Formal</p>
+                <ul className="list-disc space-y-1 pl-5 text-sm text-slate-200">
+                  {CONDICOES_IMPORTACAO_FORMAL.map((texto) => <li key={texto}>{texto}</li>)}
+                </ul>
+                <p className="mt-2 text-xs text-slate-400">Inseridas automaticamente no PDF. Não dependem das observações editáveis.</p>
+              </div>
+            ) : null}
           </section>
         </div>
 
