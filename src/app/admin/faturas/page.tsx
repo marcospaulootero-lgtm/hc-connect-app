@@ -251,6 +251,7 @@ export default function FaturasPage() {
   const [removendoFatura, setRemovendoFatura] = useState<string | null>(null)
   const [enviandoArquivoExtra, setEnviandoArquivoExtra] = useState<string | null>(null)
   const [removendoArquivoExtra, setRemovendoArquivoExtra] = useState<string | null>(null)
+  const [cancelandoReciboId, setCancelandoReciboId] = useState<string | null>(null)
   const [reciboSelecionado, setReciboSelecionado] = useState<Embarque | null>(null)
   const [dataRecebimentoRecibo, setDataRecebimentoRecibo] = useState('')
   const [valorRecebidoRecibo, setValorRecebidoRecibo] = useState('')
@@ -1845,6 +1846,45 @@ export default function FaturasPage() {
       alert(error?.message || 'Erro ao anexar arquivo adicional.')
     } finally {
       setEnviandoArquivoExtra(null)
+    }
+  }
+
+  // HC_CANCELAMENTO_RECIBO_V1: cancelamento administrativo auditado do recibo principal.
+  async function cancelarReciboPrincipal(fatura: Fatura, awb: string) {
+    if (!fatura?.id || !fatura.recibo_pdf) return alert('Recibo não encontrado. Atualize a página.')
+    const motivo = window.prompt(
+      'CANCELAR RECIBO PRINCIPAL\nAWB: ' + awb +
+      '\n\nInforme o motivo do cancelamento (mínimo 10 caracteres).\n' +
+      'A fatura e o financeiro NÃO serão modificados.'
+    )
+    if (motivo === null) return
+    if (motivo.trim().length < 10 || motivo.trim().length > 1000) {
+      return alert('Informe um motivo entre 10 e 1000 caracteres.')
+    }
+    if (!window.confirm('Confirmar o CANCELAMENTO do recibo do AWB ' + awb + '?\n\n' +
+      'O PDF será preservado em arquivo privado de auditoria.\n' +
+      'O registro de pagamento e a fatura serão mantidos.')) return
+    setCancelandoReciboId(fatura.id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.')
+      const resposta = await fetch('/api/recibos/cancelar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + session.access_token,
+        },
+        body: JSON.stringify({ fatura_id: fatura.id, recibo_url: fatura.recibo_pdf, motivo: motivo.trim() }),
+      })
+      const resultado = await resposta.json().catch(() => ({}))
+      if (!resposta.ok) throw new Error(resultado.error || 'Falha ao cancelar recibo.')
+      alert('Recibo cancelado. A fatura e o financeiro foram preservados.' +
+        (resultado.aviso ? '\n\nATENÇÃO: ' + resultado.aviso : ''))
+      await carregar()
+    } catch (erro: any) {
+      alert(erro?.message || 'Erro no cancelamento do recibo.')
+    } finally {
+      setCancelandoReciboId(null)
     }
   }
 
@@ -10573,6 +10613,16 @@ async function carregarImagemBase64(caminhos: string[]) {
                             >
                               Reemitir
                             </button>
+                            {fatura?.recibo_pdf && faturaReciboExibicao?.id === fatura.id ? (
+                              <button
+                                type="button"
+                                onClick={() => cancelarReciboPrincipal(fatura, embarque.awb)}
+                                disabled={cancelandoReciboId === fatura.id}
+                                className="rounded-lg border border-red-600 bg-red-950/50 px-3 py-2 text-xs font-black text-red-200 hover:bg-red-900 disabled:opacity-60"
+                              >
+                                {cancelandoReciboId === fatura.id ? 'Cancelando...' : 'Cancelar recibo'}
+                              </button>
+                            ) : null}
                           </div>
                         ) : faturaAgente?.arquivo_pdf ? (
                           <button
@@ -10878,6 +10928,15 @@ async function carregarImagemBase64(caminhos: string[]) {
                                             className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
                                           >
                                             {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                          </button>
+                                        ) : arquivo.origem === 'faturas' && arquivo.tipo === 'RECIBO' && fatura?.recibo_pdf === arquivo.url ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => cancelarReciboPrincipal(fatura, embarque.awb)}
+                                            disabled={cancelandoReciboId === fatura.id}
+                                            className="rounded-lg border border-red-700 bg-red-950/50 px-3 py-2 text-xs font-black text-red-200 hover:bg-red-900 disabled:opacity-60"
+                                          >
+                                            {cancelandoReciboId === fatura.id ? 'Cancelando...' : 'Cancelar recibo'}
                                           </button>
                                         ) : (
                                           <span className="rounded-lg border border-yellow-700 px-3 py-2 text-xs text-yellow-200">
