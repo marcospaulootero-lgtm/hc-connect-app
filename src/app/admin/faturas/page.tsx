@@ -1849,21 +1849,11 @@ export default function FaturasPage() {
     }
   }
 
-  // HC_CANCELAMENTO_RECIBO_V1: cancelamento administrativo auditado do recibo principal.
+  // HC_CANCELAMENTO_RECIBO_V2: confirmação simples, exclusão do PDF e trilha mínima no banco.
   async function cancelarReciboPrincipal(fatura: Fatura, awb: string) {
     if (!fatura?.id || !fatura.recibo_pdf) return alert('Recibo não encontrado. Atualize a página.')
-    const motivo = window.prompt(
-      'CANCELAR RECIBO PRINCIPAL\nAWB: ' + awb +
-      '\n\nInforme o motivo do cancelamento (mínimo 10 caracteres).\n' +
-      'A fatura e o financeiro NÃO serão modificados.'
-    )
-    if (motivo === null) return
-    if (motivo.trim().length < 10 || motivo.trim().length > 1000) {
-      return alert('Informe um motivo entre 10 e 1000 caracteres.')
-    }
-    if (!window.confirm('Confirmar o CANCELAMENTO do recibo do AWB ' + awb + '?\n\n' +
-      'O PDF será preservado em arquivo privado de auditoria.\n' +
-      'O registro de pagamento e a fatura serão mantidos.')) return
+    if (!window.confirm('Tem certeza que deseja cancelar e EXCLUIR DEFINITIVAMENTE o PDF do recibo do AWB ' + awb + '?\n\n' +
+      'O registro de pagamento e a fatura serão mantidos. Você poderá emitir outro recibo.')) return
     setCancelandoReciboId(fatura.id)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -1874,11 +1864,11 @@ export default function FaturasPage() {
           'Content-Type': 'application/json',
           Authorization: 'Bearer ' + session.access_token,
         },
-        body: JSON.stringify({ fatura_id: fatura.id, recibo_url: fatura.recibo_pdf, motivo: motivo.trim() }),
+        body: JSON.stringify({ fatura_id: fatura.id, recibo_url: fatura.recibo_pdf }),
       })
       const resultado = await resposta.json().catch(() => ({}))
       if (!resposta.ok) throw new Error(resultado.error || 'Falha ao cancelar recibo.')
-      alert('Recibo cancelado. A fatura e o financeiro foram preservados.' +
+      alert('Recibo cancelado. O registro financeiro e a fatura foram preservados.' +
         (resultado.aviso ? '\n\nATENÇÃO: ' + resultado.aviso : ''))
       await carregar()
     } catch (erro: any) {

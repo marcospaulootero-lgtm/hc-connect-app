@@ -1,4 +1,4 @@
-// HC_CANCELAMENTO_RECIBO_V1 — Exclusivamente administrador.
+// HC_CANCELAMENTO_RECIBO_V1 + HC_CANCELAMENTO_RECIBO_V2 — Exclusivamente administrador.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -31,9 +31,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     const id = String(body?.fatura_id || '').trim()
     const urlEsperada = String(body?.recibo_url || '').trim()
-    const motivo = String(body?.motivo || '').trim()
-    if (!uuid.test(id) || !urlEsperada || motivo.length < 10 || motivo.length > 1000) {
-      return NextResponse.json({ error: 'Informe a fatura, o recibo atual e um motivo entre 10 e 1000 caracteres.' }, { status: 400 })
+    if (!uuid.test(id) || !urlEsperada) {
+      return NextResponse.json({ error: 'Informe a fatura e o recibo atual.' }, { status: 400 })
     }
     const { data: fatura, error: erroFatura } = await admin.from('faturas')
       .select('id, recibo_pdf').eq('id', id).maybeSingle()
@@ -50,29 +49,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Somente recibos principais do Storage de faturas podem ser cancelados.' }, { status: 400 })
     }
 
-    // Salvar a evidência em bucket privado ANTES de retirar o PDF vigente.
-    const { data: arquivo, error: erroDownload } = await admin.storage.from('faturas').download(caminho)
-    if (erroDownload || !arquivo) return NextResponse.json({ error: 'Não foi possível preservar o PDF original. Cancelamento interrompido.' }, { status: 409 })
-    const nomeAuditoria = `${id}/${Date.now()}-${user.id}-recibo-cancelado.pdf`
-    const { error: erroArquivo } = await admin.storage.from('hc-recibos-auditoria')
-      .upload(nomeAuditoria, arquivo, { contentType: 'application/pdf', upsert: false })
-    if (erroArquivo) return NextResponse.json({ error: 'Falha no arquivamento privado. Verifique o SQL de instalação.' }, { status: 500 })
+    // V2: o usuário optou por EXCLUSÃO DEFINITIVA do PDF, sem cópia em bucket privado.
+    // O banco mantém somente metadados da emissão cancelada e do administrador.
+    const motivoPadrao = 'Cancelamento administrativo confirmado; PDF excluído por solicitação.'
+    const arquivoAuditoria = 'PDF_EXCLUIDO_DEFINITIVAMENTE_V2'
 
     const { data: logId, error: erroCancelamento } = await admin.rpc('hc_cancelar_recibo_principal_v1', {
       p_fatura_id: id, p_recibo_url: urlEsperada, p_caminho_original: caminho,
-      p_arquivo_auditoria: nomeAuditoria, p_motivo: motivo, p_admin_id: user.id,
+      p_arquivo_auditoria: arquivoAuditoria, p_motivo: motivoPadrao, p_admin_id: user.id,
     })
     if (erroCancelamento) {
-      // Se o recibo foi modificado durante o processamento, não cancelar a nova versão.
-      await admin.storage.from('hc-recibos-auditoria').remove([nomeAuditoria])
+      // O banco recusa o cancelamento se o recibo foi modificado durante o processamento.
       return NextResponse.json({ error: erroCancelamento.message }, { status: 409 })
     }
 
-    // Invalidar link público anterior; a cópia de auditoria é privada.
+    // Remover PDF original do bucket público. Não existe cópia privada na V2.
     const { error: erroRemocao } = await admin.storage.from('faturas').remove([caminho])
     if (erroRemocao) {
       console.error('HC recibo cancelado, porém limpeza do Storage pendente:', { id, logId, caminho, erroRemocao })
-      return NextResponse.json({ ok: true, aviso: 'Recibo cancelado e arquivado, mas a exclusão do PDF público precisa de conferência no Storage.' })
+      return NextResponse.json({ ok: true, aviso: 'Recibo desassociado, mas não foi possível excluir o PDF do Storage. Solicite a limpeza do arquivo antes de reemitir.' })
     }
     return NextResponse.json({ ok: true, cancelamento_id: logId })
   } catch (error: any) {
