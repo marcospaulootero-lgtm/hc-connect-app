@@ -1567,6 +1567,41 @@ export default function FaturasPage() {
     await removerArquivoExtraFatura(item as FaturaArquivo)
   }
 
+  // HC_ADMIN_DOCUMENTOS_V3: remoção administrativa com confirmação simples e auditoria no backend.
+  async function removerDocumentoAdmin(item: any) {
+    if (!item?.url) return alert('Documento não encontrado. Atualize a tela.')
+    const origem = origemDocumentoPacoteFatura(item)
+    let id = String(item?.id || '').trim()
+    if (origem === 'faturas') {
+      // IDs virtuais representam o PDF, não são IDs de linhas de fatura.
+      id = id.replace(/-(fatura-principal|recibo|comprovante)$/i, '')
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return alert('Não foi possível identificar o registro do documento.')
+    }
+    if (!confirm('Tem certeza que deseja remover definitivamente este arquivo?\n\n' +
+      (item?.nome || labelDocumentoPacoteFatura(item)) +
+      '\n\nA fatura e os dados financeiros permanecerão inalterados.')) return
+    setRemovendoArquivoExtra(String(item?.id || id))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.')
+      const resposta = await fetch('/api/admin/faturas/remover-documento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
+        body: JSON.stringify({ origem, id, url: item.url }),
+      })
+      const resultado = await resposta.json().catch(() => ({}))
+      if (!resposta.ok) throw new Error(resultado.error || 'Falha ao remover documento.')
+      alert('Documento removido.' + (resultado.aviso ? '\n\n' + resultado.aviso : ''))
+      await carregar()
+    } catch (erro: any) {
+      alert(erro?.message || 'Não foi possível remover o documento.')
+    } finally {
+      setRemovendoArquivoExtra(null)
+    }
+  }
+
   function documentosPacoteAdmin(embarque: any, faturaPrincipal?: any | null) {
     const embarqueId = embarque?.id
     if (!embarqueId) return []
@@ -1858,13 +1893,13 @@ export default function FaturasPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.')
-      const resposta = await fetch('/api/recibos/cancelar', {
+      const resposta = await fetch('/api/admin/faturas/remover-documento', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer ' + session.access_token,
         },
-        body: JSON.stringify({ fatura_id: fatura.id, recibo_url: fatura.recibo_pdf }),
+        body: JSON.stringify({ origem: 'faturas', id: fatura.id, url: fatura.recibo_pdf }),
       })
       const resultado = await resposta.json().catch(() => ({}))
       if (!resposta.ok) throw new Error(resultado.error || 'Falha ao cancelar recibo.')
@@ -10479,6 +10514,15 @@ async function carregarImagemBase64(caminhos: string[]) {
                                             </a>
                                           ) : null}
 
+
+                                          {reciboComplementarDoDocumento(doc)?.url ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => removerDocumentoAdmin({ ...reciboComplementarDoDocumento(doc), origem: 'fatura_arquivos' })}
+                                              className="rounded-lg bg-red-700 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-600"
+                                            >Remover recibo complementar</button>
+                                          ) : null}
+
                                           <button
                                             type="button"
                                             onClick={() =>
@@ -10494,19 +10538,14 @@ async function carregarImagemBase64(caminhos: string[]) {
                                               : 'Emitir recibo comp.'}
                                           </button>
 
-                                          {ehIdAnexoRemovivel(doc) ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => removerAnexoPacoteFatura(doc)}
-                                              className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500"
-                                            >
-                                              Remover
-                                            </button>
-                                          ) : (
-                                            <span className="rounded-lg border border-yellow-700 px-3 py-2 text-[11px] font-black text-yellow-200">
-                                              Lançada no financeiro
-                                            </span>
-                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => removerDocumentoAdmin(doc)}
+                                            disabled={removendoArquivoExtra === doc.id}
+                                            className="rounded-lg bg-red-600 px-3 py-2 text-center text-[11px] font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                          >
+                                            {removendoArquivoExtra === doc.id ? 'Removendo...' : 'Remover'}
+                                          </button>
                                         </div>
                                       </div>
                                     ))}
@@ -10910,29 +10949,14 @@ async function carregarImagemBase64(caminhos: string[]) {
                                         <Link href={arquivo.url} target="_blank" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-500">
                                           Abrir
                                         </Link>
-                                        {ehIdAnexoRemovivel(arquivo) ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => removerArquivoExtraFatura(arquivo)}
-                                            disabled={removendoArquivoExtra === arquivo.id}
-                                            className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
-                                          >
-                                            {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
-                                          </button>
-                                        ) : arquivo.origem === 'faturas' && arquivo.tipo === 'RECIBO' && fatura?.recibo_pdf === arquivo.url ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => cancelarReciboPrincipal(fatura, embarque.awb)}
-                                            disabled={cancelandoReciboId === fatura.id}
-                                            className="rounded-lg border border-red-700 bg-red-950/50 px-3 py-2 text-xs font-black text-red-200 hover:bg-red-900 disabled:opacity-60"
-                                          >
-                                            {cancelandoReciboId === fatura.id ? 'Cancelando...' : 'Cancelar recibo'}
-                                          </button>
-                                        ) : (
-                                          <span className="rounded-lg border border-yellow-700 px-3 py-2 text-xs text-yellow-200">
-                                            Documento protegido
-                                          </span>
-                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => removerDocumentoAdmin(arquivo)}
+                                          disabled={removendoArquivoExtra === arquivo.id}
+                                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500 disabled:opacity-60"
+                                        >
+                                          {removendoArquivoExtra === arquivo.id ? 'Removendo...' : 'Remover'}
+                                        </button>
                                       </div>
                                     </div>
                                   ))}
