@@ -364,6 +364,7 @@ export default function FaturasPage() {
     novoItemFaturaAgente(),
   ])
   const [faturaAgenteEditando, setFaturaAgenteEditando] = useState<Fatura | null>(null)
+  const [buscaFormalConsolidada, setBuscaFormalConsolidada] = useState('') // HC_FATURAS_FORMAL_CONSOLIDADA_V2
   const [reciboAgenteSelecionado, setReciboAgenteSelecionado] = useState<Fatura | null>(null)
   const [reciboAgenteData, setReciboAgenteData] = useState('')
   const [reciboAgenteValor, setReciboAgenteValor] = useState('')
@@ -4241,6 +4242,24 @@ async function carregarImagemBase64(caminhos: string[]) {
     return faturas.filter((item) => String(item.tipo_fatura || '').toUpperCase() === 'AGENTE_CARGA')
   }, [faturas])
 
+  // HC_FATURAS_FORMAL_CONSOLIDADA_V2: inclui faturas sem embarque vinculado.
+  const faturasFormaisFiltradas = useMemo(() => {
+    const normalizar = (valor: unknown) => String(valor ?? '').normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    const termo = normalizar(buscaFormalConsolidada)
+    if (!termo) return faturasAgenteCarga
+    return faturasAgenteCarga.filter((fatura) => {
+      const dados = fatura.dados_cliente_faturamento || {}
+      return normalizar([
+        fatura.numero_fatura,
+        dados.processo,
+        dados.nome,
+        fatura.observacoes,
+        fatura.valor_total,
+      ].join(' ')).includes(termo)
+    })
+  }, [faturasAgenteCarga, buscaFormalConsolidada])
+
   const totaisFaturaAgente = useMemo(() => {
     return itensFaturaAgente.reduce(
       (acc, item) => {
@@ -7215,6 +7234,7 @@ async function carregarImagemBase64(caminhos: string[]) {
   }
 
   async function editarFaturaAgente(fatura: Fatura) {
+    setAbaAtiva('FATURAS') // HC_FATURAS_FORMAL_CONSOLIDADA_V2
     if (fatura.recibo_pdf) {
       const continuar = confirm(
         'Esta fatura já possui recibo emitido.\n\n' +
@@ -7843,6 +7863,7 @@ async function carregarImagemBase64(caminhos: string[]) {
   }
 
   function abrirReciboFaturaAgente(fatura: Fatura) {
+    setAbaAtiva('FATURAS') // HC_FATURAS_FORMAL_CONSOLIDADA_V2
     setReciboAgenteSelecionado(fatura)
     setReciboAgenteData(
       normalizarData(fatura.data_pagamento) || new Date().toISOString().slice(0, 10)
@@ -8256,7 +8277,8 @@ async function carregarImagemBase64(caminhos: string[]) {
       : 'Não foi possível identificar um único cliente fiscal para este embarque. Selecione o cadastro pelo CNPJ/CPF.')
   }
 
-  function renderAbaAgenteCarga() {
+  function renderAbaAgenteCarga(modo: 'EMISSAO' | 'GESTAO' = 'EMISSAO') {
+    // HC_FATURAS_FORMAL_CONSOLIDADA_V2: no emissor apenas o formulario de novas faturas.
     const normalizarBusca = (valor: any) => String(valor || '').normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
     const termo = normalizarBusca(buscaAgenteAwb)
@@ -8267,6 +8289,8 @@ async function carregarImagemBase64(caminhos: string[]) {
     ).sort((a, b) => Number(normalizarBusca(b.awb).startsWith(termo)) - Number(normalizarBusca(a.awb).startsWith(termo))) : []
     return (
       <section className="space-y-6">
+        {(modo === 'EMISSAO' || !!faturaAgenteEditando) && (
+        <>
         <div id="form_fatura_agente" className="rounded-3xl border border-cyan-800 bg-[#071225] p-6 lg:p-7">
           {faturaAgenteEditando && (
             <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-yellow-500/60 bg-yellow-500/10 p-4 md:flex-row md:items-center md:justify-between">
@@ -8621,8 +8645,10 @@ async function carregarImagemBase64(caminhos: string[]) {
             </div>
           </div>
         </div>
+        </>
+        )}
 
-        {reciboAgenteSelecionado && (
+        {modo === 'GESTAO' && reciboAgenteSelecionado && (
           <div id="recibo_agente_carga" className="rounded-3xl border border-green-700 bg-green-950/20 p-6 lg:p-7">
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
               <div>
@@ -8665,12 +8691,25 @@ async function carregarImagemBase64(caminhos: string[]) {
           </div>
         )}
 
-        <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6">
-          <h3 className="text-2xl font-black">Histórico de faturas de agente</h3>
-          <div className="mt-4 space-y-3">
-            {faturasAgenteCarga.length === 0 ? (
+        {modo === 'GESTAO' && (
+        <div id="historico_faturas_formais" className="rounded-3xl border border-blue-900 bg-[#071225] p-6">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-2xl font-black">Faturas formais / agente de carga</h3>
+              <p className="mt-1 text-sm text-slate-400">Gestão das faturas emitidas, inclusive processos sem embarque associado. O emissor fica reservado para novas faturas.</p>
+            </div>
+            <input
+              value={buscaFormalConsolidada}
+              onChange={(e) => setBuscaFormalConsolidada(e.target.value)}
+              placeholder="Buscar fatura, processo ou cliente formal"
+              aria-label="Buscar faturas formais"
+              className="w-full md:max-w-[380px]"
+            />
+          </div>
+          <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
+            {faturasFormaisFiltradas.length === 0 ? (
               <p className="text-slate-400">Nenhuma fatura de agente de carga emitida.</p>
-            ) : faturasAgenteCarga.map((fatura) => (
+            ) : faturasFormaisFiltradas.map((fatura) => (
               <div key={fatura.id} className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-blue-900 bg-[#020817] p-4">
                 <div>
                   <p className="font-black">{fatura.numero_fatura || 'Sem número'} - Processo {fatura.dados_cliente_faturamento?.processo || '-'}</p>
@@ -8678,7 +8717,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => editarFaturaAgente(fatura)} className="rounded-xl bg-yellow-600 px-4 py-2 text-sm font-black hover:bg-yellow-500">
-                    Editar
+                    Editar formal
                   </button>
                   {fatura.arquivo_pdf && <Link href={fatura.arquivo_pdf} target="_blank" className="rounded-xl bg-blue-600 px-4 py-2 text-center text-sm font-black hover:bg-blue-500">Abrir fatura</Link>}
                   {fatura.recibo_pdf && <Link href={fatura.recibo_pdf} target="_blank" className="rounded-xl bg-green-700 px-4 py-2 text-center text-sm font-black hover:bg-green-600">Abrir recibo</Link>}
@@ -8691,18 +8730,20 @@ async function carregarImagemBase64(caminhos: string[]) {
                     disabled={excluindoFaturaAgenteId === fatura.id}
                     className="rounded-xl bg-red-700 px-4 py-2 text-sm font-black hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {excluindoFaturaAgenteId === fatura.id ? 'Excluindo...' : 'Excluir'}
+                    {excluindoFaturaAgenteId === fatura.id ? 'Excluindo...' : 'Excluir fatura e financeiro'}
                   </button>
                 </div>
               </div>
             ))}
           </div>
         </div>
+        )}
       </section>
     )
   }
 
   function selecionarTipoCentralEmissao(tipo: 'FRETE' | 'IMPOSTOS' | 'FORMAL') {
+    if (tipo === 'FORMAL') limparFaturaAgente() // HC_FATURAS_FORMAL_CONSOLIDADA_V2: nova emissao nao edita fatura existente.
     setAbaAtiva('EMISSOR')
     setTipoCentralEmissao(tipo)
 
@@ -9911,13 +9952,13 @@ async function carregarImagemBase64(caminhos: string[]) {
         <>
           {renderSeletorCentralEmissao()}
           {tipoCentralEmissao === 'FORMAL'
-            ? renderAbaAgenteCarga()
+            ? renderAbaAgenteCarga('EMISSAO')
             : renderAbaEmissor()}
         </>
       ) : abaAtiva === 'AGENTE_CARGA' ? (
         <>
           {renderSeletorCentralEmissao()}
-          {renderAbaAgenteCarga()}
+          {renderAbaAgenteCarga('EMISSAO')}
         </>
       ) : abaAtiva === 'RECIBO' ? (
         renderAbaRecibos()
@@ -9969,6 +10010,9 @@ async function carregarImagemBase64(caminhos: string[]) {
           onClick={() => aplicarFiltroRapido({ arquivamento: 'ARQUIVADAS' })}
         />
       </section>
+
+      {/* HC_FATURAS_FORMAL_CONSOLIDADA_V2: gestão formal diretamente na consolidada. */}
+      {renderAbaAgenteCarga('GESTAO')}
 
       {embarqueSelecionado && (
         <section id="form_fatura" className="border border-blue-900 rounded-3xl bg-[#071225] p-7 mb-8">
@@ -10267,7 +10311,7 @@ async function carregarImagemBase64(caminhos: string[]) {
                         </div>
                       </td>
                       <td>
-                        <strong>{fatura?.numero_fatura || '-'}</strong>
+                        <strong>{fatura?.numero_fatura || faturaAgente?.numero_fatura || '-'}</strong>
                         {fatura?.arquivado_admin && (
                           <p className="mt-1 inline-flex rounded-full border border-slate-500 bg-slate-600/20 px-2 py-1 text-[10px] font-black text-slate-300">
                             🗄️ Arquivada
@@ -10728,6 +10772,16 @@ async function carregarImagemBase64(caminhos: string[]) {
                           >
                             {pacoteAberto ? 'Fechar' : 'Pacote'}
                           </button>
+
+                          {faturaAgente?.id && (
+                            <button
+                              type="button"
+                              onClick={() => editarFaturaAgente(faturaAgente)}
+                              className="rounded-lg bg-cyan-700 px-3 py-2 text-xs font-black text-white hover:bg-cyan-600"
+                            >
+                              Editar formal
+                            </button>
+                          )}
 
                           <Link
                             href={`/admin/embarques/${embarque.id}`}
