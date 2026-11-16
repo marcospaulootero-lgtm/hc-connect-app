@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { jsPDF } from 'jspdf'
+import { reservarAbaPdfHC, mostrarPdfNaAbaHC, fecharAbaPdfHC } from '@/lib/pdfAutoOpenHC' // HC_PDF_AUTOABRIR_V1
 import { supabase } from '@/lib/supabaseClient'
 import { AEROPORTOS_BRASIL } from '@/lib/aeroportos-brasil'
 import { useSearchParams } from 'next/navigation'
@@ -1345,8 +1346,23 @@ const totaisAgenteMoedaTela = useMemo(() => {
   }
 
   async function baixarPdf() {
-    const doc = await montarPdf()
-    doc.save(nomeArquivoPdf())
+    const abaPdf = reservarAbaPdfHC()
+    try {
+      const doc = await montarPdf()
+      const blobUrl = URL.createObjectURL(doc.output('blob') as Blob)
+      if (mostrarPdfNaAbaHC(abaPdf, blobUrl)) {
+        // Mantem o blob disponivel para o visualizador e para salvar pelo navegador.
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 300000)
+      } else {
+        URL.revokeObjectURL(blobUrl)
+        doc.save(nomeArquivoPdf()) // Fallback quando o navegador bloqueia novas abas.
+        alert('A abertura automatica foi bloqueada; o PDF foi baixado. Autorize pop-ups para o HC Connect.')
+      }
+    } catch (error) {
+      fecharAbaPdfHC(abaPdf)
+      console.error(error)
+      alert('Erro ao gerar a pre-visualizacao do PDF.')
+    }
   }
 
   async function salvarCotacao(enviarEmail: boolean) {
@@ -1370,6 +1386,8 @@ const totaisAgenteMoedaTela = useMemo(() => {
       return
     }
 
+    const abaPdf = reservarAbaPdfHC() // HC_PDF_AUTOABRIR_V1
+    let pdfAbaUsada = false
     setSalvando(true)
 
     try {
@@ -1463,6 +1481,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
       if (error) {
         console.log(error)
+        fecharAbaPdfHC(abaPdf)
         alert('Erro ao salvar cotação: ' + error.message)
         setSalvando(false)
         return
@@ -1482,6 +1501,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
       if (erroUpload) {
         console.log(erroUpload)
+        fecharAbaPdfHC(abaPdf)
         alert('Cotação criada, mas houve erro ao salvar o PDF.')
         setSalvando(false)
         return
@@ -1509,9 +1529,15 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
       if (erroUpdate) {
         console.log(erroUpdate)
+        fecharAbaPdfHC(abaPdf)
         alert('PDF salvo, mas houve erro ao atualizar a cotação.')
         setSalvando(false)
         return
+      }
+
+      pdfAbaUsada = mostrarPdfNaAbaHC(abaPdf, publicUrl.publicUrl)
+      if (!pdfAbaUsada) {
+        alert('PDF salvo, mas o navegador bloqueou a abertura. Autorize pop-ups para o HC Connect; a cotação continua disponível no portal.')
       }
 
       if (enviarEmail) {
@@ -1543,6 +1569,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
       alert(enviarEmail ? 'Cotação disponibilizada ao cliente e enviada por e-mail.' : 'Cotação finalizada, PDF salvo e disponível no portal do cliente.')
       window.location.href = '/admin/cotacoes'
     } catch (error) {
+      if (!pdfAbaUsada) fecharAbaPdfHC(abaPdf)
       console.log(error)
       alert('Erro ao processar cotação.')
     } finally {

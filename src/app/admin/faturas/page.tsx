@@ -12,6 +12,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { reservarAbaPdfHC, mostrarPdfNaAbaHC, fecharAbaPdfHC } from '@/lib/pdfAutoOpenHC' // HC_PDF_AUTOABRIR_V1
 import { supabase } from '@/lib/supabaseClient'
 import StatusBadge from '@/components/StatusBadge'
 import CustoTransportadoraAwb from '@/components/admin/CustoTransportadoraAwb'
@@ -3370,6 +3371,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       return alert('Selecione o cliente fiscal cadastrado antes de emitir o recibo.')
     }
 
+    const abaPdf = reservarAbaPdfHC() // HC_PDF_AUTOABRIR_V1
     setEmitindoRecibo(true)
 
     try {
@@ -3586,10 +3588,8 @@ async function carregarImagemBase64(caminhos: string[]) {
       const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
       const urlRecibo = urlData.publicUrl
 
-      const abrirPdfReciboGerado = window.open(urlRecibo, '_blank', 'noopener,noreferrer')
-
-      if (!abrirPdfReciboGerado) {
-        alert('Recibo gerado, mas o navegador bloqueou a abertura automática. Use o botão Abrir/Recibo na tabela.')
+      if (!mostrarPdfNaAbaHC(abaPdf, urlRecibo)) {
+        alert('Recibo salvo, mas o navegador bloqueou a abertura automatica. Autorize pop-ups ou use Abrir/Recibo na tabela.')
       }
 
       if (ehReciboComplementar && documentoComplementar) {
@@ -3787,6 +3787,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       limparRecibo()
       carregar()
     } catch (error: any) {
+      fecharAbaPdfHC(abaPdf)
       console.log(error)
       alert(`Erro ao emitir recibo: ${error.message || error}`)
     } finally {
@@ -5806,6 +5807,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       !ehRegeracaoPdf &&
       emissorTipoFatura === 'IMPOSTOS'
 
+    const abaPdf = reservarAbaPdfHC() // HC_PDF_AUTOABRIR_V1
     setSalvandoEmissao(true)
 
     try {
@@ -5950,6 +5952,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       }, 0)
 
       if (itensClientePdf.length === 0 || totalClientePdfBRL <= 0) {
+        fecharAbaPdfHC(abaPdf)
         alert('Selecione pelo menos um serviço cobrado do cliente. VALOR DE COMPRA é interno e não aparece na fatura.')
         return
       }
@@ -6590,11 +6593,15 @@ async function carregarImagemBase64(caminhos: string[]) {
           ? 'Fatura emitida, salva, vinculada ao AWB/login e lançada em Processos Faturados.'
           : 'Fatura emitida, salva e lançada em Processos Faturados. Nenhum login foi vinculado agora; quando o cliente fizer cadastro, vincule o login ao AWB para liberar esta fatura no portal.'
 
+      if (!mostrarPdfNaAbaHC(abaPdf, urlPdf)) {
+        alert('Fatura salva, mas o navegador bloqueou a abertura do PDF. Autorize pop-ups ou use Abrir na listagem.')
+      }
       alert(mensagemSucesso)
       limparEmissor()
       setAbaAtiva('FATURAS')
       carregar()
     } catch (error: any) {
+      fecharAbaPdfHC(abaPdf)
       console.error(error)
       alert(
         `Erro ao emitir fatura: ${error?.message || error}\n\nSe o erro mencionar uma coluna da tabela faturas, rode primeiro o SQL de atualização que eu enviei.`
@@ -7512,6 +7519,7 @@ async function carregarImagemBase64(caminhos: string[]) {
     if (itensFaturaAgente.some((item) => item.descricao.trim() && numero(item.valor_original) !== 0 && !itensValidos.includes(item))) {
       return alert('Há serviços com conversão inválida. Revise as taxas e os valores antes de emitir.')
     }
+    const abaPdf = reservarAbaPdfHC() // HC_PDF_AUTOABRIR_V1
     setSalvandoFaturaAgente(true)
 
     try {
@@ -7846,7 +7854,9 @@ async function carregarImagemBase64(caminhos: string[]) {
         }
       }
 
-      window.open(urlPdf, '_blank')
+      if (!mostrarPdfNaAbaHC(abaPdf, urlPdf)) {
+        alert('Fatura formal salva, mas o navegador bloqueou a abertura do PDF. Use Abrir na listagem.')
+      }
       alert(
         faturaAgenteEditando
           ? 'Fatura de agente atualizada, PDF regenerado e Processos Faturados corrigido no mesmo registro.'
@@ -7855,6 +7865,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       limparFaturaAgente()
       await carregar()
     } catch (error: any) {
+      fecharAbaPdfHC(abaPdf)
       console.error(error)
       alert(`Erro ao emitir fatura de agente de carga: ${error?.message || error}`)
     } finally {
@@ -7973,6 +7984,7 @@ async function carregarImagemBase64(caminhos: string[]) {
     if (valorPago <= 0) return alert('Informe o valor recebido.')
     if (!processo) return alert('A fatura não possui número de processo salvo.')
 
+    const abaPdf = reservarAbaPdfHC() // HC_PDF_AUTOABRIR_V1
     setEmitindoReciboAgente(true)
 
     try {
@@ -8133,7 +8145,9 @@ async function carregarImagemBase64(caminhos: string[]) {
         })
       }
 
-      window.open(urlRecibo, '_blank')
+      if (!mostrarPdfNaAbaHC(abaPdf, urlRecibo)) {
+        alert('Recibo formal salvo, mas o navegador bloqueou a abertura do PDF. Use Abrir recibo na listagem.')
+      }
 
       // HC: recibo emitido = processo formal finalizado e arquivado automaticamente.
       await arquivarFaturamentoFinalizado(fatura, false)
@@ -8146,6 +8160,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       limparReciboFaturaAgente()
       await carregar()
     } catch (error: any) {
+      fecharAbaPdfHC(abaPdf)
       console.error(error)
       alert(`Erro ao emitir recibo da fatura de agente: ${error?.message || error}`)
     } finally {
