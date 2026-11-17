@@ -1152,7 +1152,8 @@ export default function FaturasPage() {
         const tipo = String((item as any).tipo_fatura || 'FRETE').toUpperCase()
         return item.fatura_complementar !== true && !['IMPOSTOS', 'AGENTE_CARGA'].includes(tipo)
       }) ||
-      faturasDoEmbarque[0] ||
+      // HC_SEPARAR_FORMAL_FINANCEIRO_V1: jamais transformar fatura formal em fatura courier principal.
+      faturasDoEmbarque.find((item) => String(item.tipo_fatura || '').toUpperCase() !== 'AGENTE_CARGA') ||
       null
     )
   }
@@ -2617,6 +2618,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       const fatura = faturaDoEmbarque(e.id)
       const faturaAgente = faturaAgenteDoEmbarque(e)
 
+
       const reciboPdfExibicao =
         fatura?.recibo_pdf ||
         faturaAgente?.recibo_pdf ||
@@ -2677,7 +2679,10 @@ async function carregarImagemBase64(caminhos: string[]) {
           ? !!fatura?.arquivado_admin
           : !fatura?.arquivado_admin)
 
+      // HC_CORRIGIR_BUILD_FORMAIS_V1: filtro no retorno evita estreitar faturaAgente a never.
+      // AGENTE_CARGA continua exclusivamente na listagem formal superior.
       return (
+        !faturaAgente &&
         passaBusca &&
         passaDocumento &&
         passaStatusEmbarque &&
@@ -7587,21 +7592,68 @@ function conferirDocumentoManualHC(
     }, 100)
   }
 
+  // HC_SEPARAR_FORMAL_FINANCEIRO_V1: mesmo AWB nao significa mesma fatura.
+  // So atualiza financeiro se corresponder ao NUMERO da fatura formal; nunca sobrescreve outro frete.
   function localizarFinanceiroAgentePorAwb() {
-    const awb = normalizarAwb(agenteProcesso)
-    if (!awb) return null
-    const mesmoAwb = financeiros.filter((item) => awbsFinanceiro(item).includes(awb))
-    const vinculados = agenteEmbarqueId
-      ? financeiros.filter((item) => item.embarque_id === agenteEmbarqueId)
-      : []
-    if (!agenteEmbarqueId && mesmoAwb.some((item) => item.embarque_id)) {
-      throw new Error('Este processo já possui financeiro vinculado a um embarque. Selecione o embarque cadastrado para emitir.')
+    const processo = normalizarAwb(agenteProcesso)
+    const numeroFormal = normalizarAwb(agenteNumeroFatura)
+    if (!processo || !numeroFormal) return null
+
+    const relacionados = financeiros.filter((item) =>
+      awbsFinanceiro(item).includes(processo) ||
+      (!!agenteEmbarqueId && String(item.embarque_id || '') === String(agenteEmbarqueId))
+    )
+    const faturamentoNormalizado = (item: FinanceiroProcesso) =>
+      normalizarAwb(item.fatura || item.numero_fatura)
+
+    // A mesma fatura pode ser consultada repetidamente, mas nao pode gerar outro lancamento.
+    const peloNumero = relacionados.filter((item) => faturamentoNormalizado(item) === numeroFormal)
+    if (peloNumero.length > 1) {
+      throw new Error('Ha lancamentos duplicados para a mesma fatura formal no financeiro. Concilie antes de emitir.')
     }
-    const candidatos = vinculados.length ? vinculados : mesmoAwb.filter((item) => !item.embarque_id)
-    if (candidatos.length > 1) {
-      throw new Error('Há mais de um lançamento financeiro para este AWB. Concilie os registros antes de emitir a fatura.')
+    if (peloNumero.length === 1) {
+      const atual = peloNumero[0]
+      const valorAtual = valorFinanceiro(atual)
+      const novoValor = totaisFaturaAgente.totalBrl
+      const jaRecebido = !!String(atual.recebimento || atual.recebimento_cliente || atual.data_recebimento || '').trim()
+      if (jaRecebido && valorAtual > 0 && Math.abs(valorAtual - novoValor) > 0.01) {
+        throw new Error(
+          'Esta fatura formal ja possui recebimento registrado, mas o novo valor difere do financeiro. ' +
+          'Concilie antes de alterar a fatura: nao modificaremos um recebimento existente.'
+        )
+      }
+      return atual
     }
-    return candidatos[0] || null
+
+    // Em versoes anteriores o numero podia estar vazio. Recuperar apenas se o
+    // servico e o valor forem os mesmos e houver UM unico candidato inequivoco.
+    const candidatosLegados = relacionados.filter((item) => {
+      const servico = String(item.servico || '').toUpperCase().replace(/[_-]/g, ' ')
+      return !faturamentoNormalizado(item) &&
+        servico.includes('AGENTE DE CARGA') &&
+        Math.abs(valorFinanceiro(item) - totaisFaturaAgente.totalBrl) <= 0.01
+    })
+    if (candidatosLegados.length === 1 && relacionados.length === 1) return candidatosLegados[0]
+
+    if (relacionados.length > 0) {
+      const resumo = relacionados.slice(0, 3).map((item) =>
+        (item.fatura || item.numero_fatura || 'sem numero') + ': ' + moeda(valorFinanceiro(item))
+      ).join(' | ')
+      throw new Error(
+        'Ja existe outra cobranca em Processos Faturados para o mesmo AWB (' + resumo + '). ' +
+        'Nao vamos sobrescrever nem duplicar esse lancamento. Concilie a fatura formal com o financeiro primeiro.'
+      )
+    }
+
+    if (faturaAgenteEditando &&
+        (numero(faturaAgenteEditando.valor_pago) > 0 ||
+         String(faturaAgenteEditando.status_pagamento || '').toUpperCase() === 'PAGO')) {
+      throw new Error(
+        'Esta fatura formal antiga ja possui pagamento, mas nao tem lancamento financeiro correspondente. ' +
+        'Concilie o recebimento antes de criar um registro novo.'
+      )
+    }
+    return null
   }
 
   async function salvarFinanceiroFaturaAgente(arquivoPdfUrl: string) {
@@ -7706,6 +7758,14 @@ function conferirDocumentoManualHC(
     }
     if (!agenteClienteSelecionado) return alert('Selecione o cliente de faturamento.')
     if (!agenteNumeroFatura.trim()) return alert('Informe o número da fatura.')
+    // HC_SEPARAR_FORMAL_FINANCEIRO_V1: nao recriar fatura formal ja emitida.
+    const numeroFormalNovo = normalizarAwb(agenteNumeroFatura)
+    const numeroDuplicado = faturas.find((item) =>
+      String(item.tipo_fatura || '').toUpperCase() === 'AGENTE_CARGA' &&
+      item.id !== faturaAgenteEditando?.id &&
+      normalizarAwb(item.numero_fatura) === numeroFormalNovo
+    )
+    if (numeroDuplicado) return alert('Esta fatura formal ja existe. Utilize Editar formal na listagem superior; nao emita uma duplicata.')
     if (!agenteDataFatura) return alert('Informe a data da fatura.')
     if (!agenteVencimento) return alert('Informe o vencimento.')
     if (agenteVisivelCliente && agenteUsuarioIds.length === 0) {
