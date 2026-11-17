@@ -366,6 +366,10 @@ export default function FaturasPage() {
   ])
   const [faturaAgenteEditando, setFaturaAgenteEditando] = useState<Fatura | null>(null)
   const [buscaFormalConsolidada, setBuscaFormalConsolidada] = useState('') // HC_FATURAS_FORMAL_CONSOLIDADA_V2
+  // HC_COMPROVANTES_PAINEL_V1: alertas sem modificar o financeiro ou a emissão existente.
+  const [visaoComprovantes, setVisaoComprovantes] = useState<'PENDENTES' | 'TODOS'>('PENDENTES')
+  const [mostrarTodosComprovantes, setMostrarTodosComprovantes] = useState(false)
+  const [atualizandoPainelComprovantes, setAtualizandoPainelComprovantes] = useState(false)
   const [reciboAgenteSelecionado, setReciboAgenteSelecionado] = useState<Fatura | null>(null)
   const [reciboAgenteData, setReciboAgenteData] = useState('')
   const [reciboAgenteValor, setReciboAgenteValor] = useState('')
@@ -377,6 +381,59 @@ export default function FaturasPage() {
   useEffect(() => {
     carregar()
   }, [])
+
+  // HC_COMPROVANTES_PAINEL_V1: atualiza apenas os campos de comprovante/recibo
+  // enquanto a central estiver visível; evita recarregar todas as consultas financeiras.
+  useEffect(() => {
+    if (abaAtiva !== 'FATURAS') return
+    let ativo = true
+    let consultando = false
+
+    const atualizarComprovantesEmSegundoPlano = async () => {
+      if (document.visibilityState !== 'visible' || consultando) return
+      consultando = true
+      try {
+        const { data, error } = await supabase
+          .from('faturas')
+          .select('id, comprovante_pagamento, data_comprovante, recibo_pdf, status_pagamento, observacao_pagamento')
+          .order('criado_em', { ascending: false })
+          .limit(1000)
+        if (!ativo || error || !data?.length) return
+
+        const recentesPorId = new Map<string, Partial<Fatura>>(data.map((item) => [String(item.id), item as Partial<Fatura>]))
+        setFaturas((anteriores) => {
+          let houveMudanca = false
+          const atualizadas = anteriores.map((fatura) => {
+            const recente = recentesPorId.get(String(fatura.id))
+            if (!recente) return fatura
+            const campos = [
+              'comprovante_pagamento', 'data_comprovante', 'recibo_pdf',
+              'status_pagamento', 'observacao_pagamento',
+            ] as const
+            if (campos.every((campo) => fatura[campo] === recente[campo])) return fatura
+            houveMudanca = true
+            return { ...fatura, ...recente }
+          })
+          return houveMudanca ? atualizadas : anteriores
+        })
+      } catch (erro) {
+        console.warn('Não foi possível sincronizar os alertas de comprovantes:', erro)
+      } finally {
+        consultando = false
+      }
+    }
+
+    const aoRetornarParaJanela = () => { void atualizarComprovantesEmSegundoPlano() }
+    window.addEventListener('focus', aoRetornarParaJanela)
+    document.addEventListener('visibilitychange', aoRetornarParaJanela)
+    const intervalo = window.setInterval(() => { void atualizarComprovantesEmSegundoPlano() }, 90000)
+    return () => {
+      ativo = false
+      window.removeEventListener('focus', aoRetornarParaJanela)
+      document.removeEventListener('visibilitychange', aoRetornarParaJanela)
+      window.clearInterval(intervalo)
+    }
+  }, [abaAtiva])
 
   useEffect(() => {
     const termo = buscaClienteEmissor.trim()
@@ -4242,6 +4299,107 @@ async function carregarImagemBase64(caminhos: string[]) {
   const faturasAgenteCarga = useMemo(() => {
     return faturas.filter((item) => String(item.tipo_fatura || '').toUpperCase() === 'AGENTE_CARGA')
   }, [faturas])
+
+  // HC_COMPROVANTES_PAINEL_V1: conta cada fatura uma única vez, independentemente
+  // de haver comprovante no campo principal e em anexo complementar.
+  const painelComprovantesFaturas = useMemo(() => {
+    const embarquesPorId = new Map<string, Embarque>(embarques.map((embarque) => [String(embarque.id), embarque]))
+    const anexosPorFatura = new Map<string, FaturaArquivo[]>()
+
+    arquivosFaturas.forEach((arquivo) => {
+      if (!arquivo.url || !arquivo.fatura_id) return
+      const descricao = `${arquivo.tipo || ''} ${arquivo.nome || ''}`.toUpperCase()
+      if (!descricao.includes('COMPROVANTE')) return
+      const atuais = anexosPorFatura.get(String(arquivo.fatura_id)) || []
+      atuais.push(arquivo)
+      anexosPorFatura.set(String(arquivo.fatura_id), atuais)
+    })
+
+    const itens = faturas.flatMap((fatura) => {
+      const anexo = anexosPorFatura.get(String(fatura.id))?.[0] || null
+      const comprovanteUrl = fatura.comprovante_pagamento || anexo?.url || null
+      if (!comprovanteUrl) return []
+
+      const embarque = fatura.embarque_id
+        ? embarquesPorId.get(String(fatura.embarque_id)) || null
+        : null
+      const dados = fatura.dados_cliente_faturamento || {}
+      const formal = String(fatura.tipo_fatura || '').toUpperCase() === 'AGENTE_CARGA'
+      const processo = String(embarque?.awb || dados.processo || embarque?.referencia_hc || fatura.numero_fatura || 'Não informado')
+      const cliente = String(embarque?.cliente_final || embarque?.importador || dados.nome || dados.razao_social || dados.nome_empresa || 'Cliente não informado')
+      const dataComprovante = fatura.comprovante_pagamento
+        ? (fatura.data_comprovante || fatura.criado_em)
+        : (anexo?.criado_em || fatura.criado_em)
+      const rejeitado = String(fatura.status_pagamento || '').toUpperCase().includes('REJEITADO')
+      const reciboEmitido = !!fatura.recibo_pdf
+      const podeEmitirRecibo = !!fatura.arquivo_pdf && !rejeitado &&
+        (formal || (!!embarque && faturaDoEmbarque(embarque.id)?.id === fatura.id))
+
+      return [{
+        fatura, embarque, formal, processo, cliente,
+        comprovanteUrl, dataComprovante,
+        enviadoPeloCliente: !!fatura.comprovante_pagamento,
+        rejeitado, reciboEmitido, podeEmitirRecibo,
+      }]
+    }).sort((a, b) => {
+      const dataA = new Date(a.dataComprovante || '').getTime() || 0
+      const dataB = new Date(b.dataComprovante || '').getTime() || 0
+      return dataB - dataA
+    })
+
+    return {
+      todos: itens,
+      pendentes: itens.filter((item) => !item.reciboEmitido),
+      comRecibo: itens.filter((item) => item.reciboEmitido).length,
+      enviadosPeloCliente: itens.filter((item) => item.enviadoPeloCliente).length,
+      anexadosAvulsos: itens.filter((item) => !item.enviadoPeloCliente).length,
+    }
+  }, [faturas, embarques, arquivosFaturas])
+
+  function abrirProcessoDoPainelComprovantes(item: (typeof painelComprovantesFaturas.todos)[number]) {
+    setAbaAtiva('FATURAS')
+    if (item.embarque) {
+      setBusca(item.embarque.awb || item.fatura.numero_fatura || '')
+      setFiltroDocumento('TODOS')
+      setFiltroStatusEmbarque('TODOS')
+      setFiltroPagamento('TODOS')
+      setFiltroArquivamento(item.fatura.arquivado_admin ? 'ARQUIVADAS' : 'ATIVAS')
+      setPacoteAbertoId(item.embarque.id)
+      setTimeout(() => document.getElementById('tabela_faturas')?.scrollIntoView({ behavior: 'smooth' }), 120)
+      return
+    }
+    if (item.formal) {
+      setBuscaFormalConsolidada(item.fatura.numero_fatura || item.processo)
+      setTimeout(() => document.getElementById('historico_faturas_formais')?.scrollIntoView({ behavior: 'smooth' }), 120)
+      return
+    }
+    alert('Esta fatura ainda não possui embarque vinculado. Utilize o PDF do comprovante e o número da fatura para conferir o registro.')
+  }
+
+  function emitirReciboDoPainelComprovantes(item: (typeof painelComprovantesFaturas.todos)[number]) {
+    if (item.rejeitado) return alert('Comprovante rejeitado: confira o documento antes de emitir o recibo.')
+    if (!item.podeEmitirRecibo) return alert('Não foi possível identificar um emissor seguro para esta fatura. Abra o processo para conferir o vínculo e os documentos.')
+    if (item.formal) {
+      abrirReciboFaturaAgente(item.fatura)
+      return
+    }
+    if (item.embarque) {
+      setAbaAtiva('FATURAS')
+      abrirEmissaoRecibo(item.embarque)
+    }
+  }
+
+  async function atualizarPainelComprovantes() {
+    if (atualizandoPainelComprovantes) return
+    setAtualizandoPainelComprovantes(true)
+    try {
+      await carregar()
+    } catch (erro: any) {
+      alert('Erro ao atualizar os comprovantes: ' + (erro?.message || erro))
+    } finally {
+      setAtualizandoPainelComprovantes(false)
+    }
+  }
 
   // HC_FATURAS_FORMAL_CONSOLIDADA_V2: inclui faturas sem embarque vinculado.
   const faturasFormaisFiltradas = useMemo(() => {
@@ -9979,6 +10137,150 @@ async function carregarImagemBase64(caminhos: string[]) {
         renderAbaRecibos()
       ) : (
         <>
+      {/* HC_COMPROVANTES_PAINEL_V1: triagem de comprovantes no topo de Faturas Clientes. */}
+      <section id="painel_comprovantes_faturas" className="mb-6 rounded-3xl border border-blue-800 bg-[#071225] p-5 lg:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-blue-400">Acompanhamento de pagamentos</p>
+            <h2 className="mt-1 text-2xl font-black text-white">Comprovantes recebidos</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Processos com comprovante enviado pelo cliente ou anexado à fatura. Inclui faturas arquivadas.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { void atualizarPainelComprovantes() }}
+            disabled={atualizandoPainelComprovantes}
+            className="rounded-xl border border-blue-700 bg-blue-900/20 px-4 py-2.5 text-sm font-black text-blue-200 hover:bg-blue-900/50 disabled:opacity-50"
+          >
+            {atualizandoPainelComprovantes ? 'Atualizando...' : '↻ Atualizar comprovantes'}
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-blue-800 bg-[#020817] p-4">
+            <p className="text-xs font-black uppercase text-blue-300">Comprovantes anexados</p>
+            <p className="mt-1 text-3xl font-black text-white">{painelComprovantesFaturas.todos.length}</p>
+            <p className="mt-1 text-xs text-slate-400">{painelComprovantesFaturas.enviadosPeloCliente} pelo portal • {painelComprovantesFaturas.anexadosAvulsos} em anexos</p>
+          </div>
+          <div className="rounded-2xl border border-amber-600/60 bg-amber-950/15 p-4">
+            <p className="text-xs font-black uppercase text-amber-300">Com comprovante, sem recibo</p>
+            <p className="mt-1 text-3xl font-black text-amber-200">{painelComprovantesFaturas.pendentes.length}</p>
+            <p className="mt-1 text-xs text-slate-400">Precisam de conferência ou emissão de recibo</p>
+          </div>
+          <div className="rounded-2xl border border-green-800 bg-[#020817] p-4">
+            <p className="text-xs font-black uppercase text-green-300">Comprovante e recibo</p>
+            <p className="mt-1 text-3xl font-black text-green-200">{painelComprovantesFaturas.comRecibo}</p>
+            <p className="mt-1 text-xs text-slate-400">Recibo PDF já registrado na fatura</p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => { setVisaoComprovantes('PENDENTES'); setMostrarTodosComprovantes(false) }}
+              className={visaoComprovantes === 'PENDENTES'
+                ? 'rounded-xl bg-amber-600 px-4 py-2 text-sm font-black text-white'
+                : 'rounded-xl border border-slate-700 bg-[#020817] px-4 py-2 text-sm font-black text-slate-300 hover:bg-slate-800'}
+            >
+              Sem recibo ({painelComprovantesFaturas.pendentes.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => { setVisaoComprovantes('TODOS'); setMostrarTodosComprovantes(false) }}
+              className={visaoComprovantes === 'TODOS'
+                ? 'rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white'
+                : 'rounded-xl border border-slate-700 bg-[#020817] px-4 py-2 text-sm font-black text-slate-300 hover:bg-slate-800'}
+            >
+              Todos recebidos ({painelComprovantesFaturas.todos.length})
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">Atualização automática ao voltar à janela e a cada 90 segundos.</p>
+        </div>
+
+        {(() => {
+          const lista = visaoComprovantes === 'PENDENTES'
+            ? painelComprovantesFaturas.pendentes
+            : painelComprovantesFaturas.todos
+          const visiveis = mostrarTodosComprovantes ? lista : lista.slice(0, 5)
+          return (
+            <>
+              <div className="mt-3 max-h-[470px] space-y-2 overflow-y-auto pr-1">
+                {lista.length === 0 ? (
+                  <div className="rounded-xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
+                    {visaoComprovantes === 'PENDENTES'
+                      ? 'Nenhuma fatura com comprovante anexado e recibo pendente entre as faturas carregadas.'
+                      : 'Nenhum comprovante identificado entre as faturas carregadas.'}
+                  </div>
+                ) : visiveis.map((item) => (
+                  <div key={item.fatura.id} className="flex flex-col gap-3 rounded-xl border border-blue-900 bg-[#020817] p-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-black text-white">{item.formal ? 'Processo formal' : 'AWB / Processo'} {item.processo}</span>
+                        <span className={item.rejeitado
+                          ? 'rounded-md border border-red-700 px-2 py-0.5 text-xs font-bold text-red-300'
+                          : item.reciboEmitido
+                            ? 'rounded-md border border-green-700 px-2 py-0.5 text-xs font-bold text-green-300'
+                            : 'rounded-md border border-amber-700 px-2 py-0.5 text-xs font-bold text-amber-300'}
+                        >
+                          {item.rejeitado ? 'Comprovante rejeitado' : item.reciboEmitido ? 'Recibo emitido' : 'Aguardando recibo'}
+                        </span>
+                        {item.fatura.arquivado_admin && <span className="text-xs font-bold text-slate-400">Arquivada</span>}
+                      </div>
+                      <p className="mt-1 truncate text-sm text-slate-300">{item.cliente} • Fatura {item.fatura.numero_fatura || 'sem número'}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {item.enviadoPeloCliente ? 'Enviado pelo cliente' : 'Comprovante anexado'}
+                        {' • '}{dataBR(item.dataComprovante)}
+                        {item.rejeitado && item.fatura.observacao_pagamento ? ` • ${item.fatura.observacao_pagamento}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={item.comprovanteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg bg-purple-700 px-3 py-2 text-center text-xs font-black text-white hover:bg-purple-600"
+                      >
+                        Ver comprovante
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => abrirProcessoDoPainelComprovantes(item)}
+                        className="rounded-lg border border-blue-700 bg-blue-900/20 px-3 py-2 text-xs font-black text-blue-200 hover:bg-blue-900/50"
+                      >
+                        Abrir processo
+                      </button>
+                      {!item.reciboEmitido && item.podeEmitirRecibo && (
+                        <button
+                          type="button"
+                          onClick={() => emitirReciboDoPainelComprovantes(item)}
+                          className="rounded-lg bg-green-700 px-3 py-2 text-xs font-black text-white hover:bg-green-600"
+                        >
+                          Emitir recibo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {lista.length > 5 && (
+                <button
+                  type="button"
+                  onClick={() => setMostrarTodosComprovantes((atual) => !atual)}
+                  className="mt-3 rounded-xl border border-blue-800 px-4 py-2 text-sm font-black text-blue-200 hover:bg-blue-900/30"
+                >
+                  {mostrarTodosComprovantes ? 'Mostrar menos' : `Ver todos os ${lista.length} processos`}
+                </button>
+              )}
+            </>
+          )
+        })()}
+        <p className="mt-4 text-xs text-slate-500">
+          O comprovante anexado não confirma sozinho o pagamento. Antes de emitir, confira a análise e o lançamento financeiro.
+        </p>
+      </section>
+
       <section className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
         <Card
           titulo="Com fatura"
