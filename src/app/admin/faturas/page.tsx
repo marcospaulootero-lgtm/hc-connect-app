@@ -1883,6 +1883,14 @@ export default function FaturasPage() {
       return alert('Arquivo inválido. Use PDF, JPG ou PNG.')
     }
 
+    // Complementares e boletos nao precisam ter o mesmo valor da fatura principal.
+    // Exigimos somente o AWB correto; o valor deve ser revisado pelo operador.
+    if (normalizarTexto(tipo).includes('FATURA') || normalizarTexto(tipo).includes('RECIBO')) {
+      const embarqueDoArquivo = embarques.find((e) => e.id === fatura.embarque_id)
+      if (embarqueDoArquivo && !conferirDocumentoManualHC(arquivo, embarqueDoArquivo.awb, null, false)) return
+      if (!embarqueDoArquivo && !window.confirm('Nao ha embarque associado a esta fatura. Confirme manualmente o processo e o documento antes de continuar.')) return
+    }
+
     setEnviandoArquivoExtra(`${fatura.id}-${tipo}`)
 
     try {
@@ -2920,6 +2928,84 @@ async function carregarImagemBase64(caminhos: string[]) {
     }, 50)
   }
 
+
+// HC_INTEGRIDADE_DOCUMENTOS_V1: conferencia assistida de anexos manuais.
+// Nao interpreta automaticamente o conteudo: exige verificacao do operador.
+function conferirDocumentoManualHC(
+  arquivo: File,
+  awbEsperado: string,
+  valorFinanceiroEsperado: number | null,
+  validarValor: boolean
+) {
+  const awb = normalizarAwb(awbEsperado)
+  if (!awb) {
+    alert('Anexo bloqueado: o embarque nao possui AWB valido.')
+    return false
+  }
+
+  const nomeNormalizado = normalizarAwb(arquivo.name)
+  const outroEmbarque = embarques.find((e) => {
+    const awbOutro = normalizarAwb(e.awb)
+    return awbOutro && awbOutro !== awb && awbOutro.length >= 8 && nomeNormalizado.includes(awbOutro)
+  })
+  if (outroEmbarque) {
+    alert(`ANEXO BLOQUEADO: o nome do arquivo menciona outro AWB (${outroEmbarque.awb}). Destino selecionado: ${awbEsperado}.`)
+    return false
+  }
+
+  const urlTemporaria = URL.createObjectURL(arquivo)
+  const abaVerificacao = window.open(urlTemporaria, '_blank')
+  if (!abaVerificacao) {
+    URL.revokeObjectURL(urlTemporaria)
+    alert('A visualizacao do arquivo foi bloqueada pelo navegador. Autorize pop-ups e tente novamente. Nenhum arquivo foi anexado.')
+    return false
+  }
+  // Tempo suficiente para leitura na nova aba. Nenhuma modificacao no banco nesta etapa.
+  window.setTimeout(() => URL.revokeObjectURL(urlTemporaria), 300000)
+
+  const informado = window.prompt(
+    `CONFERENCIA OBRIGATORIA DE DOCUMENTO\n\n` +
+    `Destino selecionado: ${awbEsperado}\nArquivo: ${arquivo.name}\n\n` +
+    'Confira visualmente o documento aberto na nova aba.\n' +
+    'Digite o AWB/HAWB QUE ESTA IMPRESSO NO DOCUMENTO (nao copie sem conferir):',
+    ''
+  )
+  if (informado === null) return false
+  if (normalizarAwb(informado) !== awb) {
+    alert(`ANEXO BLOQUEADO: AWB/HAWB informado (${informado}) diferente do destino (${awbEsperado}).`)
+    return false
+  }
+
+  if (validarValor) {
+    const valorTexto = window.prompt(
+      `Digite o TOTAL EM R$ QUE ESTA IMPRESSO NO PDF.\n` +
+      `Valor no financeiro: ${valorFinanceiroEsperado && valorFinanceiroEsperado > 0 ? moeda(valorFinanceiroEsperado) : 'nao encontrado'}.\n` +
+      'Use virgula para centavos:',
+      ''
+    )
+    if (valorTexto === null || !/[0-9]/.test(valorTexto)) return false
+    const valorPdf = numero(valorTexto)
+    if (!Number.isFinite(valorPdf) || valorPdf <= 0) {
+      alert('Valor invalido. Documento nao anexado.')
+      return false
+    }
+    if (valorFinanceiroEsperado && valorFinanceiroEsperado > 0 && Math.abs(valorPdf - valorFinanceiroEsperado) > 0.01) {
+      alert(`ANEXO BLOQUEADO: PDF ${moeda(valorPdf)}; financeiro ${moeda(valorFinanceiroEsperado)}. Concilie primeiro o processo.`)
+      return false
+    }
+    if (!valorFinanceiroEsperado || valorFinanceiroEsperado <= 0) {
+      const continuar = window.confirm(
+        `Nao foi localizado valor financeiro confiavel para o AWB ${awbEsperado}.\n` +
+        `Total conferido no PDF: ${moeda(valorPdf)}.\n\n` +
+        'ATENCAO: esta operacao so vincula o documento e nao registra recebimento.\n' +
+        'Confirma que o AWB e o valor foram conferidos manualmente?'
+      )
+      if (!continuar) return false
+    }
+  }
+  return true
+}
+
   async function salvarFatura() {
     if (!embarqueSelecionado) return alert('Selecione um embarque.')
 
@@ -2931,6 +3017,13 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     if (arquivoPdf && arquivoPdf.type !== 'application/pdf') {
       return alert('O arquivo precisa ser um PDF.')
+    }
+
+    if (arquivoPdf) {
+      const financeiro = financeiroDoEmbarque(embarqueSelecionado)
+      if (!conferirDocumentoManualHC(
+        arquivoPdf, embarqueSelecionado.awb, financeiro ? valorFinanceiro(financeiro) : null, true
+      )) return
     }
 
     setSalvando(true)
@@ -2957,10 +3050,8 @@ async function carregarImagemBase64(caminhos: string[]) {
       const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
       urlPdf = urlData.publicUrl
 
-      const caminhoAntigo = extrairCaminhoStorage(faturaExistente?.arquivo_pdf)
-      if (caminhoAntigo) {
-        await supabase.storage.from('faturas').remove([caminhoAntigo])
-      }
+      // HC_INTEGRIDADE_DOCUMENTOS_V1: preservar a versao anterior ate a nova
+      // referencia ser persistida. Nao remover automaticamente o PDF do Storage.
     }
 
     const payload = {
@@ -3039,6 +3130,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     const fatura = faturaDoEmbarque(embarque.id)
     if (!fatura) return alert('Cadastre a fatura antes de anexar o recibo.')
+    if (!conferirDocumentoManualHC(arquivo, embarque.awb, null, false)) return
 
     setEnviandoRecibo(embarque.id)
 
@@ -3060,11 +3152,7 @@ async function carregarImagemBase64(caminhos: string[]) {
 
     const { data: urlData } = supabase.storage.from('faturas').getPublicUrl(nomeArquivo)
 
-    const caminhoAntigo = extrairCaminhoStorage(fatura.recibo_pdf)
-    if (caminhoAntigo) {
-      await supabase.storage.from('faturas').remove([caminhoAntigo])
-    }
-
+    // HC_INTEGRIDADE_DOCUMENTOS_V1: preservar recibo antigo no Storage.
     const { error } = await supabase
       .from('faturas')
       .update({
@@ -3657,22 +3745,7 @@ async function carregarImagemBase64(caminhos: string[]) {
           reciboExistente?.caminho ||
           extrairCaminhoStorage(reciboExistente?.url)
 
-        if (
-          caminhoReciboAnterior &&
-          caminhoReciboAnterior !== nomeArquivo
-        ) {
-          const { error: erroStorageAnterior } = await supabase.storage
-            .from('faturas')
-            .remove([caminhoReciboAnterior])
-
-          if (erroStorageAnterior) {
-            console.log(
-              'Não foi possível remover o recibo complementar anterior:',
-              erroStorageAnterior
-            )
-          }
-        }
-
+        // HC_INTEGRIDADE_DOCUMENTOS_V1: conservar o recibo complementar anterior.
         const {
           data: { user },
         } = await supabase.auth.getUser()
@@ -3797,11 +3870,7 @@ async function carregarImagemBase64(caminhos: string[]) {
         return
       }
 
-      const caminhoAntigo = extrairCaminhoStorage(fatura.recibo_pdf)
-      if (caminhoAntigo) {
-        await supabase.storage.from('faturas').remove([caminhoAntigo])
-      }
-
+      // HC_INTEGRIDADE_DOCUMENTOS_V1: nao apagar recibo antigo antes do novo registro.
       const { error: erroFatura } = await supabase
         .from('faturas')
         .update({
@@ -6594,20 +6663,9 @@ async function carregarImagemBase64(caminhos: string[]) {
         }
       }
 
-      /*
-        Emissão normal mantém o comportamento atual.
-      */
-      if (
-        caminhoAntigo &&
-        !ehReemissaoJuros
-      ) {
-        await supabase.storage
-          .from('faturas')
-          .remove([
-            caminhoAntigo,
-          ])
-      }
-
+      /* HC_INTEGRIDADE_DOCUMENTOS_V1:
+         Emissao normal gera novo PDF sem apagar o arquivo anterior antes
+         de atualizar o banco. O historico fica preservado no Storage. */
       const payloadFatura: any = {
         embarque_id: emissorEmbarqueSelecionado.id,
 
@@ -8265,10 +8323,7 @@ async function carregarImagemBase64(caminhos: string[]) {
       const urlRecibo = urlData.publicUrl
       const caminhoAnterior = extrairCaminhoStorage(fatura.recibo_pdf)
 
-      if (caminhoAnterior && caminhoAnterior !== nomeArquivo) {
-        await supabase.storage.from('faturas').remove([caminhoAnterior])
-      }
-
+      // HC_INTEGRIDADE_DOCUMENTOS_V1: guardar PDF anterior para recuperacao.
       const { error: erroAtualizacao } = await supabase
         .from('faturas')
         .update({
@@ -10387,6 +10442,9 @@ async function carregarImagemBase64(caminhos: string[]) {
               Vencimento e pagamento não são editados aqui. Atualize essas informações em Financeiro &gt; Processos Faturados.
             </div>
 
+            <div className="md:col-span-3 rounded-xl border border-amber-500/50 bg-amber-950/30 p-3 text-xs text-amber-200">
+              Segurança: ao anexar uma fatura pronta, confira AWB/HAWB e valor no PDF. Se divergirem dos dados do processo, o envio será bloqueado.
+            </div>
             <button
               onClick={salvarFatura}
               disabled={salvando}
