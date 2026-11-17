@@ -367,7 +367,7 @@ export default function FaturasPage() {
   const [faturaAgenteEditando, setFaturaAgenteEditando] = useState<Fatura | null>(null)
   const [buscaFormalConsolidada, setBuscaFormalConsolidada] = useState('') // HC_FATURAS_FORMAL_CONSOLIDADA_V2
   // HC_COMPROVANTES_PAINEL_V1: alertas sem modificar o financeiro ou a emissão existente.
-  const [visaoComprovantes, setVisaoComprovantes] = useState<'PENDENTES' | 'TODOS'>('PENDENTES')
+  const [visaoComprovantes, setVisaoComprovantes] = useState<'PENDENTES' | 'CONCILIACAO' | 'TODOS'>('PENDENTES')
   const [mostrarTodosComprovantes, setMostrarTodosComprovantes] = useState(false)
   const [atualizandoPainelComprovantes, setAtualizandoPainelComprovantes] = useState(false)
   const [reciboAgenteSelecionado, setReciboAgenteSelecionado] = useState<Fatura | null>(null)
@@ -4389,6 +4389,26 @@ function conferirDocumentoManualHC(
       anexosPorFatura.set(String(arquivo.fatura_id), atuais)
     })
 
+    // HC_RECIBO_FORMAL_ALERTA_V1: uma fatura formal do mesmo processo pode ter
+    // recibo, mas nunca quitamos outra cobrança apenas por AWB coincidente.
+    const localizarRecibosFormaisRelacionados = (embarque: Embarque) => {
+      const chaves = [embarque.awb, embarque.referencia_cliente, embarque.referencia_hc]
+        .map((valor) => normalizarAwb(valor))
+        .filter(Boolean)
+      const normalizarCliente = (valor: unknown) => normalizarTexto(valor).replace(/[^A-Z0-9]/g, '')
+      const clienteEmbarque = normalizarCliente(embarque.cliente_final || embarque.importador)
+      if (!chaves.length || !clienteEmbarque) return [] as Fatura[]
+      return faturas.filter((item) => {
+        if (String(item.tipo_fatura || '').toUpperCase() !== 'AGENTE_CARGA' || !item.recibo_pdf) return false
+        const dados = item.dados_cliente_faturamento || {}
+        const clienteFormal = normalizarCliente(dados.nome || dados.razao_social || dados.nome_empresa)
+        return clienteFormal === clienteEmbarque && (
+          (!!item.embarque_id && String(item.embarque_id) === String(embarque.id)) ||
+          chaves.includes(normalizarAwb(dados.processo))
+        )
+      })
+    }
+
     const itens = faturas.flatMap((fatura) => {
       const anexo = anexosPorFatura.get(String(fatura.id))?.[0] || null
       const comprovanteUrl = fatura.comprovante_pagamento || anexo?.url || null
@@ -4406,7 +4426,18 @@ function conferirDocumentoManualHC(
         : (anexo?.criado_em || fatura.criado_em)
       const rejeitado = String(fatura.status_pagamento || '').toUpperCase().includes('REJEITADO')
       const reciboEmitido = !!fatura.recibo_pdf
-      const podeEmitirRecibo = !!fatura.arquivo_pdf && !rejeitado &&
+      const recibosRelacionados = !formal && !reciboEmitido && embarque
+        ? localizarRecibosFormaisRelacionados(embarque)
+        : []
+      const requerConciliacao = recibosRelacionados.length > 0
+      const reciboOutraFatura = recibosRelacionados.length === 1 ? recibosRelacionados[0] : null
+      const valorBase = numero(fatura.valor_pago) || numero(fatura.valor_total) ||
+        (embarque ? valorFinanceiro(financeiroDoEmbarque(embarque)) : 0)
+      const valorFormal = numero(reciboOutraFatura?.valor_total) || numero(reciboOutraFatura?.valor_pago)
+      const valorDivergente = requerConciliacao && valorBase > 0 && valorFormal > 0 &&
+        Math.abs(valorBase - valorFormal) > 0.01
+      // Nunca oferecer emissão duplicada enquanto existir recibo formal a conciliar.
+      const podeEmitirRecibo = !requerConciliacao && !!fatura.arquivo_pdf && !rejeitado &&
         (formal || (!!embarque && faturaDoEmbarque(embarque.id)?.id === fatura.id))
 
       return [{
@@ -4414,6 +4445,8 @@ function conferirDocumentoManualHC(
         comprovanteUrl, dataComprovante,
         enviadoPeloCliente: !!fatura.comprovante_pagamento,
         rejeitado, reciboEmitido, podeEmitirRecibo,
+        requerConciliacao, reciboOutraFatura, valorBase, valorFormal, valorDivergente,
+        quantidadeRecibosFormais: recibosRelacionados.length,
       }]
     }).sort((a, b) => {
       const dataA = new Date(a.dataComprovante || '').getTime() || 0
@@ -4423,7 +4456,8 @@ function conferirDocumentoManualHC(
 
     return {
       todos: itens,
-      pendentes: itens.filter((item) => !item.reciboEmitido),
+      pendentes: itens.filter((item) => !item.reciboEmitido && !item.requerConciliacao),
+      conciliacao: itens.filter((item) => item.requerConciliacao),
       comRecibo: itens.filter((item) => item.reciboEmitido).length,
       enviadosPeloCliente: itens.filter((item) => item.enviadoPeloCliente).length,
       anexadosAvulsos: itens.filter((item) => !item.enviadoPeloCliente).length,
@@ -4432,6 +4466,11 @@ function conferirDocumentoManualHC(
 
   function abrirProcessoDoPainelComprovantes(item: (typeof painelComprovantesFaturas.todos)[number]) {
     setAbaAtiva('FATURAS')
+    if (item.reciboOutraFatura) {
+      setBuscaFormalConsolidada(item.reciboOutraFatura.numero_fatura || item.processo)
+      setTimeout(() => document.getElementById('historico_faturas_formais')?.scrollIntoView({ behavior: 'smooth' }), 120)
+      return
+    }
     if (item.embarque) {
       setBusca(item.embarque.awb || item.fatura.numero_fatura || '')
       setFiltroDocumento('TODOS')
@@ -10272,7 +10311,7 @@ function conferirDocumentoManualHC(
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-4">
           <div className="rounded-2xl border border-blue-800 bg-[#020817] p-4">
             <p className="text-xs font-black uppercase text-blue-300">Comprovantes anexados</p>
             <p className="mt-1 text-3xl font-black text-white">{painelComprovantesFaturas.todos.length}</p>
@@ -10282,6 +10321,11 @@ function conferirDocumentoManualHC(
             <p className="text-xs font-black uppercase text-amber-300">Com comprovante, sem recibo</p>
             <p className="mt-1 text-3xl font-black text-amber-200">{painelComprovantesFaturas.pendentes.length}</p>
             <p className="mt-1 text-xs text-slate-400">Precisam de conferência ou emissão de recibo</p>
+          </div>
+          <div className="rounded-2xl border border-amber-700 bg-[#020817] p-4">
+            <p className="text-xs font-black uppercase text-amber-300">Conferir vínculo de recibo</p>
+            <p className="mt-1 text-3xl font-black text-amber-200">{painelComprovantesFaturas.conciliacao.length}</p>
+            <p className="mt-1 text-xs text-slate-400">Existe recibo formal em outro registro do mesmo processo</p>
           </div>
           <div className="rounded-2xl border border-green-800 bg-[#020817] p-4">
             <p className="text-xs font-black uppercase text-green-300">Comprovante e recibo</p>
@@ -10303,6 +10347,15 @@ function conferirDocumentoManualHC(
             </button>
             <button
               type="button"
+              onClick={() => { setVisaoComprovantes('CONCILIACAO'); setMostrarTodosComprovantes(false) }}
+              className={visaoComprovantes === 'CONCILIACAO'
+                ? 'rounded-xl bg-amber-600 px-4 py-2 text-sm font-black text-white'
+                : 'rounded-xl border border-amber-700 bg-[#020817] px-4 py-2 text-sm font-black text-amber-300 hover:bg-amber-950/40'}
+            >
+              Conferir vínculos ({painelComprovantesFaturas.conciliacao.length})
+            </button>
+            <button
+              type="button"
               onClick={() => { setVisaoComprovantes('TODOS'); setMostrarTodosComprovantes(false) }}
               className={visaoComprovantes === 'TODOS'
                 ? 'rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white'
@@ -10317,7 +10370,9 @@ function conferirDocumentoManualHC(
         {(() => {
           const lista = visaoComprovantes === 'PENDENTES'
             ? painelComprovantesFaturas.pendentes
-            : painelComprovantesFaturas.todos
+            : visaoComprovantes === 'CONCILIACAO'
+              ? painelComprovantesFaturas.conciliacao
+              : painelComprovantesFaturas.todos
           const visiveis = mostrarTodosComprovantes ? lista : lista.slice(0, 5)
           return (
             <>
@@ -10325,8 +10380,10 @@ function conferirDocumentoManualHC(
                 {lista.length === 0 ? (
                   <div className="rounded-xl border border-blue-900 bg-[#020817] p-4 text-sm text-slate-400">
                     {visaoComprovantes === 'PENDENTES'
-                      ? 'Nenhuma fatura com comprovante anexado e recibo pendente entre as faturas carregadas.'
-                      : 'Nenhum comprovante identificado entre as faturas carregadas.'}
+                      ? 'Nenhuma fatura sem recibo e sem conflito identificado entre as faturas carregadas.'
+                      : visaoComprovantes === 'CONCILIACAO'
+                        ? 'Nenhum recibo formal em outro registro exigindo conferência.'
+                        : 'Nenhum comprovante identificado entre as faturas carregadas.'}
                   </div>
                 ) : visiveis.map((item) => (
                   <div key={item.fatura.id} className="flex flex-col gap-3 rounded-xl border border-blue-900 bg-[#020817] p-3 lg:flex-row lg:items-center lg:justify-between">
@@ -10339,7 +10396,7 @@ function conferirDocumentoManualHC(
                             ? 'rounded-md border border-green-700 px-2 py-0.5 text-xs font-bold text-green-300'
                             : 'rounded-md border border-amber-700 px-2 py-0.5 text-xs font-bold text-amber-300'}
                         >
-                          {item.rejeitado ? 'Comprovante rejeitado' : item.reciboEmitido ? 'Recibo emitido' : 'Aguardando recibo'}
+                          {item.rejeitado ? 'Comprovante rejeitado' : item.reciboEmitido ? 'Recibo emitido' : item.requerConciliacao ? 'Recibo formal localizado — conferir vínculo' : 'Aguardando recibo'}
                         </span>
                         {item.fatura.arquivado_admin && <span className="text-xs font-bold text-slate-400">Arquivada</span>}
                       </div>
@@ -10349,6 +10406,15 @@ function conferirDocumentoManualHC(
                         {' • '}{dataBR(item.dataComprovante)}
                         {item.rejeitado && item.fatura.observacao_pagamento ? ` • ${item.fatura.observacao_pagamento}` : ''}
                       </p>
+                      {item.requerConciliacao && (
+                        <p className="mt-2 text-xs font-bold text-amber-300">
+                          Recibo formal já localizado{item.reciboOutraFatura?.numero_fatura ? ` na fatura ${item.reciboOutraFatura.numero_fatura}` : ''}.
+                          {' '}Registro do comprovante: {item.valorBase ? moeda(item.valorBase) : 'valor não informado'}.
+                          {' '}Fatura formal: {item.valorFormal ? moeda(item.valorFormal) : 'valor a conferir'}.
+                          {item.valorDivergente ? ' Valores diferentes: verificar se são cobranças distintas, sem reemitir recibo.' : ' Conferir os vínculos antes de qualquer reemissão.'}
+                          {item.quantidadeRecibosFormais > 1 ? ' Há múltiplos recibos formais correspondentes: conferir manualmente.' : ''}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
@@ -10366,6 +10432,11 @@ function conferirDocumentoManualHC(
                       >
                         Abrir processo
                       </button>
+                      {item.reciboOutraFatura?.recibo_pdf && (
+                        <Link href={item.reciboOutraFatura.recibo_pdf} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-amber-700 px-3 py-2 text-center text-xs font-black text-amber-200 hover:bg-amber-950/30">
+                          Abrir recibo formal
+                        </Link>
+                      )}
                       {!item.reciboEmitido && item.podeEmitirRecibo && (
                         <button
                           type="button"
