@@ -318,7 +318,7 @@ const CODIGOS_PAISES_COTACAO = [
   'GH','GD','GT','GN','GW','GY','HT','HN','IS','IQ','JM','KZ','KE','KG','LA','LV','LS','LR',
   'LY','LI','LT','LU','MG','MW','MV','ML','MT','MR','MU','MD','MC','MN','ME','MZ','MM','NA',
   'NP','NI','NE','NG','MK','PK','PA','PG','PH','RW','SN','SC','SL','SO','LK','SD','SR','TJ',
-  'TZ','TG','TN','TM','UG','UZ','VE','YE','ZM','ZW'
+  'TZ','TG','TN','TM','UG','UZ','VE','YE','ZM','ZW','PR'
 ] as const
 
 const displayPaisesCotacao =
