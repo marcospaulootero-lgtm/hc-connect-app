@@ -42,6 +42,11 @@ export default function DetalheEmbarquePage() {
   const [masterNumero, setMasterNumero] = useState('')
   const [salvandoMaster, setSalvandoMaster] = useState(false)
 
+  // HC_TRES_CORRECOES_V1_DETALHE: edicao operacional sem alterar financeiro/rastreio.
+  const [editandoDados, setEditandoDados] = useState(false)
+  const [salvandoDados, setSalvandoDados] = useState(false)
+  const [dadosEdicao, setDadosEdicao] = useState<Record<string, string>>({})
+
   useEffect(() => {
     carregar()
     carregarUsuarios()
@@ -75,6 +80,24 @@ export default function DetalheEmbarquePage() {
 
     setEmbarque(data)
     setMasterNumero(data.master || '')
+    setDadosEdicao({
+      awb: awbPendente(data.awb) ? '' : String(data.awb || ''),
+      transportadora: String(data.transportadora || ''),
+      servico: String(data.servico || ''),
+      exportador: String(data.exportador || ''),
+      importador: String(data.importador || ''),
+      referencia_cliente: String(data.referencia_cliente || ''),
+      despachante: String(data.despachante || ''),
+      origem: String(data.origem || ''),
+      destino: String(data.destino || ''),
+      data_prevista: String(data.data_prevista || '').slice(0, 10),
+      peso_real: data.peso_real == null ? '' : String(data.peso_real).replace('.', ','),
+      peso_taxado: data.peso_taxado == null ? '' : String(data.peso_taxado).replace('.', ','),
+      observacoes: String(data.observacoes || ''),
+    })
+    if (new URLSearchParams(window.location.search).get('editar') === '1') {
+      setEditandoDados(true)
+    }
 
     const { data: timelineData } = await supabase
       .from('timeline_embarques')
@@ -103,6 +126,106 @@ export default function DetalheEmbarquePage() {
     }
 
     setDocumentos(documentosData || [])
+  }
+
+  async function salvarDadosPrincipais() {
+    if (!embarque || salvandoDados) return
+
+    const novoAwb = String(dadosEdicao.awb || '').trim().toUpperCase().replace(/\s+/g, '')
+    const awbAnterior = String(embarque.awb || '').trim()
+    const anteriorReal = !!awbAnterior && !awbPendente(awbAnterior)
+    const mudouAwb = novoAwb !== (anteriorReal ? awbAnterior.toUpperCase().replace(/\s+/g, '') : '')
+
+    if (novoAwb && !/^[A-Z0-9-]{6,50}$/.test(novoAwb)) {
+      alert('Confira o AWB: informe de 6 a 50 caracteres (letras, numeros ou hifen).')
+      return
+    }
+    if (anteriorReal && !novoAwb) {
+      alert('Para evitar perder o rastreio, não é permitido apagar um AWB já preenchido.')
+      return
+    }
+
+    const pesoReal = dadosEdicao.peso_real?.trim() ? numeroValorBR(dadosEdicao.peso_real) : null
+    const pesoTaxado = dadosEdicao.peso_taxado?.trim() ? numeroValorBR(dadosEdicao.peso_taxado) : null
+    if ([pesoReal, pesoTaxado].some((n) => n !== null && (!Number.isFinite(n) || n < 0))) {
+      alert('Informe pesos válidos e não negativos.')
+      return
+    }
+
+    setSalvandoDados(true)
+    try {
+      if (mudouAwb && novoAwb) {
+        const { data: iguais, error: erroIguais } = await supabase
+          .from('embarques')
+          .select('id')
+          .eq('awb', novoAwb)
+          .neq('id', embarque.id)
+          .limit(1)
+        if (erroIguais) throw new Error('Não foi possível verificar duplicidade de AWB: ' + erroIguais.message)
+        if (iguais?.length) throw new Error('Este AWB já pertence a outro embarque. Operação cancelada.')
+      }
+
+      if (mudouAwb && anteriorReal) {
+        // Um AWB com lançamentos financeiros vinculados não pode ser renomeado aqui.
+        const { data: financeiros, error: erroFinanceiros } = await supabase
+          .from('financeiro_embarques')
+          .select('id')
+          .eq('awb', awbAnterior)
+          .limit(1)
+        if (erroFinanceiros) throw new Error('Não foi possível verificar os vínculos financeiros: ' + erroFinanceiros.message)
+        if (financeiros?.length) throw new Error('AWB já vinculado ao financeiro. Faça a conciliação dos vínculos antes de alterar seu número.')
+        if (!confirm('Alterar o AWB existente? Confira documentos e cotações que possam mencionar o número antigo. A referência HC não será alterada.')) return
+      }
+
+      const campos: any = {
+        transportadora: dadosEdicao.transportadora?.trim() || null,
+        servico: dadosEdicao.servico?.trim() || null,
+        exportador: dadosEdicao.exportador?.trim() || null,
+        importador: dadosEdicao.importador?.trim() || null,
+        referencia_cliente: dadosEdicao.referencia_cliente?.trim() || null,
+        despachante: dadosEdicao.despachante?.trim() || null,
+        origem: dadosEdicao.origem?.trim() || null,
+        destino: dadosEdicao.destino?.trim() || null,
+        data_prevista: dadosEdicao.data_prevista || null,
+        peso_real: pesoReal,
+        peso_taxado: pesoTaxado,
+        observacoes: dadosEdicao.observacoes || null,
+        ultima_atualizacao: new Date().toISOString(),
+      }
+      if (mudouAwb) {
+        campos.awb = novoAwb || (awbPendente(awbAnterior) ? awbAnterior : null)
+        if (novoAwb && String(embarque.status_operacional || '').toUpperCase() === 'AGUARDANDO AWB') {
+          campos.status_operacional = 'Aguardando coleta'
+        }
+      }
+
+      // Proteção contra alterações concorrentes, inclusive AWB originalmente nulo.
+      const atualizador = supabase.from('embarques').update(campos).eq('id', embarque.id)
+      const { data: salvo, error: erroSalvar } = await (
+        embarque.awb == null
+          ? atualizador.is('awb', null)
+          : atualizador.eq('awb', embarque.awb)
+      ).select('id')
+      if (erroSalvar) throw new Error(erroSalvar.message)
+      if (!salvo || salvo.length !== 1) throw new Error('O AWB mudou em outra sessão. Recarregue o embarque antes de salvar.')
+
+      const { error: erroTimeline } = await supabase.from('timeline_embarques').insert({
+        embarque_id: embarque.id,
+        status: 'EDIÇÃO',
+        descricao: mudouAwb
+          ? `Dados do embarque atualizados. AWB: ${awbAnterior || '-'} -> ${novoAwb || '-'}.`
+          : 'Dados gerais do embarque atualizados no detalhe administrativo.',
+      })
+      if (erroTimeline) console.warn('Dados salvos, mas a timeline não foi atualizada:', erroTimeline)
+      setEditandoDados(false)
+      window.history.replaceState(null, '', window.location.pathname)
+      await carregar()
+      alert('Dados e AWB salvos com sucesso.')
+    } catch (erro: any) {
+      alert('Não foi possível salvar o embarque: ' + (erro?.message || 'erro desconhecido'))
+    } finally {
+      setSalvandoDados(false)
+    }
   }
 
   async function carregarUsuarios() {
@@ -665,6 +788,12 @@ export default function DetalheEmbarquePage() {
           </div>
 
           <div className="flex gap-3 flex-wrap h-fit">
+            <button
+              onClick={() => setEditandoDados((atual) => !atual)}
+              className="bg-emerald-700 hover:bg-emerald-600 px-5 py-3 rounded-xl font-bold"
+            >
+              {editandoDados ? 'Fechar edição' : 'Editar dados / AWB'}
+            </button>
             <a
               href="/admin/embarques"
               className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl font-bold"
@@ -711,6 +840,61 @@ export default function DetalheEmbarquePage() {
           </div>
         </div>
       </header>
+
+      {editandoDados && (
+        <section className="card mb-8 border border-emerald-700" data-hc-editor-awb="v1">
+          <div className="mb-5">
+            <h2 className="text-2xl font-black">Editar dados do embarque e AWB</h2>
+            <p className="text-sm text-slate-400 mt-1">Edite aqui após converter a cotação ou o embarque direto. A referência HC, os registros financeiros e o rastreio automático serão preservados.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {([
+              ['awb', 'AWB / Número de rastreio'],
+              ['transportadora', 'Transportadora'],
+              ['servico', 'Serviço'],
+              ['exportador', 'Exportador'],
+              ['importador', 'Importador'],
+              ['referencia_cliente', 'Referência do cliente'],
+              ['despachante', 'Despachante / Parceiro'],
+              ['origem', 'Origem'],
+              ['destino', 'Destino'],
+              ['peso_real', 'Peso real (kg)'],
+              ['peso_taxado', 'Peso taxado (kg)'],
+              ['data_prevista', 'Data prevista'],
+            ] as const).map(([campo, titulo]) => (
+              <label key={campo} className="flex flex-col gap-1 text-sm font-semibold text-slate-300">
+                {titulo}
+                <input
+                  type={campo === 'data_prevista' ? 'date' : 'text'}
+                  inputMode={campo === 'peso_real' || campo === 'peso_taxado' ? 'decimal' : 'text'}
+                  value={dadosEdicao[campo] || ''}
+                  onChange={(e) => setDadosEdicao((atual) => ({ ...atual, [campo]: e.target.value }))}
+                  className="rounded-xl border border-blue-800 bg-[#051029] px-3 py-3 text-white"
+                />
+              </label>
+            ))}
+            <label className="flex flex-col gap-1 text-sm font-semibold text-slate-300 md:col-span-2 xl:col-span-3">
+              Observações do embarque
+              <textarea
+                rows={3}
+                value={dadosEdicao.observacoes || ''}
+                onChange={(e) => setDadosEdicao((atual) => ({ ...atual, observacoes: e.target.value }))}
+                className="rounded-xl border border-blue-800 bg-[#051029] px-3 py-3 text-white"
+              />
+            </label>
+          </div>
+          <div className="flex justify-end gap-3 mt-5">
+            <button onClick={() => setEditandoDados(false)} className="bg-slate-700 rounded-xl px-5 py-3 font-bold">Cancelar</button>
+            <button
+              disabled={salvandoDados}
+              onClick={salvarDadosPrincipais}
+              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 rounded-xl px-5 py-3 font-bold"
+            >
+              {salvandoDados ? 'Salvando...' : 'Salvar dados e AWB'}
+            </button>
+          </div>
+        </section>
+      )}
 
       {editandoStatus && (
         <section className="card mb-8">

@@ -154,6 +154,18 @@ export default function FaturasTransportadorasPage() {
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
   const [form, setForm] = useState<FormState>(formVazio)
+
+  // HC_TRES_CORRECOES_V1_FINANCEIRO: contestacao nao equivale a credito aprovado.
+  // O saldo contabil permanece sem abatimento; a previsao considera a contestacao.
+  const totalEdicao = numeroValorBR(form.total)
+  const contestadoEdicao = numeroValorBR(form.valor_contestado)
+  const pagoEdicao = numeroValorBR(form.pago_ajustado)
+  const saldoContabilEdicao = (form.data_pagamento || form.situacao === 'FATURA CANCELADA')
+    ? 0
+    : Math.max(0, Math.round((totalEdicao - pagoEdicao) * 100) / 100)
+  const saldoPrevistoEdicao = (form.data_pagamento || form.situacao === 'FATURA CANCELADA')
+    ? 0
+    : Math.max(0, Math.round((totalEdicao - pagoEdicao - contestadoEdicao) * 100) / 100)
   const [transportadorasCadastradas, setTransportadorasCadastradas] = useState<string[]>(TRANSPORTADORAS_PADRAO)
   const [exibirCadastroTransportadora, setExibirCadastroTransportadora] = useState(false)
   const [novaTransportadora, setNovaTransportadora] = useState('')
@@ -1533,6 +1545,11 @@ export default function FaturasTransportadorasPage() {
       }
     }
 
+    if (numero(form.valor_contestado) > numero(form.total) + 0.01) {
+      alert('O valor contestado não pode superar o valor total da fatura.')
+      return
+    }
+
     setSalvando(true)
 
     const payload = {
@@ -1547,7 +1564,8 @@ export default function FaturasTransportadorasPage() {
       total: numero(form.total),
       valor_contestado: numero(form.valor_contestado),
       pago_ajustado: form.data_pagamento ? numero(form.total) : numero(form.pago_ajustado),
-      saldo: form.data_pagamento ? 0 : form.saldo ? numero(form.saldo) : numero(form.total) - numero(form.pago_ajustado),
+      // Nunca reduzir a divida contabil por uma contestacao ainda nao aprovada.
+      saldo: saldoContabilEdicao,
       moeda: form.moeda || 'BRL',
       observacoes: form.observacoes || null,
       atualizado_em: new Date().toISOString(),
@@ -2314,14 +2332,27 @@ export default function FaturasTransportadorasPage() {
             />
           </Campo>
 
-          <Campo label="Saldo">
+          <Campo label="Saldo contábil (sem contestação)">
             <input
-              value={formatarEntradaValorBR(form.saldo)}
-              inputMode="decimal"
-              onChange={(e) => setForm({ ...form, saldo: formatarEntradaValorBR(e.target.value) })}
-              placeholder="Se vazio, calcula automático"
+              value={formatarEntradaValorBR(saldoContabilEdicao.toFixed(2).replace('.', ','))}
+              readOnly
+              title="Total menos pagamentos e ajustes efetivos; a contestação não é desconto aprovado."
+              className="cursor-not-allowed opacity-80"
             />
           </Campo>
+
+          <div className="md:col-span-4 xl:col-span-6 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4" data-hc-previsao-contestacao="v1">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-black text-amber-300">Previsão se a contestação for aceita</p>
+                <p className="mt-1 text-xs text-slate-300">Total menos o valor contestado e o valor já pago/ajustado. Não altera o saldo contábil nem confirma abatimento da transportadora.</p>
+              </div>
+              <p className="text-2xl font-black text-emerald-400">{moeda(saldoPrevistoEdicao, form.moeda || 'BRL')}</p>
+            </div>
+            {contestadoEdicao > 0 && (
+              <p className="mt-2 text-xs text-amber-200">Valor em contestação: {moeda(contestadoEdicao, form.moeda || 'BRL')} · Saldo contábil: {moeda(saldoContabilEdicao, form.moeda || 'BRL')}</p>
+            )}
+          </div>
 
           <Campo label="Moeda">
             <select

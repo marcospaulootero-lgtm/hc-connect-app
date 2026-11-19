@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function AdminEmbarqueDiretoPage() {
+  const router = useRouter() // HC_TRES_CORRECOES_V1_CONVERSAO
   const [solicitacoes, setSolicitacoes] = useState<any[]>([])
   const [documentos, setDocumentos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -437,64 +439,51 @@ async function buscarClienteDaSolicitacao(item: any) {
     }
   }
 
-  async function converterEmEmbarque(item: any, arquivarDepois = false) {
-    if (item.embarque_id) {
-      alert(
-        'Esta solicitação já está vinculada a um embarque.\n\n' +
-          'Ela não será convertida novamente para evitar duplicidade.'
-      )
-      return
-    }
-
+  async function converterEmEmbarque(item: any) {
+    if (convertendo !== null) return
     const confirmar = confirm(
-      'Converter a solicitação de ' +
-        (item.cliente_final || item.solicitante_email || '-') +
-        ' em embarque?' +
-        (arquivarDepois ? '\n\nApós converter, ela será arquivada da lista principal.' : '')
+      'Converter a solicitação de ' + (item.cliente_final || item.solicitante_email || '-') +
+      ' em embarque?\n\nApós a conversão confirmada, a solicitação será arquivada automaticamente e você será direcionado à edição do AWB.\n\nOs documentos e a referência HC serão preservados.'
     )
-
     if (!confirmar) return
 
     setConvertendo(item.id)
-
     try {
-      const awbNormalizado = normalizarAwbOpcional(item.awb)
+      // Recupera vínculo já existente sem duplicar embarque.
+      let novoEmbarque: any = null
+      if (item.embarque_id) {
+        const { data, error } = await supabase.from('embarques')
+          .select('id, awb, referencia_hc').eq('id', item.embarque_id).maybeSingle()
+        if (error || !data) throw new Error(error?.message || 'O embarque vinculado não foi encontrado.')
+        novoEmbarque = data
+      } else {
+        // Identificador estável para recuperar tentativas parcialmente concluídas.
+        const marcador = 'ID da solicitacao direta: ' + String(item.id) + ' [v1]'
+        const { data: anteriores, error: erroAnteriores } = await supabase.from('embarques')
+          .select('id, awb, referencia_hc')
+          .ilike('observacoes', '%' + marcador + '%')
+          .limit(2)
+        if (erroAnteriores) throw new Error('Erro ao verificar conversões anteriores: ' + erroAnteriores.message)
+        if ((anteriores || []).length > 1) throw new Error('Foram encontrados vários embarques desta solicitação. Corrija os vínculos antes de continuar.')
+        novoEmbarque = anteriores?.[0] || null
 
-      if (awbNormalizado) {
-        const { data: embarqueExistente, error: erroBuscaAwb } = await supabase
-          .from('embarques')
-          .select('id, awb, cliente_final, referencia_hc')
-          .eq('awb', awbNormalizado)
-          .maybeSingle()
+        if (!novoEmbarque) {
+          const awbNormalizado = normalizarAwbOpcional(item.awb)
+          if (awbNormalizado) {
+            const { data: existente, error: erroBuscaAwb } = await supabase.from('embarques')
+              .select('id, awb, referencia_hc').eq('awb', awbNormalizado).maybeSingle()
+            if (erroBuscaAwb) throw new Error('Erro ao verificar AWB existente: ' + erroBuscaAwb.message)
+            if (existente) throw new Error('Este AWB já existe. Use "Vincular a embarque existente" para evitar duplicidade.')
+          }
 
-        if (erroBuscaAwb) {
-          throw new Error('Erro ao verificar AWB existente: ' + erroBuscaAwb.message)
-        }
-
-        if (embarqueExistente) {
-          alert(
-            'Este AWB já existe no sistema e não será criado em duplicidade.\n\n' +
-              'AWB: ' + awbNormalizado + '\n' +
-              'Cliente: ' + (embarqueExistente.cliente_final || '-') + '\n' +
-              'Referência HC: ' + (embarqueExistente.referencia_hc || '-') + '\n\n' +
-              'Abra o embarque existente para conferir.'
-          )
-          return
-        }
-      }
-
-      const peso = normalizarPeso(item.peso)
-
-      const { data: novoEmbarque, error } = await supabase
-        .from('embarques')
-        .insert([
-          {
+          const peso = normalizarPeso(item.peso)
+          const { data: criado, error: erroCriacao } = await supabase.from('embarques').insert([{
             usuario_id: item.usuario_id || null,
             cliente_final: item.cliente_final || null,
             exportador: item.tipo_operacao === 'Exportação' ? item.cliente_final : null,
             importador: item.tipo_operacao === 'Importação' ? item.cliente_final : null,
             awb: awbNormalizado,
-            referencia_hc: gerarReferenciaHCDireta(), // HC_EMBARQUE_DIRETO_REFERENCIA_V1
+            referencia_hc: gerarReferenciaHCDireta(),
             transportadora: item.transportadora || null,
             servico: item.tipo_operacao || null,
             origem: item.origem || null,
@@ -504,89 +493,63 @@ async function buscarClienteDaSolicitacao(item: any) {
             status_operacional: 'Aguardando coleta',
             observacoes: [
               'Solicitação criada via Embarque Direto.',
+              marcador,
               '',
               'Solicitante: ' + (item.solicitante_email || '-'),
               'Volumes: ' + (item.volumes || '-'),
               'Descrição da mercadoria: ' + (item.descricao_mercadoria || '-'),
               'Instruções: ' + (item.instrucoes || '-'),
             ].join('\n').trim(),
-          },
-        ])
-        .select()
-        .single()
-
-      if (error) {
-        console.log(error)
-
-        if (
-          String(error.message || '').includes('duplicate key') ||
-          String(error.message || '').includes('embarques_awb_key')
-        ) {
-          alert(
-            'Este AWB já existe no sistema. A solicitação não foi convertida para evitar duplicidade.\n\n' +
-              'AWB: ' + (awbNormalizado || item.awb || '-') +
-              '\n\nConfira o embarque já cadastrado antes de tentar converter novamente.'
-          )
-          return
+          }]).select('id, awb, referencia_hc').single()
+          if (erroCriacao || !criado) throw new Error(erroCriacao?.message || 'Falha ao criar embarque.')
+          novoEmbarque = criado
         }
-
-        throw new Error(error.message)
       }
 
+      // Operação retomável: não copia documentos duplicados em uma segunda tentativa.
       await vincularEmbarqueAoClienteDaSolicitacao(novoEmbarque.id, item)
-
       const docs = docsDaSolicitacao(item.id)
-
       for (const doc of docs) {
-        const { error: erroDocumento } = await supabase.from('documentos_embarques').insert([
-          {
-            embarque_id: novoEmbarque.id,
-            nome: doc.nome,
-            url: doc.url,
-            caminho: doc.caminho || null,
-          },
-        ])
-
-        if (erroDocumento) {
-          console.log(erroDocumento)
-          alert('Embarque criado, mas houve erro ao copiar um documento: ' + erroDocumento.message)
-        }
+        if (!doc.url) continue
+        const { data: jaVinculados, error: erroBuscaDoc } = await supabase.from('documentos_embarques')
+          .select('id').eq('embarque_id', novoEmbarque.id).eq('url', doc.url).limit(1)
+        if (erroBuscaDoc) throw new Error('Não foi possível conferir os documentos: ' + erroBuscaDoc.message)
+        if (jaVinculados?.length) continue
+        const { error: erroDoc } = await supabase.from('documentos_embarques').insert([{
+          embarque_id: novoEmbarque.id,
+          nome: doc.nome,
+          url: doc.url,
+          caminho: doc.caminho || null,
+        }])
+        if (erroDoc) throw new Error('Embarque criado, mas faltou vincular um documento: ' + erroDoc.message)
       }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
+      const { data: { user } } = await supabase.auth.getUser()
       const convertidoEm = new Date().toISOString()
-
-      const payloadAtualizacao: any = {
+      await atualizarEmbarqueDiretoSeguro(item.id, {
         status: 'CONVERTIDO EM EMBARQUE',
         embarque_id: novoEmbarque.id,
-        convertido_em: convertidoEm,
+        convertido_em: item.convertido_em || convertidoEm,
+        arquivado_admin: true,
+        arquivado_admin_em: convertidoEm,
+        arquivado_admin_por: user?.id || null,
+      })
+
+      // Confirma persistência real antes de navegar para fora da lista.
+      const { data: atualizado, error: erroConfirmacao } = await supabase.from('embarque_direto')
+        .select('embarque_id, arquivado_admin').eq('id', item.id).maybeSingle()
+      if (erroConfirmacao || !atualizado?.arquivado_admin || String(atualizado.embarque_id) !== String(novoEmbarque.id)) {
+        throw new Error('O embarque foi criado, mas o arquivamento não foi confirmado. Tente Converter novamente para retomar com segurança.')
       }
 
-      if (arquivarDepois) {
-        payloadAtualizacao.arquivado_admin = true
-        payloadAtualizacao.arquivado_admin_em = convertidoEm
-        payloadAtualizacao.arquivado_admin_por = user?.id || null
-      }
-
-      const solicitacaoAtualizada = await atualizarEmbarqueDiretoSeguro(item.id, payloadAtualizacao)
-
-      if (arquivarDepois && !solicitacaoAtualizada?.arquivado_admin) {
-        throw new Error('O embarque foi criado, mas o banco não confirmou o arquivamento da solicitação.')
-      }
-
-      alert(
-        arquivarDepois
-          ? 'Solicitação convertida em embarque e arquivada com sucesso.'
-          : 'Solicitação convertida em embarque com sucesso.'
-      )
-
-      await carregar()
+      setSolicitacoes((atual) => atual.map((s) =>
+        String(s.id) === String(item.id) ? { ...s, status: 'CONVERTIDO EM EMBARQUE', embarque_id: novoEmbarque.id, arquivado_admin: true } : s
+      ))
+      router.push('/admin/embarques/' + encodeURIComponent(novoEmbarque.id) + '?editar=1')
     } catch (error: any) {
-      console.log(error)
-      alert('Erro ao converter solicitação: ' + (error?.message || 'erro desconhecido'))
+      console.error('Falha ao converter embarque direto:', error)
+      alert('Erro ao converter a solicitação: ' + (error?.message || 'erro desconhecido'))
+      await carregar()
     } finally {
       setConvertendo(null)
     }
@@ -740,6 +703,7 @@ async function buscarClienteDaSolicitacao(item: any) {
       )
 
       await carregar()
+      if (arquivarDepois) router.push('/admin/embarques/' + encodeURIComponent(embarque.id) + '?editar=1')
     } catch (error: any) {
       console.log(error)
       alert('Erro ao vincular embarque existente: ' + (error?.message || 'erro desconhecido'))
@@ -749,9 +713,13 @@ async function buscarClienteDaSolicitacao(item: any) {
   }
 
   async function marcarComoConvertida(item: any) {
+    if (!item.embarque_id) {
+      alert('Para concluir e arquivar, primeiro vincule a solicitação ao embarque existente.')
+      return
+    }
     const confirmar = confirm(
       'Marcar esta solicitação como CONVERTIDO EM EMBARQUE?\n\n' +
-        'Use isso apenas quando o embarque já existe e você só precisa corrigir o status da solicitação.'
+        'Use apenas quando o embarque já existe. Após confirmar, a solicitação será arquivada e você abrirá a edição do AWB.'
     )
 
     if (!confirmar) return
@@ -762,6 +730,8 @@ async function buscarClienteDaSolicitacao(item: any) {
       const payload: any = {
         status: 'CONVERTIDO EM EMBARQUE',
         convertido_em: new Date().toISOString(),
+        arquivado_admin: true,
+        arquivado_admin_em: new Date().toISOString(),
       }
 
       if (item.embarque_id) {
@@ -781,8 +751,9 @@ async function buscarClienteDaSolicitacao(item: any) {
         )
       )
 
-      alert('Solicitação marcada como convertida com sucesso.')
+      alert('Solicitação marcada como convertida e arquivada com sucesso.')
       await carregar()
+      router.push('/admin/embarques/' + encodeURIComponent(item.embarque_id) + '?editar=1')
     } catch (error: any) {
       console.log(error)
       alert('Erro ao marcar como convertida: ' + (error?.message || 'erro desconhecido'))
@@ -982,35 +953,19 @@ async function buscarClienteDaSolicitacao(item: any) {
                           </button>
 
                           <button
-                            onClick={() => converterEmEmbarque(item, false)}
+                            onClick={() => converterEmEmbarque(item)}
                             disabled={convertendo === item.id}
                             className="bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
                           >
-                            {convertendo === item.id ? 'Convertendo...' : 'Converter em embarque'}
-                          </button>
-
-                          <button
-                            onClick={() => converterEmEmbarque(item, true)}
-                            disabled={convertendo === item.id}
-                            className="bg-emerald-700 hover:bg-emerald-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
-                          >
-                            {convertendo === item.id ? 'Convertendo...' : 'Converter e arquivar'}
-                          </button>
-
-                          <button
-                            onClick={() => vincularAEmbarqueExistente(item, false)}
-                            disabled={vinculandoExistente === item.id || convertendo === item.id}
-                            className="bg-purple-700 hover:bg-purple-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
-                          >
-                            {vinculandoExistente === item.id ? 'Vinculando...' : 'Vincular a embarque existente'}
+                            {convertendo === item.id ? 'Convertendo...' : item.embarque_id ? 'Abrir embarque e arquivar' : 'Converter em embarque'}
                           </button>
 
                           <button
                             onClick={() => vincularAEmbarqueExistente(item, true)}
                             disabled={vinculandoExistente === item.id || convertendo === item.id}
-                            className="bg-purple-900 hover:bg-purple-800 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
+                            className="bg-purple-700 hover:bg-purple-600 px-5 py-3 rounded-xl font-bold disabled:opacity-60"
                           >
-                            {vinculandoExistente === item.id ? 'Vinculando...' : 'Vincular e arquivar'}
+                            {vinculandoExistente === item.id ? 'Vinculando...' : 'Vincular a embarque existente'}
                           </button>
 
                           <button
