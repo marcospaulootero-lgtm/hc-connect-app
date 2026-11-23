@@ -1507,6 +1507,26 @@ export default function FaturasTransportadorasPage() {
       return alert('Para marcar a fatura como paga, informe a data real do pagamento.')
     }
 
+    // HC_FATURA_TRANSP_SEM_DUPLICAR_V1: mesma regra das importações (transportadora + número).
+    {
+      const numeroNormalizado = normalizarNumeroFaturaParaSistema(form.numero_fatura)
+      const chaveNova = chaveFaturaTransportadora(form.transportadora, form.numero_fatura)
+      const { data: mesmasNumero, error: erroDuplicada } = await supabase
+        .from('faturas_transportadoras')
+        .select('id, transportadora, numero_fatura')
+        .eq('numero_fatura', numeroNormalizado)
+      if (erroDuplicada) return alert('Não foi possível conferir se a fatura já existe: ' + erroDuplicada.message)
+      const duplicada = (mesmasNumero || []).find(
+        (item: any) => item.id !== editandoId && chaveFaturaTransportadora(item.transportadora, item.numero_fatura) === chaveNova
+      )
+      if (duplicada) {
+        return alert(
+          `Já existe a fatura ${duplicada.numero_fatura} da ${duplicada.transportadora} cadastrada.\n\n` +
+            'Para alterar dados ou pagamento, use "Editar" na fatura existente.'
+        )
+      }
+    }
+
     if (form.data_pagamento && editandoId) {
       const faturaAtual = faturas.find((item) => item.id === editandoId)
 
