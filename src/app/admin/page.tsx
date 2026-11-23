@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { itemCanceladoNaFatura } from '@/lib/itemFaturaTransportadora'
 import AdminRealtimeAlerts from '@/components/AdminRealtimeAlerts'
 import AdminUsuariosOnline from '@/components/AdminUsuariosOnline'
 import { carregarAliasesClientes, mapaAliasesClientes, nomeCanonicoCliente, normalizarIdentidade, nomeExibicaoPreferido } from '@/lib/identidade'
@@ -858,6 +859,7 @@ export default function DashboardPage() {
     itensFaturasTransportadoras.forEach((item: any) => {
       const faturaId = String(item?.fatura_transportadora_id || '')
       if (!faturaId) return
+      if (itemCanceladoNaFatura(item)) return // HC_AWB_CANCELADO_FATURA_V1
 
       const lista = itensPorFatura.get(faturaId) || []
       lista.push(item)

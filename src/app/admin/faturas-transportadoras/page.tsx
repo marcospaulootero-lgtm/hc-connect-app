@@ -4,6 +4,7 @@ import { fetchAutenticado } from '@/lib/fetchAutenticado'
 import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { STATUS_ITEM_CANCELADO_NA_FATURA, itemCanceladoNaFatura } from '@/lib/itemFaturaTransportadora'
 import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 type FaturaTransportadora = {
@@ -38,6 +39,8 @@ type ItemFaturaConciliacao = {
   awb: string | null
   valor_compra: number | null
   financeiro_embarque_id: string | null
+  status_lancamento?: string | null
+  observacao?: string | null
 }
 
 type ProcessoFinanceiroConciliacao = {
@@ -65,6 +68,7 @@ type ItemConciliado = {
 type ResumoConciliacao = {
   status: StatusConciliacao
   itens: ItemConciliado[]
+  cancelados: ItemFaturaConciliacao[]
   totalItens: number
   recebidos: number
   pendentes: number
@@ -434,7 +438,7 @@ export default function FaturasTransportadorasPage() {
     for (let inicio = 0; ; inicio += tamanhoPagina) {
       const { data, error } = await supabase
         .from('faturas_transportadoras_itens')
-        .select('id, fatura_transportadora_id, awb, valor_compra, financeiro_embarque_id')
+        .select('id, fatura_transportadora_id, awb, valor_compra, financeiro_embarque_id, status_lancamento, observacao')
         .range(inicio, inicio + tamanhoPagina - 1)
 
       if (error) throw new Error('Erro ao carregar AWBs das faturas: ' + error.message)
@@ -1868,8 +1872,60 @@ export default function FaturasTransportadorasPage() {
     return mapa
   }, [financeirosConciliacao])
 
+  // HC_AWB_CANCELADO_FATURA_V1: AWB cancelado na fatura não entra na conciliação.
+  async function cancelarAwbNaFatura(item: ItemFaturaConciliacao) {
+    if (item.financeiro_embarque_id) {
+      alert('Este AWB está vinculado a um processo do Financeiro e não pode ser cancelado por aqui.')
+      return
+    }
+    const motivo = window.prompt(
+      'Cancelar o AWB ' + (item.awb || '') + ' nesta fatura?\n\n' +
+        'Ele deixa de contar na conciliação. Nada no Financeiro é alterado e é possível restaurar depois.\n\n' +
+        'Motivo (opcional):',
+      'Cancelado pela transportadora'
+    )
+    if (motivo === null) return
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const observacao = ('Cancelado na fatura em ' + new Date().toLocaleString('pt-BR') + ' por ' + (user?.email || 'admin') +
+      (motivo.trim() ? ': ' + motivo.trim() : '')).slice(0, 1000)
+    const { data, error } = await supabase
+      .from('faturas_transportadoras_itens')
+      .update({ status_lancamento: STATUS_ITEM_CANCELADO_NA_FATURA, observacao, atualizado_em: new Date().toISOString() })
+      .eq('id', item.id)
+      .is('financeiro_embarque_id', null)
+      .select('id, status_lancamento, observacao')
+
+    if (error || !data || data.length !== 1) {
+      alert('Não foi possível cancelar o AWB: ' + (error?.message || 'o item mudou, atualize a página.'))
+      return
+    }
+    setItensConciliacao((atuais) => atuais.map((atual) => (atual.id === item.id ? { ...atual, ...data[0] } : atual)))
+  }
+
+  async function restaurarAwbNaFatura(item: ItemFaturaConciliacao) {
+    if (!window.confirm('Restaurar o AWB ' + (item.awb || '') + ' nesta fatura? Ele volta a contar na conciliação.')) return
+    const { data: { user } } = await supabase.auth.getUser()
+    const observacao = ('Restaurado na fatura em ' + new Date().toLocaleString('pt-BR') + ' por ' + (user?.email || 'admin') +
+      '. Antes: ' + (item.observacao || '-')).slice(0, 1000)
+    const { data, error } = await supabase
+      .from('faturas_transportadoras_itens')
+      .update({ status_lancamento: 'AGUARDANDO_PROCESSO', observacao, atualizado_em: new Date().toISOString() })
+      .eq('id', item.id)
+      .eq('status_lancamento', STATUS_ITEM_CANCELADO_NA_FATURA)
+      .select('id, status_lancamento, observacao')
+
+    if (error || !data || data.length !== 1) {
+      alert('Não foi possível restaurar o AWB: ' + (error?.message || 'o item mudou, atualize a página.'))
+      return
+    }
+    setItensConciliacao((atuais) => atuais.map((atual) => (atual.id === item.id ? { ...atual, ...data[0] } : atual)))
+  }
+
   function resumoConciliacao(fatura: FaturaTransportadora): ResumoConciliacao {
-    const itens = itensPorFatura.get(fatura.id) || []
+    const todosItens = itensPorFatura.get(fatura.id) || []
+    const itens = todosItens.filter((item) => !itemCanceladoNaFatura(item))
+    const cancelados = todosItens.filter((item) => itemCanceladoNaFatura(item))
 
     const detalhados: ItemConciliado[] = itens.map((item) => {
       const vinculado = item.financeiro_embarque_id
@@ -1921,6 +1977,7 @@ export default function FaturasTransportadorasPage() {
     return {
       status,
       itens: detalhados,
+      cancelados,
       totalItens: detalhados.length,
       recebidos,
       pendentes,
@@ -2745,12 +2802,47 @@ export default function FaturasTransportadorasPage() {
                                         <td className="px-3 py-3">{processo ? dataBR(processo.recebimento) : '-'}</td>
                                         <td className="px-3 py-3">
                                           {!processo ? (
-                                            <span className="rounded-full border border-red-500 bg-red-500/15 px-2 py-1 font-black text-red-300">NÃO LOCALIZADO</span>
+                                            <span className="inline-flex flex-wrap items-center gap-2">
+                                              <span className="rounded-full border border-red-500 bg-red-500/15 px-2 py-1 font-black text-red-300">NÃO LOCALIZADO</span>
+                                              {!itemFatura.financeiro_embarque_id && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => cancelarAwbNaFatura(itemFatura)}
+                                                  className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-bold text-slate-200 hover:bg-slate-800"
+                                                  title="A transportadora retirou este AWB da fatura"
+                                                >
+                                                  Cancelar na fatura
+                                                </button>
+                                              )}
+                                            </span>
                                           ) : recebido ? (
                                             <span className="rounded-full border border-green-500 bg-green-500/15 px-2 py-1 font-black text-green-300">RECEBIDO</span>
                                           ) : (
                                             <span className="rounded-full border border-amber-500 bg-amber-500/15 px-2 py-1 font-black text-amber-300">AGUARDANDO CLIENTE</span>
                                           )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                    {conciliacao.cancelados.map((itemCancelado) => (
+                                      <tr key={itemCancelado.id} className="border-t border-blue-900/70 text-slate-500">
+                                        <td className="px-3 py-3 font-black line-through">{itemCancelado.awb || '-'}</td>
+                                        <td className="px-3 py-3" title={itemCancelado.observacao || ''}>
+                                          <span className="block max-w-md truncate">{itemCancelado.observacao || 'Cancelado na fatura'}</span>
+                                        </td>
+                                        <td className="px-3 py-3 text-right line-through">{moeda(itemCancelado.valor_compra)}</td>
+                                        <td className="px-3 py-3 text-right">-</td>
+                                        <td className="px-3 py-3">-</td>
+                                        <td className="px-3 py-3">
+                                          <span className="inline-flex flex-wrap items-center gap-2">
+                                            <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-1 font-black text-slate-300">CANCELADO NA FATURA</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => restaurarAwbNaFatura(itemCancelado)}
+                                              className="rounded-lg border border-slate-600 px-2 py-1 text-xs font-bold text-slate-200 hover:bg-slate-800"
+                                            >
+                                              Restaurar
+                                            </button>
+                                          </span>
                                         </td>
                                       </tr>
                                     ))}

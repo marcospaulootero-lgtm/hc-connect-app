@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { itemCanceladoNaFatura } from '@/lib/itemFaturaTransportadora'
 import { carregarAliasesClientes, mapaAliasesClientes, nomeCanonicoCliente, normalizarIdentidade, nomeExibicaoPreferido } from '@/lib/identidade'
 
 const LOTE_SUPABASE = 1000
@@ -374,7 +375,7 @@ export default function AnaliseTransportadorasPage() {
 
       setEmbarques(embarquesData)
       setFaturas(faturasData)
-      setItensFaturas(itensData)
+      setItensFaturas((itensData || []).filter((item: any) => !itemCanceladoNaFatura(item))) // HC_AWB_CANCELADO_FATURA_V1
       setAliasesClientes(aliasesData)
     } catch (e: any) {
       console.error(e)

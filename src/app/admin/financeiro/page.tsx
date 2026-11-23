@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { itemCanceladoNaFatura } from '@/lib/itemFaturaTransportadora'
 import { formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 type FormState = {
@@ -6319,6 +6320,7 @@ export default function FinanceiroPage() {
       const itensPorAwb = new Map<string, any[]>()
 
       itensFaturas.forEach((item) => {
+        if (itemCanceladoNaFatura(item)) return // HC_AWB_CANCELADO_FATURA_V1
         const awb = normalizarAwbRevisao(item.awb)
         if (!awb) return
         const atuais = itensPorAwb.get(awb) || []

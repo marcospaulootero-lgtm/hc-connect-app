@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { itemCanceladoNaFatura } from '@/lib/itemFaturaTransportadora'
 import { numeroValorBR } from '@/lib/valorContabil'
 
 type Item = {
@@ -70,12 +71,12 @@ export default function CustoTransportadoraAwb({ awb }: { awb?: string | null })
         const itens: Item[] = []
         for (let inicio = 0; ; inicio += 500) {
           const { data, error } = await supabase.from('faturas_transportadoras_itens')
-            .select('id, fatura_transportadora_id, awb, valor_compra')
+            .select('id, fatura_transportadora_id, awb, valor_compra, status_lancamento')
             .in('awb', variantes).order('id').range(inicio, inicio + 499)
           if (!ativo) return
           if (error) throw error
           const pagina = (data || []) as Item[]
-          itens.push(...pagina.filter((item) => normalizarAwbCusto(String(item.awb || '')) === chave))
+          itens.push(...pagina.filter((item) => normalizarAwbCusto(String(item.awb || '')) === chave && !itemCanceladoNaFatura(item as any))) // HC_AWB_CANCELADO_FATURA_V1
           if (pagina.length < 500) break
         }
         const ids = Array.from(new Set(itens.map((item) => item.fatura_transportadora_id).filter(Boolean)))
