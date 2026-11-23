@@ -21,6 +21,7 @@ import ImportarFichaCnpjEmissor from '@/components/admin/ImportarFichaCnpjEmisso
 import { formatarEntradaTaxaBR, formatarEntradaValorBR, numeroValorBR } from '@/lib/valorContabil'
 
 const LOTE_SUPABASE = 1000
+const LOTE_IDS_IN = 150 // HC_PERF_FATURAS_V2: IDs por consulta .in()
 const STORAGE_FILTROS_FATURAS_ADMIN = 'hc_admin_faturas_filtros_v1'
 
 type Embarque = {
@@ -329,6 +330,7 @@ export default function FaturasPage() {
   const [emissorObservacoes, setEmissorObservacoes] = useState('')
   const [emissorVisivelCliente, setEmissorVisivelCliente] = useState(true)
   const [carregandoCambioEmissor, setCarregandoCambioEmissor] = useState(false)
+  const [carregandoDados, setCarregandoDados] = useState(true) // HC_PERF_FATURAS_V2
   const [emissorAvisoCambio, setEmissorAvisoCambio] = useState('')
   const [salvandoEmissao, setSalvandoEmissao] = useState(false)
 
@@ -506,7 +508,17 @@ export default function FaturasPage() {
     filtrosCarregados,
   ])
 
+  // HC_PERF_FATURAS_V2: indicador de carregamento enquanto as consultas rodam.
   async function carregar() {
+    setCarregandoDados(true)
+    try {
+      await carregarDados()
+    } finally {
+      setCarregandoDados(false)
+    }
+  }
+
+  async function carregarDados() {
     // PERFORMANCE V1:
     // consultas independentes do carregamento inicial rodam em paralelo;
     // filtros, cálculos, vínculos e automações permanecem inalterados.
@@ -616,132 +628,86 @@ export default function FaturasPage() {
       financeiroData = respostasFinanceiro.flatMap((res) => res.data || [])
     }
 
-    const idsEmbarques = ((embarquesData as Embarque[]) || []).map((item) => item.id)
-    let documentosAgrupados: Record<string, DocumentoEmbarque[]> = {}
-
-    if (idsEmbarques.length > 0) {
-      const { data: documentosData, error: erroDocumentos } = await supabase
-        .from('documentos_embarques')
-        .select('*')
-        .in('embarque_id', idsEmbarques)
-
-      if (erroDocumentos) {
-        console.log('ERRO DOCUMENTOS EMBARQUES:', erroDocumentos)
-      }
-
-      ;((documentosData as DocumentoEmbarque[]) || []).forEach((doc) => {
-        if (!doc.embarque_id) return
-        if (!documentosAgrupados[doc.embarque_id]) documentosAgrupados[doc.embarque_id] = []
-        documentosAgrupados[doc.embarque_id].push(doc)
-      })
-    }
-
-
-    const { data: clientesFaturamentoData, error: erroClientesFaturamento } = await supabase
-      .from('clientes_faturamento')
-      .select('*')
-      .eq('ativo', true)
-      .order('nome_empresa', { ascending: true })
-
-    if (erroClientesFaturamento) {
-      console.log('ERRO CLIENTES FATURAMENTO:', erroClientesFaturamento)
-    }
-
-    setClientesFaturamento((clientesFaturamentoData as ClienteFaturamento[]) || [])
-
-    const { data: usuariosPortalData, error: erroUsuariosPortal } = await supabase
-      .from('perfis')
-      .select('id, nome, email, tipo_acesso, ativo')
-      .neq('tipo_acesso', 'admin')
-      .order('nome', { ascending: true })
-
-    if (erroUsuariosPortal) {
-      console.log('ERRO USUÁRIOS PORTAL:', erroUsuariosPortal)
-    }
-
-    setUsuariosPortal(((usuariosPortalData as PerfilCliente[]) || []).filter((item) => item.ativo !== false))
-
-
-    let arquivosFaturasData: FaturaArquivo[] = []
+    // HC_PERF_FATURAS_V2: consultas secundárias em paralelo e listas de IDs
+    // divididas em lotes (evita URL gigante e o limite de 1000 linhas por consulta).
+    // Mesmos dados e mesmos filtros da versão anterior.
+    const idsEmbarques = ((embarquesData as Embarque[]) || []).map((item) => item.id).filter(Boolean)
     const idsFaturas = ((faturasData as Fatura[]) || []).map((item) => item.id).filter(Boolean)
 
-    let vinculosEmbarquesData: VinculoEmbarqueCliente[] = []
-    let vinculosFaturasData: VinculoFaturaCliente[] = []
-    let visualizacoesData: VisualizacaoFatura[] = []
-
-    if (idsEmbarques.length > 0) {
-      const {
-        data: vinculosData,
-        error: erroVinculos,
-      } = await supabase
-        .from('embarque_clientes')
-        .select('embarque_id, cliente_id')
-        .in('embarque_id', idsEmbarques)
-
-      if (erroVinculos) {
-        console.log(
-          'ERRO VINCULOS EMBARQUES/CLIENTES:',
-          erroVinculos
-        )
-      } else {
-        vinculosEmbarquesData =
-          (vinculosData as VinculoEmbarqueCliente[]) || []
+    const buscarEmLotes = async (
+      rotulo: string,
+      ids: string[],
+      montar: (lote: string[]) => PromiseLike<{ data: any[] | null; error: any }>
+    ): Promise<any[] | null> => {
+      if (ids.length === 0) return []
+      const lotes: string[][] = []
+      for (let i = 0; i < ids.length; i += LOTE_IDS_IN) lotes.push(ids.slice(i, i + LOTE_IDS_IN))
+      const respostas = await Promise.all(lotes.map((lote) => montar(lote)))
+      const comErro = respostas.find((res) => res.error)
+      if (comErro?.error) {
+        console.log(rotulo, comErro.error)
+        return null
       }
+      return respostas.flatMap((res) => res.data || [])
     }
 
-    if (idsFaturas.length > 0) {
-      const {
-        data: vinculosDiretosData,
-        error: erroVinculosDiretos,
-      } = await supabase
-        .from('fatura_clientes')
-        .select('fatura_id, cliente_id')
-        .in('fatura_id', idsFaturas)
-
-      if (erroVinculosDiretos) {
-        console.log(
-          'ERRO VINCULOS FATURAS/CLIENTES:',
-          erroVinculosDiretos
-        )
-      } else {
-        vinculosFaturasData =
-          (vinculosDiretosData as VinculoFaturaCliente[]) || []
-      }
-
-      const {
-        data: visualizacoesDataConsulta,
-        error: erroVisualizacoes,
-      } = await supabase
-        .from('fatura_visualizacoes')
-        .select(
-          'fatura_id, cliente_id, primeira_visualizacao_em, ultima_visualizacao_em, visualizacoes'
-        )
-        .in('fatura_id', idsFaturas)
-
-      if (erroVisualizacoes) {
-        console.log(
-          'ERRO VISUALIZACOES DAS FATURAS:',
-          erroVisualizacoes
-        )
-      } else {
-        visualizacoesData =
-          (visualizacoesDataConsulta as VisualizacaoFatura[]) || []
-      }
-    }
-
-    if (idsFaturas.length > 0) {
-      const { data: arquivosData, error: erroArquivosFaturas } = await supabase
-        .from('fatura_arquivos')
+    const [
+      documentosData,
+      clientesFaturamentoRes,
+      usuariosPortalRes,
+      vinculosData,
+      vinculosDiretosData,
+      visualizacoesDataConsulta,
+      arquivosData,
+    ] = await Promise.all([
+      buscarEmLotes('ERRO DOCUMENTOS EMBARQUES:', idsEmbarques, (lote) =>
+        supabase.from('documentos_embarques').select('*').in('embarque_id', lote)),
+      supabase
+        .from('clientes_faturamento')
         .select('*')
-        .in('fatura_id', idsFaturas)
-        .order('criado_em', { ascending: false })
+        .eq('ativo', true)
+        .order('nome_empresa', { ascending: true }),
+      supabase
+        .from('perfis')
+        .select('id, nome, email, tipo_acesso, ativo')
+        .neq('tipo_acesso', 'admin')
+        .order('nome', { ascending: true }),
+      buscarEmLotes('ERRO VINCULOS EMBARQUES/CLIENTES:', idsEmbarques, (lote) =>
+        supabase.from('embarque_clientes').select('embarque_id, cliente_id').in('embarque_id', lote)),
+      buscarEmLotes('ERRO VINCULOS FATURAS/CLIENTES:', idsFaturas, (lote) =>
+        supabase.from('fatura_clientes').select('fatura_id, cliente_id').in('fatura_id', lote)),
+      buscarEmLotes('ERRO VISUALIZACOES DAS FATURAS:', idsFaturas, (lote) =>
+        supabase
+          .from('fatura_visualizacoes')
+          .select('fatura_id, cliente_id, primeira_visualizacao_em, ultima_visualizacao_em, visualizacoes')
+          .in('fatura_id', lote)),
+      buscarEmLotes('ERRO ARQUIVOS EXTRAS DAS FATURAS:', idsFaturas, (lote) =>
+        supabase.from('fatura_arquivos').select('*').in('fatura_id', lote)),
+    ])
 
-      if (erroArquivosFaturas) {
-        console.log('ERRO ARQUIVOS EXTRAS DAS FATURAS:', erroArquivosFaturas)
-      }
+    const documentosAgrupados: Record<string, DocumentoEmbarque[]> = {}
+    ;((documentosData as DocumentoEmbarque[]) || []).forEach((doc) => {
+      if (!doc.embarque_id) return
+      if (!documentosAgrupados[doc.embarque_id]) documentosAgrupados[doc.embarque_id] = []
+      documentosAgrupados[doc.embarque_id].push(doc)
+    })
 
-      arquivosFaturasData = (arquivosData as FaturaArquivo[]) || []
+    if (clientesFaturamentoRes.error) {
+      console.log('ERRO CLIENTES FATURAMENTO:', clientesFaturamentoRes.error)
     }
+    setClientesFaturamento((clientesFaturamentoRes.data as ClienteFaturamento[]) || [])
+
+    if (usuariosPortalRes.error) {
+      console.log('ERRO USUÁRIOS PORTAL:', usuariosPortalRes.error)
+    }
+    setUsuariosPortal(((usuariosPortalRes.data as PerfilCliente[]) || []).filter((item) => item.ativo !== false))
+
+    const vinculosEmbarquesData = (vinculosData as VinculoEmbarqueCliente[]) || []
+    const vinculosFaturasData = (vinculosDiretosData as VinculoFaturaCliente[]) || []
+    const visualizacoesData = (visualizacoesDataConsulta as VisualizacaoFatura[]) || []
+    // Mesma ordem de antes (mais recentes primeiro), agora feita após juntar os lotes.
+    const arquivosFaturasData = ((arquivosData as FaturaArquivo[]) || []).sort((a: any, b: any) =>
+      String(b?.criado_em || '').localeCompare(String(a?.criado_em || '')))
 
     setEmbarques((embarquesData as Embarque[]) || [])
     setFaturas((faturasData as Fatura[]) || [])
@@ -10209,6 +10175,12 @@ function conferirDocumentoManualHC(
         <div>
           <p className="text-blue-400 font-bold mb-2">Documentos do cliente</p>
           <h1 className="text-5xl font-black mb-2">Faturas</h1>
+          {carregandoDados && (
+            <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-blue-950 px-3 py-1 text-sm font-bold text-blue-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+              Carregando faturas e embarques...
+            </p>
+          )}
           <p className="text-slate-400 text-lg">
             Anexe faturas e recibos em PDF. Para faturar, consulte o valor fechado, cotação, documentos do embarque e status financeiro.
           </p>
