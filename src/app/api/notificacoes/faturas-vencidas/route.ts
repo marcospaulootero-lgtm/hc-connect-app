@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { ehCronVercel, exigirAdmin } from '@/lib/authServidor'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -227,6 +228,12 @@ async function enviarEmailFaturaVencida(params: {
 
 export async function GET(req: Request) {
   try {
+    // HC_AUTH_SERVIDOR_V1: só o cron da Vercel (CRON_SECRET) ou admin logado.
+    if (!ehCronVercel(req)) {
+      const auth = await exigirAdmin(req)
+      if (auth instanceof NextResponse) return auth
+    }
+
     const admin = supabaseAdmin()
     const url = new URL(req.url)
     const dryRun = url.searchParams.get('dry_run') === '1'

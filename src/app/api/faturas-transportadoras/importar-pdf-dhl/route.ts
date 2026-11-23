@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { exigirAdmin } from '@/lib/authServidor'
 
 export const runtime = 'nodejs'
 
@@ -414,6 +415,10 @@ async function salvarDhl(preview: ReturnType<typeof extrairDhl>) {
 }
 
 export async function POST(request: Request) {
+  // HC_AUTH_SERVIDOR_V1: exige login de administrador.
+  const autenticacao = await exigirAdmin(request)
+  if (autenticacao instanceof NextResponse) return autenticacao
+
   try {
     const formData = await request.formData()
 

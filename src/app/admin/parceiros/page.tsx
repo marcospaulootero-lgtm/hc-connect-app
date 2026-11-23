@@ -1,4 +1,5 @@
 'use client'
+import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 // HC_PARCEIROS_LAYOUT_V2
 
@@ -1422,7 +1423,7 @@ export default function ParceirosPage() {
       const dataUri = doc.output('datauristring')
       const pdfBase64 = String(dataUri).split(',')[1]
 
-      const resposta = await fetch('/api/email-profit-parceiros', {
+      const resposta = await fetchAutenticado('/api/email-profit-parceiros', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
+import { exigirAdmin } from '@/lib/authServidor'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -173,6 +174,10 @@ function montarHtml(params: any) {
 }
 
 export async function POST(req: Request) {
+  // HC_AUTH_SERVIDOR_V1: exige login de administrador.
+  const autenticacao = await exigirAdmin(req)
+  if (autenticacao instanceof NextResponse) return autenticacao
+
   const admin = supabaseAdmin()
   let logId: string | null = null
 

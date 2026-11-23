@@ -1,4 +1,5 @@
 'use client'
+import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -1541,7 +1542,7 @@ const totaisAgenteMoedaTela = useMemo(() => {
       }
 
       if (enviarEmail) {
-        const respostaEmail = await fetch('/api/enviar-cotacao-manual', {
+        const respostaEmail = await fetchAutenticado('/api/enviar-cotacao-manual', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

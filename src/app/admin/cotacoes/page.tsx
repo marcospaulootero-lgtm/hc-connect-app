@@ -1,4 +1,5 @@
 'use client'
+import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
@@ -679,7 +680,7 @@ export default function CotacoesAdminPage() {
     cotacao?.solicitante_email
   ) {
     try {
-      await fetch('/api/enviar-email-cotacao', {
+      await fetchAutenticado('/api/enviar-email-cotacao', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

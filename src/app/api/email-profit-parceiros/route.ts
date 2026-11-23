@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { exigirAdmin } from '@/lib/authServidor'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,10 @@ function texto(valor: any) {
 }
 
 export async function POST(req: Request) {
+  // HC_AUTH_SERVIDOR_V1: exige login de administrador.
+  const autenticacao = await exigirAdmin(req)
+  if (autenticacao instanceof NextResponse) return autenticacao
+
   try {
     const resend = new Resend(process.env.RESEND_API_KEY)
     const body = await req.json()

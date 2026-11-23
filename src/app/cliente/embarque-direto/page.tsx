@@ -1,4 +1,5 @@
 'use client'
+import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
@@ -61,7 +62,7 @@ export default function EmbarqueDiretoClientePage() {
 
   async function notificarEmbarqueDireto(embarqueCriado: any) {
     try {
-      await fetch('/api/email-embarque-direto', {
+      await fetchAutenticado('/api/email-embarque-direto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

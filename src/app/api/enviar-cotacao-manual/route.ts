@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
+import { escaparHtml, exigirAdmin } from '@/lib/authServidor'
 
 export async function POST(req: Request) {
+  // HC_AUTH_SERVIDOR_V1: exige login de administrador.
+  const autenticacao = await exigirAdmin(req)
+  if (autenticacao instanceof NextResponse) return autenticacao
+
   try {
     const body = await req.json()
 
@@ -20,6 +25,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'PDF não informado.' }, { status: 400 })
     }
 
+    if (!/^https:\/\//i.test(pdfUrl)) {
+      return NextResponse.json({ error: 'Link do PDF inválido.' }, { status: 400 })
+    }
+
     const resendApiKey = process.env.RESEND_API_KEY
 
     if (!resendApiKey) {
@@ -28,22 +37,22 @@ export async function POST(req: Request) {
 
     const html = `
       <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.6">
-        <h2>Olá, ${nome}</h2>
+        <h2>Olá, ${escaparHtml(nome)}</h2>
 
         <p>Segue a cotação solicitada pela HC Consultoria.</p>
 
-        <p><strong>Referência:</strong> ${referencia}</p>
-        <p><strong>Modelo:</strong> ${modelo}</p>
-        ${total ? `<p><strong>Total:</strong> ${total}</p>` : ''}
+        <p><strong>Referência:</strong> ${escaparHtml(referencia)}</p>
+        <p><strong>Modelo:</strong> ${escaparHtml(modelo)}</p>
+        ${total ? `<p><strong>Total:</strong> ${escaparHtml(total)}</p>` : ''}
 
         <p>
-          <a href="${pdfUrl}" target="_blank" style="background:#2563eb;color:white;padding:12px 18px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block">
+          <a href="${escaparHtml(pdfUrl)}" target="_blank" style="background:#2563eb;color:white;padding:12px 18px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block">
             Abrir cotação em PDF
           </a>
         </p>
 
         <p style="font-size:13px;color:#6b7280">
-          Arquivo: ${pdfNome}
+          Arquivo: ${escaparHtml(pdfNome)}
         </p>
 
         <p>Atenciosamente,<br/>HC Consultoria</p>

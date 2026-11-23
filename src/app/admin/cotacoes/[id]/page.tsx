@@ -1,4 +1,5 @@
 'use client'
+import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
@@ -648,7 +649,7 @@ export default function DetalheCotacaoAdminPage() {
     try {
       setEnviandoEmail(true)
 
-      const response = await fetch('/api/enviar-email-cotacao', {
+      const response = await fetchAutenticado('/api/enviar-email-cotacao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

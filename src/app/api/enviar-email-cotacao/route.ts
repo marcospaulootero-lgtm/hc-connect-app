@@ -1,10 +1,15 @@
 import { Resend } from 'resend'
 import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
+import { exigirUsuario } from '@/lib/authServidor'
 
 // HC_COTACOES_UNIFICADO_V1: aviso de nova solicitacao, sem misturar com email comercial ao cliente.
 
 export async function POST(req: Request) {
+  // HC_AUTH_SERVIDOR_V1: exige login.
+  const autenticacao = await exigirUsuario(req)
+  if (autenticacao instanceof NextResponse) return autenticacao
+
   try {
     if (!process.env.RESEND_API_KEY) {
       console.error('RESEND_API_KEY não configurada na Vercel')

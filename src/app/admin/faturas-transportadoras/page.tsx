@@ -1,4 +1,5 @@
 'use client'
+import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
@@ -372,7 +373,7 @@ export default function FaturasTransportadorasPage() {
       formData.append('file', arquivo)
       formData.append('pdf', arquivo)
 
-      const resposta = await fetch('/api/faturas-transportadoras/importar-pdf-dhl', {
+      const resposta = await fetchAutenticado('/api/faturas-transportadoras/importar-pdf-dhl', {
         method: 'POST',
         body: formData,
       })
@@ -904,7 +905,7 @@ export default function FaturasTransportadorasPage() {
       const formData = new FormData()
       formData.append('arquivo', arquivo)
 
-      const resposta = await fetch('/api/faturas-transportadoras/importar-pdf', {
+      const resposta = await fetchAutenticado('/api/faturas-transportadoras/importar-pdf', {
         method: 'POST',
         body: formData,
       })

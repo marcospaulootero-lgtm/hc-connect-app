@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
+import { escaparHtml } from '@/lib/authServidor'
 
 export const dynamic = 'force-dynamic'
 
+// HC_AUTH_SERVIDOR_V1: rota pública (cadastro) -> limita tamanho e escapa HTML.
 function limpar(valor: unknown) {
   if (valor === null || valor === undefined) return '-'
-  return String(valor).trim() || '-'
+  return escaparHtml(String(valor).trim().slice(0, 500)) || '-'
 }
 
 export async function POST(req: Request) {
@@ -70,7 +72,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         from: 'HC Connect <noreply@hcbhz.com>',
         to: ['marcos@hcbhz.com', 'hericamcouto@outlook.com'],
-        subject: titulo,
+        subject: String(body.titulo || 'Novo alerta no HC Connect').trim().slice(0, 150),
         html,
       }),
     })

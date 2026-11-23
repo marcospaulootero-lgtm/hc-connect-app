@@ -1,4 +1,5 @@
 'use client'
+import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 // HC_PERFORMANCE_FATURAS_HOTFIX_V1
 
@@ -1330,7 +1331,7 @@ export default function FaturasPage() {
         faturaBase.nome_cliente ||
         emailCliente
 
-      const resposta = await fetch('/api/email-cliente-notificacao', {
+      const resposta = await fetchAutenticado('/api/email-cliente-notificacao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
