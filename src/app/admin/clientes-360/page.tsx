@@ -1,6 +1,6 @@
 'use client'
 
-// HC_ANALISE_CLIENTES_UNIFICADA_V2
+// HC_ANALISE_CLIENTES_V3_IDENTIDADE_E_PAINEL_ENXUTO
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
@@ -213,6 +213,40 @@ function clienteNomeLinha(l: Linha) {
     l.razao_social,
     l.nome_fantasia
   )
+}
+
+// A identidade de faturamento NUNCA deve ser inferida a partir do parceiro,
+// do despachante, do email de contato, nem de referencias de outros processos.
+function clienteFaturadoLinha(l: Linha) {
+  return primeiro(
+    l.cliente,
+    l.cliente_final,
+    l.cliente_nome,
+    l.nome_cliente,
+    l.tomador,
+    l.pagador,
+    l.importador
+  )
+}
+
+function parceiroComercialLinha(l: Linha) {
+  const nome = primeiro(
+    l.parceiro_comercial,
+    l.parceiro_nome,
+    l.parceiro,
+    l.despachante,
+    l.nome_despachante,
+    l.intermediario,
+    l.intermediador
+  )
+  const n = normalizar(nome)
+  if (!n || ['-', 'nao informado', 'nenhum', 'sem parceiro', 'nao se aplica'].includes(n)) return ''
+  return nome
+}
+
+function identidadeCliente(nome: string, aliases: ReturnType<typeof mapaAliasesClientes>) {
+  const canonico = nomeCanonicoCliente(nome, aliases) || nome
+  return normalizarIdentidade(canonico)
 }
 
 function emailLinha(l: Linha) {
@@ -431,26 +465,16 @@ function adicionarChavesCliente(c: Cliente360, l: Linha) {
 }
 
 function linhaPertenceCliente(l: Linha, c: Cliente360, embarquesDoCliente: Set<string>) {
-  const id = chaveForte('id', clienteIdLinha(l))
-  const usuario = chaveForte('usuario', usuarioLinha(l))
-  const doc = chaveForte('doc', documentoLinha(l))
-  const email = chaveForte('email', emailLinha(l))
-  const codigo = chaveForte('codigo', codigoClienteLinha(l))
-  const awb = chaveForte('awb', awbLinha(l))
-  const ref = chaveForte('ref', refHcLinha(l))
+  // So aceita a identidade explicita ou um embarque diretamente confirmado.
+  // Email, usuario, ref. HC e AWB compartilhados por um parceiro NAO atribuem receita.
+  const nome = clienteFaturadoLinha(l)
+  const identidade = nome ? normalizarIdentidade(nome) : ''
+  const chaveCliente = normalizarIdentidade(c.nome)
+  if (identidade) {
+    return identidade === chaveCliente || c.nomes.has(normalizar(nome))
+  }
   const embId = texto(embarqueIdLinha(l))
-
-  if (id && c.chaves.has(id)) return true
-  if (embId && embarquesDoCliente.has(embId)) return true
-  if (usuario && c.chaves.has(usuario)) return true
-  if (doc && c.chaves.has(doc)) return true
-  if (codigo && c.chaves.has(codigo)) return true
-  if (email && c.chaves.has(email)) return true
-  if (awb && c.chaves.has(awb)) return true
-  if (ref && c.chaves.has(ref)) return true
-
-  const nome = normalizar(clienteNomeLinha(l))
-  return Boolean(nome && c.nomes.has(nome))
+  return Boolean(embId && embarquesDoCliente.has(embId))
 }
 
 function mesChave(d: Date) {
@@ -490,6 +514,9 @@ export default function Clientes360Page() {
   const [transportadora, setTransportadora] = useState('')
   const [servico, setServico] = useState('')
   const [aba, setAba] = useState<'EMBARQUES' | 'COTACOES' | 'FINANCEIRO' | 'TIMELINE'>('EMBARQUES')
+  const [modoVisao, setModoVisao] = useState<'CLIENTES' | 'PARCEIROS'>('CLIENTES')
+  const [parceiroKey, setParceiroKey] = useState('')
+  const [visaoDetalhada, setVisaoDetalhada] = useState(false)
   const [verMais, setVerMais] = useState(false)
   const [rankingPor, setRankingPor] = useState<RankingPor>('PROFIT')
   const [somenteComMovimento, setSomenteComMovimento] = useState(true)
@@ -559,10 +586,10 @@ export default function Clientes360Page() {
   }
 
   useEffect(() => {
-    if (clienteKey && !detalhesCarregados && !carregandoDetalhes) {
+    if ((clienteKey || modoVisao === 'PARCEIROS') && !detalhesCarregados && !carregandoDetalhes) {
       carregarDetalhesCliente()
     }
-  }, [clienteKey, detalhesCarregados])
+  }, [clienteKey, modoVisao, detalhesCarregados, carregandoDetalhes])
 
   const clientes = useMemo(() => {
     const mapa = new Map<string, Cliente360>()
@@ -598,11 +625,7 @@ export default function Clientes360Page() {
       // cliente -> cliente_final -> importador -> tomador -> pagador.
       // Se o financeiro antigo não tiver nome, recupera pelo embarque vinculado.
       const nome = primeiro(
-        financeiro.cliente,
-        financeiro.cliente_final,
-        financeiro.importador,
-        financeiro.tomador,
-        financeiro.pagador,
+        clienteFaturadoLinha(financeiro),
         embarque?.cliente,
         embarque?.cliente_final,
         embarque?.importador,
@@ -699,7 +722,8 @@ export default function Clientes360Page() {
       }
 
       adicionarChavesCliente(cliente, financeiro)
-      if (embarque) adicionarChavesCliente(cliente, embarque)
+      // Embarques podem compartilhar despachante, email ou usuario do parceiro.
+      // Nao absorver essas chaves na identidade comercial do cliente.
 
       // Garante que todos os AWBs do registro financeiro e do embarque
       // participem da pesquisa e dos vínculos posteriores.
@@ -791,7 +815,7 @@ export default function Clientes360Page() {
     }
 
     dados.financeiro.forEach((financeiro) => {
-      const nome = clienteNomeLinha(financeiro)
+      const nome = clienteFaturadoLinha(financeiro)
       if (!nome || normalizar(nome) === 'cliente nao identificado') return
 
       const nomeCanonico = nomeCanonicoCliente(nome, mapaAliases) || nome
@@ -1121,103 +1145,125 @@ export default function Clientes360Page() {
   )
 
   const conjunto = useMemo(() => {
-    if (!cliente) {
-      return {
-        embarques: [] as Linha[],
-        financeiro: [] as Linha[],
-        cotacoes: [] as Linha[],
-        faturas: [] as Linha[],
-        suporte: [] as Linha[],
-      }
+    const vazio = {
+      embarques: [] as Linha[], financeiro: [] as Linha[], cotacoes: [] as Linha[],
+      faturas: [] as Linha[], suporte: [] as Linha[],
     }
+    if (!cliente) return vazio
 
-    // 1. O financeiro é a base histórica mais estável da análise.
-    const financeiroDireto = dados.financeiro.filter((financeiro) =>
-      linhaPertenceCliente(financeiro, cliente, new Set())
-    )
-
-    const financeiroIdsDiretos = new Set(
-      financeiroDireto.map((financeiro) => texto(financeiro.id)).filter(Boolean)
-    )
-    const embarqueIdsFinanceiro = new Set(
-      financeiroDireto
-        .map((financeiro) => texto(embarqueIdLinha(financeiro)))
-        .filter(Boolean)
-    )
-    const awbsFinanceiro = new Set(
-      financeiroDireto.flatMap((financeiro) => awbsLinha(financeiro))
-    )
-    const refsFinanceiro = new Set(
-      financeiroDireto.map((financeiro) => normalizar(refHcLinha(financeiro))).filter(Boolean)
-    )
-
-    // 2. Localiza embarques atuais pelo ID estável, AWB ou pelas chaves fortes do cliente.
-    const embarquesCliente = dados.embarques.filter((embarque) => {
-      const id = texto(embarque.id)
-      if (id && embarqueIdsFinanceiro.has(id)) return true
-      if (awbsLinha(embarque).some((awb) => awbsFinanceiro.has(awb))) return true
-      return linhaPertenceCliente(embarque, cliente, embarqueIdsFinanceiro)
+    // Uma fatura so pertence ao cliente explicitamente faturado.
+    // NUNCA usar login, email do parceiro, despachante ou conjunto global de chaves.
+    const financeiroCliente = dados.financeiro.filter((f) => {
+      const nome = clienteFaturadoLinha(f)
+      return Boolean(nome && identidadeCliente(nome, mapaAliases) === identidadeCliente(cliente.nome, mapaAliases))
     })
+    const idsFinanceiro = new Set(financeiroCliente.map((f) => texto(f.id)).filter(Boolean))
+    const idsEmbarqueFinanceiro = new Set(financeiroCliente.map((f) => texto(embarqueIdLinha(f))).filter(Boolean))
+    const awbsFinanceiro = new Set(financeiroCliente.flatMap(awbsLinha))
+    const refsFinanceiro = new Set(financeiroCliente.map((f) => normalizar(refHcLinha(f))).filter(Boolean))
 
-    const embarqueIdsLocalizados = new Set(
-      embarquesCliente.map((embarque) => texto(embarque.id)).filter(Boolean)
-    )
-    const embarqueIdsRelacionados = new Set([
-      ...Array.from(embarqueIdsFinanceiro),
-      ...Array.from(embarqueIdsLocalizados),
-    ])
-
-    // 3. Repassa os vínculos localizados ao financeiro para recuperar históricos
-    // cujo nome/cadastro já não esteja preenchido no mesmo formato.
-    const financeiroCliente = dados.financeiro.filter((financeiro) => {
-      if (financeiroIdsDiretos.has(texto(financeiro.id))) return true
-      if (linhaPertenceCliente(financeiro, cliente, embarqueIdsRelacionados)) return true
-      return awbsLinha(financeiro).some((awb) => awbsFinanceiro.has(awb))
+    const embarquesCliente = dados.embarques.filter((e) => {
+      const id = texto(e.id)
+      const vinculado = Boolean((id && idsEmbarqueFinanceiro.has(id)) || awbsLinha(e).some((awb) => awbsFinanceiro.has(awb)))
+      if (!vinculado) return false
+      // Se o embarque declara outro cliente final, mantenha o financeiro,
+      // mas nao mostre um embarque de outra empresa no painel deste cliente.
+      const nomeExplicito = primeiro(e.cliente, e.cliente_final, e.cliente_nome, e.nome_cliente)
+      return !nomeExplicito || identidadeCliente(nomeExplicito, mapaAliases) === identidadeCliente(cliente.nome, mapaAliases)
     })
-
-    const financeiroIdsCliente = new Set(
-      financeiroCliente.map((financeiro) => texto(financeiro.id)).filter(Boolean)
-    )
-    const awbsCliente = new Set([
-      ...Array.from(awbsFinanceiro),
-      ...financeiroCliente.flatMap((financeiro) => awbsLinha(financeiro)),
-      ...embarquesCliente.flatMap((embarque) => awbsLinha(embarque)),
+    const idsEmbarques = new Set([
+      ...idsEmbarqueFinanceiro,
+      ...embarquesCliente.map((e) => texto(e.id)).filter(Boolean),
     ])
-    const refsCliente = new Set([
-      ...Array.from(refsFinanceiro),
-      ...financeiroCliente.map((financeiro) => normalizar(refHcLinha(financeiro))).filter(Boolean),
-      ...embarquesCliente.map((embarque) => normalizar(refHcLinha(embarque))).filter(Boolean),
+    const awbs = new Set([...awbsFinanceiro, ...embarquesCliente.flatMap(awbsLinha)])
+    const refs = new Set([
+      ...refsFinanceiro,
+      ...embarquesCliente.map((e) => normalizar(refHcLinha(e))).filter(Boolean),
     ])
 
-    // 4. Cotações/faturas/suporte podem sobreviver mesmo quando o embarque original
-    // foi excluído. Por isso, além das chaves do cliente, aceitamos vínculos estáveis
-    // por embarque_id, financeiro_embarque_id, AWB e referência HC.
-    const filtraRelacionado = (arr: Linha[]) =>
-      arr.filter((linha) => {
-        if (linhaPertenceCliente(linha, cliente, embarqueIdsRelacionados)) return true
-
-        const embarqueId = texto(embarqueIdLinha(linha))
-        if (embarqueId && embarqueIdsRelacionados.has(embarqueId)) return true
-
-        const financeiroId = texto(financeiroIdLinha(linha))
-        if (financeiroId && financeiroIdsCliente.has(financeiroId)) return true
-
-        if (awbsLinha(linha).some((awb) => awbsCliente.has(awb))) return true
-
-        const refHc = normalizar(refHcLinha(linha))
-        if (refHc && refsCliente.has(refHc)) return true
-
-        return false
-      })
-
+    const relacionados = (linhas: Linha[]) => linhas.filter((l) => {
+      // Se existe um cliente explicitamente diferente, nao reaproveitar.
+      const nomeExplicito = primeiro(l.cliente, l.cliente_final, l.cliente_nome, l.nome_cliente)
+      if (nomeExplicito && identidadeCliente(nomeExplicito, mapaAliases) !== identidadeCliente(cliente.nome, mapaAliases)) return false
+      const emb = texto(embarqueIdLinha(l))
+      const fin = texto(financeiroIdLinha(l))
+      const ref = normalizar(refHcLinha(l))
+      return Boolean(
+        (emb && idsEmbarques.has(emb)) ||
+        (fin && idsFinanceiro.has(fin)) ||
+        awbsLinha(l).some((awb) => awbs.has(awb)) ||
+        (ref && refs.has(ref))
+      )
+    })
     return {
       embarques: embarquesCliente,
       financeiro: financeiroCliente,
-      cotacoes: filtraRelacionado(dados.cotacoes),
-      faturas: filtraRelacionado(dados.faturas),
-      suporte: filtraRelacionado(dados.suporte),
+      cotacoes: relacionados(dados.cotacoes),
+      faturas: relacionados(dados.faturas),
+      suporte: relacionados(dados.suporte),
     }
-  }, [cliente, dados])
+  }, [cliente, dados, mapaAliases])
+
+  const parceiros = useMemo(() => {
+    type ParceiroResumo = { key: string; nome: string; linhas: Linha[]; clientes: Set<string>; processos: Set<string> }
+    const mapa = new Map<string, ParceiroResumo>()
+    const embPorAwb = new Map<string, Linha[]>()
+    dados.embarques.forEach((e) => {
+      awbsLinha(e).forEach((awb) => {
+        if (!embPorAwb.has(awb)) embPorAwb.set(awb, [])
+        embPorAwb.get(awb)!.push(e)
+      })
+    })
+    const get = (nome: string) => {
+      const key = normalizarIdentidade(nome)
+      if (!mapa.has(key)) mapa.set(key, { key, nome, linhas: [], clientes: new Set(), processos: new Set() })
+      return mapa.get(key)!
+    }
+
+    // Inclui parceiros identificados em embarques, mesmo sem financeiro.
+    dados.embarques.forEach((e) => {
+      const nome = parceiroComercialLinha(e)
+      if (nome) get(nome)
+    })
+    dados.financeiro.forEach((f) => {
+      let parceiro = parceiroComercialLinha(f)
+      if (!parceiro) {
+        const candidatos = new Set<string>()
+        awbsLinha(f).forEach((awb) => (embPorAwb.get(awb) || []).forEach((e) => {
+          const nome = parceiroComercialLinha(e)
+          if (nome) candidatos.add(normalizarIdentidade(nome))
+        }))
+        // Nao atribuir a parceiro algum se houver mais de um candidato.
+        if (candidatos.size === 1) {
+          const chave = [...candidatos][0]
+          const embarque = dados.embarques.find((e) => normalizarIdentidade(parceiroComercialLinha(e)) === chave)
+          parceiro = embarque ? parceiroComercialLinha(embarque) : ''
+        }
+      }
+      if (!parceiro) return
+      const item = get(parceiro)
+      item.linhas.push(f)
+      const clienteNome = clienteFaturadoLinha(f)
+      if (clienteNome) item.clientes.add(nomeCanonicoCliente(clienteNome, mapaAliases) || clienteNome)
+      const awb = awbLinha(f)
+      if (awb) item.processos.add(awb)
+    })
+    return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [dados.embarques, dados.financeiro, mapaAliases])
+
+  const parceiroSelecionado = useMemo(
+    () => parceiros.find((p) => p.key === parceiroKey) || null,
+    [parceiros, parceiroKey]
+  )
+
+  const financeiroParceiroFiltrado = useMemo(() => {
+    if (!parceiroSelecionado) return [] as Linha[]
+    return parceiroSelecionado.linhas.filter((f) => {
+      const data = vencimentoLinha(f) || dataValida(recebimentoLinha(f)) || dataLinha(f)
+      return dentroPeriodo(data, periodo, dataInicio, dataFim)
+    })
+  }, [parceiroSelecionado, periodo, dataInicio, dataFim])
+
 
   const opcoesFiltro = useMemo(() => {
     const base = [...conjunto.financeiro, ...conjunto.embarques]
@@ -1297,6 +1343,23 @@ export default function Clientes360Page() {
       suporte: conjunto.suporte.filter(filtrarRelacionadoAoPeriodo),
     }
   }, [conjunto, periodo, dataInicio, dataFim, transportadora, servico])
+
+  const financeiroPainel = modoVisao === 'PARCEIROS'
+    ? financeiroParceiroFiltrado
+    : cliente ? filtrado.financeiro : [] as Linha[]
+
+  const resumoPainel = useMemo(() => {
+    const linhas = financeiroPainel
+    const faturado = linhas.reduce((a, f) => a + valorFaturado(f), 0)
+    const comCusto = linhas.filter((f) => valorCusto(f) > 0)
+    const profit = comCusto.reduce((a, f) => a + profitHC(f), 0)
+    const custo = comCusto.reduce((a, f) => a + valorCusto(f) + valorDta(f) + valorDebitoTerceiro(f), 0)
+    const recebido = linhas.filter(pagoLinha).reduce((a, f) => a + valorFaturado(f), 0)
+    return {
+      processos: linhas.length, faturado, profit, custo, recebido,
+      emAberto: Math.max(0, faturado - recebido), semCusto: linhas.length - comCusto.length,
+    }
+  }, [financeiroPainel])
 
   const diagnosticoVinculos = useMemo(() => {
     const processosFaturados = filtrado.financeiro.filter((linha) => valorFaturado(linha) !== 0)
@@ -1640,6 +1703,190 @@ export default function Clientes360Page() {
     )
   }
 
+  // VISÃO EXECUTIVA: poucos indicadores, relação de processos e atribuição explícita.
+  // A visão detalhada legada continua acessível para auditorias históricas.
+  if (modoVisao === 'PARCEIROS' || !visaoDetalhada) {
+    const listaProcessos = financeiroPainel.slice().sort((a, b) => {
+      return (dataLinha(b)?.getTime() || 0) - (dataLinha(a)?.getTime() || 0)
+    })
+    const clientesParceiro = new Map<string, { nome: string; faturamento: number; processos: number }>()
+    financeiroParceiroFiltrado.forEach((f) => {
+      const nome = clienteFaturadoLinha(f)
+      if (!nome) return
+      const canonico = nomeCanonicoCliente(nome, mapaAliases) || nome
+      const key = normalizarIdentidade(canonico)
+      const atual = clientesParceiro.get(key) || { nome: canonico, faturamento: 0, processos: 0 }
+      atual.faturamento += valorFaturado(f)
+      atual.processos += 1
+      clientesParceiro.set(key, atual)
+    })
+    return (
+      <main className="space-y-5 pb-16 text-white">
+        <section className="rounded-3xl border border-blue-500/30 bg-slate-950 p-5 md:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[.18em] text-blue-400">Gestão comercial e financeira</p>
+              <h1 className="mt-1 text-3xl font-black">Análise de Clientes e Parceiros</h1>
+              <p className="mt-2 text-sm text-slate-400">Receita por cliente faturado ou por parceiro comercial, sem misturar as duas identidades.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={carregar} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold hover:bg-blue-500">Atualizar dados</button>
+              {modoVisao === 'CLIENTES' && (
+                <button onClick={() => setVisaoDetalhada(true)} className="rounded-xl border border-slate-600 px-4 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800">
+                  Ver detalhes técnicos
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button onClick={() => { setModoVisao('CLIENTES'); setParceiroKey('') }}
+              className={`rounded-xl px-5 py-2.5 text-sm font-black ${modoVisao === 'CLIENTES' ? 'bg-blue-600' : 'bg-slate-800 text-slate-300'}`}>
+              Clientes faturados
+            </button>
+            <button onClick={() => { setModoVisao('PARCEIROS'); setClienteKey(''); setBusca(''); setVisaoDetalhada(false) }}
+              className={`rounded-xl px-5 py-2.5 text-sm font-black ${modoVisao === 'PARCEIROS' ? 'bg-blue-600' : 'bg-slate-800 text-slate-300'}`}>
+              Parceiros / Intermediadores
+            </button>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            {modoVisao === 'CLIENTES' ? (
+              <div className="relative">
+                <label className="mb-1 block text-xs font-bold text-slate-400">Pesquisar cliente faturado</label>
+                <input value={busca} onChange={(e) => { setBusca(e.target.value); setClienteKey('') }}
+                  placeholder="Nome da empresa, CNPJ ou AWB" className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-blue-500" />
+                {busca && !cliente && (
+                  <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+                    {clientesFiltradosBusca.map((c) => (
+                      <button key={c.key} onClick={() => { setClienteKey(c.key); setBusca(c.nome) }}
+                        className="block w-full border-b border-slate-800 px-4 py-3 text-left text-sm font-bold hover:bg-slate-800">{c.nome}</button>
+                    ))}
+                    {!clientesFiltradosBusca.length && <p className="p-3 text-sm text-slate-400">Nenhum cliente encontrado.</p>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-400">Selecionar parceiro comercial</label>
+                <select value={parceiroKey} onChange={(e) => setParceiroKey(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-white">
+                  <option value="">Selecione um parceiro...</option>
+                  {parceiros.map((p) => <option key={p.key} value={p.key}>{p.nome}</option>)}
+                </select>
+                {carregandoDetalhes && <p className="mt-2 text-xs text-blue-300">Buscando vínculos nos embarques...</p>}
+                {!carregandoDetalhes && !parceiros.length && <p className="mt-2 text-xs text-amber-300">Nenhum parceiro explícito encontrado no financeiro ou nos embarques. Não atribuímos operações por email ou nome parecido.</p>}
+              </div>
+            )}
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-400">Período financeiro</label>
+              <select value={periodo} onChange={(e) => setPeriodo(e.target.value as Periodo)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-white">
+                <option value="ANO_ATUAL">Ano atual</option>
+                <option value="MES_ATUAL">Este mês</option>
+                <option value="MES_ANTERIOR">Mês anterior</option>
+                <option value="ULTIMOS_90">Últimos 90 dias</option>
+                <option value="TODOS">Todo o histórico</option>
+                <option value="PERSONALIZADO">Personalizado</option>
+              </select>
+            </div>
+          </div>
+          {periodo === 'PERSONALIZADO' && <div className="mt-3 flex flex-wrap gap-2">
+            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="rounded-xl bg-slate-800 px-3 py-2" />
+            <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="rounded-xl bg-slate-800 px-3 py-2" />
+          </div>}
+          {erro && <p className="mt-4 rounded-xl bg-red-950/60 p-3 text-sm text-red-200">{erro}</p>}
+        </section>
+        {modoVisao === 'CLIENTES' && !cliente ? (
+          <>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Card titulo="Clientes com movimento" valor={resumoRanking.clientes} />
+              <Card titulo="Faturamento" valor={moeda(resumoRanking.faturamento)} cor="blue" />
+              <Card titulo="Profit HC calculável" valor={moeda(resumoRanking.profit)} cor="green" />
+              <Card titulo="Em aberto / atrasados" valor={`${resumoRanking.emAberto} / ${resumoRanking.atrasados}`} cor="yellow" />
+            </section>
+            <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
+                <h2 className="text-lg font-black">Carteira de clientes</h2>
+                <button onClick={exportarRankingCSV} className="rounded-xl border border-slate-600 px-3 py-2 text-xs font-bold">Exportar CSV</button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="bg-slate-900 text-xs text-slate-400"><tr>
+                    <th className="p-3">Cliente</th><th className="p-3">Processos</th><th className="p-3">Faturamento</th><th className="p-3">Profit HC</th><th className="p-3">Pendências</th><th className="p-3">Ação</th>
+                  </tr></thead>
+                  <tbody>{ranking.map((r) => <tr key={r.clienteKey} className="border-t border-slate-800">
+                    <td className="p-3 font-bold">{r.nome}</td><td className="p-3">{r.processosFaturados}</td>
+                    <td className="p-3">{moeda(r.valorFaturadoTotal)}</td><td className="p-3 text-emerald-400">{moeda(r.profitTotal)}</td>
+                    <td className="p-3 text-amber-300">{r.atrasados} atrasados • {r.aguardandoCusto} sem custo</td>
+                    <td className="p-3"><button onClick={() => selecionarClienteDoRanking(r)} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black">Analisar</button></td>
+                  </tr>)}</tbody>
+                </table>
+                {!ranking.length && <p className="p-6 text-sm text-slate-400">Nenhum cliente encontrado neste período.</p>}
+              </div>
+            </section>
+          </>
+        ) : modoVisao === 'PARCEIROS' && !parceiroSelecionado ? (
+          <section className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-slate-300">
+            Escolha um parceiro para analisar somente os processos expressamente vinculados a ele. Os clientes finais permanecem identificados individualmente.
+          </section>
+        ) : (
+          <>
+            <section className="rounded-2xl border border-blue-500/25 bg-slate-950 p-5">
+              <p className="text-xs font-black uppercase tracking-wide text-blue-400">{modoVisao === 'CLIENTES' ? 'Cliente faturado' : 'Parceiro comercial'}</p>
+              <h2 className="mt-1 text-2xl font-black">{modoVisao === 'CLIENTES' ? cliente?.nome : parceiroSelecionado?.nome}</h2>
+              <p className="mt-1 text-sm text-slate-400">{modoVisao === 'CLIENTES' ? 'Somente operações faturadas para este cliente.' : 'Operações intermediadas pelo parceiro, com clientes finais separados.'}</p>
+            </section>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <Card titulo="Processos" valor={resumoPainel.processos} cor="blue" />
+              <Card titulo="Faturamento" valor={moeda(resumoPainel.faturado)} cor="blue" />
+              <Card titulo="Profit HC" valor={moeda(resumoPainel.profit)} cor="green" detalhe={`${resumoPainel.semCusto} sem custo`} />
+              <Card titulo="Recebido*" valor={moeda(resumoPainel.recebido)} cor="green" />
+              <Card titulo="Em aberto*" valor={moeda(resumoPainel.emAberto)} cor="yellow" />
+              <Card titulo="Custo conhecido" valor={moeda(resumoPainel.custo)} />
+            </section>
+            {modoVisao === 'PARCEIROS' && (
+              <section className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                <h3 className="mb-3 text-lg font-black">Clientes atendidos pelo parceiro</h3>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {[...clientesParceiro.values()].sort((a,b) => b.faturamento - a.faturamento).map((c) => (
+                    <div key={normalizarIdentidade(c.nome)} className="rounded-xl border border-slate-800 p-3">
+                      <p className="font-bold">{c.nome}</p><p className="text-xs text-slate-400">{c.processos} processos • {moeda(c.faturamento)}</p>
+                    </div>
+                  ))}
+                </div>
+                {!clientesParceiro.size && <p className="text-sm text-slate-400">Sem lançamentos financeiros relacionados no período.</p>}
+              </section>
+            )}
+            <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+              <div className="border-b border-slate-800 p-4"><h3 className="text-lg font-black">Processos faturados</h3>
+                <p className="text-xs text-slate-500">Base: Financeiro → Processos Faturados. Atribuição por cliente faturado ou parceiro explícito, sem compartilhar AWBs entre empresas.</p>
+              </div>
+              <div className="overflow-x-auto"><table className="w-full min-w-[940px] text-left text-sm">
+                <thead className="bg-slate-900 text-xs text-slate-400"><tr>
+                  <th className="p-3">AWB</th><th className="p-3">Cliente faturado</th><th className="p-3">Parceiro</th><th className="p-3">Faturamento</th><th className="p-3">Profit HC</th><th className="p-3">Pagamento</th><th className="p-3">Ação</th>
+                </tr></thead>
+                <tbody>{listaProcessos.slice(0, 200).map((f, index) => (
+                  <tr key={`${texto(f.id)}-${index}`} className="border-t border-slate-800">
+                    <td className="p-3 font-black text-blue-300">{awbLinha(f) || '-'}</td>
+                    <td className="p-3">{clienteFaturadoLinha(f) || '-'}</td>
+                    <td className="p-3 text-slate-400">{parceiroComercialLinha(f) || (modoVisao === 'PARCEIROS' ? parceiroSelecionado?.nome : '-')}</td>
+                    <td className="p-3">{moeda(valorFaturado(f))}</td>
+                    <td className="p-3">{valorCusto(f) > 0 ? moeda(profitHC(f)) : 'Aguardando custo'}</td>
+                    <td className="p-3">{pagoLinha(f) ? 'Pago' : 'Em aberto'}</td>
+                    <td className="p-3"><Link href={`/admin/financeiro?aba=PROCESSOS&status=TODOS&busca=${encodeURIComponent(awbLinha(f))}`}
+                      className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold">Abrir</Link></td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+              {!listaProcessos.length && <p className="p-6 text-sm text-slate-400">Nenhum processo financeiro neste filtro.</p>}
+              {listaProcessos.length > 200 && <p className="p-4 text-xs text-amber-300">Exibindo os primeiros 200 de {listaProcessos.length} processos. Reduza o período para refinar.</p>}
+            </section>
+            <p className="text-xs text-slate-500">* Recebido e em aberto seguem os status do HC Connect, não constituem conciliação bancária. Profit HC depende do preenchimento dos custos.</p>
+          </>
+        )}
+      </main>
+    )
+  }
+
   return (
     <main className="space-y-6 pb-16">
       <section className="rounded-3xl border border-blue-500/30 bg-gradient-to-br from-slate-950 via-slate-950 to-blue-950/30 p-5 md:p-7 shadow-2xl">
@@ -1680,6 +1927,12 @@ export default function Clientes360Page() {
                 Voltar para clientes
               </button>
             )}
+            <button
+              onClick={() => setVisaoDetalhada(false)}
+              className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-black text-white"
+            >
+              Visão simplificada
+            </button>
             <button
               onClick={carregar}
               className="rounded-2xl border border-blue-500/40 bg-blue-500/10 px-5 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/20"
