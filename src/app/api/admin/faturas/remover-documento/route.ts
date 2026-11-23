@@ -15,15 +15,24 @@ function cliente(key: string) {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 }
 
-function caminhoStorage(url: string) {
-  // Apenas arquivos do bucket HC de faturas no próprio projeto.
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const prefixo = supabaseUrl.replace(/\/$/, '') + '/storage/v1/object/public/faturas/'
-  if (!url.startsWith(prefixo)) return null
-  let path: string
-  try { path = decodeURIComponent(url.slice(prefixo.length).split('?')[0]) } catch { return null }
-  if (!path || path.startsWith('/') || path.includes('..') || path.includes('\\') || !path.endsWith('.pdf') && !/\.(png|jpe?g)$/i.test(path)) return null
-  return path
+// HC_REMOVER_COMPROVANTE_CLIENTE_V1: aceita bucket "faturas" e comprovantes de cliente em "documentos/comprovantes/".
+function caminhoStorage(url: string): { bucket: string; path: string } | null {
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '') + '/storage/v1/object/public/'
+  const permitidos: { bucket: string; subpasta: string }[] = [
+    { bucket: 'faturas', subpasta: '' },
+    { bucket: 'documentos', subpasta: 'comprovantes/' },
+  ]
+  for (const p of permitidos) {
+    const prefixo = base + p.bucket + '/'
+    if (!url.startsWith(prefixo)) continue
+    let path: string
+    try { path = decodeURIComponent(url.slice(prefixo.length).split('?')[0]) } catch { return null }
+    if (!path || path.startsWith('/') || path.includes('..') || path.includes('\\')) return null
+    if (p.subpasta && !path.startsWith(p.subpasta)) return null
+    if (!/\.(pdf|png|jpe?g)$/i.test(path)) return null
+    return { bucket: p.bucket, path }
+  }
+  return null
 }
 
 export async function POST(req: NextRequest) {
@@ -48,17 +57,20 @@ export async function POST(req: NextRequest) {
     if (!['faturas', 'fatura_arquivos'].includes(tabela) || !UUID.test(id) || url.length > MAX_URL || !url) {
       return NextResponse.json({ error: 'Documento inválido.' }, { status: 400 })
     }
-    const caminho = caminhoStorage(url)
-    if (!caminho) return NextResponse.json({ error: 'O documento não pertence ao Storage de faturas do HC.' }, { status: 400 })
+    const alvo = caminhoStorage(url)
+    if (!alvo) return NextResponse.json({ error: 'O documento não pertence ao Storage do HC (faturas ou comprovantes).' }, { status: 400 })
+    const caminho = alvo.bucket + '/' + alvo.path
 
     let campo = ''
+    let faturaAtual: any = null
     if (tabela === 'faturas') {
       const { data: fatura, error } = await admin.from('faturas')
-        .select('id, arquivo_pdf, recibo_pdf, comprovante_pagamento').eq('id', id).maybeSingle()
+        .select('id, arquivo_pdf, recibo_pdf, comprovante_pagamento, status_pagamento, data_pagamento, valor_pago').eq('id', id).maybeSingle()
       if (error || !fatura) return NextResponse.json({ error: 'Fatura não encontrada.' }, { status: 404 })
       const encontrados = CAMPOS_FATURA.filter(c => fatura[c] === url)
       if (encontrados.length !== 1) return NextResponse.json({ error: 'Documento alterado ou ambíguo. Recarregue a página.' }, { status: 409 })
       campo = encontrados[0]
+      faturaAtual = fatura
     } else {
       const { data: anexo, error } = await admin.from('fatura_arquivos')
         .select('id, url').eq('id', id).maybeSingle()
@@ -85,7 +97,16 @@ export async function POST(req: NextRequest) {
         payload.recibo_emitido_em = null
         payload.recibo_observacoes = null
       }
-      // NÃO modificar status_pagamento, data_pagamento, valor_pago ou Financeiro.
+      if (campo === 'comprovante_pagamento' && faturaAtual) {
+        const st = String(faturaAtual.status_pagamento || '').trim().toUpperCase()
+        const naoProcessado = !faturaAtual.recibo_pdf && !faturaAtual.data_pagamento && Number(faturaAtual.valor_pago || 0) <= 0
+        if (naoProcessado && ['COMPROVANTE ENVIADO', 'COMPROVANTE REJEITADO'].includes(st)) {
+          payload.status_pagamento = 'AGUARDANDO PAGAMENTO'
+          payload.data_comprovante = null
+          payload.observacao_pagamento = null
+        }
+      }
+      // NÃO modificar data_pagamento, valor_pago ou Financeiro. Status só volta se comprovante ainda não processado.
       const { data, error } = await admin.from('faturas').update(payload)
         .eq('id', id).eq(campo, url).select('id').maybeSingle()
       erroBanco = error?.message || null
@@ -101,7 +122,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: erroBanco || 'Documento alterado. Atualize a tela.' }, { status: 409 })
     }
 
-    const { error: erroStorage } = await admin.storage.from('faturas').remove([caminho])
+    const { error: erroStorage } = await admin.storage.from(alvo.bucket).remove([alvo.path])
     await admin.from('hc_documentos_exclusoes').update({
       status: erroStorage ? 'LIMPEZA_PENDENTE' : 'CONCLUIDO',
       erro: erroStorage?.message || null,
