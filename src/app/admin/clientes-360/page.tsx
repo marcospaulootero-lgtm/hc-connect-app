@@ -337,6 +337,8 @@ function pagoLinha(l: Linha) {
   const s = statusFinanceiro(l)
   return (
     ['pago', 'paga', 'recebido', 'recebida', 'quitado', 'quitada'].includes(s) ||
+    // HC_RECEBIMENTO_360_V1: mesmos campos de data do Painel financeiro (recebimento / recebimento_cliente).
+    Boolean(dataValida(l.recebimento) || dataValida(l.recebimento_cliente)) ||
     Boolean(l.data_recebimento || l.recebido_em || l.pago_em || l.data_pagamento)
   )
 }
@@ -350,7 +352,7 @@ function vencimentoLinha(l: Linha) {
 }
 
 function recebimentoLinha(l: Linha) {
-  return primeiro(l.data_recebimento, l.recebido_em, l.pago_em, l.data_pagamento)
+  return primeiro(l.recebimento, l.recebimento_cliente, l.data_recebimento, l.recebido_em, l.pago_em, l.data_pagamento)
 }
 
 function numeroFaturaLinha(l: Linha) {
@@ -2491,7 +2493,7 @@ export default function Clientes360Page() {
                     moeda(profitHC(f)),
                     dataBR(v),
                     dataBR(recebimentoLinha(f)),
-                    primeiro(f.status_financeiro, f.status_pagamento, f.status, pagoLinha(f) ? 'PAGO' : 'EM ABERTO'),
+                    pagoLinha(f) ? 'PAGO' : primeiro(f.status_financeiro, f.status_pagamento, f.status, 'EM ABERTO'),
                     atraso,
                   ]
                 })}
