@@ -34,6 +34,28 @@ export default function DashboardPage() {
   const [rodandoRastreio, setRodandoRastreio] = useState(false)
   const [agora, setAgora] = useState(new Date())
   const [periodoGrafico, setPeriodoGrafico] = useState<PeriodoGrafico>('7D')
+  // HC_DASHBOARD_FOCO_V1
+  const [ocultarValores, setOcultarValores] = useState(false)
+  const [mostrarTodasAcoes, setMostrarTodasAcoes] = useState(false)
+
+  useEffect(() => {
+    try {
+      setOcultarValores(localStorage.getItem('hc_dashboard_ocultar_valores') === '1')
+    } catch {}
+  }, [])
+
+  function alternarOcultarValores() {
+    setOcultarValores((atual) => {
+      const novo = !atual
+      try { localStorage.setItem('hc_dashboard_ocultar_valores', novo ? '1' : '0') } catch {}
+      return novo
+    })
+  }
+
+  function exibirValor(texto: string) {
+    if (!ocultarValores) return texto
+    return texto.includes('R$') ? 'R$ ••••' : texto
+  }
   const [diaSelecionado, setDiaSelecionado] = useState<string | null>(null)
   const mapaAliases = useMemo(() => mapaAliasesClientes(aliasesClientes), [aliasesClientes])
 
@@ -1512,233 +1534,201 @@ export default function DashboardPage() {
     return nomes[mes] || mes
   }
 
+  // HC_DASHBOARD_FOCO_V1: uma lista única de ações, ordenada por urgência.
+  const acoesHoje = useMemo(() => {
+    const prioridade: Record<string, number> = { red: 0, orange: 1, yellow: 1, purple: 2, blue: 2, green: 3, slate: 4 }
+    const lista: any[] = [...alertasCriticos]
+    if (conciliacaoTransportadoras.prontasParaPagar.length > 0) {
+      lista.push({
+        titulo: 'Faturas DHL/FedEx prontas para pagar',
+        valor: moeda(conciliacaoTransportadoras.totalProntasParaPagar),
+        detalhe: `${conciliacaoTransportadoras.prontasParaPagar.length} fatura(s) com todos os AWBs recebidos`,
+        cor: 'green',
+        href: '/admin/faturas-transportadoras?origem=dashboard&conciliacao=PRONTA_PARA_PAGAR',
+        acao: 'Pagar',
+      })
+    }
+    return lista
+      .map((item, ordem) => ({ item, ordem }))
+      .sort((a, b) => (prioridade[a.item.cor] ?? 5) - (prioridade[b.item.cor] ?? 5) || a.ordem - b.ordem)
+      .map(({ item }) => item)
+  }, [alertasCriticos, conciliacaoTransportadoras])
+
   return (
     <main className="min-h-screen bg-[#020817] text-white">
       <AdminUsuariosOnline />
       <section className="p-5 xl:p-5 overflow-auto">
-        <header className="mb-5 flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
-          <div>
-            <div className="mb-3 flex flex-wrap items-center gap-3">
-              <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-xs font-black uppercase tracking-[0.22em] text-blue-300">
-                Dashboard Executivo
-              </span>
-
-              <span className="text-sm font-bold text-slate-400">
-                🕒 {agora.toLocaleString('pt-BR')}
-              </span>
-            </div>
-
-            <h1 className="text-xl xl:text-xl font-black tracking-tight">
-              HC Connect
-            </h1>
-
-            <p className="mt-3 max-w-3xl text-base xl:text-lg font-semibold text-slate-400">
-              Central de controle da operação, financeiro, faturas DHL/FedEx, rastreio automático e pendências críticas da HC.
-            </p>
+        {/* HC_DASHBOARD_FOCO_V1: layout de uma tela. Cálculos e consultas inalterados. */}
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-2xl font-black tracking-tight">Dashboard</h1>
+            <span className="text-sm font-semibold capitalize text-slate-400">{periodoCards}</span>
+            <span className="text-xs text-slate-500">Atualizado {agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
 
-          <div className="flex h-fit flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={atualizarDadosManual}
-              disabled={carregando}
-              className="rounded-2xl bg-blue-600 px-5 py-2 font-black text-white shadow-[0_0_24px_rgba(37,99,235,0.25)] hover:bg-blue-500 disabled:opacity-60"
+              onClick={alternarOcultarValores}
+              aria-pressed={ocultarValores}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800"
             >
-              {carregando ? 'Atualizando...' : '↻ Atualizar dashboard'}
+              {ocultarValores ? 'Mostrar valores' : 'Ocultar valores'}
             </button>
-
             <button
               type="button"
               onClick={atualizarTodosRastreios}
               disabled={rodandoRastreio}
-              className="rounded-2xl border border-blue-800 bg-[#071225] px-5 py-2 font-black text-blue-100 hover:bg-blue-600/20 disabled:opacity-60"
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-60"
             >
-              {rodandoRastreio ? 'Rodando rastreio...' : '📡 Rodar rastreio'}
+              {rodandoRastreio ? 'Rodando rastreio...' : 'Rodar rastreio'}
             </button>
-
-            <a href="/admin/embarques" className="rounded-2xl bg-emerald-600 px-5 py-2 font-black text-white hover:bg-emerald-500">
-              + Novo embarque
-            </a>
-
-            <a href="/admin/financeiro" className="rounded-2xl border border-slate-700 bg-slate-800 px-5 py-2 font-black text-white hover:bg-slate-700">
-              Financeiro
+            <button
+              type="button"
+              onClick={atualizarDadosManual}
+              disabled={carregando}
+              className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-60"
+            >
+              {carregando ? 'Atualizando...' : 'Atualizar'}
+            </button>
+            <a href="/admin/embarques" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-500">
+              Novo embarque
             </a>
           </div>
         </header>
 
-        {/* HC_NOTIFICACOES_DASHBOARD_TOPO_V1 */}
-        <section aria-label="Atendimento prioritário" className="mb-5 rounded-2xl border border-blue-700 bg-[#07152f] p-4 sm:p-5 shadow-[0_12px_34px_rgba(0,0,0,0.20)]">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-black text-white">🔔 Atendimento prioritário</h2>
-                {suporteResumo.abertos > 0 && (
-                  <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">
-                    {suporteResumo.abertos} chamado(s) aberto(s)
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-xs text-slate-400">Chamados e cotações com ação pendente, sem precisar rolar a página.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <a href="/admin/suporte?status=ABERTO" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500">Ver chamados</a>
-              <a href="/admin/cotacoes?status=PENDENTES" className="rounded-xl border border-blue-700 bg-[#091b38] px-4 py-2 text-sm font-bold text-blue-100 hover:bg-blue-800/50">Ver cotações</a>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-            <div className="rounded-xl border border-red-900/70 bg-[#170e21] p-4">
-              <p className="text-xs font-extrabold uppercase tracking-wider text-red-300">💬 Suporte em aberto</p>
-              <p className="mt-2 text-3xl font-black text-white">{suporteResumo.abertos}</p>
-              <p className="mt-1 text-xs text-slate-400">Aguardando atendimento</p>
-            </div>
-            <div className="rounded-xl border border-amber-900/70 bg-[#1b1725] p-4">
-              <p className="text-xs font-extrabold uppercase tracking-wider text-amber-300">🕒 Em análise</p>
-              <p className="mt-2 text-3xl font-black text-white">{suporteResumo.analise}</p>
-              <p className="mt-1 text-xs text-slate-400">Chamados em andamento</p>
-            </div>
-            <div className="rounded-xl border border-blue-800 bg-[#0b1935] p-4">
-              <p className="text-xs font-extrabold uppercase tracking-wider text-blue-300">📄 Cotações pendentes</p>
-              <p className="mt-2 text-3xl font-black text-white">{cotacoesPendentes}</p>
-              <p className="mt-1 text-xs text-slate-400">Solicitações aguardando ação</p>
-            </div>
-          </div>
-          {suporteResumo.abertos > 0 && (
-            <div className="mt-3 rounded-xl border border-blue-900 bg-[#020817] p-3">
-              <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">Chamados abertos mais recentes</p>
-              <div className="grid grid-cols-1 gap-2 xl:grid-cols-3">
-                {suporte.filter((item) => item.status === 'ABERTO').slice(0, 3).map((item: any, index: number) => (
-                  <a key={String(item.id || index)} href="/admin/suporte?status=ABERTO" className="rounded-lg border border-blue-900 bg-[#0b1b38] px-3 py-3 transition hover:border-blue-500 hover:bg-blue-950">
-                    <p className="truncate text-sm font-extrabold text-white">{item.assunto || 'Chamado sem assunto'}</p>
-                    <p className="mt-1 truncate text-xs text-slate-400">{item.email || item.nome || 'Cliente não informado'}</p>
-                    <p className="mt-2 text-xs font-bold text-blue-300">Abrir Central de Suporte →</p>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          <HeroCard
+        <section aria-label="Indicadores do mês" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <IndicadorFoco
             titulo="A receber"
-            periodo="Em aberto • todos os períodos"
-            valor={moeda(financeiroResumo.aReceber)}
-            detalhe={`${financeiroResumo.emAberto.length} processos em aberto`}
-            icone="💰"
-            cor="blue"
+            valor={exibirValor(moeda(financeiroResumo.aReceber))}
+            detalhe={financeiroResumo.vencido > 0 ? `${exibirValor(moeda(financeiroResumo.vencido))} vencido` : `${financeiroResumo.emAberto.length} processos em aberto`}
+            tom={financeiroResumo.vencido > 0 ? 'perigo' : 'neutro'}
             href="/admin/financeiro?aba=PROCESSOS&status=EM%20ABERTO"
           />
-
-          <HeroCard
-            titulo="Recebido de clientes"
-            periodo={periodoCards}
-            valor={moeda(financeiroResumo.valorRecebidoMes)}
-            detalhe={`${financeiroResumo.pagosMes.length} processos pagos no mês`}
-            icone="✅"
-            cor="green"
+          <IndicadorFoco
+            titulo="Recebido no mês"
+            valor={exibirValor(moeda(financeiroResumo.valorRecebidoMes))}
+            detalhe={`${financeiroResumo.pagosMes.length} processos pagos`}
             href="/admin/financeiro?aba=RESULTADO"
           />
-
-          <HeroCard
+          <IndicadorFoco
             titulo="Profit bruto"
-            periodo={periodoCards}
-            valor={moeda(financeiroResumo.profitBrutoProcessosMes)}
-            detalhe={
-              financeiroResumo.processosPagosSemCusto.length > 0
-                ? `${financeiroResumo.processosPagosSemCusto.length} pagos sem custo`
-                : 'Antes das despesas da HC'
-            }
-            icone="📈"
-            cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'}
-            href="/admin/financeiro?aba=RESULTADO"
+            valor={exibirValor(moeda(financeiroResumo.profitBrutoProcessosMes))}
+            valorTom={financeiroResumo.profitBrutoProcessosMes < 0 ? 'perigo' : undefined}
+            detalhe={metaHc.meta > 0 ? `${metaHc.percentual.toFixed(0)}% da meta de ${exibirValor(moeda(metaHc.meta))}` : 'Meta sem base suficiente'}
+            progresso={metaHc.meta > 0 ? metaHc.percentual : undefined}
+            href="#detalhes-meta-hc"
           />
-
-          <a href="#detalhes-meta-hc" className="block h-full rounded-2xl border border-violet-500/40 bg-gradient-to-br from-violet-500/20 to-violet-900/10 p-4 text-violet-200 transition hover:border-violet-300">
-            <p className="text-xs font-black uppercase tracking-[0.18em]">Meta de profit HC</p>
-            <p className="mt-2 text-xs capitalize opacity-80">{periodoCards}</p>
-            <h2 className="mt-3 text-2xl font-black text-white">{metaHc.meta > 0 ? moeda(metaHc.meta) : 'Sem base suficiente'}</h2>
-            <p className="mt-3 text-sm font-bold">
-              {metaHc.meta > 0 ? (metaHc.falta > 0 ? `Faltam ${moeda(metaHc.falta)}` : 'Meta atingida!') : 'Cadastre despesas e retiradas para gerar a sugestão.'}
-            </p>
-            <p className="mt-2 text-sm">Atingido: <strong className="text-white">{moeda(metaHc.realizado)}</strong></p>
-            {metaHc.meta > 0 && <>
-              <div role="progressbar" aria-label="Progresso da meta de profit" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, metaHc.percentual)} className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
-                <div className="h-full rounded-full bg-violet-400" style={{ width: `${Math.min(100, metaHc.percentual)}%` }} />
-              </div>
-              <p className="mt-2 text-xs">{metaHc.percentual.toFixed(1)}% atingido • Reserva planejada: {moeda(metaHc.reserva)}</p>
-            </>}
-            <p className="mt-2 text-xs opacity-80">Sugestão mensal • Ver cálculo abaixo</p>
-          </a>
-
-          <HeroCard
-            titulo="Saídas da HC"
-            periodo={periodoCards}
-            valor={moeda(financeiroResumo.despesasEemprestimosPagosMes)}
-            detalhe="Despesas e empréstimos pagos • sem retiradas"
-            linhas={[
-              { titulo: 'Despesas pagas', valor: moeda(financeiroResumo.despesasPagasMes) },
-              { titulo: 'Empréstimos pagos', valor: moeda(financeiroResumo.emprestimosPagosMes) },
-              { titulo: 'Ainda a pagar no mês', valor: moeda(financeiroResumo.despesasPendentesMes) },
-            ]}
-            icone="💸"
-            cor="orange"
-            href="/admin/financeiro?aba=RESULTADO"
-          />
-
-          <HeroCard
-            titulo="Resultado antes das retiradas"
-            periodo={periodoCards}
-            valor={moeda(financeiroResumo.lucroOperacionalMes)}
-            detalhe="Profit bruto menos despesas e empréstimos pagos"
-            icone={financeiroResumo.lucroOperacionalMes >= 0 ? '🏦' : '📉'}
-            cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'}
-            href="/admin/financeiro?aba=EXTRATO"
-          />
-
-          <HeroCard
-            titulo="Retiradas dos sócios"
-            periodo={periodoCards}
-            valor={moeda(financeiroResumo.retiradasTotalMes)}
-            detalhe="Retiradas, pagamentos e reembolsos pagos"
-            linhas={[
-              { titulo: 'Marcos', valor: moeda(financeiroResumo.retiradasMarcosMes) },
-              { titulo: 'Hérica', valor: moeda(financeiroResumo.retiradasHericaMes) },
-            ]}
-            icone="👥"
-            cor="orange"
-            href="/admin/financeiro?aba=EXTRATO"
-          />
-
-          <HeroCard
+          <IndicadorFoco
             titulo="Resultado após retiradas"
-            periodo={periodoCards}
-            valor={moeda(financeiroResumo.resultadoAposRetiradasMes)}
-            detalhe="Profit bruto menos saídas da HC e retiradas pagas"
-            linhas={[
-              { titulo: 'Profit bruto', valor: moeda(financeiroResumo.profitBrutoProcessosMes) },
-              { titulo: 'Saídas da HC', valor: moeda(financeiroResumo.despesasEemprestimosPagosMes) },
-              { titulo: 'Retiradas dos sócios', valor: moeda(financeiroResumo.retiradasTotalMes) },
-            ]}
-            icone={financeiroResumo.resultadoAposRetiradasMes >= 0 ? '💵' : '🚨'}
-            cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'}
+            valor={exibirValor(moeda(financeiroResumo.resultadoAposRetiradasMes))}
+            valorTom={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'sucesso' : 'perigo'}
+            detalhe={`Antes das retiradas: ${exibirValor(moeda(financeiroResumo.lucroOperacionalMes))}`}
+            dica={ocultarValores ? undefined : `Profit bruto ${moeda(financeiroResumo.profitBrutoProcessosMes)} − saídas da HC ${moeda(financeiroResumo.despesasEemprestimosPagosMes)} − retiradas ${moeda(financeiroResumo.retiradasTotalMes)} (Marcos ${moeda(financeiroResumo.retiradasMarcosMes)}, Hérica ${moeda(financeiroResumo.retiradasHericaMes)})`}
             href="/admin/financeiro?aba=EXTRATO"
           />
-
-          <HeroCard
-            titulo="Faturas DHL/FedEx em aberto"
-            periodo="Em aberto • todos os períodos"
-            valor={moeda(faturasResumo.totalAbertas)}
-            detalhe={`Hoje ${moeda(faturasResumo.totalHoje)} • Amanhã ${moeda(faturasResumo.totalAmanha)} • ${faturasResumo.abertas.length} abertas`}
-            icone="🚨"
-            cor={
-              faturasResumo.vencidas.length > 0 || faturasResumo.hojeVencem.length > 0
-                ? 'red'
-                : faturasResumo.amanhaVencem.length > 0 || faturasResumo.proximas.length > 0
-                  ? 'orange'
-                  : 'green'
-            }
+          <IndicadorFoco
+            titulo="DHL/FedEx a pagar"
+            valor={exibirValor(moeda(faturasResumo.totalAbertas))}
+            detalhe={`Hoje ${exibirValor(moeda(faturasResumo.totalHoje))} · amanhã ${exibirValor(moeda(faturasResumo.totalAmanha))}`}
+            tom={faturasResumo.vencidas.length > 0 || faturasResumo.hojeVencem.length > 0 ? 'perigo' : faturasResumo.amanhaVencem.length > 0 ? 'alerta' : 'neutro'}
             onClick={() => setModalFaturas(true)}
           />
+        </section>
+
+        <section className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
+          <div className="rounded-xl border border-slate-800 bg-[#071225] p-4 xl:col-span-2">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="text-base font-black">Precisa de ação hoje</h2>
+              <span className="text-xs font-bold text-slate-400">
+                {acoesHoje.length === 0 ? 'Nada pendente' : `${acoesHoje.length} item(ns)`}
+              </span>
+            </div>
+
+            {acoesHoje.length === 0 ? (
+              <p className="rounded-lg border border-emerald-900 bg-emerald-950/40 px-3 py-4 text-sm font-semibold text-emerald-300">
+                Tudo em dia. Nenhuma pendência crítica agora.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-800">
+                {(mostrarTodasAcoes ? acoesHoje : acoesHoje.slice(0, 6)).map((acao: any, index: number) => (
+                  <li key={`${acao.titulo}-${index}`}>
+                    <LinhaAcao acao={acao} valor={exibirValor(String(acao.valor ?? ''))} />
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {acoesHoje.length > 6 && (
+              <button
+                type="button"
+                onClick={() => setMostrarTodasAcoes((v) => !v)}
+                className="mt-2 text-sm font-bold text-blue-400 hover:text-blue-300"
+              >
+                {mostrarTodasAcoes ? 'Mostrar menos' : `Ver todos (${acoesHoje.length})`}
+              </button>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-[#071225] p-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="text-base font-black">Operação agora</h2>
+              <a href="/admin/embarques" className="text-xs font-bold text-blue-400 hover:text-blue-300">Embarques</a>
+            </div>
+            <ul className="divide-y divide-slate-800 text-sm">
+              {statusOperacionais.lista.map((item) => (
+                <li key={item.nome}>
+                  <a
+                    href={`/admin/embarques?origem=dashboard&status=${STATUS_EMBARQUE_URL[item.nome] || ''}`}
+                    className="flex items-center justify-between py-2 hover:text-white"
+                  >
+                    <span className="text-slate-400">{item.nome}</span>
+                    <span className={`font-black ${item.nome === 'Fiscalização' && item.total > 0 ? 'text-amber-300' : 'text-white'}`}>{item.total}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 border-t border-slate-800 pt-2 text-xs text-slate-400">
+              Rastreio: {dataHoraBR(ultimoRastreio?.criado_em)} · {Number(ultimoRastreio?.total_sucesso || 0)} ok ·{' '}
+              {Number(ultimoRastreio?.total_erro || 0) > 0 ? (
+                <button type="button" onClick={() => setModalErrosRastreio(true)} className="font-bold text-red-300 hover:text-red-200">
+                  {Number(ultimoRastreio?.total_erro || 0)} erro(s)
+                </button>
+              ) : (
+                <span>0 erros</span>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-4 rounded-xl border border-slate-800 bg-[#071225] p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-black">Receita x profit · últimos 6 meses</h2>
+            <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-500" /> Receita</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Profit</span>
+              <a href="/admin/financeiro?aba=RESULTADO" className="text-blue-400 hover:text-blue-300">Ver resultado</a>
+            </div>
+          </div>
+          <div className="grid grid-cols-6 gap-3">
+            {graficoFinanceiro.linhas.map((item) => (
+              <div
+                key={item.mes}
+                className="flex flex-col items-center"
+                title={ocultarValores ? item.label : `${item.label}: receita ${moeda(item.recebido)} · profit ${moeda(item.profit)}`}
+              >
+                <div className="flex h-24 w-full items-end justify-center gap-1">
+                  <div className="w-1/3 max-w-6 rounded-t bg-blue-500" style={{ height: `${Math.max(2, Math.min((item.recebido / graficoFinanceiro.maior) * 100, 100))}%` }} />
+                  <div
+                    className={`w-1/3 max-w-6 rounded-t ${item.profit >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}
+                    style={{ height: `${Math.max(2, Math.min((Math.abs(item.profit) / graficoFinanceiro.maior) * 100, 100))}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs font-bold text-slate-300">{item.label}</p>
+                <p className="text-[11px] text-slate-500">{exibirValor(moeda(item.recebido))}</p>
+              </div>
+            ))}
+          </div>
         </section>
 
         <details id="detalhes-meta-hc" className="mb-5 scroll-mt-6 rounded-2xl border border-violet-500/30 bg-[#071225] p-5 text-slate-200">
@@ -1777,682 +1767,6 @@ export default function DashboardPage() {
             </table>
           </div>}
         </details>
-
-        <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <a
-            href="/admin/faturas-transportadoras?origem=dashboard&conciliacao=PRONTA_PARA_PAGAR"
-            className="group rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/15 via-[#071225] to-[#071225] p-5 transition hover:border-emerald-400 hover:bg-emerald-500/20"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">
-                  Conciliação de pagamentos
-                </p>
-                <h3 className="mt-2 text-xl font-black text-white">Prontas para pagar</h3>
-                <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Todos os AWBs foram recebidos e a cobertura financeira está completa.
-                </p>
-              </div>
-              <span className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 px-4 py-2 text-2xl">✅</span>
-            </div>
-
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-3xl font-black text-emerald-300">
-                  {conciliacaoTransportadoras.prontasParaPagar.length}
-                </p>
-                <p className="text-xs font-bold text-slate-500">fatura(s) liberada(s)</p>
-              </div>
-              <div className="sm:text-right">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Valor a pagar</p>
-                <p className="mt-1 text-xl font-black text-white">
-                  {moeda(conciliacaoTransportadoras.totalProntasParaPagar)}
-                </p>
-              </div>
-            </div>
-          </a>
-
-          <a
-            href="/admin/faturas-transportadoras?origem=dashboard&conciliacao=PAGA_COM_PENDENCIA"
-            className={`group rounded-3xl border p-5 transition ${
-              conciliacaoTransportadoras.pagasComPendencia.length > 0
-                ? 'border-red-500/40 bg-gradient-to-br from-red-500/20 via-[#071225] to-[#071225] hover:border-red-400'
-                : 'border-slate-700 bg-[#071225] hover:border-slate-500'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className={`text-xs font-black uppercase tracking-[0.18em] ${
-                  conciliacaoTransportadoras.pagasComPendencia.length > 0 ? 'text-red-300' : 'text-slate-400'
-                }`}>
-                  Risco de capital de giro
-                </p>
-                <h3 className="mt-2 text-xl font-black text-white">Pagas antes de receber</h3>
-                <p className="mt-1 text-sm font-semibold text-slate-400">
-                  Faturas da transportadora já pagas que ainda possuem recebimentos pendentes.
-                </p>
-              </div>
-              <span className={`rounded-2xl border px-4 py-2 text-2xl ${
-                conciliacaoTransportadoras.pagasComPendencia.length > 0
-                  ? 'border-red-500/30 bg-red-500/15'
-                  : 'border-slate-700 bg-slate-800'
-              }`}>
-                {conciliacaoTransportadoras.pagasComPendencia.length > 0 ? '🚨' : '🛡️'}
-              </span>
-            </div>
-
-            <div className="mt-5 grid grid-cols-3 gap-3">
-              <div>
-                <p className={`text-3xl font-black ${
-                  conciliacaoTransportadoras.pagasComPendencia.length > 0 ? 'text-red-300' : 'text-emerald-300'
-                }`}>
-                  {conciliacaoTransportadoras.pagasComPendencia.length}
-                </p>
-                <p className="text-xs font-bold text-slate-500">fatura(s)</p>
-              </div>
-              <div>
-                <p className={`text-xl font-black ${
-                  conciliacaoTransportadoras.awbsPendentesPagos > 0 ? 'text-amber-300' : 'text-emerald-300'
-                }`}>
-                  {conciliacaoTransportadoras.awbsPendentesPagos}
-                </p>
-                <p className="text-xs font-bold text-slate-500">AWB(s) pendente(s)</p>
-              </div>
-              <div className="text-right">
-                <p className={`text-xl font-black ${
-                  conciliacaoTransportadoras.valorPendentePagos > 0 ? 'text-red-300' : 'text-emerald-300'
-                }`}>
-                  {moeda(conciliacaoTransportadoras.valorPendentePagos)}
-                </p>
-                <p className="text-xs font-bold text-slate-500">ainda a receber</p>
-              </div>
-            </div>
-
-            {conciliacaoTransportadoras.naoLocalizadosPagos > 0 && (
-              <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">
-                {conciliacaoTransportadoras.naoLocalizadosPagos} AWB(s) ainda não localizado(s) no Financeiro.
-              </p>
-            )}
-          </a>
-        </section>
-
-        <section className="mb-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-4">
-          <KpiCard titulo="Aguardando custo" valor={financeiroResumo.aguardandoCusto.length} detalhe={moeda(financeiroResumo.totalAguardandoCusto)} icone="⚠️" cor="orange" href="/admin/financeiro?aba=PROCESSOS&status=AGUARDANDO_CUSTO" />
-          <KpiCard titulo="Vencidos" valor={financeiroResumo.atrasado.length} detalhe={moeda(financeiroResumo.vencido)} icone="⏰" cor="red" href="/admin/financeiro?aba=PROCESSOS&status=ATRASADO" />
-          <KpiCard titulo="Aguardando coleta" valor={operacionalResumo.aguardandoColeta} detalhe="Pré-coleta" icone="📦" cor="orange" href="/admin/embarques?status=Aguardando%20coleta" />
-          <KpiCard titulo="Em trânsito" valor={operacionalResumo.transito} detalhe="Em andamento" icone="🚚" cor="blue" href="/admin/embarques?status=Em%20tr%C3%A2nsito" />
-          <KpiCard titulo="Fiscalização" valor={operacionalResumo.fiscalizacao} detalhe="Aguardando liberação" icone="🛃" cor="yellow" href="/admin/embarques?status=Fiscaliza%C3%A7%C3%A3o" />
-          <KpiCard titulo="Liberados" valor={operacionalResumo.liberados} detalhe="Prontos para seguir" icone="✅" cor="green" href="/admin/embarques?status=Liberado" />
-          <KpiCard titulo="Clientes ativos" valor={clientesAtivos} detalhe="Base ativa" icone="👥" cor="blue" href="/admin/usuarios" />
-          <KpiCard titulo="Peso total" valor={`${pesoTotal.toFixed(2)} kg`} detalhe="Movimentado" icone="⚖️" cor="green" href="/admin/embarques" />
-        </section>
-
-        <section className="mb-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <div className="card h-full text-sm">
-            <div className="mb-4 flex flex-col gap-3">
-              <div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">🚨</span>
-                  <h2 className="text-xl font-black">Alertas críticos</h2>
-                </div>
-                <p className="mt-1 text-xs font-semibold text-slate-400">
-                  Pendências que podem gerar atraso, perda de prazo ou distorção financeira.
-                </p>
-              </div>
-
-              <span className={`w-fit rounded-full px-4 py-2 text-xs font-black ${
-                alertasCriticos.length > 0
-                  ? 'border border-red-500/40 bg-red-500/10 text-red-300'
-                  : 'border border-green-500/40 bg-green-500/10 text-green-300'
-              }`}>
-                {alertasCriticos.length > 0 ? `${alertasCriticos.length} alerta(s)` : 'Sem alerta crítico'}
-              </span>
-            </div>
-
-            {alertasCriticos.length === 0 ? (
-              <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 text-green-200">
-                <p className="font-black">Tudo controlado agora.</p>
-                <p className="mt-1 text-sm font-semibold opacity-80">
-                  Sem faturas próximas, vencidos críticos, rastreios com erro ou chamados abertos.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3">
-                {alertasCriticos.slice(0, 8).map((alerta, index) => (
-                  <AlertaAcao key={index} alerta={alerta} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          
-
-                    <div data-dashboard-ultimos-topo="true" className="card h-full text-sm flex flex-col">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-black">Últimos embarques</h2>
-                <p className="mt-1 text-xs text-slate-400">Processos recentes da operação.</p>
-              </div>
-
-              <a href="/admin/embarques" className="text-sm font-bold text-blue-400 hover:text-blue-300">
-                Ver todos
-              </a>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-auto">
-              <table className="w-full min-w-[520px] text-sm">
-                <thead>
-                  <tr className="border-b border-blue-950 text-left text-slate-400">
-                    <th className="pb-2">AWB</th>
-                    <th className="pb-2">Exportador</th>
-                    <th className="pb-2">Importador</th>
-                    <th className="pb-2">Status</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {ultimosEmbarques.map((item) => (
-                    <tr key={item.id} className="border-b border-blue-950">
-                      <td className="py-2 font-bold text-blue-400">
-                        <a href={'/admin/embarques/' + item.id} className="hover:underline">
-                          {item.awb || '-'}
-                        </a>
-                      </td>
-                      <td className="py-2">{item.exportador || '-'}</td>
-                      <td className="py-2">{item.importador || '-'}</td>
-                      <td className="py-2">
-                        <StatusPillDashboard status={item.status_operacional || '-'} />
-                      </td>
-                    </tr>
-                  ))}
-
-                  {ultimosEmbarques.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="py-5 text-center text-slate-500">
-                        Nenhum embarque encontrado.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-<div className="card h-full text-sm">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">📄</span>
-                  <h2 className="text-xl font-black">DHL/FedEx</h2>
-                </div>
-                <p className="mt-2 text-sm text-slate-400">
-                  Valores em aberto, vencimentos de hoje e programação de amanhã.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setModalFaturas(true)}
-                className="rounded-xl border border-blue-800 bg-blue-600/10 px-3 py-2 text-xs font-black text-blue-300 hover:bg-blue-600/20"
-              >
-                Ver
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <MiniBox titulo="A pagar hoje" valor={moeda(faturasResumo.totalHoje)} cor={faturasResumo.totalHoje > 0 ? 'red' : 'green'} />
-              <MiniBox titulo="A pagar amanhã" valor={moeda(faturasResumo.totalAmanha)} cor={faturasResumo.totalAmanha > 0 ? 'orange' : 'green'} />
-              <MiniBox titulo="Total em aberto" valor={moeda(faturasResumo.totalAbertas)} cor="blue" />
-              <MiniBox titulo={`Próx. ${DIAS_ALERTA_FATURAS} dias`} valor={moeda(faturasResumo.totalProximas)} cor="yellow" />
-            </div>
-
-            <div className="space-y-3">
-              {faturasResumo.proximas.slice(0, 4).map((item) => {
-                const vencimento = vencimentoFaturaTransportadora(item)
-                const dias = diasAte(vencimento)
-
-                return (
-                  <a
-                    key={item.id}
-                    href={`/admin/faturas-transportadoras?busca=${encodeURIComponent(numeroFaturaTransportadora(item) || contaFaturaTransportadora(item) || '')}`}
-                    className="block rounded-2xl border border-blue-950 bg-[#020817] p-4 transition hover:border-blue-500 hover:bg-blue-600/10"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-slate-500">{nomeTransportadoraFaturaCurto(item)}</p>
-                        <p className="mt-1 font-black text-blue-300">Fatura {numeroFaturaTransportadora(item) || '-'}</p>
-                        <p className="mt-1 text-xs font-semibold text-slate-400">Conta {contaFaturaTransportadora(item) || '-'}</p>
-                      </div>
-
-                      <span className={`rounded-full px-3 py-1 text-xs font-black ${
-                        Number(dias) <= 1
-                          ? 'bg-red-500/20 text-red-300'
-                          : 'bg-orange-500/20 text-orange-300'
-                      }`}>
-                        {dias === 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : `${dias} dias`}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between gap-3 text-xs font-bold text-slate-400">
-                      <span>Vencimento: {dataBR(vencimento)}</span>
-                      <span className="text-emerald-300">Saldo: {moeda(saldoFaturaTransportadora(item))}</span>
-                    </div>
-                  </a>
-                )
-              })}
-
-              {faturasResumo.proximas.length === 0 && (
-                <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-4">
-                  <p className="font-black text-green-300">Nenhuma fatura DHL/FedEx próxima.</p>
-                  <p className="mt-1 text-xs font-semibold text-green-200/70">
-                    Confira também as faturas sem data para evitar falha de controle.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <div className="card h-full text-sm">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="text-xl">💳</span>
-              <div>
-                <h2 className="text-xl font-black">Painel financeiro</h2>
-                <p className="text-sm text-slate-400">Resultado rápido do mês atual.</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <LinhaResumo titulo="Recebido de clientes" valor={moeda(financeiroResumo.valorRecebidoMes)} cor="green" />
-              <LinhaResumo titulo="Profit bruto dos processos" valor={moeda(financeiroResumo.profitBrutoProcessosMes)} cor={financeiroResumo.profitBrutoProcessosMes >= 0 ? 'green' : 'red'} />
-              <LinhaResumo titulo="Despesas + empréstimos pagos" valor={moeda(financeiroResumo.despesasEemprestimosPagosMes)} cor="red" />
-              <LinhaResumo titulo="Lucro operacional" valor={moeda(financeiroResumo.lucroOperacionalMes)} cor={financeiroResumo.lucroOperacionalMes >= 0 ? 'green' : 'red'} />
-              <LinhaResumo titulo="Retiradas Marcos" valor={moeda(financeiroResumo.retiradasMarcosMes)} cor="orange" />
-              <LinhaResumo titulo="Retiradas Hérica" valor={moeda(financeiroResumo.retiradasHericaMes)} cor="orange" />
-              <LinhaResumo titulo="Resultado após retiradas" valor={moeda(financeiroResumo.resultadoAposRetiradasMes)} cor={financeiroResumo.resultadoAposRetiradasMes >= 0 ? 'green' : 'red'} />
-              <LinhaResumo titulo="Reserva 50% prevista" valor={moeda(financeiroResumo.reserva50PrevistaMes)} cor="blue" />
-              <LinhaResumo titulo="Reserva 50% lançada" valor={moeda(financeiroResumo.reserva50LancadaMes)} cor="blue" />
-              <LinhaResumo titulo="Reserva 50% pendente" valor={moeda(Math.max(0, financeiroResumo.reserva50PendenteMes))} cor={financeiroResumo.reserva50PendenteMes > 0 ? 'orange' : 'green'} />
-            </div>
-
-            <a href="/admin/financeiro" className="mt-4 block text-right font-black text-blue-400 hover:text-blue-300">
-              Abrir financeiro →
-            </a>
-          </div>
-
-          <div className="card h-full text-sm">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="text-xl">📡</span>
-              <div>
-                <h2 className="text-xl font-black">Rastreio automático</h2>
-                <p className="text-sm text-slate-400">Última execução registrada.</p>
-              </div>
-            </div>
-
-            <div className="mb-4 rounded-2xl border border-blue-950 bg-[#020817] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Última execução</p>
-              <p className="mt-1 text-lg font-black text-blue-300">{dataHoraBR(ultimoRastreio?.criado_em)}</p>
-            </div>
-
-            <div className="mb-4 rounded-2xl border border-blue-950 bg-[#020817] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Próxima execução estimada</p>
-              <p className="mt-1 text-lg font-black text-emerald-300">{proximaAtualizacao(ultimoRastreio?.criado_em)}</p>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <AutoBox titulo="Processados" valor={ultimoRastreio?.total_processado || 0} cor="blue" href="/admin/intelligence" />
-              <AutoBox titulo="Sucessos" valor={ultimoRastreio?.total_sucesso || 0} cor="green" href="/admin/intelligence?tipo=sucesso" />
-              <AutoBox titulo="Erros" valor={ultimoRastreio?.total_erro || 0} cor="red" onClick={() => setModalErrosRastreio(true)} />
-            </div>
-
-            <p className="mt-4 text-xs font-semibold text-slate-500">
-              Configuração exibida considerando execução a cada 30 minutos.
-            </p>
-          </div>
-
-          <div className="card h-full text-sm">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="text-xl">🎧</span>
-              <div>
-                <h2 className="text-xl font-black">Suporte e cotações</h2>
-                <p className="text-sm text-slate-400">Atendimento e demanda comercial.</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <MiniBox titulo="Chamados abertos" valor={suporteResumo.abertos} cor="red" href="/admin/suporte?status=ABERTO" />
-              <MiniBox titulo="Em análise" valor={suporteResumo.analise} cor="yellow" href="/admin/suporte?status=EM%20AN%C3%81LISE" />
-              <MiniBox titulo="Respondidos" valor={suporteResumo.respondidos} cor="blue" href="/admin/suporte?status=RESPONDIDO" />
-              <MiniBox titulo="Cotações pendentes" valor={cotacoesPendentes} cor="purple" href="/admin/cotacoes?status=PENDENTES" />
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-blue-950 bg-[#020817] p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Último chamado</p>
-
-              {suporteResumo.ultimo ? (
-                <>
-                  <p className="mt-2 font-black text-blue-300">{suporteResumo.ultimo.assunto || 'Chamado sem assunto'}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">{suporteResumo.ultimo.email || 'Cliente não informado'}</p>
-                </>
-              ) : (
-                <p className="mt-2 text-sm font-semibold text-slate-500">Nenhum chamado recebido.</p>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <div className="card overflow-hidden bg-gradient-to-br from-[#081a33] via-[#061126] to-[#020817] shadow-[0_0_34px_rgba(37,99,235,0.18)]">
-            <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-blue-800 bg-blue-600/10 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-blue-300">
-                  ⚡ Controle operacional
-                </div>
-
-                <h2 className="mt-3 text-xl font-black tracking-tight">Movimento da operação</h2>
-                <p className="mt-1 max-w-xl text-sm font-semibold text-slate-400">
-                  Leitura rápida do volume de embarques e das ações que precisam de atenção hoje.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <PeriodoButton ativo={periodoGrafico === '7D'} onClick={() => setPeriodoGrafico('7D')}>7 dias</PeriodoButton>
-                <PeriodoButton ativo={periodoGrafico === '30D'} onClick={() => setPeriodoGrafico('30D')}>30 dias</PeriodoButton>
-                <PeriodoButton ativo={periodoGrafico === 'MES_ATUAL'} onClick={() => setPeriodoGrafico('MES_ATUAL')}>Mês atual</PeriodoButton>
-                <PeriodoButton ativo={periodoGrafico === 'MES_ANTERIOR'} onClick={() => setPeriodoGrafico('MES_ANTERIOR')}>Mês anterior</PeriodoButton>
-              </div>
-            </div>
-
-            <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-              <div className="rounded-2xl border border-blue-800 bg-[#020817]/80 p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-blue-300">Total do período</p>
-                <p className="mt-3 text-xl font-black text-white">{ritmoOperacao.totalPeriodo}</p>
-                <p className="mt-1 text-xs font-bold text-slate-500">embarques registrados</p>
-              </div>
-
-              <div className="rounded-2xl border border-emerald-800 bg-emerald-500/10 p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Média diária</p>
-                <p className="mt-3 text-xl font-black text-emerald-300">
-                  {ritmoOperacao.mediaDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                </p>
-                <p className="mt-1 text-xs font-bold text-slate-500">embarques por dia</p>
-              </div>
-
-              <div className="rounded-2xl border border-orange-800 bg-orange-500/10 p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-orange-300">Dias parados</p>
-                <p className="mt-3 text-xl font-black text-orange-300">{ritmoOperacao.diasSemEmbarque}</p>
-                <p className="mt-1 text-xs font-bold text-slate-500">sem novo embarque</p>
-              </div>
-
-              <div className="rounded-2xl border border-purple-800 bg-purple-500/10 p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-purple-300">Peso movimentado</p>
-                <p className="mt-3 text-xl font-black text-purple-300">
-                  {ritmoOperacao.pesoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg
-                </p>
-                <p className="mt-1 text-xs font-bold text-slate-500">no período</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1.25fr_0.75fr]">
-              <div className="rounded-2xl border border-blue-900 bg-[#020817]/75 p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-black text-white">Embarques por dia</p>
-                    <p className="text-xs font-bold text-slate-500">{ritmoOperacao.label}</p>
-                  </div>
-
-                  <span className="rounded-full bg-blue-600/20 px-3 py-1 text-xs font-black text-blue-200">
-                    Clique nas barras
-                  </span>
-                </div>
-
-                <div className="relative h-[210px] overflow-hidden">
-                  <div className="absolute left-0 top-0 bottom-9 w-8 flex flex-col justify-between text-xs font-bold text-blue-200/70">
-                    {ritmoOperacao.yTicks.map((tick) => (
-                      <span key={tick}>{tick}</span>
-                    ))}
-                  </div>
-
-                  <div className="absolute left-9 right-0 top-0 bottom-9 border-l border-b border-blue-900/80">
-                    {ritmoOperacao.yTicks.map((tick) => (
-                      <div
-                        key={tick}
-                        className="absolute left-0 right-0 border-t border-dashed border-blue-700/35"
-                        style={{ top: `${((ritmoOperacao.yMax - tick) / ritmoOperacao.yMax) * 100}%` }}
-                      />
-                    ))}
-
-                    <div
-                      className="absolute inset-x-0 bottom-0 top-0 grid items-end gap-2 px-3"
-                      style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
-                    >
-                      {ritmoOperacao.dias.map((item) => {
-                        const altura = `${Math.max((item.total / ritmoOperacao.yMax) * 145, item.total > 0 ? 7 : 3)}px`
-                        const ativo = diaSelecionado === item.key
-
-                        return (
-                          <button
-                            key={item.key}
-                            type="button"
-                            onClick={() => setDiaSelecionado(ativo ? null : item.key)}
-                            className="group relative flex h-full min-w-0 flex-col items-center justify-end"
-                            title={`${item.diaSemana} ${item.diaLabel}: ${item.total} embarque(s) • ${item.peso.toFixed(2)} kg`}
-                          >
-                            <span className="mb-1 text-sm font-black text-white drop-shadow opacity-100">
-                              {item.total}
-                            </span>
-
-                            <span
-                              className={
-                                ativo
-                                  ? 'w-full max-w-[54px] rounded-t-xl bg-emerald-500 shadow-[0_0_22px_rgba(16,185,129,0.55)] ring-2 ring-emerald-300 transition'
-                                  : item.total > 0
-                                    ? 'w-full max-w-[54px] rounded-t-xl bg-gradient-to-t from-blue-700 to-blue-400 shadow-[0_0_18px_rgba(37,99,235,0.35)] transition hover:from-blue-600 hover:to-blue-300'
-                                    : 'w-full max-w-[54px] rounded-t-xl bg-blue-950/80 transition hover:bg-blue-900'
-                              }
-                              style={{ height: altura }}
-                            />
-
-                            <span className="pointer-events-none absolute -top-10 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-blue-800 bg-[#071225] px-3 py-2 text-xs font-black text-blue-100 shadow-2xl group-hover:block">
-                              {item.diaSemana} {item.diaLabel} • {item.total} embarque(s)
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <div
-                    className="absolute left-9 right-0 bottom-0 grid gap-2 px-3 text-center"
-                    style={{ gridTemplateColumns: `repeat(${Math.max(ritmoOperacao.dias.length, 1)}, minmax(0, 1fr))` }}
-                  >
-                    {ritmoOperacao.dias.map((item) => (
-                      <div key={item.key} className="min-w-0">
-                        <p className="truncate text-[10px] font-black text-blue-100/80">{item.diaSemana}</p>
-                        <p className="truncate text-[10px] font-bold text-blue-200/60">{item.diaLabel}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <a
-                  href="/admin/intelligence"
-                  className="block rounded-2xl border border-orange-800 bg-orange-500/10 p-4 hover:bg-orange-500/15"
-                >
-                  <p className="text-sm font-black text-orange-300">🔥 Clientes parados</p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">Ver clientes que precisam de contato comercial.</p>
-                </a>
-
-                <a
-                  href="/admin/financeiro"
-                  className="block rounded-2xl border border-yellow-800 bg-yellow-500/10 p-4 hover:bg-yellow-500/15"
-                >
-                  <p className="text-sm font-black text-yellow-300">⚠️ Aguardando custo</p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">Conferir processos que travam profit e faturamento.</p>
-                </a>
-
-                <a
-                  href="/admin/embarques"
-                  className="block rounded-2xl border border-blue-800 bg-blue-500/10 p-4 hover:bg-blue-500/15"
-                >
-                  <p className="text-sm font-black text-blue-300">🚚 Ver operação</p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">Abrir embarques em trânsito, fiscalização e liberados.</p>
-                </a>
-
-                <div className="rounded-2xl border border-blue-900 bg-[#020817]/80 p-4">
-                  <p className="text-xs font-black uppercase tracking-widest text-blue-300">Análise operacional</p>
-                  <p className="mt-2 text-sm font-bold leading-relaxed text-slate-200">
-                    {ritmoOperacao.analise}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4">
-            <div className="card h-full text-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-black">Receita x Profit</h2>
-                  <p className="mt-1 text-sm text-slate-400">Últimos 6 meses pagos.</p>
-                </div>
-                <a href="/admin/financeiro?aba=RESULTADO" className="text-sm font-black text-blue-400">Ver resultado</a>
-              </div>
-
-              <div className="space-y-4">
-                {graficoFinanceiro.linhas.map((item) => (
-                  <div key={item.mes}>
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <p className="text-sm font-black text-slate-200">{item.label}</p>
-                      <p className="text-xs font-bold text-slate-400">
-                        {moeda(item.recebido)} / {moeda(item.profit)}
-                      </p>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="h-3 rounded-full bg-[#020817] overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-blue-600"
-                          style={{ width: `${Math.min((item.recebido / graficoFinanceiro.maior) * 100, 100)}%` }}
-                        />
-                      </div>
-
-                      <div className="h-3 rounded-full bg-[#020817] overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${item.profit >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}
-                          style={{ width: `${Math.min((Math.abs(item.profit) / graficoFinanceiro.maior) * 100, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 flex gap-4 text-xs font-black text-slate-400">
-                <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-blue-600" /> Receita</span>
-                <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-emerald-500" /> Profit</span>
-              </div>
-            </div>
-
-            <div className="card h-full text-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-black">Status operacional</h2>
-                  <p className="mt-1 text-sm text-slate-400">Distribuição atual dos embarques.</p>
-                </div>
-                <a href="/admin/embarques" className="text-sm font-black text-blue-400">Ver embarques</a>
-              </div>
-
-              <div className="space-y-4">
-                {statusOperacionais.lista.map((item) => (
-                  <div key={item.nome}>
-                    <div className="mb-2 flex justify-between">
-                      <span className="text-sm font-bold text-slate-300">{item.nome}</span>
-                      <span className="text-sm font-black text-white">{item.total}</span>
-                    </div>
-
-                    <div className="h-3 overflow-hidden rounded-full bg-[#020817]">
-                      <div
-                        className={`h-full rounded-full ${barraCor(item.cor)}`}
-                        style={{ width: `${Math.min((item.total / statusOperacionais.maior) * 100, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
-          
-
-          <div className="card h-full text-sm">
-            <div className="mb-4 flex justify-between items-center">
-              <h2 className="text-xl font-black">Pendências financeiras recentes</h2>
-              <a href="/admin/financeiro?aba=PROCESSOS" className="text-blue-400 font-bold">
-                Ver financeiro
-              </a>
-            </div>
-
-            <div className="space-y-3">
-              {[
-                ...faturasResumo.vencidas.map((item) => ({ tipo: 'FATURA_TRANSPORTADORA', item })),
-                ...faturasResumo.proximas.map((item) => ({ tipo: 'FATURA_TRANSPORTADORA', item })),
-                ...financeiroResumo.aguardandoCusto.map((item) => ({ tipo: 'PROCESSO_FINANCEIRO', item })),
-              ].slice(0, 8).map(({ tipo, item }) => {
-                const ehFaturaTransportadora = tipo === 'FATURA_TRANSPORTADORA'
-                const vencimento = ehFaturaTransportadora
-                  ? vencimentoFaturaTransportadora(item)
-                  : normalizarData(item.vencimento_cobranca)
-                const status = ehFaturaTransportadora
-                  ? statusFaturaTransportadora(item)
-                  : statusCobranca(item)
-                const semCusto = !ehFaturaTransportadora && aguardandoCustoProcesso(item)
-                const href = ehFaturaTransportadora
-                  ? `/admin/faturas-transportadoras?busca=${encodeURIComponent(numeroFaturaTransportadora(item) || contaFaturaTransportadora(item) || '')}`
-                  : `/admin/financeiro?aba=PROCESSOS&busca=${encodeURIComponent(item.fatura || item.awb || item.cliente || '')}`
-
-                return (
-                  <a
-                    key={`${tipo}-${item.id}-${status}-${semCusto}`}
-                    href={href}
-                    className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-blue-950 bg-[#020817] p-4 transition hover:border-blue-500 hover:bg-blue-600/10"
-                  >
-                    <div>
-                      <p className="font-black text-blue-300">
-                        {ehFaturaTransportadora ? `Fatura ${numeroFaturaTransportadora(item) || '-'}` : item.cliente || 'Cliente não informado'}
-                      </p>
-                      <p className="mt-1 text-xs font-semibold text-slate-400">
-                        {ehFaturaTransportadora
-                          ? `${nomeTransportadoraFaturaCurto(item)} • Conta ${contaFaturaTransportadora(item) || '-'} • Saldo ${moeda(saldoFaturaTransportadora(item))}`
-                          : `AWB ${item.awb || '-'} • Fatura ${item.fatura || '-'} • ${item.transportadora || '-'}`}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      {semCusto && <span className="rounded-full bg-orange-500/20 px-3 py-1 text-xs font-black text-orange-300">Sem custo</span>}
-                      {vencimento && <span className="rounded-full bg-blue-500/20 px-3 py-1 text-xs font-black text-blue-300">{dataBR(vencimento)}</span>}
-                      <StatusPillDashboard status={status} />
-                    </div>
-                  </a>
-                )
-              })}
-
-              {[...faturasResumo.vencidas, ...faturasResumo.proximas, ...financeiroResumo.aguardandoCusto].length === 0 && (
-                <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 text-green-300">
-                  <p className="font-black">Sem pendência financeira crítica agora.</p>
-                  <p className="mt-1 text-sm font-semibold opacity-80">
-                    Nenhuma fatura vencida/próxima ou processo sem custo nos principais alertas.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
 
         <footer className="py-5 text-center text-sm font-semibold text-slate-500">
           HC Connect © 2026 • Sistema desenvolvido por Marcos Paulo Otero
@@ -2898,4 +2212,74 @@ function MetricDashboard({ icone, valor, titulo, detalhe }: any) {
       </div>
     </div>
   )
+}
+
+// HC_DASHBOARD_FOCO_V1: componentes do layout focado.
+const STATUS_EMBARQUE_URL: Record<string, string> = {
+  'Aguardando coleta': 'AGUARDANDO_COLETA',
+  Coletados: 'COLETADO',
+  'Em trânsito': 'EM_TRANSITO',
+  Fiscalização: 'FISCALIZACAO',
+  Liberados: 'LIBERADO',
+  Entregues: 'ENTREGUE',
+}
+
+type TomFoco = 'neutro' | 'perigo' | 'alerta' | 'sucesso'
+
+function corTomFoco(tom?: TomFoco) {
+  if (tom === 'perigo') return 'text-red-300'
+  if (tom === 'alerta') return 'text-amber-300'
+  if (tom === 'sucesso') return 'text-emerald-300'
+  return 'text-slate-400'
+}
+
+function IndicadorFoco({ titulo, valor, detalhe, tom, valorTom, progresso, dica, href, onClick }: {
+  titulo: string
+  valor: string
+  detalhe?: string
+  tom?: TomFoco
+  valorTom?: TomFoco
+  progresso?: number
+  dica?: string
+  href?: string
+  onClick?: () => void
+}) {
+  const conteudo = (
+    <>
+      <p className="text-xs font-bold text-slate-400">{titulo}</p>
+      <p className={`mt-1 truncate text-xl font-black tabular-nums ${valorTom && valorTom !== 'neutro' ? corTomFoco(valorTom) : 'text-white'}`}>{valor}</p>
+      {typeof progresso === 'number' && (
+        <div role="progressbar" aria-label={`${titulo}: progresso da meta`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(100, progresso))} className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(100, Math.max(0, progresso))}%` }} />
+        </div>
+      )}
+      {detalhe && <p className={`mt-1 truncate text-xs font-semibold ${corTomFoco(tom)}`}>{detalhe}</p>}
+    </>
+  )
+  const classe = 'block h-full rounded-xl border border-slate-800 bg-[#071225] p-4 text-left transition hover:border-slate-600'
+  if (onClick) return <button type="button" onClick={onClick} title={dica} className={`${classe} w-full`}>{conteudo}</button>
+  return <a href={href || '#'} title={dica} className={classe}>{conteudo}</a>
+}
+
+function LinhaAcao({ acao, valor }: { acao: any; valor: string }) {
+  const ponto =
+    acao.cor === 'red' ? 'bg-red-400'
+      : acao.cor === 'orange' || acao.cor === 'yellow' ? 'bg-amber-400'
+        : acao.cor === 'green' ? 'bg-emerald-400'
+          : acao.cor === 'slate' ? 'bg-slate-500'
+            : 'bg-blue-400'
+  const conteudo = (
+    <>
+      <span className={`h-2 w-2 shrink-0 rounded-full ${ponto}`} aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-bold text-white">{acao.titulo}</span>
+        {acao.detalhe && <span className="block truncate text-xs text-slate-400">{acao.detalhe}</span>}
+      </span>
+      {valor && <span className="shrink-0 text-sm font-black tabular-nums text-slate-200">{valor}</span>}
+      <span className="shrink-0 text-xs font-bold text-blue-400">{acao.acao || 'Abrir'} →</span>
+    </>
+  )
+  const classe = 'flex w-full items-center gap-3 py-2 text-left hover:bg-slate-900/60'
+  if (acao.onClick) return <button type="button" onClick={acao.onClick} className={classe}>{conteudo}</button>
+  return <a href={acao.href || '#'} className={classe}>{conteudo}</a>
 }
