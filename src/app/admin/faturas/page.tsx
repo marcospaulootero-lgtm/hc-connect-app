@@ -327,6 +327,10 @@ export default function FaturasPage() {
   const [emissorPtaxDhlMesAnterior, setEmissorPtaxDhlMesAnterior] = useState('')
   const [emissorDataPtaxDhlMesAnterior, setEmissorDataPtaxDhlMesAnterior] = useState('')
   const [emissorSpread, setEmissorSpread] = useState('3')
+  // HC_VALOR_FECHADO_LINHA_UNICA_V1: valor fechado com o cliente -> HANDLING calculado; PDF opcional em uma linha só.
+  const [emissorValorFechado, setEmissorValorFechado] = useState('')
+  const [emissorPdfLinhaUnica, setEmissorPdfLinhaUnica] = useState(false)
+  const [emissorDescricaoLinhaUnica, setEmissorDescricaoLinhaUnica] = useState('FRETE PORTA A PORTA')
   const [emissorObservacoes, setEmissorObservacoes] = useState('')
   const [emissorVisivelCliente, setEmissorVisivelCliente] = useState(true)
   const [carregandoCambioEmissor, setCarregandoCambioEmissor] = useState(false)
@@ -5344,6 +5348,9 @@ function conferirDocumentoManualHC(
     const taxaBaseInicial = transportadoraDhl ? '' : taxaBaseEmbarque
 
     setEmissorNumeroFatura(numeroAtual)
+    setEmissorValorFechado('') // HC_VALOR_FECHADO_LINHA_UNICA_V1
+    setEmissorPdfLinhaUnica(false)
+    setEmissorDescricaoLinhaUnica('FRETE PORTA A PORTA')
     setEmissorVencimento(vencimento)
     setEmissorDataEmbarque(dataEmbarque)
     setEmissorTaxaConversao(taxaBaseInicial)
@@ -5499,6 +5506,27 @@ function conferirDocumentoManualHC(
         return atualizado
       })
     )
+  }
+
+  // HC_VALOR_FECHADO_LINHA_UNICA_V1
+  function calcularHandlingPeloValorFechado() {
+    const fechado = numero(emissorValorFechado)
+    if (!(fechado > 0)) return alert('Informe o valor fechado com o cliente (USD).')
+    const outros = itensFatura.filter((item) => {
+      const desc = normalizarTexto(item.descricao)
+      return item.selecionado && item.id !== 'handling' && !desc.includes('VALOR DE COMPRA')
+    })
+    if (outros.some((item) => normalizarMoedaItemFatura(item.moeda) !== 'USD' && numero(item.valor_usd) !== 0)) {
+      return alert('O cálculo pelo valor fechado funciona só com serviços em USD. Ajuste as moedas ou lance o HANDLING manualmente.')
+    }
+    const soma = outros.reduce((total, item) => total + numero(item.valor_usd), 0)
+    const handling = Number((fechado - soma).toFixed(2))
+    if (handling < 0) {
+      return alert('O valor fechado (USD ' + formatarValorSimples(fechado) + ') é menor que a soma dos serviços (USD ' + formatarValorSimples(soma) + '). Confira os valores.')
+    }
+    atualizarItemFatura('handling', 'moeda', 'USD')
+    atualizarItemFatura('handling', 'valor_usd', formatarNumeroInput(handling))
+    atualizarItemFatura('handling', 'selecionado', handling > 0)
   }
 
   function recalcularItensPorTaxa(novaTaxa: string) {
@@ -6230,7 +6258,26 @@ function conferirDocumentoManualHC(
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as any
       const margem = 32
       const larguraPagina = pdf.internal.pageSize.getWidth()
-      const itens = itensClientePdf
+      // HC_VALOR_FECHADO_LINHA_UNICA_V1: no modo valor fechado o PDF mostra uma linha só; o detalhamento continua salvo.
+      const usarLinhaUnicaPdf = emissorPdfLinhaUnica && !ehReemissaoJuros && !ehRegeracaoPdf
+      const moedasLinhaUnica = Array.from(new Set(itensClientePdf.map((item) => normalizarMoedaItemFatura(item.moeda))))
+      if (usarLinhaUnicaPdf && moedasLinhaUnica.length !== 1) {
+        fecharAbaPdfHC(abaPdf)
+        setSalvandoEmissao(false)
+        alert('Para gerar o PDF em uma linha só, todos os serviços cobrados precisam estar na mesma moeda.')
+        return
+      }
+      const itens = usarLinhaUnicaPdf
+        ? [{
+            descricao: (emissorDescricaoLinhaUnica || 'FRETE PORTA A PORTA').trim().toUpperCase(),
+            observacao: emissorEmbarqueSelecionado.transportadora || null,
+            moeda: moedasLinhaUnica[0],
+            valor_original: itensClientePdf.reduce((total, item) => total + numero(item.valor_original), 0),
+            valor_usd: 0,
+            valor_brl: itensClientePdf.reduce((total, item) => total + numero(item.valor_brl), 0),
+            taxa_conversao: 0,
+          }]
+        : itensClientePdf
       const dadosCliente =
         ehRegeracaoPdf &&
         faturaRegeracao?.dados_cliente_faturamento
@@ -10036,6 +10083,44 @@ function conferirDocumentoManualHC(
                 <p className="text-xs text-slate-500 font-black">TOTAL FATURA R$</p>
                 <p className="text-xl font-black text-green-300">{moeda(totaisEmissor.totalBRL)}</p>
               </div>
+            </div>
+          </div>
+
+          {/* HC_VALOR_FECHADO_LINHA_UNICA_V1 */}
+          <div className="mb-4 rounded-2xl border border-amber-700/60 bg-amber-950/10 p-4">
+            <p className="font-black text-amber-300">Valor fechado com o cliente (opcional)</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Lance os custos (frete, DUE, seguro...) e informe o valor fechado: o HANDLING é calculado pela diferença e segue como débito de terceiro.
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <label className="text-xs font-bold text-slate-300">
+                Valor fechado (USD)
+                <input
+                  value={formatarEntradaValorBR(emissorValorFechado)}
+                  inputMode="decimal"
+                  onChange={(e) => setEmissorValorFechado(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); calcularHandlingPeloValorFechado() } }}
+                  placeholder="0,00"
+                  className="mt-1 block w-[160px]"
+                />
+              </label>
+              <button type="button" onClick={calcularHandlingPeloValorFechado} className="rounded-xl bg-amber-600 px-4 py-2 font-bold hover:bg-amber-500">
+                Calcular HANDLING
+              </button>
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-200">
+                <input type="checkbox" checked={emissorPdfLinhaUnica} onChange={(e) => setEmissorPdfLinhaUnica(e.target.checked)} />
+                Gerar PDF com valor fechado (uma linha só)
+              </label>
+              {emissorPdfLinhaUnica && (
+                <label className="text-xs font-bold text-slate-300">
+                  Descrição no PDF
+                  <input
+                    value={emissorDescricaoLinhaUnica}
+                    onChange={(e) => setEmissorDescricaoLinhaUnica(e.target.value)}
+                    className="mt-1 block w-[260px]"
+                  />
+                </label>
+              )}
             </div>
           </div>
 
