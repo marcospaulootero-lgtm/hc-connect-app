@@ -1316,6 +1316,79 @@ export default function EmbarquesPage() {
     return servicosFinanceirosLista(lista).length
   }
 
+  // HC_SERVICOS_LIVRES_EMBARQUE_V1: lista os serviços reais do embarque (vindos da cotação)
+  // e permite adicionar qualquer outro, com sugestões da lista padrão.
+  function renderEditorServicosFinanceiros(
+    lista: any,
+    moedaPadrao: string,
+    aoMudar: (nova: ServicoFinanceiroEmbarque[]) => void,
+    idCampo: string
+  ) {
+    const itens: ServicoFinanceiroEmbarque[] = Array.isArray(lista) ? lista : []
+    const moedaBase = String(moedaPadrao || 'USD').toUpperCase()
+    const alterar = (index: number, campo: 'nome' | 'valor' | 'moeda', valor: string) =>
+      aoMudar(itens.map((atual, i) => (i === index ? { ...atual, [campo]: campo === 'valor' ? formatarEntradaValorBR(valor) : valor } : atual)))
+    const adicionar = () => {
+      const campo = document.getElementById(idCampo) as HTMLInputElement | null
+      const nome = String(campo?.value || '').trim().toUpperCase()
+      if (!nome) return
+      const chave = chaveServicoFinanceiro(nome).chave
+      if (itens.some((item) => chaveServicoFinanceiro(item.nome).chave === chave && moedaItemFinanceiro(item, moedaBase) === moedaBase)) {
+        alert('Este serviço já está na lista nesta moeda. Altere o valor na linha existente.')
+        return
+      }
+      aoMudar([...itens, { nome, valor: '', moeda: moedaBase }])
+      if (campo) campo.value = ''
+    }
+
+    return (
+      <div className="space-y-3 rounded-2xl border border-blue-900 bg-[#020817] p-4">
+        {itens.length === 0 && (
+          <p className="text-sm text-slate-400">Nenhum serviço lançado. Adicione abaixo.</p>
+        )}
+        {itens.map((item, index) => (
+          <div key={index} className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_110px_auto]">
+            <input aria-label={`Serviço ${index + 1}`} value={item.nome} onChange={(e) => alterar(index, 'nome', e.target.value.toUpperCase())} />
+            <input
+              aria-label={`Valor ${index + 1}`}
+              inputMode="decimal"
+              value={item.valor}
+              placeholder={chaveServicoFinanceiro(item.nome).chave === 'DESCONTO' ? 'Valor do desconto' : 'Valor'}
+              onChange={(e) => alterar(index, 'valor', e.target.value)}
+            />
+            <select aria-label={`Moeda ${index + 1}`} value={moedaItemFinanceiro(item, moedaBase) || moedaBase} onChange={(e) => alterar(index, 'moeda', e.target.value)}>
+              {['USD', 'EUR', 'BRL', 'GBP', 'CNY', 'HKD'].map((codigo) => <option key={codigo} value={codigo}>{codigo}</option>)}
+            </select>
+            <button type="button" className="px-2 py-2 text-red-300" onClick={() => aoMudar(itens.filter((_, i) => i !== index))}>
+              Remover
+            </button>
+          </div>
+        ))}
+        <div className="flex flex-wrap gap-2 border-t border-blue-900 pt-3">
+          <input
+            id={idCampo}
+            list={idCampo + '-sugestoes'}
+            placeholder="Novo serviço (ex.: HANDLING, PALETIZAÇÃO)"
+            className="min-w-[260px] flex-1"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                adicionar()
+              }
+            }}
+          />
+          <datalist id={idCampo + '-sugestoes'}>
+            {ITENS_FINANCEIROS_EMBARQUE.map((nome) => <option key={nome} value={nome} />)}
+          </datalist>
+          <button type="button" className="rounded-xl bg-blue-700 px-4 py-2 font-bold" onClick={adicionar}>
+            Adicionar serviço
+          </button>
+        </div>
+        <p className="text-xs text-slate-500">Desconto entra abatendo do total. A moeda nova segue a "Moeda padrão para novos itens".</p>
+      </div>
+    )
+  }
+
   function calcularDivergencia(pesoInicial: any, pesoFinal: any) {
     const inicial = Number(pesoInicial || 0)
     const final = Number(pesoFinal || 0)
@@ -3056,123 +3129,13 @@ export default function EmbarquesPage() {
             </select>
           </Campo>
 
-          <div className="md:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {ITENS_FINANCEIROS_EMBARQUE.map((item) => {
-              const selecionado = itemFinanceiroSelecionado(form.servicos_financeiros, item)
-
-              return (
-                <div
-                  key={item}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    const alvo = e.target as HTMLElement
-                    if (alvo.closest('input, select, textarea, button, label')) return
-
-                    setForm({
-                      ...form,
-                      servicos_financeiros: atualizarItemFinanceiro(
-                        form.servicos_financeiros,
-                        item,
-                        !selecionado,
-                        form.moeda_cobranca || 'USD'
-                      ),
-                    })
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return
-                    e.preventDefault()
-                    setForm({
-                      ...form,
-                      servicos_financeiros: atualizarItemFinanceiro(
-                        form.servicos_financeiros,
-                        item,
-                        !selecionado,
-                        form.moeda_cobranca || 'USD'
-                      ),
-                    })
-                  }}
-                  className={
-                    selecionado
-                      ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4 cursor-pointer'
-                      : 'border border-blue-900 bg-[#020817] rounded-2xl p-4 cursor-pointer'
-                  }
-                >
-                  <label className="flex items-center gap-2 font-bold text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selecionado}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          servicos_financeiros: atualizarItemFinanceiro(
-                            form.servicos_financeiros,
-                            item,
-                            e.target.checked
-                          ),
-                        })
-                      }
-                    />
-                    {item}
-                  </label>
-
-                  {selecionado && (
-                    <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 mt-3">
-                      <input
-                        value={valorItemFinanceiro(
-                          form.servicos_financeiros,
-                          item
-                        )}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            servicos_financeiros:
-                              alterarValorItemFinanceiro(
-                                form.servicos_financeiros,
-                                item,
-                                e.target.value
-                              ),
-                          })
-                        }
-                        placeholder={
-                          item === 'DESCONTO'
-                            ? 'Valor do desconto'
-                            : 'Valor'
-                        }
-                        inputMode="decimal"
-                      />
-
-                      <select
-                        value={moedaItemFinanceiroPorNome(
-                          form.servicos_financeiros,
-                          item,
-                          form.moeda_cobranca || 'USD'
-                        )}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            servicos_financeiros:
-                              alterarMoedaItemFinanceiro(
-                                form.servicos_financeiros,
-                                item,
-                                e.target.value
-                              ),
-                          })
-                        }
-                        title="Moeda deste serviço"
-                      >
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
-                        <option value="GBP">GBP</option>
-                        <option value="CNY">CNY</option>
-                        <option value="HKD">HKD</option>
-                        <option value="BRL">BRL</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div className="md:col-span-5">
+            {renderEditorServicosFinanceiros(
+              form.servicos_financeiros,
+              form.moeda_cobranca || 'USD',
+              (nova) => setForm({ ...form, servicos_financeiros: nova }),
+              'novo-servico-embarque'
+            )}
           </div>
 
           <div className="md:col-span-5 border border-green-600/50 bg-green-600/10 rounded-2xl p-5">
@@ -3610,7 +3573,7 @@ export default function EmbarquesPage() {
                         Financeiro do Embarque
                       </h3>
                       <p className="text-slate-400 text-sm">
-                        Selecione os serviços financeiros deste embarque. O total será gravado como valor cobrado.
+                        Serviços que vieram da cotação. Ajuste valores, remova ou adicione novos. O total será gravado como valor cobrado.
                       </p>
                     </div>
 
@@ -3681,120 +3644,13 @@ export default function EmbarquesPage() {
                         </div>
                       </div>
                     ) : (
-                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                      {ITENS_FINANCEIROS_EMBARQUE.map((item) => {
-                        const selecionado = itemFinanceiroSelecionado(editForm.servicos_financeiros, item)
-
-                        return (
-                          <div
-                            key={item}
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              const alvo = e.target as HTMLElement
-                              if (alvo.closest('input, select, textarea, button, label')) return
-
-                              setEditForm({
-                                ...editForm,
-                                servicos_financeiros: atualizarItemFinanceiro(
-                                  editForm.servicos_financeiros,
-                                  item,
-                                  !selecionado,
-                                  editForm.moeda_cobranca || 'USD'
-                                ),
-                              })
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key !== 'Enter' && e.key !== ' ') return
-                              e.preventDefault()
-                              setEditForm({
-                                ...editForm,
-                                servicos_financeiros: atualizarItemFinanceiro(
-                                  editForm.servicos_financeiros,
-                                  item,
-                                  !selecionado,
-                                  editForm.moeda_cobranca || 'USD'
-                                ),
-                              })
-                            }}
-                            className={
-                              selecionado
-                                ? 'border border-green-500 bg-green-500/10 rounded-2xl p-4 cursor-pointer'
-                                : 'border border-blue-900 bg-[#020817] rounded-2xl p-4 cursor-pointer'
-                            }
-                          >
-                            <label className="flex items-center gap-2 font-bold text-sm">
-                              <input
-                                type="checkbox"
-                                checked={selecionado}
-                                onChange={(e) =>
-                                  setEditForm({
-                                    ...editForm,
-                                    servicos_financeiros: atualizarItemFinanceiro(
-                                      editForm.servicos_financeiros,
-                                      item,
-                                      e.target.checked
-                                    ),
-                                  })
-                                }
-                              />
-                              {item}
-                            </label>
-
-                            {selecionado && (
-                              <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 mt-3">
-                                <input
-                                  value={valorItemFinanceiro(
-                                    editForm.servicos_financeiros,
-                                    item
-                                  )}
-                                  onChange={(e) =>
-                                    setEditForm({
-                                      ...editForm,
-                                      servicos_financeiros:
-                                        alterarValorItemFinanceiro(
-                                          editForm.servicos_financeiros,
-                                          item,
-                                          e.target.value
-                                        ),
-                                    })
-                                  }
-                                  placeholder={
-                                    item === 'DESCONTO'
-                                      ? 'Valor do desconto'
-                                      : 'Valor'
-                                  }
-                                  inputMode="decimal"
-                                />
-
-                                <select
-                                  value={moedaItemFinanceiroPorNome(
-                                    editForm.servicos_financeiros,
-                                    item,
-                                    editForm.moeda_cobranca || 'USD'
-                                  )}
-                                  onChange={(e) =>
-                                    setEditForm({
-                                      ...editForm,
-                                      servicos_financeiros:
-                                        alterarMoedaItemFinanceiro(
-                                          editForm.servicos_financeiros,
-                                          item,
-                                          e.target.value
-                                        ),
-                                    })
-                                  }
-                                  title="Moeda deste serviço"
-                                >
-                                  <option value="USD">USD</option>
-                                  <option value="EUR">EUR</option>
-                                  <option value="BRL">BRL</option>
-                                </select>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
+                    <div className="md:col-span-3">
+                      {renderEditorServicosFinanceiros(
+                        editForm.servicos_financeiros,
+                        editForm.moeda_cobranca || 'USD',
+                        (nova) => setEditForm({ ...editForm, servicos_financeiros: nova }),
+                        'novo-servico-edicao-embarque'
+                      )}
                     </div>
 
                     )}
