@@ -58,6 +58,7 @@ type StatusConciliacao =
   | 'PRONTA_PARA_PAGAR'
   | 'PAGA_COM_PENDENCIA'
   | 'PAGA_COBERTA'
+  | 'PAGA_SEM_CONFERENCIA'
 
 type ItemConciliado = {
   item: ItemFaturaConciliacao
@@ -626,6 +627,7 @@ export default function FaturasTransportadorasPage() {
     if (status === 'COBERTURA_INSUFICIENTE') return 'Cobertura insuficiente'
     if (status === 'PAGA_COM_PENDENCIA') return 'Paga com recebimento pendente'
     if (status === 'PAGA_COBERTA') return 'Paga e conciliada'
+    if (status === 'PAGA_SEM_CONFERENCIA') return 'Paga sem conferência (sem PDF)'
     return 'Sem conciliação'
   }
 
@@ -1980,7 +1982,8 @@ export default function FaturasTransportadorasPage() {
     const liberadaPagamento = todosRecebidos && coberturaSuficiente
     const paga = situacaoAutomatica(fatura) === 'PAGA'
 
-    let status: StatusConciliacao = paga ? 'PAGA_COM_PENDENCIA' : 'SEM_CONCILIACAO'
+    // HC_PAGA_SEM_CONFERENCIA_V1: paga sem AWBs (ex.: paga antes do portal, sem PDF) não é pendência.
+    let status: StatusConciliacao = paga ? 'PAGA_SEM_CONFERENCIA' : 'SEM_CONCILIACAO'
 
     if (detalhados.length > 0) {
       if (paga) {
@@ -2526,6 +2529,7 @@ export default function FaturasTransportadorasPage() {
               <option value="PAGA_COM_PENDENCIA">Pagas com pendência</option>
               <option value="PAGA_COBERTA">Pagas e conciliadas</option>
               <option value="SEM_CONCILIACAO">Sem conciliação</option>
+              <option value="PAGA_SEM_CONFERENCIA">Pagas sem conferência (sem PDF)</option>
             </select>
 
             <input

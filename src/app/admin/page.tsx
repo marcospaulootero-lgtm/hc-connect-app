@@ -916,8 +916,10 @@ export default function DashboardPage() {
         statusFaturaTransportadora(fatura) !== 'PAGA' &&
         todosRecebidos &&
         coberturaSuficiente
+      // HC_PAGA_SEM_CONFERENCIA_V1: paga sem nenhum AWB (sem PDF importado) não é pendência.
       const pagaComPendencia =
         statusFaturaTransportadora(fatura) === 'PAGA' &&
+        detalhes.length > 0 &&
         (!todosRecebidos || !coberturaSuficiente)
 
       return {
