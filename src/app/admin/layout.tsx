@@ -23,6 +23,17 @@ const STATUS_COTACOES_BADGE = [
   'AGUARDANDO TRANSPORTADORA',
 ]
 
+// HC_BADGE_COTACOES_ATIVAS_V1: mesma regra da tela de Cotações (ignora arquivadas, excluídas e com embarque).
+function cotacaoAtivaBadge(item: any) {
+  if (item?.embarque_id) return false
+  let dados: any = item?.dados_emissor
+  if (typeof dados === 'string') {
+    try { dados = JSON.parse(dados) } catch { dados = {} }
+  }
+  if (!dados || typeof dados !== 'object') dados = {}
+  return dados.arquivada_admin !== true && dados.excluida !== true
+}
+
 type NotificacoesMenu = {
   cotacoes: number
   embarques: number
@@ -336,7 +347,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       ] = await Promise.all([
         supabase
           .from('cotacoes')
-          .select('id', { count: 'exact', head: true })
+          .select('id, embarque_id, dados_emissor') // HC_BADGE_COTACOES_ATIVAS_V1
           .in('status', STATUS_COTACOES_BADGE),
         supabase
           .from('solicitacoes_acesso_embarque')
@@ -478,7 +489,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       const usuariosNovos = usuariosAberto ? 0 : perfisRes.count || 0
 
       setNotificacoesMenu({
-        cotacoes: cotacoesRes.count || 0,
+        cotacoes: (cotacoesRes.data || []).filter(cotacaoAtivaBadge).length,
         embarques: solicitacoesAcessoRes.count || 0,
         embarqueDireto: embarquesDiretosPendentes,
         faturasClientes: alertasFaturasClientes.size,
