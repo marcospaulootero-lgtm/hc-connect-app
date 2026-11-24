@@ -5453,6 +5453,15 @@ function conferirDocumentoManualHC(
           atualizado.moeda = normalizarMoedaItemFatura(valor)
         }
 
+        // HC_OBS_TRANSPORTADORA_AUTO_V1: ao marcar um serviço sem observação,
+        // preenche com a transportadora do embarque (ou a usada nos outros serviços marcados).
+        if (campo === 'selecionado' && valor === true && !String(item.observacao || '').trim()) {
+          const transportadora =
+            String(emissorEmbarqueSelecionado?.transportadora || '').trim() ||
+            String(atuais.find((outro) => outro.id !== id && outro.selecionado && String(outro.observacao || '').trim())?.observacao || '').trim()
+          if (transportadora) atualizado.observacao = transportadora
+        }
+
         if (campo === 'valor_usd' || campo === 'moeda') {
           const moedaItem = normalizarMoedaItemFatura(atualizado.moeda)
           const valorOriginal = numero(atualizado.valor_usd)
