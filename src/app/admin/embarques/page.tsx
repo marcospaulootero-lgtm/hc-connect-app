@@ -3832,6 +3832,15 @@ export default function EmbarquesPage() {
                     Vincular clientes
                   </button>
                 )}
+
+                {/* HC_FATURAR_DO_EMBARQUE_V1 */}
+                <a
+                  href={'/admin/faturas?emitir=' + encodeURIComponent(item.id)}
+                  className="bg-green-600 hover:bg-green-500 px-4 py-3 rounded-xl font-bold"
+                  title="Abrir o emissor de fatura com este embarque selecionado"
+                >
+                  Faturar
+                </a>
               </div>
             </article>
           ))}

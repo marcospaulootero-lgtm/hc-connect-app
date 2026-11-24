@@ -11,7 +11,7 @@ import { fetchAutenticado } from '@/lib/fetchAutenticado'
 
 // HC_CUSTO_AWB_V1
 
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { reservarAbaPdfHC, mostrarPdfNaAbaHC, fecharAbaPdfHC } from '@/lib/pdfAutoOpenHC' // HC_PDF_AUTOABRIR_V1
 import { supabase } from '@/lib/supabaseClient'
@@ -5410,6 +5410,27 @@ function conferirDocumentoManualHC(
       void carregarCambioAutomaticoEmissor('DOLAR_VENDA_DIA', true)
     }
   }
+
+  // HC_FATURAR_DO_EMBARQUE_V1: /admin/faturas?emitir=<embarque_id> abre o emissor com o embarque selecionado.
+  const emitirDaUrlProcessado = useRef(false)
+  useEffect(() => {
+    if (emitirDaUrlProcessado.current || carregandoDados) return
+    const params = new URLSearchParams(window.location.search)
+    const embarqueId = params.get('emitir')
+    if (!embarqueId) return
+    emitirDaUrlProcessado.current = true
+    params.delete('emitir')
+    const resto = params.toString()
+    window.history.replaceState(null, '', window.location.pathname + (resto ? '?' + resto : ''))
+    const embarque = embarques.find((item) => item.id === embarqueId)
+    if (!embarque) {
+      alert('Embarque não encontrado na lista de faturamento (pode estar arquivado). Busque pelo AWB no emissor.')
+      setAbaAtiva('EMISSOR')
+      return
+    }
+    abrirEmissaoFaturaDireta(embarque)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carregandoDados, embarques])
 
   function abrirEmissaoFaturaDireta(embarque: Embarque) {
     setAbaAtiva('EMISSOR')
