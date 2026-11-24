@@ -592,9 +592,16 @@ export default function DashboardPage() {
   const anoAtual = String(hoje.getFullYear())
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
   const periodoCards = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(hoje)
-  const errosRastreio = Array.isArray(ultimoRastreio?.detalhes)
+  const detalhesRastreio: any[] = Array.isArray(ultimoRastreio?.detalhes)
     ? ultimoRastreio.detalhes
     : []
+  // HC_RASTREIO_MANUAL_SEM_ERRO_V1: transportadora sem integração (agente de carga etc.) é rastreio manual, não erro.
+  const rastreioManual = (erro: any) => /n[aã]o suportada/i.test(String(erro?.erro || ''))
+  const errosRastreio = detalhesRastreio.filter((erro) => !rastreioManual(erro))
+  const rastreiosManuais = detalhesRastreio.filter(rastreioManual)
+  const totalErrosRastreio = detalhesRastreio.length > 0
+    ? errosRastreio.length
+    : Number(ultimoRastreio?.total_erro || 0)
 
   const financeiroResumo = useMemo(() => {
     const emAberto = financeiro.filter((item) => statusCobranca(item) === 'EM ABERTO')
@@ -1303,10 +1310,10 @@ export default function DashboardPage() {
       })
     }
 
-    if (Number(ultimoRastreio?.total_erro || 0) > 0) {
+    if (totalErrosRastreio > 0) {
       alertas.push({
         titulo: 'Rastreios com erro',
-        valor: Number(ultimoRastreio?.total_erro || 0),
+        valor: totalErrosRastreio,
         detalhe: 'Última execução',
         icone: '📡',
         cor: 'red',
@@ -1694,12 +1701,20 @@ export default function DashboardPage() {
             </ul>
             <div className="mt-2 border-t border-slate-800 pt-2 text-xs text-slate-400">
               Rastreio: {dataHoraBR(ultimoRastreio?.criado_em)} · {Number(ultimoRastreio?.total_sucesso || 0)} ok ·{' '}
-              {Number(ultimoRastreio?.total_erro || 0) > 0 ? (
+              {totalErrosRastreio > 0 ? (
                 <button type="button" onClick={() => setModalErrosRastreio(true)} className="font-bold text-red-300 hover:text-red-200">
-                  {Number(ultimoRastreio?.total_erro || 0)} erro(s)
+                  {totalErrosRastreio} erro(s)
                 </button>
               ) : (
                 <span>0 erros</span>
+              )}
+              {rastreiosManuais.length > 0 && (
+                <>
+                  {' · '}
+                  <button type="button" onClick={() => setModalErrosRastreio(true)} className="font-bold text-slate-300 hover:text-white">
+                    {rastreiosManuais.length} manual(is)
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1799,8 +1814,13 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {errosRastreio.length > 0 ? (
+            {errosRastreio.length > 0 || rastreiosManuais.length > 0 ? (
               <div className="max-h-[60vh] space-y-4 overflow-auto">
+                {errosRastreio.length === 0 && (
+                  <p className="rounded-xl border border-green-800 bg-green-950/20 p-3 text-sm font-bold text-green-300">
+                    Nenhum erro real na última execução.
+                  </p>
+                )}
                 {errosRastreio.map((erro: any, index: number) => (
                   <div
                     key={index}
@@ -1832,6 +1852,21 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ))}
+                {rastreiosManuais.length > 0 && (
+                  <details className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4">
+                    <summary className="cursor-pointer font-black text-slate-200">
+                      Rastreio manual · {rastreiosManuais.length} AWB(s) sem integração automática (agente de carga / outras)
+                    </summary>
+                    <ul className="mt-3 space-y-1 text-sm text-slate-300">
+                      {rastreiosManuais.map((erro: any, index: number) => (
+                        <li key={index} className="flex justify-between gap-3 border-b border-slate-800 py-1">
+                          <span className="font-bold text-blue-300">{erro.awb || '-'}</span>
+                          <span className="text-slate-400">{erro.transportadora || '-'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
             ) : (
               <div className="rounded-2xl border border-blue-900 bg-[#020817] p-4 text-center">
