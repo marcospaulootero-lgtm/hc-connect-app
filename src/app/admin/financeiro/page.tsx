@@ -1178,7 +1178,7 @@ export default function FinanceiroPage() {
 
       const { data: itensFatura, error: erroItensFatura } = await supabase
         .from('faturas_transportadoras_itens')
-        .select('id, status_lancamento')
+        .select('id, status_lancamento, valor_compra')
         .eq('fatura_transportadora_id', vinculo.fatura_transportadora_id)
 
       if (erroItensFatura) throw erroItensFatura
@@ -1191,6 +1191,12 @@ export default function FinanceiroPage() {
         .from('faturas_transportadoras')
         .update({
           status_contestacao: aindaContestada ? 'EM CONTESTAÇÃO' : null,
+          // HC_RESOLVER_CONTESTACAO_AWB_V1: valor contestado da fatura = soma dos AWBs em contestação
+          valor_contestado: Math.round(
+            (itensFatura || [])
+              .filter((registro: any) => normalizarBusca(registro?.status_lancamento).includes('CONTEST'))
+              .reduce((soma: number, registro: any) => soma + Math.abs(Number(registro?.valor_compra || 0)), 0) * 100
+          ) / 100,
           atualizado_em: agora,
         })
         .eq('id', vinculo.fatura_transportadora_id)

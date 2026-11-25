@@ -70,6 +70,7 @@ type ResumoConciliacao = {
   status: StatusConciliacao
   itens: ItemConciliado[]
   cancelados: ItemFaturaConciliacao[]
+  contestados: ItemFaturaConciliacao[] // HC_CONTESTAR_AWB_SEM_PROCESSO_V1
   totalItens: number
   recebidos: number
   pendentes: number
@@ -190,6 +191,16 @@ export default function FaturasTransportadorasPage() {
   const [pagamentoLoteData, setPagamentoLoteData] = useState(() => new Date().toLocaleDateString('sv-SE'))
   const [pagamentoLoteBanco, setPagamentoLoteBanco] = useState('')
   const [pagandoLote, setPagandoLote] = useState(false)
+  // HC_RESOLVER_CONTESTACAO_AWB_V1
+  const [resolucaoContestacao, setResolucaoContestacao] = useState<{
+    item: ItemFaturaConciliacao
+    fatura: FaturaTransportadora
+    aceita: boolean
+    abatimento: string
+    vencimento: string
+    atualizarProcesso: boolean
+  } | null>(null)
+  const [salvandoResolucao, setSalvandoResolucao] = useState(false)
   const [itensConciliacao, setItensConciliacao] = useState<ItemFaturaConciliacao[]>([])
   const [financeirosConciliacao, setFinanceirosConciliacao] = useState<ProcessoFinanceiroConciliacao[]>([])
   const [filtroConciliacao, setFiltroConciliacao] = useState('TODAS')
@@ -2013,12 +2024,185 @@ export default function FaturasTransportadorasPage() {
     setItensConciliacao((atuais) => atuais.map((atual) => (atual.id === item.id ? { ...atual, ...data[0] } : atual)))
   }
 
+  // HC_CONTESTAR_AWB_SEM_PROCESSO_V1 / HC_RESOLVER_CONTESTACAO_AWB_V1
+  // Contestação por AWB: o valor contestado da fatura é sempre a soma dos AWBs em contestação.
+  // Ao resolver (aceita/recusada) a fatura é recalculada pelo abatimento real e ganha novo vencimento.
+  function awbEmContestacao(item: { status_lancamento?: string | null }) {
+    return String(item?.status_lancamento || '').toUpperCase().includes('CONTEST')
+  }
+
+  async function contestarAwbFatura(item: ItemFaturaConciliacao) {
+    const fatura = faturas.find((registro) => registro.id === item.fatura_transportadora_id)
+    if (!fatura) return alert('Fatura não encontrada. Atualize a página.')
+    const valorItem = Math.abs(numero(item.valor_compra))
+    const motivo = window.prompt(
+      'Contestar o AWB ' + (item.awb || '') + ' na fatura ' + (fatura.numero_fatura || '') + '?\n\n' +
+        'Valor: ' + moeda(valorItem) + ' (entra no Contestado da fatura).\n' +
+        'Data de pagamento, total e saldo só mudam quando você resolver a contestação.\n\nMotivo:',
+      'Cobrança indevida'
+    )
+    if (motivo === null) return
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const agora = new Date().toISOString()
+    const historico = 'Contestação aberta na fatura em ' + new Date().toLocaleString('pt-BR') + ' por ' +
+      (user?.email || 'admin') + (motivo.trim() ? ': ' + motivo.trim() : '')
+    const observacao = [String(item.observacao || '').trim(), historico].filter(Boolean).join(' | ').slice(0, 1000)
+
+    const { data, error } = await supabase
+      .from('faturas_transportadoras_itens')
+      .update({ status_lancamento: 'CONTESTACAO', observacao, atualizado_em: agora })
+      .eq('id', item.id)
+      .select('id, status_lancamento, observacao')
+    if (error || !data || data.length !== 1) {
+      return alert('Não foi possível contestar: ' + (error?.message || 'o item mudou, atualize a página.'))
+    }
+
+    const itensDaFatura = (itensPorFatura.get(fatura.id) || []).map((atual) => (atual.id === item.id ? { ...atual, ...data[0] } : atual))
+    const somaContestada = Math.round(
+      itensDaFatura.filter(awbEmContestacao).reduce((soma, atual) => soma + Math.abs(numero(atual.valor_compra)), 0) * 100
+    ) / 100
+    const payloadFatura = { status_contestacao: 'EM CONTESTAÇÃO', valor_contestado: somaContestada, atualizado_em: agora }
+    const { error: erroFatura } = await supabase.from('faturas_transportadoras').update(payloadFatura).eq('id', fatura.id)
+    if (erroFatura) alert('O AWB foi contestado, mas a fatura não foi atualizada: ' + erroFatura.message)
+
+    setItensConciliacao((atuais) => atuais.map((atual) => (atual.id === item.id ? { ...atual, ...data[0] } : atual)))
+    if (!erroFatura) setFaturas((atuais) => atuais.map((atual) => (atual.id === fatura.id ? { ...atual, ...payloadFatura } : atual)))
+  }
+
+  function abrirResolucaoContestacao(item: ItemFaturaConciliacao) {
+    const fatura = faturas.find((registro) => registro.id === item.fatura_transportadora_id)
+    if (!fatura) return alert('Fatura não encontrada. Atualize a página.')
+    setResolucaoContestacao({
+      item,
+      fatura,
+      aceita: true,
+      abatimento: formatarEntradaValorBR(Math.abs(numero(item.valor_compra)).toFixed(2).replace('.', ',')),
+      vencimento: fatura.vencimento ? String(fatura.vencimento).slice(0, 10) : '',
+      atualizarProcesso: true,
+    })
+  }
+
+  async function confirmarResolucaoContestacao() {
+    const r = resolucaoContestacao
+    if (!r) return
+    const { item, fatura, aceita } = r
+    const paga = !!fatura.data_pagamento
+    const valorItem = Math.abs(numero(item.valor_compra))
+    const abatimento = aceita ? Math.round(numeroValorBR(r.abatimento) * 100) / 100 : 0
+    const totalAtual = numero(fatura.total)
+
+    if (aceita && abatimento <= 0) return alert('Informe o valor abatido pela transportadora.')
+    if (aceita && abatimento > totalAtual + 0.01) return alert('O abatimento não pode ser maior que o total da fatura.')
+    if (!paga && !r.vencimento) return alert('Informe o novo vencimento da fatura.')
+
+    setSalvandoResolucao(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const agora = new Date().toISOString()
+      const quando = new Date().toLocaleString('pt-BR') + ' por ' + (user?.email || 'admin')
+      const textoResultado = aceita
+        ? 'Contestação ACEITA: abatimento de ' + moeda(abatimento) + ' (contestado ' + moeda(valorItem) + ')'
+        : 'Contestação RECUSADA'
+
+      // 1) item
+      const novoValorItem = aceita ? Math.max(0, Math.round((valorItem - abatimento) * 100) / 100) : valorItem
+      const payloadItem: any = {
+        status_lancamento: item.financeiro_embarque_id ? 'LANCADO' : aceita ? 'ABATIDO_NA_FATURA' : 'AGUARDANDO_PROCESSO',
+        observacao: [String(item.observacao || '').trim(), textoResultado + ' em ' + quando].filter(Boolean).join(' | ').slice(0, 1000),
+        atualizado_em: agora,
+      }
+      if (aceita) {
+        payloadItem.valor_compra_anterior = valorItem
+        payloadItem.valor_compra = novoValorItem
+      }
+      const { data: itemAtualizado, error: erroItem } = await supabase
+        .from('faturas_transportadoras_itens')
+        .update(payloadItem)
+        .eq('id', item.id)
+        .ilike('status_lancamento', '%CONTEST%')
+        .select('id, status_lancamento, observacao, valor_compra')
+      if (erroItem || !itemAtualizado || itemAtualizado.length !== 1) {
+        throw new Error(erroItem?.message || 'o AWB não está mais em contestação, atualize a página.')
+      }
+
+      // 2) processo vinculado (Processos Faturados): reduz o Valor Compra pelo abatimento
+      let avisoProcesso = ''
+      if (aceita && r.atualizarProcesso && item.financeiro_embarque_id) {
+        const { data: processo, error: erroBusca } = await supabase
+          .from('financeiro_embarques')
+          .select('id, valor_compra')
+          .eq('id', item.financeiro_embarque_id)
+          .maybeSingle()
+        if (erroBusca || !processo) {
+          avisoProcesso = '\n\nNão foi possível localizar o processo para ajustar o Valor Compra.'
+        } else {
+          const anterior = numero((processo as any).valor_compra)
+          const novo = Math.max(0, Math.round((anterior - abatimento) * 100) / 100)
+          const { error: erroProcesso } = await supabase
+            .from('financeiro_embarques')
+            .update({ valor_compra: novo, atualizado_em: agora })
+            .eq('id', item.financeiro_embarque_id)
+          avisoProcesso = erroProcesso
+            ? '\n\nValor Compra do processo NÃO foi ajustado: ' + erroProcesso.message
+            : '\n\nValor Compra do processo: ' + moeda(anterior) + ' → ' + moeda(novo)
+        }
+      }
+
+      // 3) fatura
+      const itensDaFatura = (itensPorFatura.get(fatura.id) || []).map((atual) =>
+        atual.id === item.id ? { ...atual, ...itemAtualizado[0] } : atual
+      )
+      const somaContestada = Math.round(
+        itensDaFatura.filter(awbEmContestacao).reduce((soma, atual) => soma + Math.abs(numero(atual.valor_compra)), 0) * 100
+      ) / 100
+      const aindaContestada = itensDaFatura.some(awbEmContestacao)
+      const novoTotal = Math.round((totalAtual - abatimento) * 100) / 100
+      const pago = numero(fatura.pago_ajustado)
+      const credito = paga && aceita ? Math.max(0, Math.round((pago - novoTotal) * 100) / 100) : 0
+      const historicoFatura = textoResultado + ' no AWB ' + (item.awb || '-') + ' em ' + quando +
+        (aceita ? '. Total ' + moeda(totalAtual) + ' → ' + moeda(novoTotal) : '') +
+        (credito > 0 ? '. Fatura já paga: crédito de ' + moeda(credito) + ' a receber da transportadora' : '') +
+        (!paga && r.vencimento ? '. Novo vencimento ' + dataBR(r.vencimento) : '')
+
+      const payloadFatura: any = {
+        status_contestacao: aindaContestada ? 'EM CONTESTAÇÃO' : null,
+        valor_contestado: somaContestada,
+        observacoes: [String(fatura.observacoes || '').trim(), historicoFatura].filter(Boolean).join('\n'),
+        atualizado_em: agora,
+      }
+      if (aceita) payloadFatura.total = novoTotal
+      if (!paga) {
+        payloadFatura.vencimento = r.vencimento
+        payloadFatura.situacao = 'EM ABERTO'
+        payloadFatura.saldo = Math.max(0, Math.round((novoTotal - pago) * 100) / 100)
+      }
+
+      const { error: erroFatura } = await supabase.from('faturas_transportadoras').update(payloadFatura).eq('id', fatura.id)
+      if (erroFatura) throw new Error('AWB resolvido, mas a fatura não foi atualizada: ' + erroFatura.message)
+
+      setResolucaoContestacao(null)
+      alert(
+        textoResultado + '.\n\n' +
+          (aceita ? 'Total da fatura: ' + moeda(totalAtual) + ' → ' + moeda(novoTotal) + '\n' : '') +
+          (paga ? 'A fatura já estava paga; pagamento não foi alterado.' : 'Fatura EM ABERTO, vencimento ' + dataBR(r.vencimento) + '.') +
+          (credito > 0 ? '\nCrédito a receber da transportadora: ' + moeda(credito) : '') +
+          avisoProcesso
+      )
+      await carregar()
+    } catch (error: any) {
+      alert('Não foi possível resolver a contestação: ' + (error?.message || error))
+    } finally {
+      setSalvandoResolucao(false)
+    }
+  }
+
   function resumoConciliacao(fatura: FaturaTransportadora): ResumoConciliacao {
     const todosItens = itensPorFatura.get(fatura.id) || []
     const itens = todosItens.filter((item) => !itemCanceladoNaFatura(item))
     const cancelados = todosItens.filter((item) => itemCanceladoNaFatura(item))
 
-    const detalhados: ItemConciliado[] = itens.map((item) => {
+    const detalhadosTodos: ItemConciliado[] = itens.map((item) => {
       const vinculado = item.financeiro_embarque_id
         ? financeirosPorId.get(item.financeiro_embarque_id) || null
         : null
@@ -2032,6 +2216,13 @@ export default function FaturasTransportadorasPage() {
         recebido: !!processo?.recebimento,
       }
     })
+    // HC_CONTESTAR_AWB_SEM_PROCESSO_V1: AWB sem processo em contestação não é pendência de recebimento.
+    const contestadoSemProcesso = (registro: ItemConciliado) => {
+      const statusItem = String(registro.item.status_lancamento || '').toUpperCase()
+      return !registro.processo && (statusItem.includes('CONTEST') || statusItem === 'ABATIDO_NA_FATURA') // HC_RESOLVER_CONTESTACAO_AWB_V1
+    }
+    const detalhados = detalhadosTodos.filter((registro) => !contestadoSemProcesso(registro))
+    const contestados = detalhadosTodos.filter(contestadoSemProcesso).map((registro) => registro.item)
 
     const recebidos = detalhados.filter((item) => item.recebido).length
     const naoLocalizados = detalhados.filter((item) => !item.processo).length
@@ -2070,6 +2261,7 @@ export default function FaturasTransportadorasPage() {
       status,
       itens: detalhados,
       cancelados,
+      contestados,
       totalItens: detalhados.length,
       recebidos,
       pendentes,
@@ -2919,7 +3111,14 @@ export default function FaturasTransportadorasPage() {
                                         <td className="px-3 py-3 text-right">{processo ? moeda(processo.valor_cobranca) : '-'}</td>
                                         <td className="px-3 py-3">{processo ? dataBR(processo.recebimento) : '-'}</td>
                                         <td className="px-3 py-3">
-                                          {!processo ? (
+                                          {awbEmContestacao(itemFatura) ? (
+                                            <span className="inline-flex flex-wrap items-center gap-2">
+                                              <span className="rounded-full border border-purple-500 bg-purple-500/15 px-2 py-1 font-black text-purple-300">EM CONTESTAÇÃO</span>
+                                              <button type="button" onClick={() => abrirResolucaoContestacao(itemFatura)} className="rounded-lg bg-purple-700 px-2 py-1 text-xs font-bold text-white hover:bg-purple-600">
+                                                Resolver contestação
+                                              </button>
+                                            </span>
+                                          ) : !processo ? (
                                             <span className="inline-flex flex-wrap items-center gap-2">
                                               <span className="rounded-full border border-red-500 bg-red-500/15 px-2 py-1 font-black text-red-300">NÃO LOCALIZADO</span>
                                               {!itemFatura.financeiro_embarque_id && (
@@ -2932,11 +3131,50 @@ export default function FaturasTransportadorasPage() {
                                                   Cancelar na fatura
                                                 </button>
                                               )}
+                                              {!itemFatura.financeiro_embarque_id && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => contestarAwbFatura(itemFatura)}
+                                                  className="rounded-lg border border-purple-500 px-2 py-1 text-xs font-bold text-purple-200 hover:bg-purple-900/40"
+                                                  title="Cobrança indevida: contestar só este AWB com a transportadora"
+                                                >
+                                                  Contestar
+                                                </button>
+                                              )}
                                             </span>
                                           ) : recebido ? (
-                                            <span className="rounded-full border border-green-500 bg-green-500/15 px-2 py-1 font-black text-green-300">RECEBIDO</span>
+                                            <span className="inline-flex flex-wrap items-center gap-2">
+                                              <span className="rounded-full border border-green-500 bg-green-500/15 px-2 py-1 font-black text-green-300">RECEBIDO</span>
+                                              <button type="button" onClick={() => contestarAwbFatura(itemFatura)} className="rounded-lg border border-purple-500 px-2 py-1 text-xs font-bold text-purple-200 hover:bg-purple-900/40">Contestar</button>
+                                            </span>
                                           ) : (
-                                            <span className="rounded-full border border-amber-500 bg-amber-500/15 px-2 py-1 font-black text-amber-300">AGUARDANDO CLIENTE</span>
+                                            <span className="inline-flex flex-wrap items-center gap-2">
+                                              <span className="rounded-full border border-amber-500 bg-amber-500/15 px-2 py-1 font-black text-amber-300">AGUARDANDO CLIENTE</span>
+                                              <button type="button" onClick={() => contestarAwbFatura(itemFatura)} className="rounded-lg border border-purple-500 px-2 py-1 text-xs font-bold text-purple-200 hover:bg-purple-900/40">Contestar</button>
+                                            </span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                    {conciliacao.contestados.map((itemContestado) => (
+                                      <tr key={itemContestado.id} className="border-t border-blue-900/70">
+                                        <td className="px-3 py-3 font-black text-purple-300">{itemContestado.awb || '-'}</td>
+                                        <td className="px-3 py-3 text-slate-400" title={itemContestado.observacao || ''}>
+                                          <span className="block max-w-md truncate">{itemContestado.observacao || 'Em contestação'}</span>
+                                        </td>
+                                        <td className="px-3 py-3 text-right text-purple-200">{moeda(itemContestado.valor_compra)}</td>
+                                        <td className="px-3 py-3 text-right">-</td>
+                                        <td className="px-3 py-3">-</td>
+                                        <td className="px-3 py-3">
+                                          {awbEmContestacao(itemContestado) ? (
+                                            <span className="inline-flex flex-wrap items-center gap-2">
+                                              <span className="rounded-full border border-purple-500 bg-purple-500/15 px-2 py-1 font-black text-purple-300">EM CONTESTAÇÃO</span>
+                                              <button type="button" onClick={() => abrirResolucaoContestacao(itemContestado)} className="rounded-lg bg-purple-700 px-2 py-1 text-xs font-bold text-white hover:bg-purple-600">
+                                                Resolver contestação
+                                              </button>
+                                            </span>
+                                          ) : (
+                                            <span className="rounded-full border border-green-600 bg-green-600/15 px-2 py-1 font-black text-green-300">ABATIDO NA FATURA</span>
                                           )}
                                         </td>
                                       </tr>
@@ -2980,6 +3218,91 @@ export default function FaturasTransportadorasPage() {
           </div>
         )}
       </section>
+      {/* HC_RESOLVER_CONTESTACAO_AWB_V1 */}
+      {resolucaoContestacao && (() => {
+        const r = resolucaoContestacao
+        const paga = !!r.fatura.data_pagamento
+        const abat = r.aceita ? numeroValorBR(r.abatimento) : 0
+        const novoTotal = Math.round((numero(r.fatura.total) - abat) * 100) / 100
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-lg rounded-2xl border border-purple-700 bg-[#020817] p-6 text-sm">
+              <p className="text-xs font-black uppercase tracking-wider text-purple-300">Resolver contestação</p>
+              <h3 className="mt-1 text-lg font-black">
+                AWB {r.item.awb || '-'} · Fatura {r.fatura.numero_fatura || '-'}
+              </h3>
+              <p className="mt-1 text-slate-400">Valor contestado: {moeda(r.item.valor_compra)}</p>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setResolucaoContestacao({ ...r, aceita: true })}
+                  className={'rounded-xl px-4 py-3 font-bold ' + (r.aceita ? 'bg-green-700' : 'border border-slate-600 text-slate-300')}>
+                  Aceita (abateram)
+                </button>
+                <button type="button" onClick={() => setResolucaoContestacao({ ...r, aceita: false })}
+                  className={'rounded-xl px-4 py-3 font-bold ' + (!r.aceita ? 'bg-red-700' : 'border border-slate-600 text-slate-300')}>
+                  Recusada
+                </button>
+              </div>
+
+              {r.aceita && (
+                <label className="mt-4 block">
+                  <span className="font-bold">Valor abatido pela transportadora</span>
+                  <input
+                    value={r.abatimento}
+                    onChange={(e) => setResolucaoContestacao({ ...r, abatimento: formatarEntradaValorBR(e.target.value) })}
+                    className="mt-1 w-full rounded-lg px-3 py-2"
+                    placeholder="Ex: 100,00"
+                  />
+                  <span className="mt-1 block text-xs text-slate-400">Pode ser maior ou menor que o valor contestado.</span>
+                </label>
+              )}
+
+              {!paga && (
+                <label className="mt-4 block">
+                  <span className="font-bold">Novo vencimento</span>
+                  <input type="date" value={r.vencimento}
+                    onChange={(e) => setResolucaoContestacao({ ...r, vencimento: e.target.value })}
+                    className="mt-1 w-full rounded-lg px-3 py-2" />
+                </label>
+              )}
+
+              {r.aceita && r.item.financeiro_embarque_id && (
+                <label className="mt-4 flex items-center gap-2">
+                  <input type="checkbox" checked={r.atualizarProcesso}
+                    onChange={(e) => setResolucaoContestacao({ ...r, atualizarProcesso: e.target.checked })} />
+                  <span>Abater também do Valor Compra do processo (Processos Faturados)</span>
+                </label>
+              )}
+
+              <div className="mt-4 rounded-xl border border-blue-900 p-3 text-xs text-slate-300">
+                {r.aceita ? (
+                  <p>Total da fatura: {moeda(r.fatura.total)} → <b className="text-green-300">{moeda(novoTotal)}</b></p>
+                ) : (
+                  <p>Total da fatura continua {moeda(r.fatura.total)}.</p>
+                )}
+                {paga ? (
+                  <p className="mt-1 text-amber-300">
+                    Fatura já paga: o pagamento não muda.
+                    {r.aceita && numero(r.fatura.pago_ajustado) > novoTotal ? ' A diferença fica anotada como crédito a receber.' : ''}
+                  </p>
+                ) : (
+                  <p className="mt-1">A fatura volta para EM ABERTO com o novo vencimento.</p>
+                )}
+              </div>
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setResolucaoContestacao(null)} className="rounded-xl bg-slate-700 px-4 py-2 font-bold hover:bg-slate-600">
+                  Cancelar
+                </button>
+                <button type="button" disabled={salvandoResolucao} onClick={confirmarResolucaoContestacao}
+                  className="rounded-xl bg-purple-700 px-4 py-2 font-bold hover:bg-purple-600 disabled:opacity-50">
+                  {salvandoResolucao ? 'Salvando...' : 'Confirmar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </main>
   )
 }
