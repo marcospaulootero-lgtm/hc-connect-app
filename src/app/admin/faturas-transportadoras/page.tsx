@@ -186,6 +186,10 @@ export default function FaturasTransportadorasPage() {
   const [filtroDashboard, setFiltroDashboard] = useState('')
   const [ultimaAlteracao, setUltimaAlteracao] = useState('')
   const [selecionadas, setSelecionadas] = useState<string[]>([])
+  // HC_PAGAR_LOTE_TRANSP_V1
+  const [pagamentoLoteData, setPagamentoLoteData] = useState(() => new Date().toLocaleDateString('sv-SE'))
+  const [pagamentoLoteBanco, setPagamentoLoteBanco] = useState('')
+  const [pagandoLote, setPagandoLote] = useState(false)
   const [itensConciliacao, setItensConciliacao] = useState<ItemFaturaConciliacao[]>([])
   const [financeirosConciliacao, setFinanceirosConciliacao] = useState<ProcessoFinanceiroConciliacao[]>([])
   const [filtroConciliacao, setFiltroConciliacao] = useState('TODAS')
@@ -1774,6 +1778,71 @@ export default function FaturasTransportadorasPage() {
     setSelecionadas([])
     await carregar()
   }
+  // HC_PAGAR_LOTE_TRANSP_V1: registra data de pagamento, banco e status PAGA em todas as selecionadas de uma vez.
+  async function pagarSelecionadas() {
+    if (!pagamentoLoteData) return alert('Informe a data do pagamento.')
+    if (!pagamentoLoteBanco.trim()) return alert('Informe o banco utilizado.')
+
+    const alvo = faturas.filter((item) => selecionadas.includes(item.id))
+    const pagaveis = alvo.filter(
+      (item) => !item.data_pagamento && !String(item.situacao || '').toUpperCase().includes('CANCEL')
+    )
+    const ignoradas = alvo.length - pagaveis.length
+    if (pagaveis.length === 0) return alert('Nenhuma das faturas selecionadas está em aberto.')
+
+    const semCobertura = pagaveis.filter((item) => !resumoConciliacao(item).liberadaPagamento)
+    const total = pagaveis.reduce((soma, item) => soma + numero(item.total), 0)
+
+    const linhas = [
+      `Registrar pagamento de ${pagaveis.length} fatura(s)?`,
+      '',
+      ...pagaveis.map((item) => `• ${item.transportadora || '-'} ${item.numero_fatura || '-'} — ${moeda(item.total, item.moeda || 'BRL')}`),
+      '',
+      `Total: ${moeda(total)}`,
+      `Data: ${dataBR(pagamentoLoteData)}`,
+      `Banco: ${pagamentoLoteBanco.trim().toUpperCase()}`,
+    ]
+    if (ignoradas > 0) linhas.push('', `${ignoradas} selecionada(s) já paga(s) ou cancelada(s) serão ignoradas.`)
+    if (semCobertura.length > 0) {
+      linhas.push(
+        '',
+        'ATENÇÃO — SEM COBERTURA COMPLETA DE RECEBIMENTO:',
+        ...semCobertura.map((item) => {
+          const r = resumoConciliacao(item)
+          return `• ${item.numero_fatura || '-'}: ${r.recebidos}/${r.totalItens} recebidos (${r.cobertura.toFixed(0)}%)`
+        }),
+        'Elas ficarão sinalizadas como PAGA COM RECEBIMENTO PENDENTE.'
+      )
+    }
+    if (!confirm(linhas.join('\n'))) return
+
+    setPagandoLote(true)
+    const agora = new Date().toISOString()
+    const erros: string[] = []
+    for (const item of pagaveis) {
+      const { error } = await supabase
+        .from('faturas_transportadoras')
+        .update({
+          data_pagamento: pagamentoLoteData,
+          utilizado_para: pagamentoLoteBanco.trim().toUpperCase(),
+          situacao: 'PAGA',
+          pago_ajustado: numero(item.total),
+          saldo: 0,
+          atualizado_em: agora,
+        })
+        .eq('id', item.id)
+        .is('data_pagamento', null)
+      if (error) erros.push(`${item.numero_fatura || item.id}: ${error.message}`)
+    }
+    setPagandoLote(false)
+
+    if (erros.length) alert('Algumas faturas não foram atualizadas:\n\n' + erros.join('\n'))
+    else alert(`${pagaveis.length} fatura(s) registrada(s) como paga(s).`)
+
+    setSelecionadas([])
+    await carregar()
+  }
+
   async function excluir(item: FaturaTransportadora) {
     const confirmar = confirm(`Excluir definitivamente a fatura ${item.numero_fatura}?`)
     if (!confirmar) return
@@ -2558,7 +2627,32 @@ export default function FaturasTransportadorasPage() {
               </p>
             </div>
 
-            <div className="flex gap-3 flex-wrap">
+            <div className="flex gap-3 flex-wrap items-center">
+              {/* HC_PAGAR_LOTE_TRANSP_V1 */}
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-green-800 bg-green-950/20 p-2">
+                <input
+                  type="date"
+                  value={pagamentoLoteData}
+                  onChange={(e) => setPagamentoLoteData(e.target.value)}
+                  className="rounded-lg px-2 py-2"
+                  title="Data do pagamento"
+                />
+                <input
+                  list="bancos-pagamento"
+                  value={pagamentoLoteBanco}
+                  onChange={(e) => setPagamentoLoteBanco(e.target.value)}
+                  placeholder="Banco (ITAU, BS2...)"
+                  className="w-44 rounded-lg px-2 py-2"
+                />
+                <button
+                  onClick={pagarSelecionadas}
+                  disabled={pagandoLote}
+                  className="bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-3 rounded-xl font-bold"
+                >
+                  {pagandoLote ? 'Registrando...' : 'Marcar como pagas'}
+                </button>
+              </div>
+
               {selecionadasAtivas > 0 && (
                 <button
                   onClick={() => arquivarSelecionadas(true)}
