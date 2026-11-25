@@ -57,18 +57,17 @@ export default function CotacoesAdminPage() {
       setMenuAcoes(null)
     }
 
-    function fecharAoRolarOuRedimensionar() {
-      setMenuAcoes(null)
+    // HC_COTACOES_MENU_MODAL_V1: o menu virou janela central; rolar a página não fecha mais. Esc fecha.
+    function fecharComEsc(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenuAcoes(null)
     }
 
     document.addEventListener('mousedown', fecharAoClicarFora)
-    window.addEventListener('resize', fecharAoRolarOuRedimensionar)
-    window.addEventListener('scroll', fecharAoRolarOuRedimensionar, true)
+    document.addEventListener('keydown', fecharComEsc)
 
     return () => {
       document.removeEventListener('mousedown', fecharAoClicarFora)
-      window.removeEventListener('resize', fecharAoRolarOuRedimensionar)
-      window.removeEventListener('scroll', fecharAoRolarOuRedimensionar, true)
+      document.removeEventListener('keydown', fecharComEsc)
     }
   }, [menuAcoes])
 
@@ -1497,15 +1496,22 @@ export default function CotacoesAdminPage() {
       </section>
 
       {menuAcoes ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-3">
+        {/* HC_COTACOES_MENU_MODAL_V1 */}
         <div
           ref={menuAcoesRef}
-          className="fixed z-[200] w-64 overflow-y-auto overscroll-contain rounded-2xl border border-blue-900 bg-[#071225] p-2 shadow-2xl"
-          style={{
-            top: menuAcoes.top,
-            left: menuAcoes.left,
-            maxHeight: Math.max(140, window.innerHeight - menuAcoes.top - 12),
-          }} // HC_COTACOES_MENU_SCROLL_V2
+          className="max-h-[90vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-blue-800 bg-[#071225] p-4 shadow-2xl"
         >
+          <div className="mb-3 flex items-start justify-between gap-3 border-b border-blue-950 pb-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-blue-400">Ações da cotação</p>
+              <p className="font-black">{menuAcoes.item.referencia_hc || menuAcoes.item.referencia_cliente || '-'}</p>
+              <p className="text-xs text-slate-400">Status atual: {menuAcoes.item.status || '-'}</p>
+            </div>
+            <button type="button" onClick={fecharMenuAcoes} className="rounded-lg border border-slate-600 px-3 py-1 text-sm font-bold hover:bg-slate-800">
+              ✕
+            </button>
+          </div>
           {cotacaoExcluida(menuAcoes.item) ? (
             <button
               type="button"
@@ -1547,8 +1553,9 @@ export default function CotacoesAdminPage() {
                   ✉ Enviar follow-up
                 </button>
               ) : null}
-              <div className="my-1 border-t border-blue-950" />
-
+              <div className="my-2 border-t border-blue-950" />
+              <p className="px-1 pb-1 text-xs font-bold uppercase tracking-wider text-slate-500">Mudar status</p>
+              <div className="grid grid-cols-2 gap-1">
               {[
                 ['AGUARDANDO ANÁLISE', 'Aguardando análise'],
                 ['EM ANÁLISE', 'Em análise'],
@@ -1565,11 +1572,12 @@ export default function CotacoesAdminPage() {
                     fecharMenuAcoes()
                     await atualizarStatus(item.id, status)
                   }}
-                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-slate-800"
+                  className={'w-full rounded-xl border px-3 py-2 text-left text-sm font-bold hover:bg-slate-800 ' + (menuAcoes.item.status === status ? 'border-blue-500 bg-blue-950/40' : 'border-blue-950')}
                 >
                   {rotulo}
                 </button>
               ))}
+              </div>
 
               {!menuAcoes.item.embarque_id &&
               menuAcoes.item.status !== 'CONVERTIDA EM EMBARQUE' &&
@@ -1628,6 +1636,7 @@ export default function CotacoesAdminPage() {
               </button>
             </>
           )}
+        </div>
         </div>
       ) : null}
 
