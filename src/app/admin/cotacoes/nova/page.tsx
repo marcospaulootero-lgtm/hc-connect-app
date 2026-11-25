@@ -807,7 +807,7 @@ const valores = useMemo(() => {
   )
 
 const totaisAgenteMoedaTela = useMemo(() => {
-    return itensAgente.reduce<Record<string, number>>((acc, item) => {
+    const totais = itensAgente.reduce<Record<string, number>>((acc, item) => {
       if (!item.usar) return acc
 
       const moeda = item.moeda || 'USD'
@@ -819,7 +819,15 @@ const totaisAgenteMoedaTela = useMemo(() => {
 
       return acc
     }, {})
-  }, [itensAgente])
+
+    // HC_SEGURO_NO_TOTAL_AGENTE_V1: o seguro aparece no PDF e precisa entrar no TOTAL ALL IN (igual ao modo envio).
+    if (valores.seguro > 0) {
+      const moedaSeguro = String(form.moeda || 'USD').toUpperCase()
+      totais[moedaSeguro] = (totais[moedaSeguro] || 0) + valores.seguro
+    }
+
+    return totais
+  }, [itensAgente, valores.seguro, form.moeda])
 
   const totaisEnvioMoedaTela = useMemo(() => {
     const totais = itensEnvio.reduce<Record<string, number>>((acc, item) => {
