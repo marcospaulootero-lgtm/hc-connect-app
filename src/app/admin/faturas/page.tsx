@@ -7641,6 +7641,32 @@ function conferirDocumentoManualHC(
     )
   }
 
+  // HC_FORMAL_PUXA_SERVICOS_EMBARQUE_V1: ao escolher o AWB, traz os serviços do embarque para a fatura formal
+  // (somente se a tabela ainda estiver vazia, para não apagar o que já foi digitado).
+  function preencherItensAgenteDoEmbarque(embarque: Embarque) {
+    const servicos = servicosFinanceirosDoEmbarque((embarque as any).servicos_financeiros)
+      .filter((servico) => normalizarTexto(servico.nome) !== 'VALOR DE COMPRA' && numero(servico.valor) !== 0)
+    if (servicos.length === 0) return
+    const moedaBase = normalizarMoedaItemFatura(embarque.moeda_cobranca || embarque.moeda || 'USD')
+    setItensFaturaAgente((atuais) => {
+      const temDigitado = atuais.some((item) => item.descricao.trim() || numero(item.valor_original) !== 0)
+      if (temDigitado) return atuais
+      return servicos.map((servico) => {
+        const moedaItem = normalizarMoedaItemFatura(servico.moeda, moedaBase) as MoedaFaturaAgente
+        const valorOriginal = Math.abs(numero(servico.valor))
+        const taxa = taxaFinalFaturaAgente(moedaItem)
+        return {
+          ...novoItemFaturaAgente(),
+          descricao: String(servico.nome).trim().toUpperCase(),
+          moeda: moedaItem,
+          valor_original: formatarNumeroInput(valorOriginal),
+          valor_brl: taxa > 0 && valorOriginal > 0 ? formatarNumeroInput(valorOriginal * taxa) : '',
+          observacao: '',
+        }
+      })
+    })
+  }
+
   function adicionarItemFaturaAgente() {
     setItensFaturaAgente((atuais) => [...atuais, novoItemFaturaAgente()])
   }
@@ -8887,6 +8913,7 @@ function conferirDocumentoManualHC(
                       onClick={() => {
                         setAgenteEmbarqueId(item.id)
                         preencherClienteAgenteDoEmbarque(item)
+                        if (!faturaAgenteEditando) preencherItensAgenteDoEmbarque(item) // HC_FORMAL_PUXA_SERVICOS_EMBARQUE_V1
                         setAgenteProcesso(item.awb)
                         setBuscaAgenteAwb(item.awb)
                         setSugestoesAgenteAbertas(false)
