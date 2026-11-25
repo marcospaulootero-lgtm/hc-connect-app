@@ -1,6 +1,7 @@
 // HC_AUTO_COMPROVANTE_V1
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { liberarRepasseParceiroAposRecibo } from '@/lib/liberarRepasseParceiro' // HC_LIBERAR_REPASSE_NO_RECIBO_V1
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -1025,6 +1026,8 @@ export async function POST(request: NextRequest) {
         `Comprovante aprovado, mas a fatura não pôde ser baixada: ${erroAtualizarFatura.message}`
       )
     }
+
+    if (financeiro?.id) await liberarRepasseParceiroAposRecibo(admin, financeiro.id)
 
     return NextResponse.json({
       ok: true,

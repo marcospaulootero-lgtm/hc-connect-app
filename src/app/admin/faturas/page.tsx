@@ -15,6 +15,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { reservarAbaPdfHC, mostrarPdfNaAbaHC, fecharAbaPdfHC } from '@/lib/pdfAutoOpenHC' // HC_PDF_AUTOABRIR_V1
 import { supabase } from '@/lib/supabaseClient'
+import { liberarRepasseParceiroAposRecibo } from '@/lib/liberarRepasseParceiro' // HC_LIBERAR_REPASSE_NO_RECIBO_V1
 import StatusBadge from '@/components/StatusBadge'
 import CustoTransportadoraAwb from '@/components/admin/CustoTransportadoraAwb'
 import ImportarFichaCnpjEmissor from '@/components/admin/ImportarFichaCnpjEmissor' // HC_IMPORTAR_FICHA_CNPJ_EMISSOR_V1
@@ -3442,6 +3443,8 @@ function conferirDocumentoManualHC(
         .eq('id', financeiroAtual.id)
 
       if (error) throw new Error(`Recibo salvo, mas houve erro ao atualizar Processos Faturados: ${error.message}`)
+      const { data: { user: usuarioRecibo } } = await supabase.auth.getUser()
+      await liberarRepasseParceiroAposRecibo(supabase, financeiroAtual.id, usuarioRecibo?.id || null)
       return
     }
 
@@ -8305,6 +8308,8 @@ function conferirDocumentoManualHC(
         .eq('id', financeiroAtual.id)
 
       if (error) throw new Error(`Recibo salvo, mas houve erro ao atualizar Processos Faturados: ${error.message}`)
+      const { data: { user: usuarioReciboAgente } } = await supabase.auth.getUser()
+      await liberarRepasseParceiroAposRecibo(supabase, financeiroAtual.id, usuarioReciboAgente?.id || null)
       return
     }
 
