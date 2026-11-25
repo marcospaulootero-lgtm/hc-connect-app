@@ -345,6 +345,9 @@ export default function FaturasPage() {
   const [reemissaoMulta, setReemissaoMulta] = useState('2')
   const [reemissaoJurosMensal, setReemissaoJurosMensal] = useState('3')
   const [regeracaoPdfFaturaId, setRegeracaoPdfFaturaId] = useState('')
+  // HC_EDICAO_COMPLETA_FATURA_V1
+  const [edicaoCompletaFatura, setEdicaoCompletaFatura] = useState<{ id: string; numero: string; taxa: number; spread: number } | null>(null)
+  const pularCambioAutomaticoRef = useRef(false)
 
   const [itensFatura, setItensFatura] = useState<ItemFaturaServico[]>(itensPadraoFatura())
 
@@ -4612,7 +4615,7 @@ function conferirDocumentoManualHC(
     })
 
     setItensFatura(
-      itensPadraoFatura().map((item) => {
+      itensPadraoFatura().map((item): ItemFaturaServico => {
         const servicoSalvo = valoresPorServico.get(item.id)
 
         if (!servicoSalvo) {
@@ -4662,10 +4665,140 @@ function conferirDocumentoManualHC(
           valor_brl: valorBrl ? formatarNumeroInput(valorBrl) : '',
           observacao: embarque.transportadora || '',
         }
-      })
+      }).concat(
+        // HC_EDICAO_COMPLETA_FATURA_V1: serviços com nome livre (ex.: PALETIZAÇÃO) entram como linhas extras.
+        servicosSalvos
+          .filter((servico) => !chaveServicoFatura(servico.nome))
+          .map((servico, indice) => {
+            const moedaItem = normalizarMoedaItemFatura(servico.moeda, moedaBase)
+            const valorOriginal = numero(servico.valor)
+            const taxaItem = moedaItem === 'BRL' ? 1 : moedaItem === 'EUR' ? taxaFinalEur : moedaItem === 'USD' ? taxaFinalUsd : 0
+            const valorBrl = moedaItem === 'BRL' ? valorOriginal : taxaItem > 0 ? valorOriginal * taxaItem : 0
+            return {
+              id: 'extra_' + indice,
+              descricao: String(servico.nome).trim().toUpperCase(),
+              selecionado: true,
+              moeda: moedaItem,
+              valor_usd: valorOriginal ? formatarNumeroInput(valorOriginal) : '',
+              valor_brl: valorBrl ? formatarNumeroInput(valorBrl) : '',
+              observacao: embarque.transportadora || '',
+            } as ItemFaturaServico
+          })
+      )
     )
 
     return true
+  }
+
+  // HC_EDICAO_COMPLETA_FATURA_V1: monta a tabela do emissor a partir dos itens gravados na fatura.
+  function itensEmissorDaFaturaSalva(lista: any[]): ItemFaturaServico[] {
+    const salvos = lista
+      .map((item: any) => ({
+        descricao: String(item?.descricao || item?.nome || '').trim(),
+        moeda: normalizarMoedaItemFatura(item?.moeda || 'USD'),
+        valor_original: numero(item?.valor_original ?? item?.valor_usd ?? item?.valor),
+        valor_brl: numero(item?.valor_brl),
+        observacao: String(item?.observacao || ''),
+      }))
+      .filter((item) => item.descricao)
+    const porChave = new Map<string, (typeof salvos)[number]>()
+    const extras: typeof salvos = []
+    for (const item of salvos) {
+      const chave = chaveServicoFatura(item.descricao)
+      if (chave && !porChave.has(chave)) porChave.set(chave, item)
+      else extras.push(item)
+    }
+    const montar = (base: ItemFaturaServico, salvo: (typeof salvos)[number]): ItemFaturaServico => ({
+      ...base,
+      selecionado: true,
+      moeda: salvo.moeda,
+      valor_usd: salvo.valor_original ? formatarNumeroInput(salvo.valor_original) : '',
+      valor_brl: salvo.valor_brl ? formatarNumeroInput(salvo.valor_brl) : '',
+      observacao: salvo.observacao,
+    })
+    return [
+      ...itensPadraoFatura().map((item) => {
+        const salvo = porChave.get(item.id)
+        return salvo
+          ? montar(item, salvo)
+          : { ...item, selecionado: false, moeda: 'USD' as MoedaItemFatura, valor_usd: '', valor_brl: '', observacao: '' }
+      }),
+      ...extras.map((salvo, indice) =>
+        montar({ id: 'extra_salvo_' + indice, descricao: salvo.descricao.toUpperCase() } as ItemFaturaServico, salvo)
+      ),
+    ]
+  }
+
+  function abrirEdicaoCompletaFatura(embarque: Embarque, fatura: Fatura) {
+    if (!fatura?.id) return alert('Este embarque ainda não tem fatura para editar.')
+    if (String((fatura as any).tipo_fatura || '').toUpperCase() === 'IMPOSTOS') {
+      return alert('Fatura complementar de impostos não pode ser editada por aqui.')
+    }
+    if ((fatura as any).recibo_pdf || (fatura as any).data_pagamento) {
+      if (!confirm('Esta fatura já tem pagamento/recibo registrado.\n\nEditar vai gerar um novo PDF e atualizar o valor da cobrança no Financeiro (o recibo e a data de pagamento não mudam).\n\nContinuar?')) return
+    }
+
+    let itensSalvos: any[] = []
+    const bruto: any = (fatura as any).itens_fatura
+    if (Array.isArray(bruto)) itensSalvos = bruto
+    else if (typeof bruto === 'string') {
+      try { const convertido = JSON.parse(bruto); if (Array.isArray(convertido)) itensSalvos = convertido } catch {}
+    }
+
+    limparReemissao()
+    limparRegeracaoPdf()
+    limparFormulario()
+    pularCambioAutomaticoRef.current = true
+    setAbaAtiva('EMISSOR')
+    setBuscaEmissorAwb(String(embarque.awb || embarque.cliente_final || embarque.importador || ''))
+    selecionarEmbarqueEmissor(embarque.id, true)
+    pularCambioAutomaticoRef.current = false
+
+    if (fatura.cliente_faturamento_id) setEmissorClienteId(String(fatura.cliente_faturamento_id))
+    setEmissorUsuarioId(fatura.usuario_id || embarque.usuario_id || '')
+    setEmissorVisivelCliente(fatura.visivel_cliente !== false)
+
+    const spread = numero((fatura as any).spread)
+    const taxaFinal = numero((fatura as any).taxa_conversao)
+
+    setTimeout(() => {
+      setEmissorTipoFatura('FRETE')
+      setEmissorNumeroFatura(fatura.numero_fatura || gerarNumeroFaturaSugerido(embarque))
+      setEmissorVencimento(normalizarData(fatura.vencimento) || '')
+      if (taxaFinal > 0) {
+        const base = spread > -100 ? taxaFinal / (1 + spread / 100) : taxaFinal
+        setEmissorSpread(String(spread).replace('.', ','))
+        setEmissorTaxaConversao(base.toFixed(4).replace('.', ','))
+        setEmissorDolarVendaDia(base.toFixed(4).replace('.', ','))
+      }
+      if (itensSalvos.length > 0) setItensFatura(itensEmissorDaFaturaSalva(itensSalvos))
+      setEdicaoCompletaFatura({ id: fatura.id, numero: fatura.numero_fatura || '', taxa: taxaFinal, spread })
+      document.getElementById('emissor_fatura')?.scrollIntoView({ behavior: 'smooth' })
+    }, 150)
+  }
+
+  // HC_EDICAO_COMPLETA_FATURA_V1: adiciona uma linha de serviço com nome livre no emissor.
+  function adicionarServicoLivreEmissor() {
+    const campo = document.getElementById('novo-servico-emissor') as HTMLInputElement | null
+    const nome = String(campo?.value || '').trim().toUpperCase()
+    if (!nome) return
+    if (itensFatura.some((item) => normalizarTexto(item.descricao) === normalizarTexto(nome))) {
+      alert('Este serviço já está na tabela. Marque a linha existente.')
+      return
+    }
+    setItensFatura((atuais) => [
+      ...atuais,
+      {
+        id: 'extra_manual_' + Date.now(),
+        descricao: nome,
+        selecionado: true,
+        moeda: 'USD' as MoedaItemFatura,
+        valor_usd: '',
+        valor_brl: '',
+        observacao: String(emissorEmbarqueSelecionado?.transportadora || ''),
+      } as ItemFaturaServico,
+    ])
+    if (campo) campo.value = ''
   }
 
   function dataLocalISO(data: Date) {
@@ -5352,6 +5485,7 @@ function conferirDocumentoManualHC(
 
     setEmissorNumeroFatura(numeroAtual)
     setEmissorValorFechado('') // HC_VALOR_FECHADO_LINHA_UNICA_V1
+    setEdicaoCompletaFatura(null) // HC_EDICAO_COMPLETA_FATURA_V1
     setEmissorPdfLinhaUnica(false)
     setEmissorDescricaoLinhaUnica('FRETE PORTA A PORTA')
     setEmissorVencimento(vencimento)
@@ -5383,8 +5517,8 @@ function conferirDocumentoManualHC(
       // Para GBP/CNY/HKD exige preenchimento explícito do valor original.
       const moedaEmbarque = normalizarMoedaItemFatura(embarque.moeda_cobranca || embarque.moeda || 'USD')
       const precisaValorManual = MOEDAS_ADICIONAIS.includes(moedaEmbarque as MoedaAdicional)
-      setItensFatura((atuais) =>
-        atuais.map((item) => {
+      setItensFatura(() =>
+        itensPadraoFatura().map((item) => {
           if (item.id !== 'frete') {
             return {
               ...item,
@@ -5408,7 +5542,9 @@ function conferirDocumentoManualHC(
       )
     }
 
-    if (transportadoraDhl) {
+    if (pularCambioAutomaticoRef.current) {
+      pularCambioAutomaticoRef.current = false // HC_EDICAO_COMPLETA_FATURA_V1: mantém o câmbio da fatura original
+    } else if (transportadoraDhl) {
       if (dataEmbarque) {
         void carregarCambioAutomaticoEmissor('PTAX_DHL_MES_ANTERIOR', true, dataEmbarque)
       } else {
@@ -10197,6 +10333,30 @@ function conferirDocumentoManualHC(
               </tbody>
             </table>
           </div>
+
+          {/* HC_EDICAO_COMPLETA_FATURA_V1 */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input
+              id="novo-servico-emissor"
+              placeholder="Outro serviço (ex.: PALETIZAÇÃO, ARMAZENAGEM)"
+              className="min-w-[280px] flex-1"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarServicoLivreEmissor() } }}
+            />
+            <button type="button" onClick={adicionarServicoLivreEmissor} className="rounded-xl bg-blue-700 px-4 py-2 font-bold hover:bg-blue-600">
+              Adicionar serviço
+            </button>
+          </div>
+
+          {edicaoCompletaFatura && (
+            <div className="mt-4 rounded-2xl border border-amber-600 bg-amber-950/20 p-4 text-sm">
+              <p className="font-black text-amber-300">Editando a fatura {edicaoCompletaFatura.numero || ''} por completo</p>
+              <p className="mt-1 text-slate-300">
+                Itens, valores e câmbio foram carregados da fatura salva
+                {edicaoCompletaFatura.taxa > 0 ? ` (câmbio final ${edicaoCompletaFatura.taxa.toFixed(4).replace('.', ',')}, spread ${String(edicaoCompletaFatura.spread).replace('.', ',')}%)` : ''}.
+                Ao gerar, o PDF é substituído (o anterior fica no histórico) e o valor da cobrança no Financeiro é atualizado.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="rounded-3xl border border-blue-900 bg-[#071225] p-6 lg:p-7">
@@ -10623,12 +10783,24 @@ function conferirDocumentoManualHC(
               </p>
             </div>
 
-            <button
-              onClick={limparFormulario}
-              className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
-            >
-              Cancelar
-            </button>
+            <div className="flex flex-wrap gap-3 h-fit">
+              {faturaDoEmbarque(embarqueSelecionado.id) && (
+                <button
+                  type="button"
+                  onClick={() => abrirEdicaoCompletaFatura(embarqueSelecionado, faturaDoEmbarque(embarqueSelecionado.id) as Fatura)}
+                  className="bg-amber-600 hover:bg-amber-500 px-5 py-3 rounded-2xl font-bold"
+                  title="Abre o emissor com os itens, valores e câmbio desta fatura para alterar tudo e gerar o PDF de novo"
+                >
+                  Editar fatura completa (itens e valores)
+                </button>
+              )}
+              <button
+                onClick={limparFormulario}
+                className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-2xl font-bold h-fit"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">

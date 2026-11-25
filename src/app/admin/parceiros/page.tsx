@@ -691,6 +691,48 @@ export default function ParceirosPage() {
       }
     }
 
+    // HC_AUTO_LIBERAR_QUITADOS_V1: processo quitado pelo cliente fica liberado para os logins que já
+    // recebem repasses do mesmo parceiro. Acesso existente (inclusive oculto) não é alterado.
+    try {
+      const chaveParceiro = (item: any) => normalizarTexto(item?.parceiro || item?.despachante || '').toUpperCase()
+      const parceiroPorFinanceiro = new Map(ordenados.map((item) => [String(item.id), chaveParceiro(item)]))
+      const loginsPorParceiro = new Map<string, Set<string>>()
+      const acessoExistente = new Set<string>()
+      for (const acesso of acessosData) {
+        const financeiroId = String(acesso.financeiro_embarque_id || '')
+        acessoExistente.add(financeiroId + '|' + String(acesso.usuario_id || ''))
+        const parceiro = parceiroPorFinanceiro.get(financeiroId)
+        const usuarioAtivo = acesso?.perfis ? acesso.perfis.ativo !== false && acesso.perfis.tipo_acesso !== 'admin' : true
+        if (!parceiro || !acesso.ativo || !acesso.usuario_id || !usuarioAtivo) continue
+        if (!loginsPorParceiro.has(parceiro)) loginsPorParceiro.set(parceiro, new Set())
+        loginsPorParceiro.get(parceiro)!.add(String(acesso.usuario_id))
+      }
+      const agora = new Date().toISOString()
+      const novos: any[] = []
+      for (const item of ordenados) {
+        const parceiro = chaveParceiro(item)
+        const logins = parceiro ? loginsPorParceiro.get(parceiro) : null
+        if (!logins || !logins.size || !(normalizarNumero(item.debito_terceiro) > 0) || !clienteQuitouProcesso(item)) continue
+        for (const usuarioId of logins) {
+          if (acessoExistente.has(String(item.id) + '|' + usuarioId)) continue
+          novos.push({ financeiro_embarque_id: item.id, usuario_id: usuarioId, ativo: true, liberado_em: agora, atualizado_em: agora })
+        }
+      }
+      for (const lote of dividirEmLotes(novos, 250)) {
+        const { data: inseridos, error: erroAuto } = await supabase
+          .from('financeiro_parceiro_acessos')
+          .insert(lote)
+          .select('id, financeiro_embarque_id, usuario_id, ativo, observacao_parceiro, liberado_em, liberado_por, ocultado_em, ultimo_visualizado_em, visualizacoes, criado_em, atualizado_em')
+        if (erroAuto) {
+          console.log('Liberação automática de quitados falhou:', erroAuto)
+          break
+        }
+        acessosData = [...acessosData, ...(inseridos || [])]
+      }
+    } catch (erroAuto) {
+      console.log('Liberação automática de quitados falhou:', erroAuto)
+    }
+
     setSolicitacoesProfit(solicitacoesData)
     setAcessosPortal(acessosData)
     setRegistros(ordenados)
