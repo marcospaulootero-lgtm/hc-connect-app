@@ -597,8 +597,30 @@ export default function DashboardPage() {
     : []
   // HC_RASTREIO_MANUAL_SEM_ERRO_V1: transportadora sem integração (agente de carga etc.) é rastreio manual, não erro.
   const rastreioManual = (erro: any) => /n[aã]o suportada/i.test(String(erro?.erro || ''))
-  const errosRastreio = detalhesRastreio.filter((erro) => !rastreioManual(erro))
+  // HC_RASTREIO_EXPIRADO_V1: a DHL só consulta envios recentes (~90 dias). AWB antigo que volta "não encontrado"
+  // não é erro real: vai para uma lista separada.
+  const DIAS_RASTREIO_EXPIRADO = 90
+  const dataEmbarquePorAwb = new Map<string, string>()
+  for (const item of [...embarques, ...embarquesDiretos]) {
+    const awb = String(item?.awb || '').replace(/\D/g, '')
+    const data = dataBaseEmbarque(item)
+    if (awb && data && !dataEmbarquePorAwb.has(awb)) dataEmbarquePorAwb.set(awb, String(data))
+  }
+  const diasDoEmbarqueRastreio = (erro: any) => {
+    const data = dataEmbarquePorAwb.get(String(erro?.awb || '').replace(/\D/g, ''))
+    if (!data) return null
+    const tempo = new Date(data).getTime()
+    return Number.isFinite(tempo) ? Math.floor((Date.now() - tempo) / 86400000) : null
+  }
+  const rastreioExpirado = (erro: any) => {
+    if (rastreioManual(erro)) return false
+    if (!/no shipment|not found|no result|"status":\s*404/i.test(String(erro?.erro || ''))) return false
+    const dias = diasDoEmbarqueRastreio(erro)
+    return dias !== null && dias > DIAS_RASTREIO_EXPIRADO
+  }
+  const errosRastreio = detalhesRastreio.filter((erro) => !rastreioManual(erro) && !rastreioExpirado(erro))
   const rastreiosManuais = detalhesRastreio.filter(rastreioManual)
+  const rastreiosExpirados = detalhesRastreio.filter(rastreioExpirado)
   const totalErrosRastreio = detalhesRastreio.length > 0
     ? errosRastreio.length
     : Number(ultimoRastreio?.total_erro || 0)
@@ -1716,6 +1738,14 @@ export default function DashboardPage() {
                   </button>
                 </>
               )}
+              {rastreiosExpirados.length > 0 && (
+                <>
+                  {' · '}
+                  <button type="button" onClick={() => setModalErrosRastreio(true)} className="font-bold text-slate-400 hover:text-white" title="Mais de 90 dias: a transportadora não retorna mais o rastreio">
+                    {rastreiosExpirados.length} expirado(s)
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </section>
@@ -1814,7 +1844,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {errosRastreio.length > 0 || rastreiosManuais.length > 0 ? (
+            {errosRastreio.length > 0 || rastreiosManuais.length > 0 || rastreiosExpirados.length > 0 ? (
               <div className="max-h-[60vh] space-y-4 overflow-auto">
                 {errosRastreio.length === 0 && (
                   <p className="rounded-xl border border-green-800 bg-green-950/20 p-3 text-sm font-bold text-green-300">
@@ -1852,6 +1882,22 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ))}
+                {rastreiosExpirados.length > 0 && (
+                  <details className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4">
+                    <summary className="cursor-pointer font-black text-slate-200">
+                      Rastreio expirado · {rastreiosExpirados.length} AWB(s) com mais de {DIAS_RASTREIO_EXPIRADO} dias (a transportadora não retorna mais)
+                    </summary>
+                    <p className="mt-2 text-xs text-slate-400">Atualize o status desses embarques manualmente (ex.: Entregue) para saírem do rastreio automático.</p>
+                    <ul className="mt-3 space-y-1 text-sm text-slate-300">
+                      {rastreiosExpirados.map((erro: any, index: number) => (
+                        <li key={index} className="flex justify-between gap-3 border-b border-slate-800 py-1">
+                          <span className="font-bold text-blue-300">{erro.awb || '-'}</span>
+                          <span className="text-slate-400">{erro.transportadora || '-'} · {diasDoEmbarqueRastreio(erro)} dias</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {rastreiosManuais.length > 0 && (
                   <details className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4">
                     <summary className="cursor-pointer font-black text-slate-200">
