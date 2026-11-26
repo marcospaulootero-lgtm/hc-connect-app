@@ -58,6 +58,7 @@ type StatusConciliacao =
   | 'PRONTA_PARA_PAGAR'
   | 'PAGA_COM_PENDENCIA'
   | 'PAGA_COBERTA'
+  | 'PAGA_ABAIXO_CUSTO' // HC_PAGA_ABAIXO_CUSTO_V1
   | 'PAGA_SEM_CONFERENCIA'
 
 type ItemConciliado = {
@@ -642,6 +643,7 @@ export default function FaturasTransportadorasPage() {
     if (status === 'COBERTURA_INSUFICIENTE') return 'Cobertura insuficiente'
     if (status === 'PAGA_COM_PENDENCIA') return 'Paga com recebimento pendente'
     if (status === 'PAGA_COBERTA') return 'Paga e conciliada'
+    if (status === 'PAGA_ABAIXO_CUSTO') return 'Paga · tudo recebido (abaixo do custo)'
     if (status === 'PAGA_SEM_CONFERENCIA') return 'Paga sem conferência (sem PDF)'
     return 'Sem conciliação'
   }
@@ -649,6 +651,7 @@ export default function FaturasTransportadorasPage() {
   function classeStatusConciliacao(status: StatusConciliacao) {
     if (status === 'PRONTA_PARA_PAGAR') return 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
     if (status === 'PAGA_COBERTA') return 'border-green-500 bg-green-500/15 text-green-300'
+    if (status === 'PAGA_ABAIXO_CUSTO') return 'border-amber-500 bg-amber-500/15 text-amber-300'
     if (status === 'PAGA_COM_PENDENCIA') return 'border-red-500 bg-red-500/15 text-red-300'
     if (status === 'AGUARDANDO_RECEBIMENTO') return 'border-amber-500 bg-amber-500/15 text-amber-300'
     if (status === 'COBERTURA_INSUFICIENTE') return 'border-orange-500 bg-orange-500/15 text-orange-300'
@@ -2247,7 +2250,8 @@ export default function FaturasTransportadorasPage() {
 
     if (detalhados.length > 0) {
       if (paga) {
-        status = liberadaPagamento ? 'PAGA_COBERTA' : 'PAGA_COM_PENDENCIA'
+        // HC_PAGA_ABAIXO_CUSTO_V1: todos os AWBs recebidos não é pendência, mesmo que os clientes tenham pago menos que o custo.
+        status = liberadaPagamento ? 'PAGA_COBERTA' : todosRecebidos ? 'PAGA_ABAIXO_CUSTO' : 'PAGA_COM_PENDENCIA'
       } else if (!todosRecebidos) {
         status = 'AGUARDANDO_RECEBIMENTO'
       } else if (!coberturaSuficiente) {
@@ -2789,6 +2793,7 @@ export default function FaturasTransportadorasPage() {
               <option value="COBERTURA_INSUFICIENTE">Cobertura insuficiente</option>
               <option value="PAGA_COM_PENDENCIA">Pagas com pendência</option>
               <option value="PAGA_COBERTA">Pagas e conciliadas</option>
+              <option value="PAGA_ABAIXO_CUSTO">Pagas · recebido abaixo do custo</option>
               <option value="SEM_CONCILIACAO">Sem conciliação</option>
               <option value="PAGA_SEM_CONFERENCIA">Pagas sem conferência (sem PDF)</option>
             </select>

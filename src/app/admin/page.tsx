@@ -949,7 +949,7 @@ export default function DashboardPage() {
       const pagaComPendencia =
         statusFaturaTransportadora(fatura) === 'PAGA' &&
         detalhes.length > 0 &&
-        (!todosRecebidos || !coberturaSuficiente)
+        !todosRecebidos // HC_PAGA_ABAIXO_CUSTO_V1: tudo recebido não é "pagamos antes de receber"
 
       return {
         fatura,
