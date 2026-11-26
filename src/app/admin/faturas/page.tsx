@@ -241,6 +241,7 @@ type ItemFaturaAgente = {
   valor_original: string
   valor_brl: string
   observacao: string
+  handling_embutido?: string // HC_HANDLING_EMBUTIDO_FORMAL_V1: parte do valor que é HANDLING do parceiro (mesma moeda do item)
 }
 
 export default function FaturasPage() {
@@ -7625,7 +7626,7 @@ function conferirDocumentoManualHC(
       atuais.map((item) => {
         if (item.id !== id) return item
 
-        const valorTratado = campo === 'valor_original' ? formatarEntradaValorBR(valor) : valor
+        const valorTratado = campo === 'valor_original' || campo === 'handling_embutido' ? formatarEntradaValorBR(valor) : valor
         const atualizado = { ...item, [campo]: valorTratado } as ItemFaturaAgente
 
         if (campo === 'valor_original' || campo === 'moeda') {
@@ -7765,6 +7766,7 @@ function conferirDocumentoManualHC(
         valor_original: formatarNumeroInput(numero(item?.valor_original)),
         valor_brl: formatarNumeroInput(numero(item?.valor_brl)),
         observacao: String(item?.observacao || ''),
+        handling_embutido: numero(item?.handling_embutido) > 0 ? formatarNumeroInput(numero(item?.handling_embutido)) : '', // HC_HANDLING_EMBUTIDO_FORMAL_V1
       }
     })
 
@@ -7904,6 +7906,29 @@ function conferirDocumentoManualHC(
     return null
   }
 
+  // HC_HANDLING_EMBUTIDO_FORMAL_V1: HANDLING embutido em itens (ex.: dentro do FRETE). Vai para Processos Faturados como
+  // débito de terceiro SEM spread, igual ao HANDLING do emissor normal. O PDF não muda.
+  function handlingEmbutidoFaturaAgente() {
+    const linhas = itensFaturaAgente
+      .filter((item) => numero(item.handling_embutido) > 0)
+      .map((item) => {
+        const original = numero(item.handling_embutido)
+        const taxaBase = taxaFinalFaturaAgente(item.moeda, agenteTaxaBaseUsd, agenteTaxaBaseEur, '0')
+        return {
+          descricao: item.descricao.trim() || '-',
+          moeda: item.moeda,
+          original,
+          brlSemSpread: taxaBase > 0 ? Number((original * taxaBase).toFixed(2)) : 0,
+          semTaxa: taxaBase <= 0,
+          maiorQueItem: original > numero(item.valor_original) + 0.001,
+        }
+      })
+    return {
+      linhas,
+      totalBrl: Number(linhas.reduce((soma, linha) => soma + linha.brlSemSpread, 0).toFixed(2)),
+    }
+  }
+
   async function salvarFinanceiroFaturaAgente(arquivoPdfUrl: string) {
     if (!agenteClienteSelecionado) return
 
@@ -7914,9 +7939,17 @@ function conferirDocumentoManualHC(
       .map((item) => `${item.descricao}: ${item.moeda} ${formatarValorSimples(numero(item.valor_original))} = ${moeda(numero(item.valor_brl))}`)
       .join(' | ')
 
+    const handlingEmbutido = handlingEmbutidoFaturaAgente() // HC_HANDLING_EMBUTIDO_FORMAL_V1
+    const textoHandling = handlingEmbutido.totalBrl > 0
+      ? 'HANDLING embutido lançado em débito terceiro (sem spread): ' +
+        handlingEmbutido.linhas.map((linha) => `${linha.moeda} ${formatarValorSimples(linha.original)} em ${linha.descricao}`).join(', ') +
+        ' = ' + moeda(handlingEmbutido.totalBrl)
+      : ''
+
     const observacaoNova = [
       financeiroAtual?.observacoes || '',
       `Fatura de agente de carga ${agenteNumeroFatura}, processo ${agenteProcesso}. PDF: ${arquivoPdfUrl}. Itens: ${itensResumo}`,
+      textoHandling,
       agenteObservacoes || '',
     ].filter(Boolean).join(' | ')
 
@@ -7928,7 +7961,7 @@ function conferirDocumentoManualHC(
       servico: 'AGENTE DE CARGA',
       valor_cobranca: totaisFaturaAgente.totalBrl,
       doc_dta: numero(financeiroAtual?.doc_dta),
-      debito_terceiro: numero(financeiroAtual?.debito_terceiro),
+      debito_terceiro: handlingEmbutido.totalBrl > 0 ? handlingEmbutido.totalBrl : numero(financeiroAtual?.debito_terceiro),
       valor_compra: numero(financeiroAtual?.valor_compra),
       vencimento_cobranca: agenteVencimento || null,
       recebimento: financeiroAtual?.recebimento || null,
@@ -8320,6 +8353,7 @@ function conferirDocumentoManualHC(
           valor_original: numero(item.valor_original),
           valor_brl: numero(item.valor_brl),
           taxa_conversao: taxaFinalFaturaAgente(item.moeda),
+          handling_embutido: numero(item.handling_embutido), // HC_HANDLING_EMBUTIDO_FORMAL_V1
         })),
         valor_total: totaisFaturaAgente.totalBrl,
         valor_usd: totaisFaturaAgente.usd,
@@ -9118,6 +9152,7 @@ function conferirDocumentoManualHC(
                   <th className="w-[150px]">Valor original</th>
                   <th className="w-[120px]">Taxa final</th>
                   <th className="w-[160px]">Valor R$</th>
+                  <th className="w-[150px]" title="Quanto deste item é HANDLING do parceiro (mesma moeda). Não aparece no PDF.">Handling embutido</th>
                   <th>Observação</th>
                   <th className="w-[80px]">Ação</th>
                 </tr>
@@ -9139,6 +9174,16 @@ function conferirDocumentoManualHC(
                     <td><input value={formatarEntradaValorBR(item.valor_original)} inputMode="decimal" onChange={(e) => atualizarItemFaturaAgente(item.id, 'valor_original', e.target.value)} placeholder="0,00" className="w-full" /></td>
                     <td className="font-black text-green-300">{item.moeda === 'BRL' ? '1,0000' : taxaFinalFaturaAgenteFormatada(item.moeda)}</td>
                     <td className="font-black text-green-300">{numero(item.valor_brl) > 0 ? moeda(numero(item.valor_brl)) : '-'}</td>
+                    <td>
+                      <input
+                        value={formatarEntradaValorBR(item.handling_embutido || '')}
+                        inputMode="decimal"
+                        onChange={(e) => atualizarItemFaturaAgente(item.id, 'handling_embutido', e.target.value)}
+                        placeholder={item.moeda + ' 0,00'}
+                        className={'w-full ' + (numero(item.handling_embutido) > 0 ? 'border-amber-500' : '')}
+                        title="Parte deste item que é HANDLING do parceiro"
+                      />
+                    </td>
                     <td><input value={item.observacao} onChange={(e) => atualizarItemFaturaAgente(item.id, 'observacao', e.target.value)} placeholder="Opcional" className="w-full" /></td>
                     <td><button type="button" onClick={() => removerItemFaturaAgente(item.id)} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-black hover:bg-red-500">Excluir</button></td>
                   </tr>
@@ -9154,6 +9199,27 @@ function conferirDocumentoManualHC(
             <ResumoFiltro titulo="Itens BRL" valor={moeda(totaisFaturaAgente.brlOriginal)} detalhe="Sem conversão" />
             <ResumoFiltro titulo="Total da fatura" valor={moeda(totaisFaturaAgente.totalBrl)} detalhe="Cobrança final" />
           </div>
+
+          {/* HC_HANDLING_EMBUTIDO_FORMAL_V1 */}
+          {(() => {
+            const handling = handlingEmbutidoFaturaAgente()
+            if (handling.linhas.length === 0) return null
+            return (
+              <div className="mt-4 rounded-2xl border border-amber-600 bg-amber-950/20 p-4 text-sm">
+                <p className="font-black text-amber-300">HANDLING embutido do parceiro: {moeda(handling.totalBrl)} (sem spread)</p>
+                <ul className="mt-1 text-slate-300">
+                  {handling.linhas.map((linha, indice) => (
+                    <li key={indice}>
+                      • {linha.moeda} {formatarValorSimples(linha.original)} dentro de <b>{linha.descricao}</b>
+                      {linha.semTaxa ? <span className="text-red-300"> — informe a taxa base {linha.moeda}</span> : <> = {moeda(linha.brlSemSpread)}</>}
+                      {linha.maiorQueItem ? <span className="text-red-300"> — maior que o valor do item!</span> : null}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-slate-400">O PDF continua mostrando o valor cheio. Ao gerar, esse valor vai para Processos Faturados como débito de terceiro (repasse do parceiro); o spread fica como profit.</p>
+              </div>
+            )
+          })()}
         </div>
 
         <div className="rounded-3xl border border-green-900 bg-green-950/20 p-6">
