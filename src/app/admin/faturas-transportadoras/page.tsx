@@ -2200,6 +2200,55 @@ export default function FaturasTransportadorasPage() {
     }
   }
 
+  // HC_RELATORIO_NAO_LOCALIZADOS_V1: Excel com os AWBs das faturas que não têm processo no portal (respeita os filtros da lista).
+  async function gerarRelatorioNaoLocalizados() {
+    const linhas: Record<string, string | number>[] = []
+    for (const fatura of filtradas) {
+      const conciliacao = resumoConciliacao(fatura)
+      const naoLocalizados = conciliacao.itens.filter((registro) => !registro.processo).map((registro) => registro.item)
+      const contestados = conciliacao.contestados || []
+      for (const item of [...naoLocalizados, ...contestados]) {
+        const statusItem = String(item.status_lancamento || '').toUpperCase()
+        linhas.push({
+          AWB: item.awb || '',
+          Transportadora: fatura.transportadora || '',
+          Conta: fatura.conta || '',
+          'Nº fatura': fatura.numero_fatura || '',
+          'Emissão': dataBR(fatura.emissao),
+          Vencimento: dataBR(fatura.vencimento),
+          'Valor na fatura (R$)': Math.round(numero(item.valor_compra) * 100) / 100,
+          'Status da fatura': situacaoAutomatica(fatura),
+          'Data de pagamento': fatura.data_pagamento ? dataBR(fatura.data_pagamento) : '',
+          Banco: fatura.utilizado_para || '',
+          'Situação do AWB': statusItem.includes('CONTEST')
+            ? 'EM CONTESTAÇÃO'
+            : statusItem === 'ABATIDO_NA_FATURA'
+              ? 'ABATIDO NA FATURA'
+              : 'NÃO LOCALIZADO',
+          'Observação': item.observacao || '',
+        })
+      }
+    }
+
+    if (linhas.length === 0) {
+      alert('Nenhum AWB não localizado nas faturas exibidas (confira os filtros).')
+      return
+    }
+
+    const total = linhas.reduce((soma, linha) => soma + Number(linha['Valor na fatura (R$)'] || 0), 0)
+    linhas.push({ AWB: 'TOTAL', 'Valor na fatura (R$)': Math.round(total * 100) / 100 })
+
+    const XLSX = await import('xlsx')
+    const planilha = XLSX.utils.json_to_sheet(linhas)
+    planilha['!cols'] = [
+      { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
+      { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 20 }, { wch: 60 },
+    ]
+    const pasta = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(pasta, planilha, 'Não localizados')
+    XLSX.writeFile(pasta, 'awbs-nao-localizados-' + new Date().toLocaleDateString('sv-SE') + '.xlsx')
+  }
+
   function resumoConciliacao(fatura: FaturaTransportadora): ResumoConciliacao {
     const todosItens = itensPorFatura.get(fatura.id) || []
     const itens = todosItens.filter((item) => !itemCanceladoNaFatura(item))
@@ -2803,6 +2852,16 @@ export default function FaturasTransportadorasPage() {
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por conta, fatura, observação..."
             />
+
+            {/* HC_RELATORIO_NAO_LOCALIZADOS_V1 */}
+            <button
+              type="button"
+              onClick={gerarRelatorioNaoLocalizados}
+              className="bg-red-800 hover:bg-red-700 px-5 py-3 rounded-xl font-bold"
+              title="Baixa um Excel com os AWBs sem processo das faturas exibidas (respeita os filtros)"
+            >
+              Relatório não localizados
+            </button>
 
             <button
               onClick={limparFiltros}
