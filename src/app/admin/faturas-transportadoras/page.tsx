@@ -2328,8 +2328,28 @@ export default function FaturasTransportadorasPage() {
     }
   }
 
+  // HC_BUSCA_AWB_FATURAS_V1: busca por AWB nos itens das faturas. Quando acha, mostra as faturas do AWB
+  // ignorando os demais filtros (para não esconder o resultado).
+  const awbBusca = busca.replace(/\D/g, '').length >= 8 && !/[a-z]/i.test(busca) ? busca.replace(/\D/g, '') : ''
+  const faturasDoAwbBusca = useMemo(() => {
+    const ids = new Set<string>()
+    if (!awbBusca) return ids
+    itensConciliacao.forEach((item) => {
+      if (normalizarAwb(item.awb).includes(awbBusca)) ids.add(item.fatura_transportadora_id)
+    })
+    return ids
+  }, [awbBusca, itensConciliacao])
+
+  useEffect(() => {
+    if (faturasDoAwbBusca.size === 1) setFaturaConciliacaoAberta(Array.from(faturasDoAwbBusca)[0])
+  }, [faturasDoAwbBusca])
+
   const filtradas = useMemo(() => {
     const termo = busca.toLowerCase().trim()
+
+    if (awbBusca && faturasDoAwbBusca.size > 0) {
+      return faturas.filter((item) => faturasDoAwbBusca.has(item.id))
+    }
 
     return faturas.filter((item) => {
       const statusAuto = situacaoAutomatica(item)
@@ -2367,7 +2387,7 @@ export default function FaturasTransportadorasPage() {
 
       return passaBusca && passaTransportadora && passaSituacao && passaArquivadas && passaPrazo && passaConciliacao
     })
-  }, [faturas, busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo, filtroConciliacao, itensPorFatura, financeirosPorId, financeirosPorAwb])
+  }, [faturas, busca, filtroTransportadoras, filtroSituacoes, filtroArquivadas, filtroPrazo, filtroConciliacao, itensPorFatura, financeirosPorId, financeirosPorAwb, awbBusca, faturasDoAwbBusca])
 
 
   const todasFiltradasSelecionadas =
@@ -2850,7 +2870,7 @@ export default function FaturasTransportadorasPage() {
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por conta, fatura, observação..."
+              placeholder="Buscar AWB, conta, fatura, observação..."
             />
 
             {/* HC_RELATORIO_NAO_LOCALIZADOS_V1 */}
@@ -2871,6 +2891,21 @@ export default function FaturasTransportadorasPage() {
             </button>
           </div>
         </div>
+
+        {/* HC_BUSCA_AWB_FATURAS_V1 */}
+        {awbBusca && (
+          <div className={'mb-5 rounded-2xl border p-4 text-sm ' + (faturasDoAwbBusca.size > 0 ? 'border-green-700 bg-green-950/20' : 'border-amber-600 bg-amber-950/20')}>
+            {faturasDoAwbBusca.size > 0 ? (
+              <p className="font-bold text-green-300">
+                AWB {awbBusca} encontrado em {faturasDoAwbBusca.size} fatura(s):{' '}
+                {faturas.filter((item) => faturasDoAwbBusca.has(item.id)).map((item) => `${item.transportadora} ${item.numero_fatura || '-'}`).join(', ')}
+                <span className="font-normal text-slate-400"> · os outros filtros foram ignorados nesta busca.</span>
+              </p>
+            ) : (
+              <p className="font-bold text-amber-300">AWB {awbBusca} não está em nenhuma fatura DHL/FedEx cadastrada.</p>
+            )}
+          </div>
+        )}
 
         {selecionadas.length > 0 && (
           <div className="mb-5 border border-blue-900 bg-[#020817] rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3168,7 +3203,7 @@ export default function FaturasTransportadorasPage() {
                                   </thead>
                                   <tbody>
                                     {conciliacao.itens.map(({ item: itemFatura, processo, recebido }) => (
-                                      <tr key={itemFatura.id} className="border-t border-blue-900/70">
+                                      <tr key={itemFatura.id} className={'border-t border-blue-900/70 ' + (awbBusca && normalizarAwb(itemFatura.awb).includes(awbBusca) ? 'bg-yellow-500/15 outline outline-1 outline-yellow-500' : '')}>
                                         <td className="px-3 py-3 font-black text-blue-300">{itemFatura.awb || '-'}</td>
                                         <td className="px-3 py-3">{processo?.cliente || (processo ? '-' : 'Não localizado')}</td>
                                         <td className="px-3 py-3 text-right">{moeda(itemFatura.valor_compra)}</td>
